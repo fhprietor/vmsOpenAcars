@@ -1,61 +1,42 @@
 ﻿namespace vmsOpenAcars.Models
 {
     /// <summary>
-    /// Represents the different operational phases of a flight.
+    /// Represents the different operational phases of a flight in chronological order.
     /// </summary>
-    /// <remarks>
-    /// The numeric values are explicitly defined to ensure stability when
-    /// persisting to a database or serializing.
-    /// 
-    /// The phases follow the chronological order of a typical commercial flight.
-    /// </remarks>
     public enum FlightPhase
     {
-        /// <summary>
-        /// Passengers are boarding and pre-flight preparations are in progress.
-        /// Aircraft is parked at the departure gate.
-        /// </summary>
+        /// <summary> Aircraft is at the gate, engines off or boarding. </summary>
         Boarding = 0,
 
-        /// <summary>
-        /// Aircraft is pushing back from the gate.
-        /// </summary>
+        /// <summary> Aircraft is being pushed back from the gate. </summary>
         Pushback = 1,
 
-        /// <summary>
-        /// Aircraft is taxiing from the gate to the departure runway.
-        /// </summary>
+        /// <summary> Taxiing from the gate to the departure runway. </summary>
         TaxiOut = 2,
 
-        /// <summary>
-        /// Aircraft is performing the takeoff roll and initial climb.
-        /// </summary>
+        /// <summary> Takeoff roll and initial rotation. </summary>
         Takeoff = 3,
 
-        /// <summary>
-        /// Aircraft is cruising or proceeding along the planned route.
-        /// </summary>
-        Enroute = 4,
+        /// <summary> Initial climb after liftoff. </summary>
+        Climb = 4,
 
-        /// <summary>
-        /// Aircraft is descending and executing approach procedures.
-        /// </summary>
-        Approach = 5,
+        /// <summary> Cruising or proceeding along the planned route. </summary>
+        Enroute = 5,
 
-        /// <summary>
-        /// Aircraft has touched down and is completing the landing roll.
-        /// </summary>
-        Landing = 6,
+        /// <summary> Descending from cruise altitude. </summary>
+        Descent = 6,
 
-        /// <summary>
-        /// Aircraft is taxiing from the runway to the arrival gate.
-        /// </summary>
-        TaxiIn = 7,
+        /// <summary> Executing final approach procedures. </summary>
+        Approach = 7,
 
-        /// <summary>
-        /// Aircraft has reached the gate and the flight is completed.
-        /// </summary>
-        Arrived = 8
+        /// <summary> Touchdown and landing roll. </summary>
+        Landing = 8,
+
+        /// <summary> Taxiing from the runway to the arrival gate. </summary>
+        TaxiIn = 9,
+
+        /// <summary> Aircraft reached the gate, engines off. </summary>
+        Arrived = 10
     }
 
     /// <summary>
@@ -66,53 +47,47 @@
         /// <summary>
         /// Determines whether the aircraft is airborne during the specified phase.
         /// </summary>
-        /// <param name="phase">The current flight phase.</param>
-        /// <returns>
-        /// True if the aircraft is airborne; otherwise, false.
-        /// </returns>
         public static bool IsAirborne(this FlightPhase phase)
         {
             return phase == FlightPhase.Takeoff ||
+                   phase == FlightPhase.Climb ||
                    phase == FlightPhase.Enroute ||
+                   phase == FlightPhase.Descent ||
                    phase == FlightPhase.Approach;
         }
 
         /// <summary>
-        /// Determines whether the aircraft is on the ground during the specified phase.
+        /// Determines whether the aircraft is on the ground.
         /// </summary>
-        /// <param name="phase">The current flight phase.</param>
-        /// <returns>
-        /// True if the aircraft is on the ground; otherwise, false.
-        /// </returns>
         public static bool IsGroundPhase(this FlightPhase phase)
         {
             return !phase.IsAirborne();
         }
 
         /// <summary>
-        /// Determines whether the flight has been completed.
+        /// Determines if the aircraft is in active movement (Taxi, Takeoff, Flight, etc.)
+        /// excluding static phases like Boarding or Arrived.
         /// </summary>
-        /// <param name="phase">The current flight phase.</param>
-        /// <returns>
-        /// True if the flight has arrived at the gate; otherwise, false.
-        /// </returns>
-        public static bool IsCompleted(this FlightPhase phase)
+        public static bool IsMoving(this FlightPhase phase)
         {
-            return phase == FlightPhase.Arrived;
+            return phase != FlightPhase.Boarding &&
+                   phase != FlightPhase.Arrived;
         }
 
         /// <summary>
-        /// Determines whether the flight is in a pre-departure phase.
+        /// Determines whether the flight is in a pre-departure stage.
         /// </summary>
-        /// <param name="phase">The current flight phase.</param>
-        /// <returns>
-        /// True if the aircraft has not yet taken off; otherwise, false.
-        /// </returns>
         public static bool IsPreDeparture(this FlightPhase phase)
         {
-            return phase == FlightPhase.Boarding ||
-                   phase == FlightPhase.Pushback ||
-                   phase == FlightPhase.TaxiOut;
+            return (int)phase <= (int)FlightPhase.TaxiOut;
+        }
+
+        /// <summary>
+        /// Determines whether the flight has reached the final destination state.
+        /// </summary>
+        public static bool IsCompleted(this FlightPhase phase)
+        {
+            return phase == FlightPhase.Arrived;
         }
     }
 }
