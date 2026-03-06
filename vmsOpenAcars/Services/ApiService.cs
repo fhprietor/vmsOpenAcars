@@ -148,8 +148,11 @@ namespace vmsOpenAcars.Services
 
             if (!response.IsSuccessStatusCode)
             {
+                // phpVMS suele devolver errores en formatos variados. 
+                // Intentamos extraer el mensaje más legible posible.
                 var errorJson = JObject.Parse(result);
-                var message = errorJson["error"]?["message"]?.ToString()
+                var message = errorJson["message"]?.ToString()
+                              ?? errorJson["error"]?["message"]?.ToString()
                               ?? errorJson["title"]?.ToString()
                               ?? result;
 
@@ -157,7 +160,8 @@ namespace vmsOpenAcars.Services
             }
 
             var jsonResult = JObject.Parse(result);
-            return jsonResult["data"]?["id"]?.ToString();
+            // phpVMS v7 devuelve el ID dentro del objeto "data"
+            return jsonResult["data"]?["id"]?.ToString() ?? jsonResult["id"]?.ToString();
         }
 
         // =========================================================

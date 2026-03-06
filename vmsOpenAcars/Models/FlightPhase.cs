@@ -5,38 +5,22 @@
     /// </summary>
     public enum FlightPhase
     {
-        /// <summary> Aircraft is at the gate, engines off or boarding. </summary>
-        Boarding = 0,
+        Idle = 0,
 
-        /// <summary> Aircraft is being pushed back from the gate. </summary>
-        Pushback = 1,
+        Boarding,
+        Pushback,
+        TaxiOut,
 
-        /// <summary> Taxiing from the gate to the departure runway. </summary>
-        TaxiOut = 2,
+        Takeoff,
+        Climb,
+        Enroute,
+        Descent,
+        Approach,
 
-        /// <summary> Takeoff roll and initial rotation. </summary>
-        Takeoff = 3,
+        AfterLanding,
+        TaxiIn,
 
-        /// <summary> Initial climb after liftoff. </summary>
-        Climb = 4,
-
-        /// <summary> Cruising or proceeding along the planned route. </summary>
-        Enroute = 5,
-
-        /// <summary> Descending from cruise altitude. </summary>
-        Descent = 6,
-
-        /// <summary> Executing final approach procedures. </summary>
-        Approach = 7,
-
-        /// <summary> Touchdown and landing roll. </summary>
-        Landing = 8,
-
-        /// <summary> Taxiing from the runway to the arrival gate. </summary>
-        TaxiIn = 9,
-
-        /// <summary> Aircraft reached the gate, engines off. </summary>
-        Arrived = 10
+        Completed
     }
 
     /// <summary>
@@ -71,7 +55,7 @@
         public static bool IsMoving(this FlightPhase phase)
         {
             return phase != FlightPhase.Boarding &&
-                   phase != FlightPhase.Arrived;
+                   phase != FlightPhase.Completed;
         }
 
         /// <summary>
@@ -87,7 +71,7 @@
         /// </summary>
         public static bool IsCompleted(this FlightPhase phase)
         {
-            return phase == FlightPhase.Arrived;
+            return phase == FlightPhase.Completed;
         }
     }
 }

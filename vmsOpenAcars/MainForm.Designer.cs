@@ -42,7 +42,6 @@
             this.grpFlightData = new System.Windows.Forms.GroupBox();
             this.lblLastUpdate = new System.Windows.Forms.Label();
             this.lblCurrentPhase = new System.Windows.Forms.Label();
-            this.lblRoute = new System.Windows.Forms.Label();
             this.lblFlightNumber = new System.Windows.Forms.Label();
             this.btnFetchSimbrief = new System.Windows.Forms.Button();
             this.chkMockMode = new System.Windows.Forms.CheckBox();
@@ -152,16 +151,15 @@
             // 
             this.grpFlightData.Controls.Add(this.lblLastUpdate);
             this.grpFlightData.Controls.Add(this.lblCurrentPhase);
-            this.grpFlightData.Controls.Add(this.lblRoute);
             this.grpFlightData.Controls.Add(this.lblFlightNumber);
             this.grpFlightData.Controls.Add(this.btnFetchSimbrief);
             this.grpFlightData.Controls.Add(this.txtSimbriefId);
             this.grpFlightData.Controls.Add(this.lblSimbriefId);
-            this.grpFlightData.Location = new System.Drawing.Point(447, 26);
+            this.grpFlightData.Location = new System.Drawing.Point(436, 331);
             this.grpFlightData.Margin = new System.Windows.Forms.Padding(4, 5, 4, 5);
             this.grpFlightData.Name = "grpFlightData";
             this.grpFlightData.Padding = new System.Windows.Forms.Padding(4, 5, 4, 5);
-            this.grpFlightData.Size = new System.Drawing.Size(465, 235);
+            this.grpFlightData.Size = new System.Drawing.Size(322, 235);
             this.grpFlightData.TabIndex = 9;
             this.grpFlightData.TabStop = false;
             this.grpFlightData.Text = "Flight Data";
@@ -185,16 +183,6 @@
             this.lblCurrentPhase.Size = new System.Drawing.Size(122, 20);
             this.lblCurrentPhase.TabIndex = 12;
             this.lblCurrentPhase.Text = "lblCurrentPhase";
-            // 
-            // lblRoute
-            // 
-            this.lblRoute.AutoSize = true;
-            this.lblRoute.Location = new System.Drawing.Point(105, 82);
-            this.lblRoute.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
-            this.lblRoute.Name = "lblRoute";
-            this.lblRoute.Size = new System.Drawing.Size(68, 20);
-            this.lblRoute.TabIndex = 11;
-            this.lblRoute.Text = "lblRoute";
             // 
             // lblFlightNumber
             // 
@@ -231,9 +219,9 @@
             // 
             this.lstLogs.FormattingEnabled = true;
             this.lstLogs.ItemHeight = 20;
-            this.lstLogs.Location = new System.Drawing.Point(548, 334);
+            this.lstLogs.Location = new System.Drawing.Point(777, 334);
             this.lstLogs.Name = "lstLogs";
-            this.lstLogs.Size = new System.Drawing.Size(1356, 324);
+            this.lstLogs.Size = new System.Drawing.Size(1127, 324);
             this.lstLogs.TabIndex = 11;
             // 
             // btnFinishFlight
@@ -249,7 +237,7 @@
             // lblPilotInfo
             // 
             this.lblPilotInfo.AutoSize = true;
-            this.lblPilotInfo.Location = new System.Drawing.Point(978, 37);
+            this.lblPilotInfo.Location = new System.Drawing.Point(287, 242);
             this.lblPilotInfo.Name = "lblPilotInfo";
             this.lblPilotInfo.Size = new System.Drawing.Size(82, 20);
             this.lblPilotInfo.TabIndex = 13;
@@ -258,7 +246,7 @@
             // lblRank
             // 
             this.lblRank.AutoSize = true;
-            this.lblRank.Location = new System.Drawing.Point(982, 80);
+            this.lblRank.Location = new System.Drawing.Point(291, 285);
             this.lblRank.Name = "lblRank";
             this.lblRank.Size = new System.Drawing.Size(62, 20);
             this.lblRank.TabIndex = 14;
@@ -274,7 +262,7 @@
             this.btnLogin.UseVisualStyleBackColor = true;
             this.btnLogin.Click += new System.EventHandler(this.btnLogin_Click);
             // 
-            // Form1
+            // MainForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(9F, 20F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
@@ -294,7 +282,7 @@
             this.Controls.Add(this.lblAlt);
             this.Controls.Add(this.lblLat);
             this.Margin = new System.Windows.Forms.Padding(4, 5, 4, 5);
-            this.Name = "Form1";
+            this.Name = "MainForm";
             this.Text = "Form1";
             this.Load += new System.EventHandler(this.Form1_Load);
             this.grpFlightData.ResumeLayout(false);
@@ -317,7 +305,6 @@
         private System.Windows.Forms.TextBox txtSimbriefId;
         private System.Windows.Forms.Label lblSimbriefId;
         private System.Windows.Forms.GroupBox grpFlightData;
-        private System.Windows.Forms.Label lblRoute;
         private System.Windows.Forms.Label lblFlightNumber;
         private System.Windows.Forms.Button btnFetchSimbrief;
         private System.Windows.Forms.Label lblCurrentPhase;
