@@ -104,6 +104,7 @@
     <Compile Include="Services\PhpVmsFlightService.cs" />
     <Compile Include="Services\PositionValidator.cs" />
     <Compile Include="Services\SimbriefEnhancedService.cs" />
+    <Compile Include="Services\UIService.cs" />
     <Compile Include="UI\Forms\EcamDialog.cs">
       <SubType>Form</SubType>
     </Compile>

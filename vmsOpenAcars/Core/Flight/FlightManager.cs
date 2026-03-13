@@ -155,7 +155,15 @@ namespace vmsOpenAcars.Core.Flight
                 _destinationElevation = plan.DestinationElevation;
                 OnLog?.Invoke($"📊 Plan cargado. Destino: {plan.Destination} (elevación: {_destinationElevation} ft)", Theme.MainText);
             }
-            ValidateAirportMatch();
+
+            // Validar contra el aeropuerto de phpVMS
+            ValidateAirportMatch(); // Esto actualiza IcaoMatch
+
+            // También actualizar validación GPS si hay posición reciente
+            if (CurrentLat != 0 && CurrentLon != 0)
+            {
+                UpdatePositionValidation(CurrentLat, CurrentLon);
+            }
         }
 
         private void ValidateAirportMatch()
@@ -186,6 +194,7 @@ namespace vmsOpenAcars.Core.Flight
 
         public void SetSimulatorConnected(bool connected, double? latitude = null, double? longitude = null)
         {
+            System.Diagnostics.Debug.WriteLine($"FlightManager.SetSimulatorConnected({connected}, {latitude}, {longitude})");
             IsSimulatorConnected = connected;
 
             if (connected && latitude.HasValue && longitude.HasValue)
@@ -234,16 +243,22 @@ namespace vmsOpenAcars.Core.Flight
                 currentLon
             );
 
+            // Verificar si hubo cambio en el estado GPS
             bool gpsChanged = (PositionValidationStatus.GpsValid != isValid) ||
                               (Math.Abs(PositionValidationStatus.DistanceFromAirport - distance) > 0.01);
 
+            // Actualizar siempre el estado
+            PositionValidationStatus.GpsValid = isValid;
+            PositionValidationStatus.DistanceFromAirport = distance;
+
+            // Solo registrar en log cuando cambia
             if (gpsChanged)
             {
-                PositionValidationStatus.GpsValid = isValid;
-                PositionValidationStatus.DistanceFromAirport = distance;
                 OnLog?.Invoke(message, color);
-                OnPositionValidated?.Invoke(PositionValidationStatus);
             }
+
+            // Siempre notificar a la UI para que actualice, aunque no haya cambio de texto
+            OnPositionValidated?.Invoke(PositionValidationStatus);
         }
 
         public void UpdatePositionValidation(double lat, double lon)
@@ -625,6 +640,31 @@ namespace vmsOpenAcars.Core.Flight
             OnPhaseChanged?.Invoke(CurrentPhase.ToString());
             PhaseChanged?.Invoke(CurrentPhase);
         }
+        public async Task UpdatePirepFlightTime()
+        {
+            if (string.IsNullOrEmpty(ActivePirepId))
+                return;
+
+            int flightTimeMinutes = (int)(DateTime.UtcNow - FlightStartTime).TotalMinutes;
+
+            try
+            {
+                var updateData = new { flight_time = flightTimeMinutes };
+                bool success = await _apiService.UpdatePirep(ActivePirepId, updateData);
+
+                if (success)
+                {
+                    // Opcional: loggear cada cierto tiempo
+                    if (flightTimeMinutes % 5 == 0) // Cada 5 minutos
+                        OnLog?.Invoke($"⏱️ Tiempo de vuelo: {flightTimeMinutes} min", Theme.MainText);
+                }
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke($"❌ Error actualizando tiempo de vuelo: {ex.Message}", Theme.Danger);
+            }
+        }
+
     }
 
     public class ValidationStatus

@@ -1,104 +1,54 @@
-﻿// ViewModels/MainViewModel.cs
-using System;
-using System.Collections.Generic;
-using System.ComponentModel;
+﻿using System;
 using System.Drawing;
-using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.UI;
+using static vmsOpenAcars.Helpers.L;
 
 namespace vmsOpenAcars.ViewModels
 {
-    public class MainViewModel : INotifyPropertyChanged
+    public class MainViewModel
     {
+        public FlightManager FlightManager => _flightManager;
+        public PhpVmsFlightService PhpVmsFlightService => _phpVmsFlightService;
+        public SimbriefEnhancedService SimbriefEnhancedService => _simbriefEnhancedService;
+        public Pilot ActivePilot => _flightManager.ActivePilot;
         private readonly FlightManager _flightManager;
         private readonly FsuipcService _fsuipc;
         private readonly ApiService _apiService;
         private readonly PhpVmsFlightService _phpVmsFlightService;
         private readonly SimbriefEnhancedService _simbriefEnhancedService;
+        private DateTime _lastPositionUpdate = DateTime.MinValue;
+        private readonly TimeSpan _positionUpdateInterval = TimeSpan.FromSeconds(5);
+        private object _lastTelemetry;
+        private (double lat, double lon)? _lastPosition;
 
         // Eventos para comunicación con la UI
-        public event Action<string, Color> LogMessage;
-        public event Action<FlightPhase> PhaseChanged;
-        public event Action<ValidationStatus> PositionValidated;
-        public event Action<string> AirportChanged;
-        public event Action<bool> NetworkStatusChanged;
-        public event Action<string> SimulatorNameChanged;
-
-        // Propiedades enlazables
-        private string _flightInfo;
-        public string FlightInfo
-        {
-            get => _flightInfo;
-            set { _flightInfo = value; OnPropertyChanged(); }
-        }
-
-        private ValidationStatus _validationStatus;
-        public ValidationStatus ValidationStatus
-        {
-            get => _validationStatus;
-            set { _validationStatus = value; OnPropertyChanged(); }
-        }
-
-        private string _simulatorName;
-        public string SimulatorName
-        {
-            get => _simulatorName;
-            set { _simulatorName = value; OnPropertyChanged(); }
-        }
-
-        private string _positionText;
-        public string PositionText
-        {
-            get => _positionText;
-            set { _positionText = value; OnPropertyChanged(); }
-        }
-
-        private string _currentAirport;
-        public string CurrentAirport
-        {
-            get => _currentAirport;
-            set { _currentAirport = value; OnPropertyChanged(); }
-        }
-
-        private FlightPhase _currentPhase;
-        public FlightPhase CurrentPhase
-        {
-            get => _currentPhase;
-            set { _currentPhase = value; OnPropertyChanged(); }
-        }
-
-        // Propiedades para el estado de los botones
-        private bool _canStart;
-        public bool CanStart
-        {
-            get => _canStart;
-            set { _canStart = value; OnPropertyChanged(); }
-        }
-
-        private string _startStopText;
-        public string StartStopText
-        {
-            get => _startStopText;
-            set { _startStopText = value; OnPropertyChanged(); }
-        }
-
-        private Color _startStopColor;
-        public Color StartStopColor
-        {
-            get => _startStopColor;
-            set { _startStopColor = value; OnPropertyChanged(); }
-        }
-
-        private string _cancelText;
-        public string CancelText
-        {
-            get => _cancelText;
-            set { _cancelText = value; OnPropertyChanged(); }
-        }
+        public event Action<string, Color> OnLog;
+        public event Action<string> OnPositionUpdate;
+        public event Action<FlightPhase> OnPhaseChanged;
+        public event Action<FlightPhase> OnAirStatusChanged;
+        public event Action<int> OnAltitudeChanged;
+        public event Action<int> OnSpeedChanged;
+        public event Action<ValidationStatus> OnValidationStatusChanged;
+        public event Action<string> OnFlightInfoChanged;
+        public event Action<string> OnSimulatorNameChanged;
+        public event Action<bool> OnAcarsStatusChanged;
+        public event Action<string> OnAirportChanged;
+        public event Action<string, Color, bool> OnButtonStateChanged;
+        public event Action OnOpenFlightPlanner;
+        public event Action<string, string> OnShowMessage;
+        public event Action<string> OnFlightNoChanged;
+        public event Action<string> OnDepArrChanged;
+        public event Action<string> OnAlternateChanged;
+        public event Action<string> OnRouteChanged;
+        public event Action<string> OnAircraftChanged;
+        public event Action<string> OnFuelChanged;
+        public event Action<string> OnTypeChanged;
+        public event Action<string> OnRegistrationChanged;
 
         public MainViewModel(
             FlightManager flightManager,
@@ -113,52 +63,83 @@ namespace vmsOpenAcars.ViewModels
             _phpVmsFlightService = phpVmsFlightService;
             _simbriefEnhancedService = simbriefEnhancedService;
 
-            // Suscribirse a eventos del FlightManager
-            _flightManager.OnLog += (msg, color) => LogMessage?.Invoke(msg, color);
-            _flightManager.PhaseChanged += (phase) =>
-            {
-                CurrentPhase = phase;
-                PhaseChanged?.Invoke(phase);
-            };
-            _flightManager.OnAirportChanged += (airport) =>
-            {
-                CurrentAirport = airport;
-                AirportChanged?.Invoke(airport);
-            };
-            _flightManager.OnPositionValidated += (status) =>
-            {
-                ValidationStatus = status;
-                PositionValidated?.Invoke(status);
-                // Actualizar botón START según condiciones
-                UpdateStartButtonState();
-            };
-
-            // Suscribirse a eventos de FSUIPC
-            // En el constructor de MainViewModel
-            _fsuipc.Connected += (sender, e) =>
-            {
-                SimulatorName = _fsuipc.SimulatorName;
-                SimulatorNameChanged?.Invoke(SimulatorName);
-                // Aquí podrías actualizar estado de conexión
-            };
-
-            _fsuipc.Disconnected += (sender, e) =>
-            {
-                SimulatorName = "AWAITING SIM";
-                SimulatorNameChanged?.Invoke(SimulatorName);
-            };
-            _fsuipc.DataUpdated += OnDataUpdated;
-
-            // Inicializar textos
-            StartStopText = "START";
-            StartStopColor = Color.FromArgb(200, 100, 0);
-            CancelText = "EXIT";
+            SubscribeToEvents();
         }
 
-        private void OnDataUpdated(object sender, DataUpdatedEventArgs e)
+        private void SubscribeToEvents()
         {
-            // Actualizar posición en UI
-            PositionText = $"POS: {e.Latitude:F4}° / {e.Longitude:F4}°";
+            // Desuscribir primero para evitar duplicados
+            _flightManager.OnLog -= OnFlightManagerLog;
+            _flightManager.PhaseChanged -= OnFlightPhaseChanged;
+            _flightManager.OnPositionValidated -= OnPositionValidated;
+            _flightManager.OnAirportChanged -= OnAirportChanged;
+            _fsuipc.DataUpdated -= OnFsuipcDataUpdated;
+            _fsuipc.Connected -= OnFsuipcConnected;
+            _fsuipc.Disconnected -= OnFsuipcDisconnected;
+
+            // Suscribir
+            _flightManager.OnLog += OnFlightManagerLog;
+            _flightManager.PhaseChanged += OnFlightPhaseChanged;
+            _flightManager.OnPositionValidated += OnPositionValidated;
+            _flightManager.OnAirportChanged += OnAirportChanged;
+            _fsuipc.DataUpdated += OnFsuipcDataUpdated;
+            _fsuipc.Connected += OnFsuipcConnected;
+            _fsuipc.Disconnected += OnFsuipcDisconnected;
+        }
+
+        private void OnFlightManagerLog(string msg, Color color)
+        {
+            OnLog?.Invoke(msg, color);
+        }
+
+        private void OnFlightPhaseChanged(FlightPhase phase)
+        {
+            OnPhaseChanged?.Invoke(phase);
+
+            // Actualizar botón según la fase
+            if (phase == FlightPhase.Completed)
+            {
+                OnButtonStateChanged?.Invoke("SEND PIREP", Color.Green, true);
+            }
+        }
+
+        private void OnPositionValidated(ValidationStatus status)
+        {
+            OnValidationStatusChanged?.Invoke(status);
+        }
+
+        private void OnFsuipcConnected(object sender, EventArgs e)
+        {
+            System.Diagnostics.Debug.WriteLine("✅ FSUIPC CONECTADO - Evento recibido en ViewModel");
+
+            double lat = _fsuipc.GetLatitude();
+            double lon = _fsuipc.GetLongitude();
+            System.Diagnostics.Debug.WriteLine($"   Posición: {lat}, {lon}");
+
+            _flightManager.SetSimulatorConnected(true, lat, lon);
+
+            OnSimulatorNameChanged?.Invoke(_fsuipc.SimulatorName);
+            OnAcarsStatusChanged?.Invoke(true);
+
+            // Forzar validación
+            if (_flightManager.ActivePilot != null)
+            {
+                _flightManager.UpdatePositionValidation(lat, lon);
+                OnValidationStatusChanged?.Invoke(_flightManager.PositionValidationStatus);
+            }
+        }
+
+        private void OnFsuipcDisconnected(object sender, EventArgs e)
+        {
+            OnSimulatorNameChanged?.Invoke("AWAITING SIM");
+            OnAcarsStatusChanged?.Invoke(false);
+            OnValidationStatusChanged?.Invoke(_flightManager.PositionValidationStatus);
+        }
+
+        private void OnFsuipcDataUpdated(object sender, DataUpdatedEventArgs e)
+        {
+            // Actualizar posición
+            OnPositionUpdate?.Invoke($"POS: {e.Latitude:F4}° / {e.Longitude:F4}°");
 
             // Actualizar FlightManager
             _flightManager?.UpdateTelemetry(
@@ -178,120 +159,369 @@ namespace vmsOpenAcars.ViewModels
                 e.Order
             );
 
-            // Validación de posición si no hay vuelo activo
+            // Actualizar UI específica
+            OnAltitudeChanged?.Invoke((int)e.Altitude);
+            OnSpeedChanged?.Invoke((int)e.GroundSpeed);
+            OnPhaseChanged?.Invoke(_flightManager.CurrentPhase);
+            OnAirStatusChanged?.Invoke(_flightManager.CurrentPhase);
+
+            // Validación de posición
             if (string.IsNullOrEmpty(_flightManager.ActivePirepId))
             {
                 _flightManager.UpdatePositionValidation(e.Latitude, e.Longitude);
             }
 
-            // Preparar telemetría para phpVMS (si hay vuelo activo)
-            if (!string.IsNullOrEmpty(_flightManager.ActivePirepId))
+            OnValidationStatusChanged?.Invoke(_flightManager.PositionValidationStatus);
+
+            // Preparar telemetría para servidor
+            PrepareTelemetry(e);
+        }
+
+        private void PrepareTelemetry(DataUpdatedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_flightManager?.ActivePirepId))
+                return;
+
+            double? distance = null;
+            if (_lastPosition.HasValue)
             {
-                // La lógica de preparación de telemetría se moverá aquí también
-                // pero necesitaremos un servicio aparte para eso.
+                distance = CalculateDistance(
+                    _lastPosition.Value.lat,
+                    _lastPosition.Value.lon,
+                    e.Latitude,
+                    e.Longitude
+                );
+            }
+            _lastPosition = (e.Latitude, e.Longitude);
+
+            double agl = e.RadarAltitude > 0 ? e.RadarAltitude :
+                        (e.Altitude - GetTerrainElevation(_flightManager.CurrentPhase));
+
+            var position = new AcarsPosition
+            {
+                type = 0,
+                nav_type = e.NavType,
+                order = e.Order,
+                name = GetPhaseName(_flightManager.CurrentPhase),
+                status = GetPhpVmsStatusCode(_flightManager.CurrentPhase),
+                lat = e.Latitude,
+                lon = e.Longitude,
+                distance = distance,
+                heading = (int)Math.Round(e.Heading, 0),
+                altitude = Math.Round(e.Altitude, 0),
+                altitude_agl = Math.Round(agl, 0),
+                altitude_msl = Math.Round(e.Altitude, 0),
+                vs = Math.Round(e.VerticalSpeed, 0),
+                gs = (int)Math.Round(e.GroundSpeed, 0),
+                ias = (int)Math.Round(e.IndicatedAirspeed, 0),
+                transponder = e.TransponderCode,
+                autopilot = e.AutopilotMaster,
+                fuel_flow = Math.Round(e.FuelFlow, 0),
+                fuel = Math.Round(e.FuelTotal, 0),
+                sim_time = e.SimulationZuluTime,
+                source = "vmsOpenAcars"
+            };
+
+            _lastTelemetry = new AcarsPositionUpdate { positions = new[] { position } };
+        }
+
+        public void Start()
+        {
+            _fsuipc?.Start();
+            StartTimers();
+        }
+
+        public void Stop()
+        {
+            _fsuipc?.Stop();
+        }
+
+        private async void StartTimers()
+        {
+            while (true)
+            {
+                await Task.Delay(1000);
+                OnTimerTick();
             }
         }
 
-        private void UpdateStartButtonState()
+        private async void OnTimerTick()
         {
-            CanStart = _flightManager.CanStartFlight() && _fsuipc.IsConnected;
+            UpdateFlightInfo();
+
+            if (!string.IsNullOrEmpty(_flightManager?.ActivePirepId) && _lastTelemetry != null)
+            {
+                if (DateTime.UtcNow - _lastPositionUpdate >= _positionUpdateInterval)
+                {
+                    bool success = await _apiService.SendPositionUpdate(
+                        _flightManager.ActivePirepId,
+                        _lastTelemetry
+                    );
+
+                    if (success)
+                    {
+                        _lastPositionUpdate = DateTime.UtcNow;
+                        await _flightManager.UpdatePirepFlightTime();
+                    }
+
+                    OnAcarsStatusChanged?.Invoke(success);
+                }
+            }
+
+            UpdateSimulatorName();
         }
 
-        public async Task Login(string pilotId) // Simplificado, debería ser más completo
+        public void SetActivePlan(SimbriefPlan plan)
         {
-            // Llamar a ApiService para obtener datos del piloto
-            var result = await _apiService.GetPilotData(); // Esto necesita un identificador
-            if (result.Data != null)
+            if (plan == null) return;
+
+            _flightManager.SetActivePlan(plan);
+            UpdateFlightInfo();
+
+            // Forzar una validación inmediata con la posición actual del simulador
+            if (_fsuipc.IsConnected)
             {
-                _flightManager.SetActivePilot(result.Data);
-                LogMessage?.Invoke($"✅ Login exitoso: {result.Data.Name}", Theme.Success);
-                CurrentAirport = result.Data.CurrentAirport;
+                double lat = _fsuipc.GetLatitude();
+                double lon = _fsuipc.GetLongitude();
+                _flightManager.UpdatePositionValidation(lat, lon);
+            }
+
+            // Disparar evento para actualizar UI
+            OnValidationStatusChanged?.Invoke(_flightManager.PositionValidationStatus);
+        }
+
+        public void UpdateFlightInfo()
+        {
+            var plan = _flightManager?.ActivePlan;
+            if (plan != null)
+            {
+                OnFlightNoChanged?.Invoke($"FLT NO: {plan.Airline}{plan.FlightNumber}");
+                OnDepArrChanged?.Invoke($"DEP/ARR: {plan.Origin}/{plan.Destination}");
+                OnAlternateChanged?.Invoke($"ALTN: {plan.Alternate ?? "N/A"}");
+                OnRouteChanged?.Invoke($"ROUTE: {plan.Route}");
+                OnAircraftChanged?.Invoke($"ACFT: {plan.AircraftIcao}");
+                OnFuelChanged?.Invoke($"FUEL: {plan.BlockFuel:F0} {plan.Units ?? "kg"}");
+                OnTypeChanged?.Invoke($"TYPE: {plan.Aircraft}");
+                OnRegistrationChanged?.Invoke($"REG: {plan.Registration}");
             }
             else
             {
-                LogMessage?.Invoke($"❌ Error de login: {result.Error}", Theme.Danger);
+                OnFlightNoChanged?.Invoke("FLT NO: ----");
+                OnDepArrChanged?.Invoke("DEP/ARR: ----/----");
+                OnAlternateChanged?.Invoke("ALTN: ----");
+                OnRouteChanged?.Invoke("ROUTE: ----");
+                OnAircraftChanged?.Invoke("ACFT: ----");
+                OnFuelChanged?.Invoke("FUEL: ---- kg");
+                OnTypeChanged?.Invoke("TYPE: ----");
+                OnRegistrationChanged?.Invoke("REG: ----");
             }
         }
 
-        public async Task LoadSimbriefPlan()
+        private void UpdateSimulatorName()
         {
-            // Similar a BtnSimbrief_Click
-            if (_flightManager.ActivePilot == null)
-            {
-                LogMessage?.Invoke("Debes iniciar sesión primero.", Theme.Warning);
-                return;
-            }
-            // Aquí deberías abrir el FlightPlannerForm, pero eso es UI.
-            // Mejor que el ViewMode no abra formularios. Delegaremos eso a la UI.
-            // Lanzaremos un evento para que la UI muestre el planificador.
-            // Por ahora, lo dejamos así; luego lo separamos.
+            if (_fsuipc != null && _fsuipc.IsConnected)
+                OnSimulatorNameChanged?.Invoke(_fsuipc.GetSimName());
+            else
+                OnSimulatorNameChanged?.Invoke("AWAITING SIM");
         }
 
-        public async Task StartStopAction()
+        // ===== MÉTODOS LLAMADOS DESDE MAINFORM =====
+        public async Task HandleStartStopButton(string buttonText)
         {
-            switch (StartStopText)
+            switch (buttonText)
             {
                 case "START":
-                    if (!_flightManager.CanStartFlight())
-                    {
-                        LogMessage?.Invoke("⛔ No se cumplen las condiciones para iniciar el vuelo", Theme.Warning);
-                        return;
-                    }
-                    bool started = await _flightManager.StartFlight(_flightManager.ActivePlan, _flightManager.ActivePilot);
-                    if (started)
-                    {
-                        StartStopText = "ABORT";
-                        StartStopColor = Color.Red;
-                        CancelText = "CANCEL";
-                        LogMessage?.Invoke("Vuelo iniciado", Theme.Success);
-                    }
+                    await StartFlight();
                     break;
                 case "ABORT":
-                    // Aquí necesitas mostrar un diálogo de confirmación, eso es UI.
-                    // Mejor lanzar un evento y que la UI maneje la confirmación.
-                    // Por simplicidad, asumimos que ya se confirmó.
-                    bool aborted = await _flightManager.AbortFlight();
-                    if (aborted)
-                    {
-                        StartStopText = "START";
-                        StartStopColor = Color.FromArgb(200, 100, 0);
-                        CanStart = false;
-                        CancelText = "EXIT";
-                        LogMessage?.Invoke("✖️ Vuelo cancelado", Theme.Warning);
-                    }
+                    await AbortFlight();
                     break;
                 case "SEND PIREP":
-                    bool filed = await _flightManager.FilePirep();
-                    if (filed)
-                    {
-                        StartStopText = "START";
-                        StartStopColor = Color.FromArgb(200, 100, 0);
-                        CanStart = false;
-                        CancelText = "EXIT";
-                        LogMessage?.Invoke("✅ Vuelo reportado", Theme.Success);
-                    }
+                    await SendPirep();
                     break;
             }
         }
 
-        public void CancelAction()
+        private async Task StartFlight()
         {
-            if (CancelText == "EXIT")
+            if (!_flightManager.CanStartFlight())
             {
-                // Confirmar salida, eso es UI
-                // Lanzar evento
+                OnLog?.Invoke("⛔ No se cumplen las condiciones para iniciar el vuelo", Theme.Warning);
+                return;
+            }
+
+            bool started = await _flightManager.StartFlight(
+                _flightManager.ActivePlan,
+                _flightManager.ActivePilot
+            );
+
+            if (started)
+            {
+                OnButtonStateChanged?.Invoke("ABORT", Color.Red, true);
+                OnLog?.Invoke(_("FlightStarted"), Theme.Success);
+            }
+        }
+
+        public async Task CancelFlight()
+        {
+            if (await _flightManager.CancelFlight())
+            {
+                OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), false);
+                OnLog?.Invoke("✖️ Vuelo cancelado", Theme.Warning);
+            }
+        }
+
+        public async Task AbortFlight()
+        {
+            if (await _flightManager.AbortFlight())
+            {
+                OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), false);
+                OnLog?.Invoke("✖️ Vuelo cancelado", Theme.Warning);
+            }
+        }
+
+        public async Task SendPirep()
+        {
+            if (await _flightManager.FilePirep())
+            {
+                OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), false);
+                _lastTelemetry = null;
+                _lastPositionUpdate = DateTime.MinValue;
+                OnLog?.Invoke("✅ Vuelo reportado, listo para siguiente vuelo", Theme.Success);
+            }
+        }
+
+        public async void Login()
+        {
+            try
+            {
+                OnLog?.Invoke("🔑 Iniciando sesión...", Theme.MainText);
+
+                var result = await _apiService.GetPilotData();
+                if (result.Data != null)
+                {
+                    Pilot pilot = result.Data;
+                    _flightManager.SetActivePilot(pilot);
+
+                    OnLog?.Invoke($"✅ Login exitoso: {pilot.Name} (Rango: {pilot.Rank})", Theme.Success);
+                    OnLog?.Invoke($"📍 Aeropuerto asignado: {pilot.CurrentAirport}", Theme.MainText);
+                    OnAirportChanged?.Invoke(pilot.CurrentAirport);
+
+                    OnAcarsStatusChanged?.Invoke(true);
+
+                    if (_fsuipc.IsConnected)
+                    {
+                        double lat = _fsuipc.GetLatitude();
+                        double lon = _fsuipc.GetLongitude();
+                        _flightManager.UpdatePositionValidation(lat, lon);
+                        OnValidationStatusChanged?.Invoke(_flightManager.PositionValidationStatus);
+                    }
+                }
+                else
+                {
+                    OnLog?.Invoke($"❌ Error de login: {result.Error}", Theme.Danger);
+                    OnAcarsStatusChanged?.Invoke(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke($"❌ Excepción en login: {ex.Message}", Theme.Danger);
+                OnAcarsStatusChanged?.Invoke(false);
+            }
+        }
+
+        public void OpenFlightPlanner()
+        {
+            if (_flightManager?.ActivePilot == null)
+            {
+                OnLog?.Invoke("⚠️ Debes iniciar sesión primero", Theme.Warning);
+                return;
+            }
+
+            OnOpenFlightPlanner?.Invoke();
+        }
+
+        public void ShowOFP()
+        {
+            var plan = _flightManager?.ActivePlan;
+            if (plan != null)
+            {
+                string message = $"OFP: {plan.Route}\nCombustible: {plan.BlockFuel} {plan.Units}";
+                OnShowMessage?.Invoke(message, "Operational Flight Plan");
             }
             else
             {
-                // Cancelar vuelo
-                // Confirmar
+                OnShowMessage?.Invoke("No hay OFP cargado.", "Info");
             }
         }
 
-        public event PropertyChangedEventHandler PropertyChanged;
-        protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        public void LogButtonPress(string buttonText)
         {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            OnLog?.Invoke($"🔘 Botón {buttonText} presionado", Theme.MainText);
+        }
+
+        // ===== MÉTODOS AUXILIARES =====
+        private double CalculateDistance(double lat1, double lon1, double lat2, double lon2)
+        {
+            const double R = 6371;
+            var dLat = (lat2 - lat1) * Math.PI / 180;
+            var dLon = (lon2 - lon1) * Math.PI / 180;
+            var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                    Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180) *
+                    Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+            var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+            return R * c;
+        }
+
+        private double GetTerrainElevation(FlightPhase phase)
+        {
+            var plan = _flightManager?.ActivePlan;
+            if (plan == null) return 0;
+
+            if (phase == FlightPhase.Descent || phase == FlightPhase.Approach || phase == FlightPhase.Landing)
+                return plan.DestinationElevation;
+            else if (phase == FlightPhase.Takeoff || phase == FlightPhase.Climb)
+                return plan.OriginElevation;
+
+            return 0;
+        }
+
+        private string GetPhaseName(FlightPhase phase)
+        {
+            switch (phase)
+            {
+                case FlightPhase.Boarding: return "BOARDING";
+                case FlightPhase.Pushback: return "PUSHBACK";
+                case FlightPhase.TaxiOut: return "TAXI OUT";
+                case FlightPhase.Takeoff: return "TAKEOFF";
+                case FlightPhase.Climb: return "CLIMB";
+                case FlightPhase.Enroute: return "ENROUTE";
+                case FlightPhase.Descent: return "DESCENT";
+                case FlightPhase.Approach: return "APPROACH";
+                case FlightPhase.Landing: return "LANDING";
+                case FlightPhase.TaxiIn: return "TAXI IN";
+                case FlightPhase.Completed: return "COMPLETED";
+                default: return phase.ToString().ToUpper();
+            }
+        }
+
+        private string GetPhpVmsStatusCode(FlightPhase phase)
+        {
+            var dict = new System.Collections.Generic.Dictionary<FlightPhase, string>
+            {
+                [FlightPhase.Boarding] = "BST",
+                [FlightPhase.Pushback] = "PBT",
+                [FlightPhase.TaxiOut] = "TXI",
+                [FlightPhase.TaxiIn] = "TXI",
+                [FlightPhase.Takeoff] = "TOF",
+                [FlightPhase.Climb] = "ICL",
+                [FlightPhase.Enroute] = "ENR",
+                [FlightPhase.Descent] = "APR",
+                [FlightPhase.Approach] = "FIN",
+                [FlightPhase.Landing] = "LDG",
+                [FlightPhase.Completed] = "ARR"
+            };
+            return dict.TryGetValue(phase, out string code) ? code : "INI";
         }
     }
 }
