@@ -181,8 +181,9 @@ namespace vmsOpenAcars.Services
             bool shouldEnable = status.IcaoMatch && status.GpsValid && _flightManager?.IsSimulatorConnected == true;
 
             // Logs para depuración
-            System.Diagnostics.Debug.WriteLine($"UpdateStartButtonState - ICAO: {status.IcaoMatch}, GPS: {status.GpsValid}, Sim: {_flightManager?.IsSimulatorConnected}, Enable: {shouldEnable}");
-
+#if DEBUG
+          //  System.Diagnostics.Debug.WriteLine($"UpdateStartButtonState - ICAO: {status.IcaoMatch}, GPS: {status.GpsValid}, Sim: {_flightManager?.IsSimulatorConnected}, Enable: {shouldEnable}");
+#endif
             if (_form.btnStartStop.InvokeRequired)
             {
                 _form.btnStartStop.Invoke(new Action(() => {

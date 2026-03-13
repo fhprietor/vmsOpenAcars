@@ -3,6 +3,7 @@ using System.Configuration;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
 using vmsOpenAcars.Models;
@@ -158,6 +159,27 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel.OnShowMessage += (message, title) =>
             {
                 MessageBox.Show(message, title);
+            };
+            _viewModel.OnShowConfirmation += async (message, title, buttons) =>
+            {
+                // Como esto se llama desde un hilo de Task, necesitamos Invoke
+                DialogResult result = DialogResult.None;
+
+                if (InvokeRequired)
+                {
+                    Invoke(new Action(() =>
+                    {
+                        result = EcamDialog.Show(this, message, title, buttons);
+                    }));
+                }
+                else
+                {
+                    result = EcamDialog.Show(this, message, title, buttons);
+                }
+
+                // Esperar un momento para que el diálogo se cierre (opcional)
+                await Task.Delay(10);
+                return result;
             };
         }
 

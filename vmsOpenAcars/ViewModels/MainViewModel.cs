@@ -7,6 +7,7 @@ using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.UI;
 using static vmsOpenAcars.Helpers.L;
+using vmsOpenAcars.UI.Forms;
 
 namespace vmsOpenAcars.ViewModels
 {
@@ -49,6 +50,7 @@ namespace vmsOpenAcars.ViewModels
         public event Action<string> OnFuelChanged;
         public event Action<string> OnTypeChanged;
         public event Action<string> OnRegistrationChanged;
+        public event Func<string, string, EcamDialogButtons, Task<DialogResult>> OnShowConfirmation;
 
         public MainViewModel(
             FlightManager flightManager,
@@ -110,11 +112,11 @@ namespace vmsOpenAcars.ViewModels
 
         private void OnFsuipcConnected(object sender, EventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine("✅ FSUIPC CONECTADO - Evento recibido en ViewModel");
+            // System.Diagnostics.Debug.WriteLine("✅ FSUIPC CONECTADO - Evento recibido en ViewModel");
 
             double lat = _fsuipc.GetLatitude();
             double lon = _fsuipc.GetLongitude();
-            System.Diagnostics.Debug.WriteLine($"   Posición: {lat}, {lon}");
+            // System.Diagnostics.Debug.WriteLine($"   Posición: {lat}, {lon}");
 
             _flightManager.SetSimulatorConnected(true, lat, lon);
 
@@ -373,10 +375,23 @@ namespace vmsOpenAcars.ViewModels
 
         public async Task AbortFlight()
         {
+            // Solicitar confirmación a través del evento
+            if (OnShowConfirmation != null)
+            {
+                var result = await OnShowConfirmation(
+                    "ABORT FLIGHT?\n\nThis will cancel the current flight and delete the PIREP from the server.\n\nAre you sure?",
+                    "CONFIRM ABORT",
+                    EcamDialogButtons.YesNo
+                );
+
+                if (result != DialogResult.Yes)
+                    return;
+            }
+
             if (await _flightManager.AbortFlight())
             {
                 OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), false);
-                OnLog?.Invoke("✖️ Vuelo cancelado", Theme.Warning);
+                OnLog?.Invoke("✖️ Flight aborted", Theme.Warning);
             }
         }
 
