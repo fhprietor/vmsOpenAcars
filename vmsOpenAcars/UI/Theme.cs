@@ -1,4 +1,5 @@
-﻿using System.Drawing;
+﻿// Theme.cs
+using System.Drawing;
 
 namespace vmsOpenAcars.UI
 {
@@ -12,6 +13,7 @@ namespace vmsOpenAcars.UI
 
         // Texto de información secundaria
         public static readonly Color SecondaryText = Color.FromArgb(128, 255, 255); // cyan más tenue
+        public static readonly Color Success = Color.FromArgb(0, 200, 0); 
 
         // Indicadores de fase de vuelo
         public static readonly Color Taxi = Color.FromArgb(0, 200, 0); // verde

@@ -9,5 +9,9 @@
         public string AirlineName { get; set; }
         public string Rank { get; set; }
         public string CurrentAirport { get; set; } // Útil para validar Jumpseat
+        // Para uso local (coordenadas del aeropuerto)
+        public double? CurrentAirportLat { get; set; }
+        public double? CurrentAirportLon { get; set; }
+
     }
 }

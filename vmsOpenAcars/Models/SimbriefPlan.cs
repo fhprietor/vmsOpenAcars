@@ -1,4 +1,5 @@
-﻿namespace vmsOpenAcars.Models
+﻿// SimbriefPlan.cs
+namespace vmsOpenAcars.Models
 {
     public class SimbriefPlan
     {
@@ -7,6 +8,9 @@
         public string Airline { get; set; }
         public string Origin { get; set; }
         public string Destination { get; set; }
+        public int DestinationElevation { get; set; }
+        public int  OriginElevation { get; set; }
+        public string Alternate { get; set; }
         public string Route { get; set; }
 
         // Aeronave
@@ -25,7 +29,10 @@
 
         public string PlannedAltitude { get; set; }
 
-        public string AircraftIcao { get; set; } // Añade esta línea
+        public string AircraftIcao { get; set; }
+        public string Units { get; set; }
+        public int CruiseAltitude { get; set; }
+        public double Distance { get; set; } // Distancia planificada en km
 
         // Si usas Newtonsoft.Json o System.Text.Json y el JSON de la API
         // trae un nombre distinto, usa un atributo:

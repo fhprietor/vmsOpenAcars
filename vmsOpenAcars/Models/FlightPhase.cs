@@ -10,16 +10,16 @@
         Boarding,
         Pushback,
         TaxiOut,
-
         Takeoff,
         Climb,
         Enroute,
         Descent,
         Approach,
-
+        Landing,
+        Landed,
         AfterLanding,
         TaxiIn,
-
+        Arrived,
         Completed
     }
 
@@ -55,7 +55,7 @@
         public static bool IsMoving(this FlightPhase phase)
         {
             return phase != FlightPhase.Boarding &&
-                   phase != FlightPhase.Completed;
+                   phase != FlightPhase.Arrived;
         }
 
         /// <summary>
