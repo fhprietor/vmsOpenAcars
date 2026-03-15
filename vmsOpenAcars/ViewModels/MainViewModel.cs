@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -8,15 +9,19 @@ using vmsOpenAcars.Services;
 using vmsOpenAcars.UI;
 using static vmsOpenAcars.Helpers.L;
 using vmsOpenAcars.UI.Forms;
+using System.Linq;
 
 namespace vmsOpenAcars.ViewModels
 {
     public class MainViewModel
     {
+        // Propiedades públicas
         public FlightManager FlightManager => _flightManager;
         public PhpVmsFlightService PhpVmsFlightService => _phpVmsFlightService;
         public SimbriefEnhancedService SimbriefEnhancedService => _simbriefEnhancedService;
+        public ApiService ApiService => _apiService;
         public Pilot ActivePilot => _flightManager.ActivePilot;
+
         private readonly FlightManager _flightManager;
         private readonly FsuipcService _fsuipc;
         private readonly ApiService _apiService;
@@ -51,6 +56,7 @@ namespace vmsOpenAcars.ViewModels
         public event Action<string> OnTypeChanged;
         public event Action<string> OnRegistrationChanged;
         public event Func<string, string, EcamDialogButtons, Task<DialogResult>> OnShowConfirmation;
+        
 
         public MainViewModel(
             FlightManager flightManager,
@@ -417,7 +423,6 @@ namespace vmsOpenAcars.ViewModels
                 {
                     Pilot pilot = result.Data;
                     _flightManager.SetActivePilot(pilot);
-
                     OnLog?.Invoke($"✅ Login exitoso: {pilot.Name} (Rango: {pilot.Rank})", Theme.Success);
                     OnLog?.Invoke($"📍 Aeropuerto asignado: {pilot.CurrentAirport}", Theme.MainText);
                     OnAirportChanged?.Invoke(pilot.CurrentAirport);
@@ -537,6 +542,55 @@ namespace vmsOpenAcars.ViewModels
                 [FlightPhase.Completed] = "ARR"
             };
             return dict.TryGetValue(phase, out string code) ? code : "INI";
+        }
+        /// <summary>
+        /// Carga los datos de un vuelo seleccionado desde las reservas
+        /// </summary>
+        public void LoadFlightFromBid(Flight flight)
+        {
+            if (flight == null) return;
+
+            // Crear un SimbriefPlan básico con los datos del vuelo
+            var plan = new SimbriefPlan
+            {
+                FlightNumber = flight.FlightNumber,
+                Airline = flight.Airline,
+                Origin = flight.Departure,
+                Destination = flight.Arrival,
+                Route = flight.Route,
+                CruiseAltitude = flight.Level,
+                Distance = flight.Distance,
+                EstTimeEnroute = flight.FlightTime * 60, // Convertir minutos a segundos
+                AircraftIcao = flight.AircraftType,
+                Aircraft = flight.AircraftType
+            };
+
+            // Guardar el plan en el FlightManager (parcialmente completo)
+            _flightManager.SetActivePlan(plan);
+
+            // Actualizar UI
+            UpdateFlightInfo();
+            OnLog?.Invoke($"📋 Flight data loaded from bid", Theme.MainText);
+        }
+        public async Task<List<Flight>> LoadPilotBids()
+        {
+            try
+            {
+                var activePilot = _flightManager.ActivePilot;
+                if (activePilot == null)
+                {
+                    OnLog?.Invoke("⚠️ No hay piloto activo", Theme.Warning);
+                    return new List<Flight>();
+                }
+
+                var bids = await _apiService.GetPilotBids();
+                return bids ?? new List<Flight>();
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke($"❌ Error cargando reservas: {ex.Message}", Theme.Danger);
+                return new List<Flight>();
+            }
         }
     }
 }

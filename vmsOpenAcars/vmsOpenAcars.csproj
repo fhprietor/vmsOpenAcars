@@ -92,6 +92,7 @@
     <Compile Include="Helpers\L.cs" />
     <Compile Include="Models\AcarsPosition.cs" />
     <Compile Include="Models\Aircraft.cs" />
+    <Compile Include="Models\Flight.cs" />
     <Compile Include="Models\FlightPhase.cs" />
     <Compile Include="Models\Pilot.cs" />
     <Compile Include="Models\SimbriefPlan.cs" />
@@ -109,6 +110,9 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="UI\Forms\FlightPlannerForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="UI\Forms\FlightSelectorForm.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="UI\Forms\MainForm.cs">

@@ -63,6 +63,14 @@
         /// Example: "DCT ISTAX DCT MRN DCT RNG RNG4C"
         /// </summary>
         public string Route { get; set; }
+        /// <summary>
+        /// Gets or sets the Timestamp Unix (seconds) as provided by SimBrief.
+        /// </summary>
+        public long TimeGenerated { get; set; }
+        /// <summary>
+        /// Gets or sets the Schedule Time as provided by SimBrief.
+        /// </summary>
+        public long ScheduledOffTime { get; set; } 
 
         #endregion
 

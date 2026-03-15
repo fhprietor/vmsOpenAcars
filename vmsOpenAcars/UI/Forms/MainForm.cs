@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
 using System.Drawing;
@@ -19,7 +20,7 @@ namespace vmsOpenAcars.UI.Forms
         private bool _dragging = false;
         private Point _dragStartPoint;
 
-        // ========== CONTROLES (TODOS TUS CONTROLES EXISTENTES) ==========
+        // ========== CONTROLES ==========
         private TableLayoutPanel mainLayout;
         private Panel pnlHeader;
         private Panel pnlMessage;
@@ -65,7 +66,7 @@ namespace vmsOpenAcars.UI.Forms
         public Button btnStartStop;
         private Button btnCancel;
 
-        // ========== NUEVO: ViewModel y Servicios ==========
+        // ========== VIEWMODEL Y SERVICIOS ==========
         private MainViewModel _viewModel;
         private UIService _uiService;
 
@@ -79,16 +80,12 @@ namespace vmsOpenAcars.UI.Forms
             InitializeFmaPanel();
             InitializeStatusSection();
             InitializeButtons();
-
-            // ===== INICIALIZAR VIEWMODEL Y SERVICIOS =====
             InitializeViewModel();
-
-            // ===== CONECTAR EVENTOS =====
             ConnectViewModelEvents();
-
-            // ===== INICIAR TIMERS =====
             _viewModel?.Start();
         }
+
+        #region Inicialización
 
         private void InitializeViewModel()
         {
@@ -107,8 +104,6 @@ namespace vmsOpenAcars.UI.Forms
 
                     _viewModel = new MainViewModel(flightManager, fsuipc, apiService, phpVmsFlightService, simbriefEnhancedService);
                     _uiService = new UIService(this, flightManager);
-
-                    // flightManager.OnLog += _uiService.AddLog;
                 }
             }
             catch (Exception ex)
@@ -133,25 +128,25 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel.OnAcarsStatusChanged += _uiService.UpdateAcarsStatus;
             _viewModel.OnAirportChanged += _uiService.UpdateCurrentAirport;
             _viewModel.OnButtonStateChanged += UpdateButtonState;
+
             _viewModel.OnOpenFlightPlanner += () =>
             {
                 var planner = new FlightPlannerForm(
+                    _viewModel.ApiService,                    // ← FALTABA ESTE
                     _viewModel.PhpVmsFlightService,
                     _viewModel.SimbriefEnhancedService,
                     _viewModel.FlightManager,
                     _viewModel.FlightManager.ActivePilot,
-                    _viewModel.FlightManager.CurrentAirport
+                    _viewModel.FlightManager.CurrentAirport,
+                    null                                       // bids (opcional)
                 );
 
-                if (planner.ShowDialog() == DialogResult.OK)
+                if (planner.ShowDialog(this) == DialogResult.OK)
                 {
                     var plan = planner.GetLoadedPlan();
                     if (plan != null)
                     {
                         _viewModel.SetActivePlan(plan);
-                        //_viewModel.FlightManager.SetActivePlan(plan);
-                        //_viewModel.UpdateFlightInfo(); 
-                        //_uiService.UpdateValidationUI(_viewModel.FlightManager.PositionValidationStatus);
                     }
                 }
             };
@@ -160,9 +155,9 @@ namespace vmsOpenAcars.UI.Forms
             {
                 MessageBox.Show(message, title);
             };
+
             _viewModel.OnShowConfirmation += async (message, title, buttons) =>
             {
-                // Como esto se llama desde un hilo de Task, necesitamos Invoke
                 DialogResult result = DialogResult.None;
 
                 if (InvokeRequired)
@@ -177,13 +172,63 @@ namespace vmsOpenAcars.UI.Forms
                     result = EcamDialog.Show(this, message, title, buttons);
                 }
 
-                // Esperar un momento para que el diálogo se cierre (opcional)
                 await Task.Delay(10);
                 return result;
             };
+
         }
 
-        // ===== TODOS TUS MÉTODOS DE INICIALIZACIÓN DE UI (sin cambios) =====
+        #endregion
+
+        #region Métodos de UI
+
+        private void UpdateButtonState(string buttonText, Color backColor, bool enabled)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action(() => UpdateButtonState(buttonText, backColor, enabled)));
+                return;
+            }
+
+            btnStartStop.Text = buttonText;
+            btnStartStop.BackColor = backColor;
+            btnStartStop.Enabled = enabled;
+        }
+
+        private void RefreshUILanguage()
+        {
+            btnLogin.Text = _("BtnLogin");
+            btnSimbrief.Text = _("BtnSimbrief");
+            btnStartStop.Text = _("BtnStartStop");
+            btnCancel.Text = _viewModel?.ActivePilot == null ? _("BtnExit") : _("BtnCancel");
+        }
+
+        private void CenterInScreen(int screenIndex)
+        {
+            if (screenIndex >= 0 && screenIndex < Screen.AllScreens.Length)
+            {
+                Screen targetScreen = Screen.AllScreens[screenIndex];
+                this.StartPosition = FormStartPosition.Manual;
+                this.Location = new Point(
+                    targetScreen.WorkingArea.Left + (targetScreen.WorkingArea.Width - this.Width) / 2,
+                    targetScreen.WorkingArea.Top + (targetScreen.WorkingArea.Height - this.Height) / 2
+                );
+            }
+            else
+            {
+                this.StartPosition = FormStartPosition.CenterScreen;
+            }
+        }
+
+        private void EnsureConfigKeys()
+        {
+            // Tu código existente
+        }
+
+        #endregion
+
+        #region Inicialización de UI (Tus métodos existentes)
+
         private void InitializeForm()
         {
             this.Text = "vmsOpenAcars - ACARS Flight Deck";
@@ -191,11 +236,10 @@ namespace vmsOpenAcars.UI.Forms
             this.MinimumSize = new Size(800, 600);
             this.BackColor = Color.FromArgb(10, 10, 20);
             this.Font = new Font("Consolas", 10, FontStyle.Regular);
-
             this.FormBorderStyle = FormBorderStyle.None;
             this.Padding = new Padding(2);
 
-            // ===== ESTABLECER ICONO DE LA VENTANA =====
+            // Icono
             try
             {
                 string iconPath = Path.Combine(Application.StartupPath, "logo.png");
@@ -213,7 +257,7 @@ namespace vmsOpenAcars.UI.Forms
                 Debug.WriteLine($"Error cargando icono: {ex.Message}");
             }
 
-            // ===== LEER POSICIÓN GUARDADA =====
+            // Posición guardada
             try
             {
                 string savedLeft = ConfigurationManager.AppSettings["window_left"];
@@ -267,7 +311,7 @@ namespace vmsOpenAcars.UI.Forms
                 CenterInScreen(0);
             }
 
-            // Dibujar borde sutil
+            // Borde
             this.Paint += (s, e) =>
             {
                 using (Pen pen = new Pen(Color.FromArgb(100, 180, 255), 1))
@@ -287,10 +331,9 @@ namespace vmsOpenAcars.UI.Forms
                 BackColor = Color.Transparent
             };
 
-            // Configurar altas de filas
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));  // Header
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 20));   // Message (datos)
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));  // FMA (fila 3) - altura fija para el panel de fase
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));  // FMA
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 40));   // Incoming Msg
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 40));   // Status
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));  // Buttons
@@ -307,26 +350,24 @@ namespace vmsOpenAcars.UI.Forms
                 Padding = new Padding(10)
             };
 
-            // ===== LOGO =====
+            // Logo
             PictureBox pbLogo = new PictureBox
             {
-                Size = new Size(40, 40), // Tamaño fijo (cuadrado)
+                Size = new Size(40, 40),
                 Location = new Point(10, 10),
-                SizeMode = PictureBoxSizeMode.Zoom, // Mantiene proporción
+                SizeMode = PictureBoxSizeMode.Zoom,
                 BackColor = Color.Transparent
             };
 
-            // Cargar el logo
             try
             {
-                string logoPath = System.IO.Path.Combine(Application.StartupPath, "logo.png");
-                if (System.IO.File.Exists(logoPath))
+                string logoPath = Path.Combine(Application.StartupPath, "logo.png");
+                if (File.Exists(logoPath))
                 {
                     pbLogo.Image = Image.FromFile(logoPath);
                 }
                 else
                 {
-                    // Si no existe, crear un placeholder (opcional)
                     pbLogo.BackColor = Color.FromArgb(50, 50, 60);
                     pbLogo.Paint += (s, e) =>
                     {
@@ -340,31 +381,28 @@ namespace vmsOpenAcars.UI.Forms
             }
             catch (Exception ex)
             {
-                _uiService.AddLog($"⚠️ Error cargando logo: {ex.Message}", Theme.Warning);
+                _uiService?.AddLog($"⚠️ Error cargando logo: {ex.Message}", Theme.Warning);
             }
 
-            // ===== TÍTULO PRINCIPAL (con desplazamiento por el logo) =====
             lblTitle = new Label
             {
                 Text = _("MainTitle"),
                 Font = new Font("Consolas", 16, FontStyle.Bold),
                 ForeColor = Color.Cyan,
-                Location = new Point(60, 10), // 10 (margen) + 40 (ancho logo) + 10 (espacio)
+                Location = new Point(60, 10),
                 AutoSize = true
             };
 
-            // ===== NOMBRE DE AEROLÍNEA =====
             string airlineName = ConfigurationManager.AppSettings["airline"] ?? "vmsOpenAcars";
             lblSubTitle = new Label
             {
                 Text = airlineName,
                 Font = new Font("Consolas", 12, FontStyle.Bold),
                 ForeColor = Color.LightGreen,
-                Location = new Point(60, 35), // Alineado con el título
+                Location = new Point(60, 35),
                 AutoSize = true
             };
 
-            // ===== BOTÓN DE CONFIGURACIÓN =====
             Button btnSettings = new Button
             {
                 Text = "⚙️",
@@ -379,17 +417,15 @@ namespace vmsOpenAcars.UI.Forms
             btnSettings.FlatAppearance.BorderSize = 0;
             btnSettings.Click += BtnSettings_Click;
 
-            // ===== AÑADIR CONTROLES AL PANEL =====
             pnlHeader.Controls.AddRange(new Control[] { pbLogo, lblTitle, lblSubTitle, btnSettings });
             mainLayout.Controls.Add(pnlHeader, 0, 0);
 
-            // ===== AJUSTAR POSICIÓN DEL BOTÓN AL REDIMENSIONAR =====
             pnlHeader.Resize += (s, e) =>
             {
                 btnSettings.Location = new Point(pnlHeader.Width - 50, 10);
             };
 
-            // ===== ARRASTRE DE LA VENTANA =====
+            // Arrastre
             pnlHeader.MouseDown += (s, e) =>
             {
                 if (e.Button == MouseButtons.Left)
@@ -413,31 +449,18 @@ namespace vmsOpenAcars.UI.Forms
                 _dragging = false;
             };
         }
+
         private void BtnSettings_Click(object sender, EventArgs e)
         {
             using (var settingsForm = new SettingsForm())
             {
                 if (settingsForm.ShowDialog(this) == DialogResult.OK)
                 {
-                    // Actualizar UI con nuevo nombre de aerolínea e idioma
                     string airline = ConfigurationManager.AppSettings["airline"] ?? "vmsOpenAcars";
                     lblSubTitle.Text = airline;
-
-                    // Refrescar textos de la UI
                     RefreshUILanguage();
                 }
             }
-        }
-
-        private void RefreshUILanguage()
-        {
-            btnLogin.Text = _("BtnLogin");
-            btnSimbrief.Text = _("BtnSimbrief");
-            btnStartStop.Text = _("BtnStartStop");
-
-            // Usar el ViewModel en lugar de _flightManager
-            bool pilotIsNull = _viewModel?.ActivePilot == null;
-            btnCancel.Text = pilotIsNull ? _("BtnExit") : _("BtnCancel");
         }
 
         private void InitializeMessageSection()
@@ -451,7 +474,6 @@ namespace vmsOpenAcars.UI.Forms
                 BorderStyle = BorderStyle.FixedSingle
             };
 
-            // TableLayoutPanel para organizar los datos
             var tlp = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -460,15 +482,12 @@ namespace vmsOpenAcars.UI.Forms
                 BackColor = Color.Transparent
             };
 
-            // Configurar columnas iguales
             for (int i = 0; i < 4; i++)
                 tlp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
 
-            // Configurar filas automáticas
             tlp.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             tlp.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            // ========== CREAR TODOS LOS LABELS ==========
             _lblFlightNo = CreateInfoLabel("FLT NO: ----", FontStyle.Bold);
             _lblDepArr = CreateInfoLabel("DEP/ARR: ----/----", FontStyle.Bold);
             _lblAlternate = CreateInfoLabel("ALTN: ----", FontStyle.Bold);
@@ -478,23 +497,17 @@ namespace vmsOpenAcars.UI.Forms
             _lblType = CreateInfoLabel("TYPE: ----", FontStyle.Bold);
             _lblRegistration = CreateInfoLabel("REG: ----", FontStyle.Bold);
 
-            // ========== AGREGAR AL TABLELAYOUTPANEL ==========
-            // Fila 0
             tlp.Controls.Add(_lblFlightNo, 0, 0);
             tlp.Controls.Add(_lblDepArr, 1, 0);
             tlp.Controls.Add(_lblAlternate, 2, 0);
             tlp.Controls.Add(_lblRoute, 3, 0);
-
-            // Fila 1
             tlp.Controls.Add(_lblAircraft, 0, 1);
             tlp.Controls.Add(_lblFuel, 1, 1);
             tlp.Controls.Add(_lblType, 2, 1);
             tlp.Controls.Add(_lblRegistration, 3, 1);
 
-            // Agregar tlp al panel (primero, para que ocupe el espacio restante)
             pnlMessageInfo.Controls.Add(tlp);
 
-            // Título (se agregará arriba)
             var lblFlightInfoTitle = new Label
             {
                 Text = "FLIGHT INFORMATION",
@@ -517,7 +530,6 @@ namespace vmsOpenAcars.UI.Forms
                 BorderStyle = BorderStyle.FixedSingle
             };
 
-            // RichTextBox para mensajes entrantes (reemplaza al ListView)
             txtIncomingMsg = new RichTextBox
             {
                 Dock = DockStyle.Fill,
@@ -526,16 +538,11 @@ namespace vmsOpenAcars.UI.Forms
                 Font = new Font("Consolas", 10),
                 BorderStyle = BorderStyle.None,
                 ReadOnly = true,
-                WordWrap = true,      // Evita barra horizontal
-                ScrollBars = RichTextBoxScrollBars.Vertical // Solo barra vertical
+                WordWrap = true,
+                ScrollBars = RichTextBoxScrollBars.Vertical
             };
 
-            // Opcional: Prevenir edición con teclado
             txtIncomingMsg.PreviewKeyDown += (s, e) => e.IsInputKey = false;
-
-            // Opcional: Hacer que el scroll siempre se mantenga abajo si se desea
-            // (pero como insertas arriba, no es necesario)
-
             pnlIncoming.Controls.Add(txtIncomingMsg);
 
             var lblIncomingTitle = new Label
@@ -549,8 +556,9 @@ namespace vmsOpenAcars.UI.Forms
             };
             pnlIncoming.Controls.Add(lblIncomingTitle);
 
-            mainLayout.Controls.Add(pnlIncoming, 0, 2); // Nota: cambiado a índice 2 (fila 2)
+            mainLayout.Controls.Add(pnlIncoming, 0, 2);
         }
+
         private void InitializeFmaPanel()
         {
             pnlFma = new Panel
@@ -587,6 +595,7 @@ namespace vmsOpenAcars.UI.Forms
             layout.Controls.Add(lblRoute, 4, 0);
             mainLayout.Controls.Add(pnlFma, 0, 2);
         }
+
         private Label CreateFmaLabel(string title, string value)
         {
             return new Label
@@ -630,7 +639,6 @@ namespace vmsOpenAcars.UI.Forms
             lblComm = CreateStatusLabel("COMM:", "VHF", col2X, startY);
             lblUplink = CreateStatusLabel("UPLINK MSG:", "0", col2X, startY + lineHeight);
 
-            // Nuevo label para validación
             lblValidationStatus = new Label
             {
                 Text = "VALIDACIÓN: ---",
@@ -654,44 +662,33 @@ namespace vmsOpenAcars.UI.Forms
                 Text = "APT: ---",
                 Font = new Font("Consolas", 10),
                 ForeColor = Color.Cyan,
-                Location = new Point(col2X, startY + lineHeight * 3), // Debajo de UPLINK
+                Location = new Point(col2X, startY + lineHeight * 3),
                 AutoSize = true
             };
 
-            // Simulador
             lblSimName = new Label
             {
                 Text = $"SIM: {_("Waiting")}",
                 Font = new Font("Consolas", 10),
                 ForeColor = Color.Cyan,
-                Location = new Point(col1X, startY + lineHeight * 3), // Debajo de POS
+                Location = new Point(col1X, startY + lineHeight * 3),
                 AutoSize = true
             };
 
             pnlStatus.Controls.AddRange(new Control[] {
-                lblStatusTitle,
-                lblAcarsStatus,
-                lblEtd,
-                lblPos,
-                lblComm,
-                lblUplink,
-                lblValidationStatus,
-                lblProgress,
-                lblCurrentAirport,
-                lblSimName
+                lblStatusTitle, lblAcarsStatus, lblEtd, lblPos, lblComm,
+                lblUplink, lblValidationStatus, lblProgress, lblCurrentAirport, lblSimName
             });
 
             mainLayout.Controls.Add(pnlStatus, 0, 4);
         }
 
-
         private Label CreateStatusLabel(string label, string value, int x, int y, Color? color = null)
         {
             if (color == null)
-            {
                 color = Color.LightGreen;
-            }
-            Label lbl = new Label
+
+            return new Label
             {
                 Text = $"{label}  {value}",
                 Font = new Font("Consolas", 11),
@@ -699,7 +696,6 @@ namespace vmsOpenAcars.UI.Forms
                 Location = new Point(x, y),
                 AutoSize = true
             };
-            return lbl;
         }
 
         private void InitializeButtons()
@@ -713,15 +709,15 @@ namespace vmsOpenAcars.UI.Forms
 
             string[] buttonNames = { "MENU", "LOGIN", "ATIS", "OFP", "MSG", "WEATHER", "SIMBRIEF", "START", "CANCEL" };
             Color[] buttonColors = {
-                Color.FromArgb(60, 70, 80),  // MENU
-                Color.FromArgb(0, 120, 200), // LOGIN (azul más vivo)
-                Color.FromArgb(60, 70, 80),  // ATIS
-                Color.FromArgb(0, 100, 200), // OFP
-                Color.FromArgb(60, 70, 80),  // MSG
-                Color.FromArgb(60, 70, 80),  // WEATHER
-                Color.FromArgb(0, 150, 0),   // SIMBRIEF
-                Color.FromArgb(200, 100, 0), // START
-                Color.FromArgb(150, 0, 0)    // CANCEL
+                Color.FromArgb(60, 70, 80),
+                Color.FromArgb(0, 120, 200),
+                Color.FromArgb(60, 70, 80),
+                Color.FromArgb(0, 100, 200),
+                Color.FromArgb(60, 70, 80),
+                Color.FromArgb(60, 70, 80),
+                Color.FromArgb(0, 150, 0),
+                Color.FromArgb(200, 100, 0),
+                Color.FromArgb(150, 0, 0)
             };
 
             int xPos = 10;
@@ -789,52 +785,50 @@ namespace vmsOpenAcars.UI.Forms
             };
         }
 
+        #endregion
 
-        // Método auxiliar para centrar en una pantalla específica
-        private void CenterInScreen(int screenIndex)
-        {
-            if (screenIndex >= 0 && screenIndex < Screen.AllScreens.Length)
-            {
-                Screen targetScreen = Screen.AllScreens[screenIndex];
-                this.StartPosition = FormStartPosition.Manual;
-                this.Location = new Point(
-                    targetScreen.WorkingArea.Left + (targetScreen.WorkingArea.Width - this.Width) / 2,
-                    targetScreen.WorkingArea.Top + (targetScreen.WorkingArea.Height - this.Height) / 2
-                );
-            }
-            else
-            {
-                this.StartPosition = FormStartPosition.CenterScreen;
-            }
-        }
+        #region Eventos de Botones
 
-        // ===== MÉTODOS AUXILIARES =====
-        private void UpdateButtonState(string buttonText, Color backColor, bool enabled)
-        {
-            if (InvokeRequired)
-            {
-                Invoke(new Action(() => UpdateButtonState(buttonText, backColor, enabled)));
-                return;
-            }
-
-            btnStartStop.Text = buttonText;
-            btnStartStop.BackColor = backColor;
-            btnStartStop.Enabled = enabled;
-        }
-
-        private void EnsureConfigKeys() { /* tu código existente */ }
-
-        // ===== EVENTOS DE BOTONES (SOLO DELEGAN EN VIEWMODEL) =====
         private void BtnLogin_Click(object sender, EventArgs e)
         {
             _viewModel?.Login();
         }
 
-        private void BtnSimbrief_Click(object sender, EventArgs e)
+        private async void BtnSimbrief_Click(object sender, EventArgs e)
         {
-            _viewModel?.OpenFlightPlanner();
-        }
+            if (_viewModel?.FlightManager?.ActivePilot == null)
+            {
+                _uiService.AddLog("⚠️ Debes iniciar sesión primero", Theme.Warning);
+                return;
+            }
 
+            // Abrir el planificador directamente (él cargará las reservas internamente)
+            using (var planner = new FlightPlannerForm(
+                _viewModel.ApiService,
+                _viewModel.PhpVmsFlightService,
+                _viewModel.SimbriefEnhancedService,
+                _viewModel.FlightManager,
+                _viewModel.FlightManager.ActivePilot,
+                _viewModel.FlightManager.CurrentAirport))
+            {
+                if (planner.ShowDialog(this) == DialogResult.OK)
+                {
+                    var plan = planner.GetLoadedPlan();
+                    if (plan != null)
+                    {
+                        _viewModel.SetActivePlan(plan);
+                        _uiService.AddLog($"✅ Plan cargado: {plan.Origin} → {plan.Destination}", Theme.Success);
+                    }
+
+                    var selectedFlight = planner.GetSelectedFlight();
+                    if (selectedFlight != null)
+                    {
+                        _viewModel.LoadFlightFromBid(selectedFlight);
+                        _uiService.AddLog($"✅ Vuelo seleccionado: {selectedFlight.Airline}{selectedFlight.FlightNumber}", Theme.Success);
+                    }
+                }
+            }
+        }
         private async void BtnStartStop_Click(object sender, EventArgs e)
         {
             await _viewModel?.HandleStartStopButton(btnStartStop.Text);
@@ -866,6 +860,10 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel?.LogButtonPress(btn?.Text);
         }
 
+        #endregion
+
+        #region Cierre
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             _viewModel?.Stop();
@@ -876,13 +874,11 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
 
-                // Guardar posición y tamaño
                 config.AppSettings.Settings["window_left"].Value = this.Location.X.ToString();
                 config.AppSettings.Settings["window_top"].Value = this.Location.Y.ToString();
                 config.AppSettings.Settings["window_width"].Value = this.Size.Width.ToString();
                 config.AppSettings.Settings["window_height"].Value = this.Size.Height.ToString();
 
-                // Guardar índice de pantalla
                 int screenIndex = 0;
                 for (int i = 0; i < Screen.AllScreens.Length; i++)
                 {
@@ -905,5 +901,7 @@ namespace vmsOpenAcars.UI.Forms
                 Debug.WriteLine($"Error guardando configuración: {ex.Message}");
             }
         }
+
+        #endregion
     }
 }

@@ -1,5 +1,6 @@
 ﻿// Services/SimbriefEnhancedService.cs
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Models;
@@ -18,24 +19,105 @@ namespace vmsOpenAcars.Services
         /// <summary>
         /// Genera URL para pre-cargar datos en SimBrief
         /// </summary>
+        /// 
         public string GenerateDispatchUrl(Flight flight, Pilot pilot, Aircraft aircraft)
         {
-            var parameters = new System.Collections.Generic.Dictionary<string, string>
+            // Calcular hora de salida: UTC actual + 30 minutos
+            DateTime depTime = DateTime.UtcNow.AddMinutes(30);
+
+            var parameters = new Dictionary<string, string>
             {
-                ["flight_num"] = flight.FlightNumber,
+                // Parámetros básicos (como en CrewSystem)
+                ["airline"] = flight.Airline,
+                ["fltnum"] = flight.FlightNumber,
                 ["orig"] = flight.Departure,
                 ["dest"] = flight.Arrival,
-                ["aircraft"] = GetSimbriefAircraftCode(flight.AircraftType),
-                ["pilot"] = pilot.Name,
-                ["pilot_id"] = pilot.PilotId,
+                ["type"] = GetSimbriefAircraftCode(aircraft.Type),
+                ["reg"] = aircraft.Registration,
+
+                // Datos del piloto (usan "cpt")
+                ["cpt"] = pilot.Name,
+
+                // Ruta
                 ["route"] = flight.Route ?? "",
-                ["static_url"] = "1"
+
+                // Pistas (valores por defecto, idealmente del plan)
+                ["origrwy"] = "",
+                ["destrwy"] = "",
+
+                // Opciones de planificación
+                ["civalue"] = "30",
+                ["units"] = "lbs",
+                ["pax"] = "",
+                ["cargo"] = "",
+
+                // Parámetros adicionales
+                ["maps"] = "detailed",
+                ["static_url"] = "1",
+
+                // Hora de salida (formato HH y MM)
+                ["deph"] = depTime.ToString("HH"),
+                ["depm"] = depTime.ToString("mm"),
+                ["extrarmk"] = "CS/VHOLAR IVAOVA/VHR OPR/VHR"
             };
 
             var queryString = BuildQueryString(parameters);
-            return $"https://www.simbrief.com/system/dispatch.php?{queryString}";
+            return $"https://dispatch.simbrief.com/options/custom?{queryString}";
         }
+        /*
+               public string GenerateDispatchUrl(Flight flight, Pilot pilot, Aircraft aircraft)
+               {
+                   // Obtener la hora actual UTC para la salida (o podrías tenerla del flight)
+                   DateTime now = DateTime.UtcNow;
 
+                   // Construir los parámetros según el ejemplo de CrewSystem
+                   var parameters = new Dictionary<string, string>
+                   {
+                       // Endpoint específico
+                       ["type"] = GetSimbriefAircraftCode(aircraft.Type),
+                       ["reg"] = aircraft.Registration,
+                       ["fltnum"] = $"{flight.Airline}{flight.FlightNumber}",
+                       ["orig"] = flight.Departure,
+                       ["dest"] = flight.Arrival,
+                       ["route"] = flight.Route ?? "",
+
+                       // Datos de vuelo
+                       ["airline"] = flight.Airline,
+                       ["pax"] = "4", // Ajusta según el flight (si tienes pasajeros)
+                       ["cargo"] = "0", // Ajusta según el flight
+                       ["deph"] = now.Hour.ToString("D2"),
+                       ["depm"] = now.Minute.ToString("D2"),
+                       ["origrwy"] = "35", // Idealmente deberías obtenerla del flight
+                       ["destrwy"] = "05", // Idealmente deberías obtenerla del flight
+
+                       // Datos del piloto
+                       ["cpt"] = pilot.Name,
+
+                       // Opciones de planificación
+                       ["civalue"] = "30",
+                       ["units"] = "KGS", // O "LBS" según prefieras
+                       ["planformat"] = "LIDO",
+                       ["maps"] = "detailed",
+                       ["firnot"] = "1",
+                       ["notams"] = "1",
+                       ["tlr"] = "1",
+                       ["navlog"] = "1",
+                       ["etops"] = "1",
+                       ["stepclimbs"] = "1",
+                       ["resvrule"] = "60",
+                       ["addedfuel"] = "0",
+                       ["addedfuel_units"] = "min",
+
+                       // Parámetros fijos que parecen necesarios
+                       ["apicode"] = "043d5b79a4a57a6081b34f0282260af0", // Este código deberías obtenerlo de tu perfil SimBrief
+                       ["outputpage"] = "output.php",
+                       ["timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()
+                   };
+
+                   var queryString = BuildQueryString(parameters);
+                   return $"https://www.simbrief.com/ofp/ofp.loader.api.php?{queryString}";
+               }
+               */
         /// <summary>
         /// Recupera OFP desde SimBrief y lo convierte a tu modelo SimbriefPlan
         /// </summary>
@@ -92,7 +174,11 @@ namespace vmsOpenAcars.Services
 
                     // Unidades
                     Units = json["params"]?["units"]?.ToString()?.ToUpperInvariant() ?? "KG",
-                };
+
+                    TimeGenerated = json["params"]?["time_generated"]?.Value<long>() ?? 0,
+                    ScheduledOffTime = json["times"]?["sched_off"]?.Value<long>() ?? 0,
+
+            };
 
                 return plan;
             }

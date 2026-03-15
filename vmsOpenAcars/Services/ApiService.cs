@@ -55,6 +55,83 @@ namespace vmsOpenAcars.Services
                 System.Net.SecurityProtocolType.Tls12 |
                 System.Net.SecurityProtocolType.Tls13;
         }
+        #region BID Management
+
+        /// <summary>
+        /// Updates an existing PIREP with new data using HTTP PUT.
+        /// </summary>
+        /// <returns>True if the update was successful; otherwise, false.</returns>
+        /// <summary>
+        /// Obtiene las reservas (bids) del piloto actualmente autenticado
+        /// </summary>
+        // En ApiService.cs
+
+        public async Task<List<Flight>> GetPilotBids()
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_baseUrl}api/user/bids");
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    var json = JObject.Parse(content);
+                    var data = json["data"] as JArray;
+                    var flights = new List<Flight>();
+
+                    if (data != null)
+                    {
+                        foreach (var item in data)
+                        {
+                            var flightData = item["flight"] as JObject;
+                            if (flightData != null)
+                            {
+                                // Distancia en millas náuticas
+                                int nmDistance = flightData["distance"]?["nmi"]?.Value<int>() ?? 0;
+
+                                // Tipos de aeronave permitidos
+                                var subfleets = flightData["subfleets"] as JArray;
+                                var allowedTypes = new List<string>();
+                                if (subfleets != null)
+                                {
+                                    foreach (var sub in subfleets)
+                                    {
+                                        var type = sub["type"]?.ToString();
+                                        if (!string.IsNullOrEmpty(type) && !allowedTypes.Contains(type))
+                                            allowedTypes.Add(type);
+                                    }
+                                }
+
+                                var airline = flightData["airline"] as JObject;
+
+                                flights.Add(new Flight
+                                {
+                                    Id = flightData["id"]?.ToString(),
+                                    FlightNumber = flightData["flight_number"]?.ToString(),
+                                    Airline = airline?["icao"]?.ToString() ?? "VHR",
+                                    Departure = flightData["dpt_airport_id"]?.ToString(),
+                                    Arrival = flightData["arr_airport_id"]?.ToString(),
+                                    AllowedAircraftTypes = allowedTypes,
+                                    AllowedAircraftTypesDisplay = string.Join("/", allowedTypes),
+                                    Distance = nmDistance,
+                                    FlightTime = flightData["flight_time"]?.Value<int>() ?? 0,
+                                    Route = flightData["route"]?.ToString(),
+                                    Level = flightData["level"]?.Value<int>() ?? 0,
+                                    BidId = item["id"]?.ToString()
+                                });
+                            }
+                        }
+                    }
+                    return flights;
+                }
+                return new List<Flight>();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error getting bids: {ex}");
+                return new List<Flight>();
+            }
+        }
+        #endregion
 
         #region PIREP Management
 

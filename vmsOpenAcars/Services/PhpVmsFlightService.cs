@@ -1,5 +1,6 @@
 ﻿// Services/PhpVmsFlightService.cs
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -17,16 +18,12 @@ namespace vmsOpenAcars.Services
             _apiService = apiService;
         }
 
-        /// <summary>
-        /// Obtiene vuelos disponibles desde un aeropuerto
-        /// </summary>
         public async Task<List<Flight>> GetAvailableFlightsFromAirport(string airportCode, Pilot pilot)
         {
             var flights = new List<Flight>();
 
             try
             {
-                // Usar el mismo HttpClient de ApiService
                 var response = await _apiService.HttpClient.GetAsync(
                     $"{_apiService.BaseUrl}api/flights?dep_icao={airportCode}&pilot_id={pilot.Id}&available=true");
 
@@ -39,17 +36,39 @@ namespace vmsOpenAcars.Services
                     {
                         foreach (var item in data)
                         {
+                            var flightData = item as JObject;
+
+                            // Distancia en NM
+                            int nmDistance = flightData["distance"]?["nmi"]?.Value<int>() ?? 0;
+
+                            // Tipos permitidos
+                            var subfleets = flightData["subfleets"] as JArray;
+                            var allowedTypes = new List<string>();
+                            if (subfleets != null)
+                            {
+                                foreach (var sub in subfleets)
+                                {
+                                    var type = sub["type"]?.ToString();
+                                    if (!string.IsNullOrEmpty(type) && !allowedTypes.Contains(type))
+                                        allowedTypes.Add(type);
+                                }
+                            }
+
+                            var airline = flightData["airline"] as JObject;
+
                             flights.Add(new Flight
                             {
-                                Id = item["id"]?.ToString(),
-                                FlightNumber = item["flight_number"]?.ToString(),
-                                Departure = item["dpt_airport_id"]?.ToString(),
-                                Arrival = item["arr_airport_id"]?.ToString(),
-                                AircraftType = item["aircraft_type"]?.ToString(),
-                                Distance = item["distance"]?.Value<int>() ?? 0,
-                                FlightTime = item["flight_time"]?.Value<int>() ?? 0,
-                                Route = item["route"]?.ToString(),
-                                RequiredRank = GetRankFromString(item["flight_level"]?.ToString())
+                                Id = flightData["id"]?.ToString(),
+                                FlightNumber = flightData["flight_number"]?.ToString(),
+                                Airline = airline?["icao"]?.ToString() ?? "",
+                                Departure = flightData["dpt_airport_id"]?.ToString(),
+                                Arrival = flightData["arr_airport_id"]?.ToString(),
+                                AllowedAircraftTypes = allowedTypes,
+                                AllowedAircraftTypesDisplay = string.Join("/", allowedTypes),
+                                Distance = nmDistance,
+                                FlightTime = flightData["flight_time"]?.Value<int>() ?? 0,
+                                Route = flightData["route"]?.ToString(),
+                                RequiredRank = GetRankFromString(flightData["flight_level"]?.ToString())
                             });
                         }
                     }
@@ -62,48 +81,71 @@ namespace vmsOpenAcars.Services
 
             return flights;
         }
-
         /// <summary>
         /// Obtiene avión disponible en aeropuerto
         /// </summary>
-        public async Task<Aircraft> GetAvailableAircraftAtAirport(string airportCode, string aircraftType = null)
+        public async Task<List<Aircraft>> GetAvailableAircraftAtAirport(string airportCode, List<string> aircraftTypes)
         {
+            var aircraftList = new List<Aircraft>();
+
             try
             {
-                var url = $"{_apiService.BaseUrl}api/aircraft?airport={airportCode}&available=true";
-                if (!string.IsNullOrEmpty(aircraftType))
-                    url += $"&subfleet={aircraftType}";
-
+                string url = $"{_apiService.BaseUrl}api/fleet";
                 var response = await _apiService.HttpClient.GetAsync(url);
 
                 if (response.IsSuccessStatusCode)
                 {
                     var json = await response.Content.ReadAsStringAsync();
-                    var data = JObject.Parse(json)["data"] as JArray;
+                    var obj = JObject.Parse(json);
+                    var subfleets = obj["data"] as JArray;
 
-                    if (data != null && data.Count > 0)
+                    if (subfleets != null)
                     {
-                        var first = data[0];
-                        return new Aircraft
+                        foreach (var subfleet in subfleets)
                         {
-                            Id = first["id"]?.ToString(),
-                            Registration = first["registration"]?.ToString(),
-                            Type = first["subfleet"]?["type"]?.ToString(),
-                            Subfleet = first["subfleet"]?["name"]?.ToString(),
-                            CurrentAirport = first["current_airport_id"]?.ToString(),
-                            IsAvailable = true
-                        };
+                            // Si hay lista de tipos, filtrar subflota
+                            if (aircraftTypes != null && aircraftTypes.Any() &&
+                                !aircraftTypes.Contains(subfleet["type"]?.ToString()))
+                            {
+                                continue;
+                            }
+
+                            var fleetAircraft = subfleet["aircraft"] as JArray;
+                            if (fleetAircraft != null)
+                            {
+                                foreach (var ac in fleetAircraft)
+                                {
+                                    if (ac["airport_id"]?.ToString() == airportCode)
+                                    {
+                                        aircraftList.Add(new Aircraft
+                                        {
+                                            Id = ac["id"]?.ToString(),
+                                            Registration = ac["registration"]?.ToString(),
+                                            Type = subfleet["type"]?.ToString() ?? ac["icao"]?.ToString(),
+                                            Subfleet = subfleet["name"]?.ToString(),
+                                            CurrentAirport = ac["airport_id"]?.ToString(),
+                                            HexCode = ac["hex_code"]?.ToString(),
+                                            IsAvailable = ac["status"]?.ToString() == "A"
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     }
+                }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    System.Diagnostics.Debug.WriteLine($"Error {response.StatusCode} al obtener flota: {error}");
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error getting aircraft: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Excepción en GetAvailableAircraftAtAirport: {ex.Message}");
             }
 
-            return null;
+            return aircraftList;
         }
-
         /// <summary>
         /// Asigna un vuelo a un piloto (bid)
         /// </summary>
@@ -121,12 +163,18 @@ namespace vmsOpenAcars.Services
                 var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
                 var response = await _apiService.HttpClient.PostAsync(
-                    $"{_apiService.BaseUrl}api/bids", content);
+                    $"{_apiService.BaseUrl}api/user/bids", content); // 👈 CAMBIO AQUÍ
 
+                if (!response.IsSuccessStatusCode)
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    System.Diagnostics.Debug.WriteLine($"Error assigning flight: {response.StatusCode} - {error}");
+                }
                 return response.IsSuccessStatusCode;
             }
-            catch
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"Exception assigning flight: {ex}");
                 return false;
             }
         }
@@ -143,20 +191,4 @@ namespace vmsOpenAcars.Services
         }
     }
 
-    // Modelo Flight (nuevo o extiende SimbriefPlan)
-    public class Flight
-    {
-        public string Id { get; set; }
-        public string FlightNumber { get; set; }
-        public string Departure { get; set; }
-        public string Arrival { get; set; }
-        public string AircraftType { get; set; }
-        public int Distance { get; set; }
-        public int FlightTime { get; set; }
-        public string Route { get; set; }
-        public int RequiredRank { get; set; }
-        public bool IsAvailable { get; set; }
-
-        public override string ToString() => $"{FlightNumber} → {Arrival} ({AircraftType})";
-    }
 }
