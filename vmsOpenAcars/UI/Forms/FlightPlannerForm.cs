@@ -2,12 +2,14 @@
 using System.Linq;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.UI;
+using vmsOpenAcars.UI.Forms;
 
 namespace vmsOpenAcars.UI
 {
@@ -106,8 +108,8 @@ namespace vmsOpenAcars.UI
             tabBids = new TabPage("My Bids");
             InitializeBidsTab();
 
-            tabControl.Controls.Add(tabAvailable);
             tabControl.Controls.Add(tabBids);
+            tabControl.Controls.Add(tabAvailable);
 
             // Panel de selección de aeronave
             Label lblAircraftTitle = new Label
@@ -185,7 +187,8 @@ namespace vmsOpenAcars.UI
                 Size = new Size(420, 180),
                 BackColor = Color.Black,
                 ForeColor = Theme.MainText,
-                Font = new Font("Consolas", 10),
+                Font = new Font("Consolas", 10, FontStyle.Regular),
+                WordWrap = false,           
                 ReadOnly = true,
                 BorderStyle = BorderStyle.FixedSingle
             };
@@ -338,7 +341,7 @@ namespace vmsOpenAcars.UI
         {
             try
             {
-                var bids = await _apiService.GetPilotBids(); // ← CORREGIDO: sin parámetro
+                var bids = await _apiService.GetPilotBids();
 
                 // Filtrar por aeropuerto actual
                 var availableBids = bids.Where(b =>
@@ -418,24 +421,52 @@ namespace vmsOpenAcars.UI
 
             try
             {
-                var aircrafts = await _flightService.GetAvailableAircraftAtAirport(
-                    _currentAirport, _selectedFlight.AllowedAircraftTypes);
-
-                lstAircraft.Items.Clear();
-                if (aircrafts != null && aircrafts.Any())
+                // Si el vuelo tiene un aircraft_id específico (es un bid con avión asignado)
+                if (!string.IsNullOrEmpty(_selectedFlight.AircraftId))
                 {
-                    foreach (var aircraft in aircrafts)
+                    // Buscar TODAS las aeronaves disponibles primero
+                    var allAircraft = await _flightService.GetAvailableAircraftAtAirport(
+                        _currentAirport, _selectedFlight.AllowedAircraftTypes);
+
+                    // Filtrar la que tenga el ID específico
+                    var specificAircraft = allAircraft.FirstOrDefault(a => a.Id == _selectedFlight.AircraftId);
+
+                    lstAircraft.Items.Clear();
+                    if (specificAircraft != null)
                     {
-                        lstAircraft.Items.Add(aircraft);
+                        lstAircraft.Items.Add(specificAircraft);
+                        lstAircraft.SelectedIndex = 0;
+                        _selectedAircraft = specificAircraft;
+                        btnPlanWithSimbrief.Enabled = true;
+                        lblStatus.Text = $"✅ Assigned aircraft: {specificAircraft.Registration} ({specificAircraft.Type})";
                     }
-                    lstAircraft.SelectedIndex = 0;
-                    _selectedAircraft = aircrafts.First();
-                    btnPlanWithSimbrief.Enabled = true;
-                    lblStatus.Text = $"✅ {aircrafts.Count} aircraft available.";
+                    else
+                    {
+                        lblStatus.Text = $"⚠️ Assigned aircraft not found at {_currentAirport}.";
+                    }
                 }
                 else
                 {
-                    lblStatus.Text = $"⚠️ No suitable aircraft available at {_currentAirport}.";
+                    // Comportamiento normal: mostrar todas las aeronaves disponibles del tipo permitido
+                    var aircrafts = await _flightService.GetAvailableAircraftAtAirport(
+                        _currentAirport, _selectedFlight.AllowedAircraftTypes);
+
+                    lstAircraft.Items.Clear();
+                    if (aircrafts != null && aircrafts.Any())
+                    {
+                        foreach (var aircraft in aircrafts)
+                        {
+                            lstAircraft.Items.Add(aircraft);
+                        }
+                        lstAircraft.SelectedIndex = 0;
+                        _selectedAircraft = aircrafts.First();
+                        btnPlanWithSimbrief.Enabled = true;
+                        lblStatus.Text = $"✅ {aircrafts.Count} aircraft available.";
+                    }
+                    else
+                    {
+                        lblStatus.Text = $"⚠️ No suitable aircraft available at {_currentAirport}.";
+                    }
                 }
             }
             catch (Exception ex)
@@ -503,16 +534,20 @@ namespace vmsOpenAcars.UI
         {
             if (_selectedFlight == null || _selectedAircraft == null)
             {
-                MessageBox.Show("Please select a flight and aircraft first.", "Warning",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                EcamDialog.Show(this,
+                    "Please select a flight and aircraft first.",
+                    "WARNING",
+                    EcamDialogButtons.OK);
                 return;
             }
 
             string simbriefUser = System.Configuration.ConfigurationManager.AppSettings["simbrief_user"];
             if (string.IsNullOrEmpty(simbriefUser))
             {
-                MessageBox.Show("Configure 'simbrief_user' in App.config", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                EcamDialog.Show(this,
+                    "Configure 'simbrief_user' in App.config",
+                    "ERROR",
+                    EcamDialogButtons.OK);
                 return;
             }
 
@@ -533,39 +568,49 @@ namespace vmsOpenAcars.UI
 
                     if (!originMatch || !destMatch || !aircraftMatch)
                     {
-                        string errorMsg = "The fetched OFP does not match the selected flight/aircraft.\n\n";
-                        errorMsg += $"Expected: {_selectedFlight.Departure} → {_selectedFlight.Arrival} ({_selectedAircraft.Type})\n";
-                        errorMsg += $"Got: {plan.Origin} → {plan.Destination} ({plan.AircraftIcao})";
-                        MessageBox.Show(errorMsg, "OFP Mismatch", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        string errorMsg = $"The fetched OFP does not match the selected flight/aircraft.\n\n" +
+                            $"Expected: {_selectedFlight.Departure} → {_selectedFlight.Arrival} ({_selectedAircraft.Type})\n" +
+                            $"Got: {plan.Origin} → {plan.Destination} ({plan.AircraftIcao})";
+
+                        EcamDialog.Show(this, errorMsg, "OFP MISMATCH", EcamDialogButtons.OK);
                         lblStatus.Text = "❌ OFP mismatch. Please generate the correct plan in SimBrief.";
                         return;
                     }
 
-                    // 1. Validar antigüedad (máximo 2 horas)
+                    // 2. Validar antigüedad (máximo 2 horas)
                     DateTime planTime = DateTimeOffset.FromUnixTimeSeconds(plan.TimeGenerated).UtcDateTime;
                     if (DateTime.UtcNow - planTime > TimeSpan.FromHours(2))
                     {
-                        MessageBox.Show("El plan tiene más de 2 horas. Genera uno nuevo.", "Plan expirado", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        EcamDialog.Show(this,
+                            "The plan is more than 2 hours old. Please generate a new one.",
+                            "EXPIRED PLAN",
+                            EcamDialogButtons.OK);
                         return;
                     }
 
-                    // 2. Validar que la fecha de salida sea hoy o futura (comparando con la fecha actual UTC)
+                    // 3. Validar que la fecha de salida sea hoy o futura
                     DateTime scheduledOff = DateTimeOffset.FromUnixTimeSeconds(plan.ScheduledOffTime).UtcDateTime.Date;
                     if (scheduledOff < DateTime.UtcNow.Date)
                     {
-                        MessageBox.Show("La fecha de salida programada es anterior a hoy.", "Fecha inválida", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        EcamDialog.Show(this,
+                            "The scheduled departure date is in the past.",
+                            "INVALID DATE",
+                            EcamDialogButtons.OK);
                         return;
                     }
-                    // Validar que la matrícula coincida
+
+                    // 4. Validar que la matrícula coincida
                     if (!plan.Registration.Equals(_selectedAircraft.Registration, StringComparison.OrdinalIgnoreCase))
                     {
-                        string errorMsg = "The fetched OFP does not match the selected aircraft registration.\n\n";
-                        errorMsg += $"Expected: {_selectedAircraft.Registration}\n";
-                        errorMsg += $"Got: {plan.Registration}";
-                        MessageBox.Show(errorMsg, "Aircraft Mismatch", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        string errorMsg = $"The fetched OFP does not match the selected aircraft registration.\n\n" +
+                            $"Expected: {_selectedAircraft.Registration}\n" +
+                            $"Got: {plan.Registration}";
+
+                        EcamDialog.Show(this, errorMsg, "REGISTRATION MISMATCH", EcamDialogButtons.OK);
                         lblStatus.Text = "❌ Aircraft registration mismatch. Please generate the correct plan in SimBrief.";
                         return;
                     }
+                    plan.AircraftId = int.Parse(_selectedAircraft.Id);
                     // Si todo está bien
                     _loadedPlan = plan;
                     DisplayOFP(plan);
@@ -591,19 +636,43 @@ namespace vmsOpenAcars.UI
 
         private void DisplayOFP(SimbriefPlan plan)
         {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"╔════════════════════════════════════════╗");
-            sb.AppendLine($"║     OPERATIONAL FLIGHT PLAN           ║");
-            sb.AppendLine($"╠════════════════════════════════════════╣");
-            sb.AppendLine($"║ Flight: {plan.Airline}{plan.FlightNumber,-15}        ║");
-            sb.AppendLine($"║ Route:  {plan.Origin} → {plan.Destination}             ║");
-            sb.AppendLine($"║ Aircraft: {plan.AircraftIcao} ({plan.Registration})   ║");
-            sb.AppendLine($"║ Fuel: {plan.BlockFuel,5:F0} kg                        ║");
-            sb.AppendLine($"║ Pax: {plan.PaxCount,3}                               ║");
-            sb.AppendLine($"║ Route: {plan.Route} ║");
-            sb.AppendLine($"╚════════════════════════════════════════╝");
+            const int width = 42; // Ancho total de la línea (incluyendo bordes)
+            const int contentWidth = width - 4; // Espacio disponible para texto (restando "║ " y " ║")
+
+            var sb = new StringBuilder();
+
+            // Línea superior
+            sb.AppendLine("╔" + new string('═', width - 2) + "╗");
+
+            // Título centrado
+            string title = "OPERATIONAL FLIGHT PLAN";
+            int padding = (width - 2 - title.Length) / 2;
+            sb.AppendLine("║" + new string(' ', padding) + title + new string(' ', width - 2 - title.Length - padding) + "║");
+
+            // Línea separadora
+            sb.AppendLine("╠" + new string('═', width - 2) + "╣");
+
+            // Líneas de contenido con formato fijo
+            AddContentLine(sb, $"Flight: {plan.Airline}{plan.FlightNumber}", width);
+            AddContentLine(sb, $"Route:  {plan.Origin} → {plan.Destination}", width);
+            AddContentLine(sb, $"Aircraft: {plan.AircraftIcao} ({plan.Registration})", width);
+            AddContentLine(sb, $"Fuel: {plan.BlockFuel:F0} kg", width);
+            AddContentLine(sb, $"Pax: {plan.PaxCount}", width);
+            AddContentLine(sb, $"Route: {plan.Route}", width);
+
+            // Línea inferior
+            sb.AppendLine("╚" + new string('═', width - 2) + "╝");
 
             txtOFPPreview.Text = sb.ToString();
+        }
+
+        private void AddContentLine(StringBuilder sb, string text, int width)
+        {
+            // Calcular espacios a la derecha para que la línea tenga exactamente 'width' caracteres
+            int padding = width - 2 - text.Length; // -2 por los bordes "║ " y " ║"
+            if (padding < 0) padding = 0; // Si el texto es más largo, no añadimos espacios
+            var linea = "║ " + text + new string(' ', padding) + " ║";
+            sb.AppendLine("║ " + text + new string(' ', padding) + " ║");
         }
 
         public SimbriefPlan GetLoadedPlan() => _loadedPlan;

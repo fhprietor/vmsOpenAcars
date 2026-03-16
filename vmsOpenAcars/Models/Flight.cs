@@ -13,7 +13,8 @@ namespace vmsOpenAcars.Models
         public string Airline { get; set; }
         public string Departure { get; set; }
         public string Arrival { get; set; }
-        public string AircraftType { get; set; } // Podría ser el tipo principal, pero ahora usaremos la lista
+        public string AircraftType { get; set; } 
+        public string AircraftId { get; set; }
         public int Distance { get; set; } // En millas náuticas (NM)
         public int FlightTime { get; set; }
         public string Route { get; set; }
@@ -21,6 +22,7 @@ namespace vmsOpenAcars.Models
         public bool IsAvailable { get; set; }
         public int Level { get; set; }
         public string BidId { get; set; }
+        public string FlightType { get; set; }
 
         // Nuevas propiedades
         public List<string> AllowedAircraftTypes { get; set; } = new List<string>();

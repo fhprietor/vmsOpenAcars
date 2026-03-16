@@ -128,29 +128,6 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel.OnAcarsStatusChanged += _uiService.UpdateAcarsStatus;
             _viewModel.OnAirportChanged += _uiService.UpdateCurrentAirport;
             _viewModel.OnButtonStateChanged += UpdateButtonState;
-
-            _viewModel.OnOpenFlightPlanner += () =>
-            {
-                var planner = new FlightPlannerForm(
-                    _viewModel.ApiService,                    // ← FALTABA ESTE
-                    _viewModel.PhpVmsFlightService,
-                    _viewModel.SimbriefEnhancedService,
-                    _viewModel.FlightManager,
-                    _viewModel.FlightManager.ActivePilot,
-                    _viewModel.FlightManager.CurrentAirport,
-                    null                                       // bids (opcional)
-                );
-
-                if (planner.ShowDialog(this) == DialogResult.OK)
-                {
-                    var plan = planner.GetLoadedPlan();
-                    if (plan != null)
-                    {
-                        _viewModel.SetActivePlan(plan);
-                    }
-                }
-            };
-
             _viewModel.OnShowMessage += (message, title) =>
             {
                 MessageBox.Show(message, title);
@@ -787,6 +764,38 @@ namespace vmsOpenAcars.UI.Forms
 
         #endregion
 
+        /// <summary>
+        /// Actualiza los labels del panel FLIGHT INFORMATION con los datos del plan activo
+        /// </summary>
+        public void UpdateFlightInfoPanel()
+        {
+            if (_viewModel?.FlightManager?.ActivePlan == null)
+            {
+                // Si no hay plan activo, mostrar valores por defecto
+                _lblFlightNo.Text = "FLT NO: ----";
+                _lblDepArr.Text = "DEP/ARR: ----/----";
+                _lblAlternate.Text = "ALTN: ----";
+                _lblRoute.Text = "ROUTE: ----";
+                _lblAircraft.Text = "ACFT: ----";
+                _lblFuel.Text = "FUEL: ---- kg";
+                _lblType.Text = "TYPE: ----";
+                _lblRegistration.Text = "REG: ----";
+                return;
+            }
+
+            var plan = _viewModel.FlightManager.ActivePlan;
+
+            // Actualizar los labels con los datos del plan
+            _lblFlightNo.Text = $"FLT NO: {plan.Airline}{plan.FlightNumber}";
+            _lblDepArr.Text = $"DEP/ARR: {plan.Origin}/{plan.Destination}";
+            _lblAlternate.Text = $"ALTN: {plan.Alternate ?? "N/A"}";
+            _lblRoute.Text = $"ROUTE: {plan.Route}";
+            _lblAircraft.Text = $"ACFT: {plan.AircraftIcao}";
+            _lblFuel.Text = $"FUEL: {plan.BlockFuel:F0} {plan.Units ?? "kg"}";
+            _lblType.Text = $"TYPE: {plan.Aircraft}";
+            _lblRegistration.Text = $"REG: {plan.Registration}";
+        }
+
         #region Eventos de Botones
 
         private void BtnLogin_Click(object sender, EventArgs e)
@@ -802,7 +811,6 @@ namespace vmsOpenAcars.UI.Forms
                 return;
             }
 
-            // Abrir el planificador directamente (él cargará las reservas internamente)
             using (var planner = new FlightPlannerForm(
                 _viewModel.ApiService,
                 _viewModel.PhpVmsFlightService,
@@ -813,18 +821,23 @@ namespace vmsOpenAcars.UI.Forms
             {
                 if (planner.ShowDialog(this) == DialogResult.OK)
                 {
-                    var plan = planner.GetLoadedPlan();
-                    if (plan != null)
+                    // PRIORIDAD 1: Usar el plan completo de SimBrief si existe
+                    var completePlan = planner.GetLoadedPlan();
+                    if (completePlan != null)
                     {
-                        _viewModel.SetActivePlan(plan);
-                        _uiService.AddLog($"✅ Plan cargado: {plan.Origin} → {plan.Destination}", Theme.Success);
+                        _viewModel.SetActivePlan(completePlan);
+                        _uiService.AddLog($"✅ Plan loaded: {completePlan.Origin} → {completePlan.Destination}", Theme.Success);
+                        UpdateFlightInfoPanel();
+                        return; // Salir, ya tenemos el plan completo
                     }
 
+                    // PRIORIDAD 2: Si no hay plan, usar el vuelo seleccionado (plan básico)
                     var selectedFlight = planner.GetSelectedFlight();
                     if (selectedFlight != null)
                     {
                         _viewModel.LoadFlightFromBid(selectedFlight);
-                        _uiService.AddLog($"✅ Vuelo seleccionado: {selectedFlight.Airline}{selectedFlight.FlightNumber}", Theme.Success);
+                        _uiService.AddLog($"✅ Flight selected: {selectedFlight.Airline}{selectedFlight.FlightNumber}", Theme.Success);
+                        UpdateFlightInfoPanel();
                     }
                 }
             }

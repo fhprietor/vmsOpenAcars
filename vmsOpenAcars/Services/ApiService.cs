@@ -65,7 +65,120 @@ namespace vmsOpenAcars.Services
         /// Obtiene las reservas (bids) del piloto actualmente autenticado
         /// </summary>
         // En ApiService.cs
+        public async Task<List<Flight>> GetPilotBids()
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_baseUrl}api/user/bids");
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    var json = JObject.Parse(content);
+                    var data = json["data"] as JArray;
+                    var flights = new List<Flight>();
 
+                    if (data != null)
+                    {
+                        foreach (var item in data)
+                        {
+                            JObject flightData = null;
+
+                            try
+                            {
+                                flightData = item["flight"] as JObject;
+                                if (flightData == null) continue;
+
+                                // Distancia en millas náuticas
+                                int nmDistance = flightData["distance"]?["nmi"]?.Value<int?>() ?? 0;
+
+                                // Tipos de aeronave permitidos
+                                var allowedTypes = new List<string>();
+                                var subfleets = flightData["subfleets"] as JArray;
+                                if (subfleets != null)
+                                {
+                                    foreach (var sub in subfleets)
+                                    {
+                                        var type = sub["type"]?.ToString();
+                                        if (!string.IsNullOrEmpty(type))
+                                            allowedTypes.Add(type);
+                                    }
+                                }
+                                // Aeronave reservada
+                                string bidAircraftId = item["aircraft_id"]?.ToString() ?? "";
+                                // Aerolínea
+                                string airlineCode = "VHR";
+                                var airline = flightData["airline"] as JObject;
+                                if (airline != null)
+                                {
+                                    airlineCode = airline["icao"]?.ToString() ?? airlineCode;
+                                }
+
+                                // Número de vuelo (numérico)
+                                string flightNumber = flightData["flight_number"]?.ToString() ?? "";
+
+                                // Callsign (el identificador real del vuelo)
+                                string callsign = flightData["callsign"]?.ToString() ?? "";
+
+                                // Tipo de vuelo: J = Programado, C = Charter, P = Posicionamiento/Ferry
+                                string flightType = flightData["flight_type"]?.ToString() ?? "J";
+
+                                // Para vuelos charter (C) o ferry (P), usar callsign en lugar de flight_number
+                                string displayFlightNumber;
+                                if (flightType == "C" || flightType == "P")
+                                {
+                                    displayFlightNumber = callsign; // Ej: "55CH"
+                                }
+                                else
+                                {
+                                    displayFlightNumber = $"{flightNumber}"; // Ej: "1234"
+                                }
+
+                                // Tiempo de vuelo
+                                int flightTime = flightData["flight_time"]?.Value<int?>() ?? 0;
+
+                                // Nivel
+                                int level = flightData["level"]?.Value<int?>() ?? 0;
+
+                                flights.Add(new Flight
+                                {
+                                    Id = flightData["id"]?.ToString(),
+                                    FlightNumber = displayFlightNumber, // Usamos el valor calculado
+                                    Airline = airlineCode,
+                                    Departure = flightData["dpt_airport_id"]?.ToString(),
+                                    Arrival = flightData["arr_airport_id"]?.ToString(),
+                                    AllowedAircraftTypes = allowedTypes,
+                                    AllowedAircraftTypesDisplay = string.Join("/", allowedTypes),
+                                    Distance = nmDistance,
+                                    FlightTime = flightTime,
+                                    Route = flightData["route"]?.ToString() ?? "",
+                                    Level = level,
+                                    BidId = item["id"]?.ToString(),
+                                    AircraftId = bidAircraftId,
+                                    FlightType = flightType,
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"Error procesando un bid: {ex.Message}");
+                                if (flightData != null)
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"Flight ID: {flightData["id"]}");
+                                }
+                            }
+                        }
+                    }
+                    return flights;
+                }
+                return new List<Flight>();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error general en GetPilotBids: {ex}");
+                return new List<Flight>();
+            }
+        }
+
+        /*
         public async Task<List<Flight>> GetPilotBids()
         {
             try
@@ -131,6 +244,7 @@ namespace vmsOpenAcars.Services
                 return new List<Flight>();
             }
         }
+        */
         #endregion
 
         #region PIREP Management
@@ -237,7 +351,7 @@ namespace vmsOpenAcars.Services
             var payload = new
             {
                 airline_id = pilot.AirlineId,
-                aircraft_id = 2, // TODO: This should come from the plan or configuration
+                aircraft_id = plan.AircraftId,
                 flight_number = plan.FlightNumber,
                 dpt_airport_id = plan.Origin,
                 arr_airport_id = plan.Destination,

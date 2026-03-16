@@ -70,12 +70,16 @@
         /// <summary>
         /// Gets or sets the Schedule Time as provided by SimBrief.
         /// </summary>
-        public long ScheduledOffTime { get; set; } 
+        public long ScheduledOffTime { get; set; }
 
         #endregion
 
         #region Aircraft Information
-
+        /// <summary>
+        /// Gets or sets the phpvms aircraft id
+        /// Example: 1,2,53
+        /// </summary>
+        public int AircraftId { get; set; }
         /// <summary>
         /// Gets or sets the aircraft type code (may be same as AircraftIcao or different).
         /// Example: "B58", "B738"

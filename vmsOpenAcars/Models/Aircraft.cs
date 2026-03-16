@@ -12,7 +12,7 @@
         /// This is typically an auto-incremented integer or UUID.
         /// </summary>
         public string Id { get; set; }
-
+        public int AircraftId => int.TryParse(Id, out int id) ? id : 0;
         /// <summary>
         /// Gets or sets the aircraft registration/tail number.
         /// Example: "HK1701", "N665VH", "G-EZAC"

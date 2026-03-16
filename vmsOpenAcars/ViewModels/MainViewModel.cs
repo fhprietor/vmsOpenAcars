@@ -56,7 +56,7 @@ namespace vmsOpenAcars.ViewModels
         public event Action<string> OnTypeChanged;
         public event Action<string> OnRegistrationChanged;
         public event Func<string, string, EcamDialogButtons, Task<DialogResult>> OnShowConfirmation;
-        
+        public event Action OnFlightStarted;
 
         public MainViewModel(
             FlightManager flightManager,
@@ -367,6 +367,7 @@ namespace vmsOpenAcars.ViewModels
             {
                 OnButtonStateChanged?.Invoke("ABORT", Color.Red, true);
                 OnLog?.Invoke(_("FlightStarted"), Theme.Success);
+                OnFlightStarted?.Invoke();
             }
         }
 
