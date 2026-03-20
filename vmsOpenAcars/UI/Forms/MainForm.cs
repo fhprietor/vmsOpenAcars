@@ -12,6 +12,8 @@ using vmsOpenAcars.Services;
 using vmsOpenAcars.UI;
 using vmsOpenAcars.ViewModels;
 using static vmsOpenAcars.Helpers.L;
+using System.Reflection;
+using System.Diagnostics;
 
 namespace vmsOpenAcars.UI.Forms
 {
@@ -72,7 +74,7 @@ namespace vmsOpenAcars.UI.Forms
 
         public MainForm()
         {
-            EnsureConfigKeys();
+            EnsureAllConfigKeys();
             InitializeForm();
             InitializeLayout();
             InitializeHeader();
@@ -197,11 +199,6 @@ namespace vmsOpenAcars.UI.Forms
             }
         }
 
-        private void EnsureConfigKeys()
-        {
-            // Tu código existente
-        }
-
         #endregion
 
         #region Inicialización de UI (Tus métodos existentes)
@@ -244,6 +241,7 @@ namespace vmsOpenAcars.UI.Forms
 
                 int left, top, width, height;
 
+                // Verificar que TODAS las claves existen y tienen valores válidos
                 if (!string.IsNullOrEmpty(savedLeft) && !string.IsNullOrEmpty(savedTop) &&
                     !string.IsNullOrEmpty(savedWidth) && !string.IsNullOrEmpty(savedHeight))
                 {
@@ -251,18 +249,7 @@ namespace vmsOpenAcars.UI.Forms
                         int.TryParse(savedWidth, out width) && int.TryParse(savedHeight, out height))
                     {
                         Rectangle windowRect = new Rectangle(left, top, width, height);
-                        bool isValidPosition = false;
-
-                        foreach (Screen screen in Screen.AllScreens)
-                        {
-                            if (screen.WorkingArea.IntersectsWith(windowRect))
-                            {
-                                isValidPosition = true;
-                                break;
-                            }
-                        }
-
-                        if (isValidPosition)
+                        if (IsValidScreenPosition(windowRect))
                         {
                             this.StartPosition = FormStartPosition.Manual;
                             this.Location = new Point(left, top);
@@ -270,17 +257,17 @@ namespace vmsOpenAcars.UI.Forms
                         }
                         else
                         {
-                            CenterInScreen(0);
+                            CenterInScreen(GetSavedScreenIndex());
                         }
                     }
                     else
                     {
-                        CenterInScreen(0);
+                        CenterInScreen(GetSavedScreenIndex());
                     }
                 }
                 else
                 {
-                    CenterInScreen(0);
+                    CenterInScreen(GetSavedScreenIndex());
                 }
             }
             catch
@@ -327,7 +314,7 @@ namespace vmsOpenAcars.UI.Forms
                 Padding = new Padding(10)
             };
 
-            // Logo
+            // ===== LOGO =====
             PictureBox pbLogo = new PictureBox
             {
                 Size = new Size(40, 40),
@@ -336,6 +323,7 @@ namespace vmsOpenAcars.UI.Forms
                 BackColor = Color.Transparent
             };
 
+            // Cargar el logo
             try
             {
                 string logoPath = Path.Combine(Application.StartupPath, "logo.png");
@@ -361,6 +349,7 @@ namespace vmsOpenAcars.UI.Forms
                 _uiService?.AddLog($"⚠️ Error cargando logo: {ex.Message}", Theme.Warning);
             }
 
+            // ===== TÍTULO PRINCIPAL =====
             lblTitle = new Label
             {
                 Text = _("MainTitle"),
@@ -370,6 +359,7 @@ namespace vmsOpenAcars.UI.Forms
                 AutoSize = true
             };
 
+            // ===== NOMBRE DE AEROLÍNEA =====
             string airlineName = ConfigurationManager.AppSettings["airline"] ?? "vmsOpenAcars";
             lblSubTitle = new Label
             {
@@ -380,12 +370,23 @@ namespace vmsOpenAcars.UI.Forms
                 AutoSize = true
             };
 
+            // ===== LABEL DE VERSIÓN (a la izquierda del engranaje) =====
+            Label lblVersion = new Label
+            {
+                Text = $"v{GetAppVersion()}",
+                Font = new Font("Consolas", 9, FontStyle.Italic),
+                ForeColor = Color.FromArgb(150, 150, 150),
+                AutoSize = true,
+                // La posición Y se ajustará en el evento Resize
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+
+            // ===== BOTÓN DE CONFIGURACIÓN =====
             Button btnSettings = new Button
             {
                 Text = "⚙️",
                 Font = new Font("Segoe UI", 14, FontStyle.Regular),
                 Size = new Size(40, 40),
-                Location = new Point(pnlHeader.Width - 50, 10),
                 BackColor = Color.Transparent,
                 ForeColor = Color.Cyan,
                 FlatStyle = FlatStyle.Flat,
@@ -394,15 +395,37 @@ namespace vmsOpenAcars.UI.Forms
             btnSettings.FlatAppearance.BorderSize = 0;
             btnSettings.Click += BtnSettings_Click;
 
-            pnlHeader.Controls.AddRange(new Control[] { pbLogo, lblTitle, lblSubTitle, btnSettings });
+            // Agregar controles al panel
+            pnlHeader.Controls.AddRange(new Control[] {
+        pbLogo, lblTitle, lblSubTitle, lblVersion, btnSettings
+    });
+
             mainLayout.Controls.Add(pnlHeader, 0, 0);
 
+            // Ajustar posiciones al redimensionar
             pnlHeader.Resize += (s, e) =>
             {
-                btnSettings.Location = new Point(pnlHeader.Width - 50, 10);
+                int rightMargin = 10;
+                int settingsWidth = 40;
+                int spacing = 8;
+
+                // Posicionar el botón de configuración
+                btnSettings.Location = new Point(pnlHeader.Width - settingsWidth - rightMargin, 10);
+
+                // Calcular el centro vertical del botón
+                int buttonCenterY = btnSettings.Top + (btnSettings.Height / 2);
+
+                // Posicionar la versión a la izquierda del botón, centrada verticalmente
+                lblVersion.Location = new Point(
+                    btnSettings.Left - lblVersion.Width - spacing,
+                    buttonCenterY - (lblVersion.Height / 2)
+                );
             };
 
-            // Arrastre
+            // Forzar el ajuste inicial
+            pnlHeader.Resize += (s, e) => { }; // Solo para invocar el evento
+
+            // ===== ARRASTRE DE LA VENTANA =====
             pnlHeader.MouseDown += (s, e) =>
             {
                 if (e.Button == MouseButtons.Left)
@@ -880,41 +903,119 @@ namespace vmsOpenAcars.UI.Forms
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             _viewModel?.Stop();
-
             base.OnFormClosing(e);
 
             try
             {
                 Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
 
-                config.AppSettings.Settings["window_left"].Value = this.Location.X.ToString();
-                config.AppSettings.Settings["window_top"].Value = this.Location.Y.ToString();
-                config.AppSettings.Settings["window_width"].Value = this.Size.Width.ToString();
-                config.AppSettings.Settings["window_height"].Value = this.Size.Height.ToString();
+                // Asegurar que las claves existen antes de asignar
+                EnsureConfigKey(config, "window_left", this.Location.X.ToString());
+                EnsureConfigKey(config, "window_top", this.Location.Y.ToString());
+                EnsureConfigKey(config, "window_width", this.Size.Width.ToString());
+                EnsureConfigKey(config, "window_height", this.Size.Height.ToString());
 
-                int screenIndex = 0;
-                for (int i = 0; i < Screen.AllScreens.Length; i++)
-                {
-                    if (Screen.AllScreens[i].Bounds.Contains(this.Location))
-                    {
-                        screenIndex = i;
-                        break;
-                    }
-                }
-
-                if (config.AppSettings.Settings["last_screen"] != null)
-                    config.AppSettings.Settings["last_screen"].Value = screenIndex.ToString();
-                else
-                    config.AppSettings.Settings.Add("last_screen", screenIndex.ToString());
+                int screenIndex = GetCurrentScreenIndex();
+                EnsureConfigKey(config, "last_screen", screenIndex.ToString());
 
                 config.Save(ConfigurationSaveMode.Modified);
+                ConfigurationManager.RefreshSection("appSettings");
+
+                Debug.WriteLine("✅ Configuración guardada correctamente");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error guardando configuración: {ex.Message}");
+                Debug.WriteLine($"❌ Error guardando configuración: {ex.Message}");
             }
         }
 
+        private void EnsureConfigKey(Configuration config, string key, string value)
+        {
+            if (config.AppSettings.Settings[key] != null)
+            {
+                config.AppSettings.Settings[key].Value = value;
+            }
+            else
+            {
+                config.AppSettings.Settings.Add(key, value);
+            }
+        }
+
+        private int GetCurrentScreenIndex()
+        {
+            for (int i = 0; i < Screen.AllScreens.Length; i++)
+            {
+                if (Screen.AllScreens[i].Bounds.Contains(this.Location))
+                    return i;
+            }
+            return 0;
+        }
+
         #endregion
+        private bool IsValidScreenPosition(Rectangle windowRect)
+        {
+            foreach (Screen screen in Screen.AllScreens)
+            {
+                if (screen.WorkingArea.IntersectsWith(windowRect))
+                    return true;
+            }
+            return false;
+        }
+
+        private int GetSavedScreenIndex()
+        {
+            string savedScreen = ConfigurationManager.AppSettings["last_screen"];
+            if (int.TryParse(savedScreen, out int index) && index >= 0 && index < Screen.AllScreens.Length)
+                return index;
+            return 0;
+        }
+        private void EnsureAllConfigKeys()
+        {
+            Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+
+            string[] defaultKeys = {
+                "window_left", "window_top",
+                "window_width", "window_height",
+                "last_screen"
+            };
+
+            string[] defaultValues = {
+                "100", "100", "1024", "768", "0"
+            };
+
+            for (int i = 0; i < defaultKeys.Length; i++)
+            {
+                if (config.AppSettings.Settings[defaultKeys[i]] == null)
+                {
+                    config.AppSettings.Settings.Add(defaultKeys[i], defaultValues[i]);
+                }
+            }
+
+            config.Save(ConfigurationSaveMode.Modified);
+            ConfigurationManager.RefreshSection("appSettings");
+        }
+
+        private string GetAppVersion()
+        {
+            try
+            {
+                // Intentar obtener la versión informativa (con sufijos beta/rc)
+                var informationalVersion = Assembly.GetExecutingAssembly()
+                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                    ?.InformationalVersion;
+
+                if (!string.IsNullOrEmpty(informationalVersion))
+                    return informationalVersion;
+
+                // Fallback a la versión numérica estándar
+                var version = Assembly.GetExecutingAssembly().GetName().Version;
+                return version != null ? version.ToString(3) : "1.0.0"; // Muestra solo major.minor.build
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error getting version: {ex}");
+                return "1.0.0";
+            }
+        }
     }
 }
