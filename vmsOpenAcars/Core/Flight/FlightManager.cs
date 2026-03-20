@@ -28,11 +28,18 @@ namespace vmsOpenAcars.Core.Flight
         private DateTime? _lastPositionTime = null;
         private (double lat, double lon)? _lastPosition = null;
 
+        // Variables para control de histéresis
+        private DateTime _phaseStartTime = DateTime.UtcNow;
+        private FlightPhase _lastStablePhase;
+
+        // Variables para pushback
+        private DateTime _pushbackStartTime = DateTime.MinValue;
+        private const double PUSHBACK_MIN_SPEED = 0.5;
+        private const double PUSHBACK_MAX_SPEED = 5.0;
+        private const int PUSHBACK_MIN_DURATION = 5;
+
         #region Properties
 
-        /// <summary>
-        /// Gets the current airport based on pilot's location or phpVMS assignment.
-        /// </summary>
         public string CurrentAirport
         {
             get => _currentAirport;
@@ -43,165 +50,52 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Gets the current latitude from the simulator.
-        /// </summary>
         public double CurrentLat { get; private set; }
-
-        /// <summary>
-        /// Gets the current longitude from the simulator.
-        /// </summary>
         public double CurrentLon { get; private set; }
-
-        /// <summary>
-        /// Gets the current indicated airspeed in knots.
-        /// </summary>
         public int CurrentIndicatedAirspeed { get; private set; }
-
-        /// <summary>
-        /// Gets the current altitude in feet MSL.
-        /// </summary>
         public int CurrentAltitude { get; private set; }
-
-        /// <summary>
-        /// Gets the current vertical speed in feet per minute.
-        /// </summary>
         public int CurrentVerticalSpeed { get; private set; }
-
-        /// <summary>
-        /// Gets the touchdown vertical speed (negative for landing).
-        /// </summary>
         public int? TouchdownFpm { get; private set; }
-
-        /// <summary>
-        /// Gets the current flight phase.
-        /// </summary>
         public FlightPhase CurrentPhase { get; private set; }
-
-        /// <summary>
-        /// Gets the current ground speed in knots.
-        /// </summary>
         public int CurrentGroundSpeed { get; private set; }
-
-        /// <summary>
-        /// Gets the current fuel total in pounds.
-        /// </summary>
         public double CurrentFuel { get; private set; }
-
-        /// <summary>
-        /// Gets a value indicating whether the aircraft is on ground.
-        /// </summary>
         public bool IsOnGround { get; private set; }
-
-        /// <summary>
-        /// Gets the active PIREP ID returned by phpVMS after prefile.
-        /// </summary>
         public string ActivePirepId { get; private set; } = "";
-
-        /// <summary>
-        /// Gets the flight start time (UTC).
-        /// </summary>
         public DateTime FlightStartTime { get; private set; }
-
-        /// <summary>
-        /// Gets the active pilot information.
-        /// </summary>
         public Pilot ActivePilot => _activePilot;
-
-        /// <summary>
-        /// Gets the active flight plan from SimBrief.
-        /// </summary>
         public SimbriefPlan ActivePlan => _activePlan;
-
-        /// <summary>
-        /// Gets a value indicating whether the simulator is connected.
-        /// </summary>
         public bool IsSimulatorConnected { get; private set; }
-
-        /// <summary>
-        /// Gets the current position validation status (ICAO and GPS).
-        /// </summary>
         public ValidationStatus PositionValidationStatus { get; private set; }
-
-        /// <summary>
-        /// Gets the current fuel flow in pounds per hour.
-        /// </summary>
         public double CurrentFuelFlow { get; private set; }
-
-        /// <summary>
-        /// Gets the current transponder code.
-        /// </summary>
         public int CurrentTransponder { get; private set; }
-
-        /// <summary>
-        /// Gets a value indicating whether autopilot is engaged.
-        /// </summary>
         public bool AutopilotEngaged { get; private set; }
-
-        /// <summary>
-        /// Gets the current simulation time (UTC).
-        /// </summary>
         public DateTime SimTime { get; private set; }
-
-        /// <summary>
-        /// Gets the current radar altitude (AGL) in feet.
-        /// </summary>
         public double RadarAltitude { get; private set; }
-
-        /// <summary>
-        /// Gets the current position order number for ACARS updates.
-        /// </summary>
         public int PositionOrder { get; private set; }
 
         #endregion
 
         #region Events
 
-        /// <summary>
-        /// Occurs when the phase changes (string version for logs).
-        /// </summary>
         public event Action<string> OnPhaseChanged;
-
-        /// <summary>
-        /// Occurs when the phase changes (enum version for UI).
-        /// </summary>
         public event Action<FlightPhase> PhaseChanged;
-
-        /// <summary>
-        /// Occurs when the current airport changes.
-        /// </summary>
         public event Action<string> OnAirportChanged;
-
-        /// <summary>
-        /// Occurs when a log message is generated.
-        /// </summary>
         public event Action<string, Color> OnLog;
-
-        /// <summary>
-        /// Occurs when position validation status changes.
-        /// </summary>
         public event Action<ValidationStatus> OnPositionValidated;
 
         #endregion
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="FlightManager"/> class.
-        /// </summary>
-        /// <param name="apiService">The API service for phpVMS communication.</param>
         public FlightManager(ApiService apiService)
         {
             _apiService = apiService;
             _positionValidator = new PositionValidator();
             CurrentPhase = FlightPhase.Idle;
+            _lastStablePhase = FlightPhase.Idle;
             PositionValidationStatus = new ValidationStatus();
         }
 
         #region Private Methods
 
-        /// <summary>
-        /// Updates the PIREP status on the server.
-        /// </summary>
-        /// <param name="statusCode">The status code (e.g., "BST", "TXI", "ARR").</param>
         private async Task UpdatePirepStatus(string statusCode)
         {
             if (string.IsNullOrEmpty(ActivePirepId))
@@ -223,9 +117,6 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Updates the block off time on the server when pushback/taxi begins.
-        /// </summary>
         private async Task UpdateBlockOffTime()
         {
             if (string.IsNullOrEmpty(ActivePirepId))
@@ -246,9 +137,6 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Validates if the current airport matches the flight plan origin.
-        /// </summary>
         private void ValidateAirportMatch()
         {
             if (_activePilot == null || _activePlan == null) return;
@@ -275,11 +163,6 @@ namespace vmsOpenAcars.Core.Flight
             OnPositionValidated?.Invoke(PositionValidationStatus);
         }
 
-        /// <summary>
-        /// Validates the current GPS position against the assigned airport.
-        /// </summary>
-        /// <param name="currentLat">Current latitude from simulator.</param>
-        /// <param name="currentLon">Current longitude from simulator.</param>
         private void ValidateSimulatorPosition(double currentLat, double currentLon)
         {
             if (_activePilot == null) return;
@@ -306,10 +189,6 @@ namespace vmsOpenAcars.Core.Flight
             OnPositionValidated?.Invoke(PositionValidationStatus);
         }
 
-        /// <summary>
-        /// Registers a touchdown event with the vertical speed.
-        /// </summary>
-        /// <param name="verticalSpeed">Vertical speed at touchdown.</param>
         private void RegisterTouchdown(int verticalSpeed)
         {
             if (_touchdownCaptured)
@@ -320,9 +199,6 @@ namespace vmsOpenAcars.Core.Flight
             OnLog?.Invoke($"✈️ Touchdown: {verticalSpeed} FPM", Theme.MainText);
         }
 
-        /// <summary>
-        /// Calculates the Haversine distance between two coordinates.
-        /// </summary>
         private double CalculateDistance(double lat1, double lon1, double lat2, double lon2)
         {
             const double R = 6371;
@@ -335,9 +211,6 @@ namespace vmsOpenAcars.Core.Flight
             return R * c;
         }
 
-        /// <summary>
-        /// Resets all flight-related state after completion or cancellation.
-        /// </summary>
         private void ResetFlightState()
         {
             ActivePirepId = "";
@@ -356,10 +229,6 @@ namespace vmsOpenAcars.Core.Flight
 
         #region Public Methods
 
-        /// <summary>
-        /// Cancels the current flight and deletes the PIREP from the server.
-        /// </summary>
-        /// <returns>True if cancellation was successful.</returns>
         public async Task<bool> CancelFlight()
         {
             try
@@ -383,10 +252,6 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Sets the active pilot after login.
-        /// </summary>
-        /// <param name="pilot">The pilot data from phpVMS.</param>
         public void SetActivePilot(Pilot pilot)
         {
             _activePilot = pilot;
@@ -398,10 +263,6 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Sets the active flight plan after loading from SimBrief.
-        /// </summary>
-        /// <param name="plan">The SimBrief flight plan.</param>
         public void SetActivePlan(SimbriefPlan plan)
         {
             _activePlan = plan;
@@ -419,15 +280,9 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Updates the simulator connection state and triggers position validation.
-        /// </summary>
-        /// <param name="connected">Whether the simulator is connected.</param>
-        /// <param name="latitude">Current latitude (if connected).</param>
-        /// <param name="longitude">Current longitude (if connected).</param>
         public void SetSimulatorConnected(bool connected, double? latitude = null, double? longitude = null)
         {
-            // System.Diagnostics.Debug.WriteLine($"FlightManager.SetSimulatorConnected({connected}, {latitude}, {longitude})");
+            System.Diagnostics.Debug.WriteLine($"FlightManager.SetSimulatorConnected({connected}, {latitude}, {longitude})");
             IsSimulatorConnected = connected;
 
             if (connected && latitude.HasValue && longitude.HasValue)
@@ -464,11 +319,6 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Forces a position validation update.
-        /// </summary>
-        /// <param name="lat">Current latitude.</param>
-        /// <param name="lon">Current longitude.</param>
         public void UpdatePositionValidation(double lat, double lon)
         {
             if (_activePilot != null && IsSimulatorConnected)
@@ -477,12 +327,6 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Attempts to detect the nearest airport using the phpVMS API.
-        /// </summary>
-        /// <param name="latitude">Current latitude.</param>
-        /// <param name="longitude">Current longitude.</param>
-        /// <returns>ICAO code of the nearest airport.</returns>
         public async Task<string> DetectNearestAirport(double latitude, double longitude)
         {
             try
@@ -508,22 +352,11 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Checks if the pilot is at the required departure airport.
-        /// </summary>
-        /// <param name="requiredAirport">Required airport ICAO code.</param>
-        /// <returns>True if the pilot is at the correct airport.</returns>
         public bool IsPilotAtDepartureAirport(string requiredAirport)
         {
             return CurrentAirport?.Equals(requiredAirport, StringComparison.OrdinalIgnoreCase) ?? false;
         }
 
-        /// <summary>
-        /// Starts a new flight by prefiling the PIREP and setting initial phase to Boarding.
-        /// </summary>
-        /// <param name="plan">The SimBrief flight plan.</param>
-        /// <param name="pilot">The active pilot.</param>
-        /// <returns>True if flight started successfully.</returns>
         public async Task<bool> StartFlight(SimbriefPlan plan, Pilot pilot)
         {
             try
@@ -548,6 +381,8 @@ namespace vmsOpenAcars.Core.Flight
                     _touchdownCaptured = false;
                     TouchdownFpm = null;
                     CurrentPhase = FlightPhase.Boarding;
+                    _phaseStartTime = DateTime.UtcNow;
+                    _lastStablePhase = FlightPhase.Boarding;
                     FlightStartTime = DateTime.Now;
                     return true;
                 }
@@ -562,10 +397,6 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Checks if all conditions are met to start a flight.
-        /// </summary>
-        /// <returns>True if flight can be started.</returns>
         public bool CanStartFlight()
         {
             if (_activePilot == null)
@@ -590,13 +421,8 @@ namespace vmsOpenAcars.Core.Flight
         }
 
         /// <summary>
-        /// Updates the flight phase based on current telemetry.
+        /// Updates the flight phase based on current telemetry using relative thresholds.
         /// </summary>
-        /// <param name="altitude">Current altitude in feet.</param>
-        /// <param name="groundSpeed">Current ground speed in knots.</param>
-        /// <param name="isOnGround">Whether the aircraft is on ground.</param>
-        /// <param name="verticalSpeed">Current vertical speed in fpm.</param>
-        /// <param name="distanceToDestination">Distance to destination (optional).</param>
         public void UpdatePhase(int altitude, int groundSpeed, bool isOnGround, int verticalSpeed, double distanceToDestination = -1)
         {
             var previousPhase = CurrentPhase;
@@ -604,101 +430,211 @@ namespace vmsOpenAcars.Core.Flight
             if (altitude > _maxAltitudeReached)
                 _maxAltitudeReached = altitude;
 
+            // Obtener referencias del plan
+            int cruiseAlt = _activePlan?.CruiseAltitude ?? 10000;
+            double totalDistance = _activePlan?.Distance ?? 100;
+            double destElev = _destinationElevation;
+
+            // Umbrales relativos
+            double approachDistanceThreshold = Math.Min(totalDistance * 0.1, 20);
+            double aglThreshold = Math.Min(5000, cruiseAlt * 0.2);
+            double descentThreshold = cruiseAlt * 0.8;
+
+            // Detección de tendencia
+            bool isClimbing = verticalSpeed > 100;
+            bool isDescending = verticalSpeed < -100;
+            bool isStable = Math.Abs(verticalSpeed) <= 100;
+
+            // Umbral de movimiento
+            int movingThreshold = _activePlan?.Aircraft?.StartsWith("B") == true ? 10 : 5;
+
+            // Prevenir oscilaciones: no cambiar de fase si ha pasado poco tiempo
+            bool canChangePhase = (DateTime.UtcNow - _phaseStartTime).TotalSeconds >= 5;
+
+            // ===== TOUCHDOWN DETECTION =====
             if (_wasOnGround == false && isOnGround == true)
             {
                 RegisterTouchdown(verticalSpeed);
                 CurrentPhase = FlightPhase.AfterLanding;
+                _phaseStartTime = DateTime.UtcNow;
+                _lastStablePhase = FlightPhase.AfterLanding;
                 Task.Run(() => UpdatePirepStatus("LAN"));
+                _wasOnGround = isOnGround;
+                return;
             }
 
             if (isOnGround)
             {
-                if (CurrentPhase == FlightPhase.Boarding && groundSpeed > 3)
+                // ===== FASES EN TIERRA MEJORADAS =====
+                switch (CurrentPhase)
                 {
-                    CurrentPhase = FlightPhase.TaxiOut;
-                    Task.Run(() => UpdatePirepStatus("TXI"));
+                    case FlightPhase.Boarding:
+                        if (groundSpeed > 0.5)
+                        {
+                            // Guardamos cuándo empezó el movimiento
+                            if (_pushbackStartTime == DateTime.MinValue)
+                                _pushbackStartTime = DateTime.UtcNow;
+
+                            // Si la velocidad es > 5kt durante 3 segundos, TaxiOut directo
+                            if (groundSpeed > 5.0 && (DateTime.UtcNow - _pushbackStartTime).TotalSeconds >= 3)
+                            {
+                                CurrentPhase = FlightPhase.TaxiOut;
+                                _phaseStartTime = DateTime.UtcNow;
+                                _pushbackStartTime = DateTime.MinValue;
+                                OnLog?.Invoke($"🛻 Taxi out at {groundSpeed:F1} kts", Theme.Taxi);
+                            }
+                            // Velocidad baja - posible pushback
+                            else if (groundSpeed <= PUSHBACK_MAX_SPEED)
+                            {
+                                // Aún no cambiamos, esperamos a ver si es pushback
+                            }
+                        }
+                        else
+                        {
+                            // Reseteamos si se detiene
+                            _pushbackStartTime = DateTime.MinValue;
+                        }
+                        break;
+
+                    case FlightPhase.Pushback:
+                        if (groundSpeed > PUSHBACK_MAX_SPEED)
+                        {
+                            CurrentPhase = FlightPhase.TaxiOut;
+                            _phaseStartTime = DateTime.UtcNow;
+                            OnLog?.Invoke($"🛻 Pushback complete, taxi at {groundSpeed:F1} kts", Theme.Taxi);
+                        }
+                        break;
+
+                    case FlightPhase.TaxiOut:
+                        if (groundSpeed > 50)
+                        {
+                            CurrentPhase = FlightPhase.Takeoff;
+                            _phaseStartTime = DateTime.UtcNow;
+                        }
+                        break;
+
+                    case FlightPhase.AfterLanding:
+                        if (groundSpeed < 40)
+                        {
+                            CurrentPhase = FlightPhase.TaxiIn;
+                            _phaseStartTime = DateTime.UtcNow;
+                        }
+                        break;
+
+                    case FlightPhase.TaxiIn:
+                        // Esperar 10 segundos parado antes de declarar ONBLOCK
+                        if (groundSpeed < 2)
+                        {
+                            if (_pushbackStartTime == DateTime.MinValue)
+                                _pushbackStartTime = DateTime.UtcNow;
+
+                            if ((DateTime.UtcNow - _pushbackStartTime).TotalSeconds >= 10)
+                            {
+                                CurrentPhase = FlightPhase.OnBlock;
+                                _phaseStartTime = DateTime.UtcNow;
+                                _pushbackStartTime = DateTime.MinValue;
+                                OnLog?.Invoke($"🅿️ On block", Theme.Success);
+                            }
+                        }
+                        else
+                        {
+                            _pushbackStartTime = DateTime.MinValue;
+                        }
+                        break;
+
+                    case FlightPhase.OnBlock:
+                        // Esperar a que el usuario envíe el PIREP manualmente
+                        // O detectar motores apagados para pasar a Completed
+                        break;
                 }
-                else if (CurrentPhase == FlightPhase.TaxiOut && groundSpeed > 40)
+
+                // Confirmar pushback si ha pasado el tiempo mínimo a baja velocidad
+                if (CurrentPhase == FlightPhase.Boarding &&
+                    groundSpeed > PUSHBACK_MIN_SPEED &&
+                    groundSpeed <= PUSHBACK_MAX_SPEED &&
+                    (DateTime.UtcNow - _pushbackStartTime).TotalSeconds >= PUSHBACK_MIN_DURATION)
                 {
-                    CurrentPhase = FlightPhase.Takeoff;
-                    Task.Run(() => UpdatePirepStatus("TOF"));
-                }
-                else if (CurrentPhase == FlightPhase.AfterLanding && groundSpeed < 40)
-                {
-                    CurrentPhase = FlightPhase.TaxiIn;
-                    Task.Run(() => UpdatePirepStatus("TXI"));
-                }
-                else if (CurrentPhase == FlightPhase.TaxiIn && groundSpeed < 2)
-                {
-                    CurrentPhase = FlightPhase.Completed;
-                    Task.Run(() => UpdatePirepStatus("ARR"));
+                    CurrentPhase = FlightPhase.Pushback;
+                    _phaseStartTime = DateTime.UtcNow;
+                    _pushbackStartTime = DateTime.MinValue;
+                    OnLog?.Invoke($"🔄 Pushback confirmed at {groundSpeed:F1} kts", Theme.Taxi);
                 }
             }
             else
             {
-                bool isClimbing = verticalSpeed > 100;
-                bool isDescending = verticalSpeed < -100;
+                // ===== FASES EN EL AIRE =====
+                double altitudeAboveDest = altitude - destElev;
 
-                if (CurrentPhase == FlightPhase.Takeoff || CurrentPhase == FlightPhase.Climb)
+                switch (CurrentPhase)
                 {
-                    if (isClimbing)
-                    {
-                        if (CurrentPhase == FlightPhase.Takeoff && altitude > 1500)
+                    case FlightPhase.Takeoff:
+                        if (isClimbing && canChangePhase)
                         {
                             CurrentPhase = FlightPhase.Climb;
-                            Task.Run(() => UpdatePirepStatus("ICL"));
+                            _phaseStartTime = DateTime.UtcNow;
+                            _lastStablePhase = FlightPhase.Climb;
                         }
-                    }
-                    else if (Math.Abs(verticalSpeed) <= 100)
-                    {
-                        if (altitude > 3000 && _maxAltitudeReached - altitude < 500)
+                        break;
+
+                    case FlightPhase.Climb:
+                        // Si estamos cerca del crucero y llevamos un rato aquí
+                        if (Math.Abs(altitude - cruiseAlt) < 2000 &&
+                            (DateTime.UtcNow - _phaseStartTime).TotalMinutes > 2)
                         {
                             CurrentPhase = FlightPhase.Enroute;
-                            Task.Run(() => UpdatePirepStatus("ENR"));
+                            _phaseStartTime = DateTime.UtcNow;
+                            OnLog?.Invoke($"✈️ Cruise detected at {altitude} ft", Theme.MainText);
                         }
-                    }
-                }
-                else if (CurrentPhase == FlightPhase.Enroute)
-                {
-                    if (isDescending)
-                    {
-                        CurrentPhase = FlightPhase.Descent;
-                        Task.Run(() => UpdatePirepStatus("APR"));
-                    }
-                }
-                else if (CurrentPhase == FlightPhase.Descent)
-                {
-                    int altitudeAboveDestination = altitude - _destinationElevation;
+                        else if (isDescending && altitude < cruiseAlt * 0.9)
+                        {
+                            CurrentPhase = FlightPhase.Descent;
+                            _phaseStartTime = DateTime.UtcNow;
+                            OnLog?.Invoke($"✈️ Early descent at {altitude} ft", Theme.MainText);
+                        }
+                        break;
 
-                    if (distanceToDestination > 0 && distanceToDestination < 15)
-                    {
-                        CurrentPhase = FlightPhase.Approach;
-                        Task.Run(() => UpdatePirepStatus("FIN"));
-                    }
-                    else if (altitudeAboveDestination < 3000)
-                    {
-                        CurrentPhase = FlightPhase.Approach;
-                        Task.Run(() => UpdatePirepStatus("FIN"));
-                    }
-                    else if (isClimbing && altitudeAboveDestination > 4000)
-                    {
-                        CurrentPhase = FlightPhase.Climb;
-                        Task.Run(() => UpdatePirepStatus("ICL"));
-                    }
-                }
-                else if (CurrentPhase == FlightPhase.Approach)
-                {
-                    if (isClimbing)
-                    {
-                        CurrentPhase = FlightPhase.Climb;
-                        Task.Run(() => UpdatePirepStatus("ICL"));
-                    }
+                    case FlightPhase.Enroute:
+                        if (isDescending && (altitude < cruiseAlt * 0.9 || altitude < _maxAltitudeReached - 1000) && canChangePhase)
+                        {
+                            CurrentPhase = FlightPhase.Descent;
+                            _phaseStartTime = DateTime.UtcNow;
+                            _lastStablePhase = FlightPhase.Descent;
+                            OnLog?.Invoke($"✈️ Descent started from {_maxAltitudeReached} ft", Theme.MainText);
+                        }
+                        break;
+
+                    case FlightPhase.Descent:
+                        if (distanceToDestination > 0 && distanceToDestination < approachDistanceThreshold && canChangePhase)
+                        {
+                            CurrentPhase = FlightPhase.Approach;
+                            _phaseStartTime = DateTime.UtcNow;
+                            _lastStablePhase = FlightPhase.Approach;
+                            OnLog?.Invoke($"🛬 Approach started at {distanceToDestination:F0} nm", Theme.Approach);
+                        }
+                        else if (altitudeAboveDest < aglThreshold && altitudeAboveDest > 0 && canChangePhase)
+                        {
+                            CurrentPhase = FlightPhase.Approach;
+                            _phaseStartTime = DateTime.UtcNow;
+                            _lastStablePhase = FlightPhase.Approach;
+                            OnLog?.Invoke($"🛬 Approach started at {altitudeAboveDest:F0} ft AGL", Theme.Approach);
+                        }
+                        break;
+
+                    case FlightPhase.Approach:
+                        // Go-around solo si estamos bajos (menos de 10000 ft AGL)
+                        if (isClimbing && altitudeAboveDest < 10000 && altitudeAboveDest > 500 && canChangePhase)
+                        {
+                            CurrentPhase = FlightPhase.Climb;
+                            _phaseStartTime = DateTime.UtcNow;
+                            _lastStablePhase = FlightPhase.Climb;
+                            OnLog?.Invoke($"✈️ Go-around detected!", Theme.Warning);
+                        }
+                        break;
                 }
             }
 
-            // Record block_off_time when pushback/taxi begins
-            if (previousPhase == FlightPhase.Boarding &&
-                (CurrentPhase == FlightPhase.TaxiOut || CurrentPhase == FlightPhase.Pushback))
+            // Registrar block off time cuando comienza el taxi
+            if (previousPhase == FlightPhase.Pushback && CurrentPhase == FlightPhase.TaxiOut)
             {
                 Task.Run(() => UpdateBlockOffTime());
             }
@@ -712,23 +648,6 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Updates telemetry data from the simulator.
-        /// </summary>
-        /// <param name="altitude">Current altitude.</param>
-        /// <param name="groundSpeed">Current ground speed.</param>
-        /// <param name="verticalSpeed">Current vertical speed.</param>
-        /// <param name="isOnGround">On ground status.</param>
-        /// <param name="fuel">Fuel remaining.</param>
-        /// <param name="lat">Current latitude.</param>
-        /// <param name="lon">Current longitude.</param>
-        /// <param name="indicatedAirspeed">Indicated airspeed (optional).</param>
-        /// <param name="fuelFlow">Fuel flow (optional).</param>
-        /// <param name="transponder">Transponder code (optional).</param>
-        /// <param name="autopilot">Autopilot status (optional).</param>
-        /// <param name="simTime">Simulation time (optional).</param>
-        /// <param name="radarAlt">Radar altitude (optional).</param>
-        /// <param name="order">Position order number (optional).</param>
         public void UpdateTelemetry(
             int altitude,
             int groundSpeed,
@@ -784,10 +703,6 @@ namespace vmsOpenAcars.Core.Flight
             UpdatePhase(altitude, groundSpeed, isOnGround, verticalSpeed);
         }
 
-        /// <summary>
-        /// Aborts the current flight and deletes the PIREP from the server.
-        /// </summary>
-        /// <returns>True if abort was successful.</returns>
         public async Task<bool> AbortFlight()
         {
             try
@@ -811,10 +726,6 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Files the completed PIREP to phpVMS.
-        /// </summary>
-        /// <returns>True if filing was successful.</returns>
         public async Task<bool> FilePirep()
         {
             try
@@ -867,15 +778,15 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        /// <summary>
-        /// Updates the PIREP flight time on the server.
-        /// </summary>
         public async Task UpdatePirepFlightTime()
         {
             if (string.IsNullOrEmpty(ActivePirepId))
                 return;
 
             int flightTimeMinutes = (int)(DateTime.UtcNow - FlightStartTime).TotalMinutes;
+
+            // Log para depuración
+            System.Diagnostics.Debug.WriteLine($"Updating flight time: {flightTimeMinutes} min");
 
             try
             {
@@ -884,7 +795,7 @@ namespace vmsOpenAcars.Core.Flight
 
                 if (success)
                 {
-                    if (flightTimeMinutes % 5 == 0) // Log every 5 minutes
+                    if (flightTimeMinutes % 5 == 0)
                         OnLog?.Invoke($"⏱️ Flight time: {flightTimeMinutes} min", Theme.MainText);
                 }
             }
@@ -897,44 +808,15 @@ namespace vmsOpenAcars.Core.Flight
         #endregion
     }
 
-    /// <summary>
-    /// Represents the current validation status for a flight.
-    /// </summary>
     public class ValidationStatus
     {
-        /// <summary>
-        /// Gets or sets a value indicating whether the ICAO codes match.
-        /// </summary>
         public bool IcaoMatch { get; set; }
-
-        /// <summary>
-        /// Gets or sets a value indicating whether the GPS position is valid.
-        /// </summary>
         public bool GpsValid { get; set; }
-
-        /// <summary>
-        /// Gets or sets the distance from the assigned airport in kilometers.
-        /// </summary>
         public double DistanceFromAirport { get; set; }
-
-        /// <summary>
-        /// Gets or sets the airport assigned by phpVMS.
-        /// </summary>
         public string PhpVmsAirport { get; set; }
-
-        /// <summary>
-        /// Gets or sets the origin airport from the SimBrief plan.
-        /// </summary>
         public string SimbriefAirport { get; set; }
-
-        /// <summary>
-        /// Gets a value indicating whether the flight can be started.
-        /// </summary>
         public bool CanStart => IcaoMatch;
 
-        /// <summary>
-        /// Returns a string representation of the validation status.
-        /// </summary>
         public override string ToString()
         {
             return $"ICAO: {(IcaoMatch ? "✅" : "❌")} " +

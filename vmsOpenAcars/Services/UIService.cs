@@ -19,14 +19,26 @@ namespace vmsOpenAcars.Services
             _flightManager = flightManager;
         }
 
+        private void Notify(string message, ToolTipIcon icon = ToolTipIcon.Info)
+        {
+            if (_form.InvokeRequired)
+            {
+                _form.Invoke(new Action(() => _form.ShowNotification(message, icon)));
+            }
+            else
+            {
+                _form.ShowNotification(message, icon);
+            }
+        }
+
         public void AddLog(string message, Color color)
         {
+            // Mostrar en el log (código existente)
             if (_form.txtIncomingMsg.InvokeRequired)
             {
                 _form.txtIncomingMsg.Invoke(new Action(() =>
                 {
                     _form.txtIncomingMsg.SelectionStart = 0;
-                    _form.txtIncomingMsg.SelectionLength = 0;
                     _form.txtIncomingMsg.SelectionColor = color;
                     _form.txtIncomingMsg.SelectedText = $"{DateTime.UtcNow:HH:mm:ss} - {message}\n";
                 }));
@@ -34,10 +46,27 @@ namespace vmsOpenAcars.Services
             else
             {
                 _form.txtIncomingMsg.SelectionStart = 0;
-                _form.txtIncomingMsg.SelectionLength = 0;
                 _form.txtIncomingMsg.SelectionColor = color;
                 _form.txtIncomingMsg.SelectedText = $"{DateTime.UtcNow:HH:mm:ss} - {message}\n";
             }
+
+            // Notificaciones para eventos importantes
+            if (message.Contains("Takeoff"))
+                Notify("🛫 Takeoff", ToolTipIcon.Info);
+            else if (message.Contains("Landing") || message.Contains("Touchdown"))
+                Notify("🛬 Landing", ToolTipIcon.Info);
+            else if (message.Contains("Approach"))
+                Notify("🛬 Entering approach", ToolTipIcon.Warning);
+            else if (message.Contains("Go-around"))
+                Notify("🔄 Go-around! Execute missed approach", ToolTipIcon.Warning);
+            else if (message.Contains("Flight cancelled"))
+                Notify("✖️ Flight cancelled", ToolTipIcon.Error);
+            else if (message.Contains("PIREP filed"))
+                Notify("✅ PIREP filed successfully", ToolTipIcon.Info);
+            else if (message.Contains("OFP mismatch"))
+                Notify("❌ OFP mismatch", ToolTipIcon.Error);
+            else if (message.Contains("Simulator disconnected"))
+                Notify("🔌 Simulator disconnected", ToolTipIcon.Warning);
         }
 
         public void UpdatePosition(string positionText)

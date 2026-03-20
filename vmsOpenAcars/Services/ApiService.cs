@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Models;
+using vmsOpenAcars.Core.Helpers;
 
 namespace vmsOpenAcars.Services
 {
@@ -348,6 +349,7 @@ namespace vmsOpenAcars.Services
         /// <exception cref="Exception">Thrown when the server returns an error response.</exception>
         public async Task<string> PrefileFlight(SimbriefPlan plan, Pilot pilot)
         {
+            string appVersion = AppInfo.Version;
             var payload = new
             {
                 airline_id = pilot.AirlineId,
@@ -367,7 +369,7 @@ namespace vmsOpenAcars.Services
                 fuel_used = 0, // Initial fuel used (updated during flight)
                 submitted_at = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
 
-                source_name = "vmsOpenAcars",
+                source_name = $"vmsOpenAcars/{appVersion}",
                 state = "in_progress"
             };
 

@@ -75,6 +75,10 @@
         /// Taxiing from arrival runway to gate.
         /// </summary>
         TaxiIn,
+        /// <summary>
+        /// Engines off, Blocks On.
+        /// </summary>
+        OnBlock,
 
         /// <summary>
         /// Flight has arrived at gate, engines shut down.

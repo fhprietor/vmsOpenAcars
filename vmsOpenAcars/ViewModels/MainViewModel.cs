@@ -104,8 +104,7 @@ namespace vmsOpenAcars.ViewModels
         {
             OnPhaseChanged?.Invoke(phase);
 
-            // Actualizar botón según la fase
-            if (phase == FlightPhase.Completed)
+            if (phase == FlightPhase.OnBlock || phase == FlightPhase.Completed)
             {
                 OnButtonStateChanged?.Invoke("SEND PIREP", Color.Green, true);
             }

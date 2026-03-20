@@ -14,6 +14,7 @@ using vmsOpenAcars.ViewModels;
 using static vmsOpenAcars.Helpers.L;
 using System.Reflection;
 using System.Diagnostics;
+using vmsOpenAcars.Core.Helpers;
 
 namespace vmsOpenAcars.UI.Forms
 {
@@ -67,6 +68,7 @@ namespace vmsOpenAcars.UI.Forms
         private Button btnSimbrief;
         public Button btnStartStop;
         private Button btnCancel;
+        private NotifyIcon _notifyIcon;
 
         // ========== VIEWMODEL Y SERVICIOS ==========
         private MainViewModel _viewModel;
@@ -305,6 +307,28 @@ namespace vmsOpenAcars.UI.Forms
             this.Controls.Add(mainLayout);
         }
 
+        private void InitializeNotifications()
+        {
+            _notifyIcon = new NotifyIcon
+            {
+                Icon = this.Icon, // Usa el mismo icono de la aplicación
+                Visible = true,
+                BalloonTipTitle = "vmsOpenAcars",
+                BalloonTipIcon = ToolTipIcon.Info
+            };
+        }
+
+        // Método público para mostrar notificaciones
+        public void ShowNotification(string message, ToolTipIcon icon = ToolTipIcon.Info)
+        {
+            if (_notifyIcon == null) return;
+
+            _notifyIcon.BalloonTipText = message;
+            _notifyIcon.BalloonTipIcon = icon;
+            _notifyIcon.ShowBalloonTip(3000); // 3 segundos
+        }
+
+
         private void InitializeHeader()
         {
             pnlHeader = new Panel
@@ -373,7 +397,7 @@ namespace vmsOpenAcars.UI.Forms
             // ===== LABEL DE VERSIÓN (a la izquierda del engranaje) =====
             Label lblVersion = new Label
             {
-                Text = $"v{GetAppVersion()}",
+                Text = $"v{AppInfo.Version}",
                 Font = new Font("Consolas", 9, FontStyle.Italic),
                 ForeColor = Color.FromArgb(150, 150, 150),
                 AutoSize = true,
@@ -995,27 +1019,5 @@ namespace vmsOpenAcars.UI.Forms
             ConfigurationManager.RefreshSection("appSettings");
         }
 
-        private string GetAppVersion()
-        {
-            try
-            {
-                // Intentar obtener la versión informativa (con sufijos beta/rc)
-                var informationalVersion = Assembly.GetExecutingAssembly()
-                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-                    ?.InformationalVersion;
-
-                if (!string.IsNullOrEmpty(informationalVersion))
-                    return informationalVersion;
-
-                // Fallback a la versión numérica estándar
-                var version = Assembly.GetExecutingAssembly().GetName().Version;
-                return version != null ? version.ToString(3) : "1.0.0"; // Muestra solo major.minor.build
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Error getting version: {ex}");
-                return "1.0.0";
-            }
-        }
     }
 }
