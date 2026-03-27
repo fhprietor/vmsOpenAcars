@@ -1,6 +1,10 @@
 ﻿using System;
 using System.Drawing;
+using System.Net.Http;
+using System.Text;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.UI;
@@ -28,6 +32,24 @@ namespace vmsOpenAcars.Core.Flight
         private DateTime? _lastPositionTime = null;
         private (double lat, double lon)? _lastPosition = null;
 
+        // Cronómetro real basado en Stopwatch
+        private readonly FlightTimer _flightTimer = new FlightTimer();
+
+        // Variables para optimización
+        private int _lastFlightTimeMinutesLogged = -1;
+        private double _lastDistanceLogged = -1;
+        // Variables para el cronómetro basado en servidor
+        private DateTime _serverCreatedAt;      // Momento de creación del PIREP
+        private DateTime _serverBlockOffTime;   // Block off (si se registra)
+        private DateTime _serverBlockOnTime;    // Block on (si se registra)
+        private bool _isTimerStarted = false;
+
+        // ===== VARIABLES DE COMBUSTIBLE =====
+        private bool _blockOffRecorded = false;  // Flag para evitar múltiples registros de block_off
+        private double _initialFuel = 0;         // Combustible al inicio del vuelo (kg/lbs)
+        private double _lastFuelUpdate = 0;      // Último valor de combustible registrado
+        private double _totalFuelUsed = 0;       // Combustible total consumido
+
         // Variables para control de histéresis
         private DateTime _phaseStartTime = DateTime.UtcNow;
         private FlightPhase _lastStablePhase;
@@ -37,6 +59,8 @@ namespace vmsOpenAcars.Core.Flight
         private const double PUSHBACK_MIN_SPEED = 0.5;
         private const double PUSHBACK_MAX_SPEED = 5.0;
         private const int PUSHBACK_MIN_DURATION = 5;
+
+        private DateTime _stoppedStartTime = DateTime.MinValue; // Para detectar inmovilidad sostenida
 
         #region Properties
 
@@ -72,6 +96,10 @@ namespace vmsOpenAcars.Core.Flight
         public DateTime SimTime { get; private set; }
         public double RadarAltitude { get; private set; }
         public int PositionOrder { get; private set; }
+        // ===== PROPIEDADES DE COMBUSTIBLE =====
+        public double InitialFuel => _initialFuel;
+        public double TotalFuelUsed => _totalFuelUsed;
+        public bool IsBlockOffRecorded => _blockOffRecorded;
 
         #endregion
 
@@ -124,18 +152,36 @@ namespace vmsOpenAcars.Core.Flight
 
             try
             {
-                var updateData = new
+                // Obtener hora actual UTC (la usamos para calcular tiempo local)
+                // Pero enviamos al servidor para que registre su propia hora
+                var payload = new { block_off_time = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") };
+                string json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _apiService.HttpClient.PutAsync(
+                    $"{_apiService.BaseUrl}api/pireps/{ActivePirepId}", content);
+
+                if (response.IsSuccessStatusCode)
                 {
-                    block_off_time = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
-                };
-                await _apiService.UpdatePirep(ActivePirepId, updateData);
-                OnLog?.Invoke($"⏱️ Block Off Time recorded", Theme.MainText);
+                    _blockOffRecorded = true;
+                    // Guardamos la hora local como referencia para cálculos
+                    _serverBlockOffTime = DateTime.UtcNow;
+                    OnLog?.Invoke($"⏱️ Block Off recorded at {_serverBlockOffTime:HH:mm:ss} UTC", Theme.MainText);
+                    OnLog?.Invoke($"📊 Timer reference updated: {GetFlightTimeDisplay()}", Theme.MainText);
+                }
+                else
+                {
+                    string error = await response.Content.ReadAsStringAsync();
+                    System.Diagnostics.Debug.WriteLine($"Error setting block_off_time: {error}");
+                    OnLog?.Invoke($"⚠️ Could not record block_off_time", Theme.Warning);
+                }
             }
             catch (Exception ex)
             {
-                OnLog?.Invoke($"❌ Error updating block_off_time: {ex.Message}", Theme.Danger);
+                OnLog?.Invoke($"❌ Error recording block_off_time: {ex.Message}", Theme.Danger);
             }
         }
+
 
         private void ValidateAirportMatch()
         {
@@ -201,14 +247,14 @@ namespace vmsOpenAcars.Core.Flight
 
         private double CalculateDistance(double lat1, double lon1, double lat2, double lon2)
         {
-            const double R = 6371;
+            const double R = 3440.065; // Radio de la Tierra en millas náuticas (NM)
             var dLat = (lat2 - lat1) * Math.PI / 180;
             var dLon = (lon2 - lon1) * Math.PI / 180;
             var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
                     Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180) *
                     Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
             var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-            return R * c;
+            return R * c;  // Devuelve en NM
         }
 
         private void ResetFlightState()
@@ -221,6 +267,16 @@ namespace vmsOpenAcars.Core.Flight
             _lastAirborneTime = null;
             _lastPosition = null;
             _lastPositionTime = null;
+            _isTimerStarted = false;
+            _serverCreatedAt = default;
+            _serverBlockOffTime = default;
+            _serverBlockOnTime = default;
+            _blockOffRecorded = false;
+            _initialFuel = 0;
+            _lastFuelUpdate = 0;
+            _totalFuelUsed = 0;
+            CurrentFuel = 0;
+            CurrentFuelFlow = 0;
             OnPhaseChanged?.Invoke(CurrentPhase.ToString());
             PhaseChanged?.Invoke(CurrentPhase);
         }
@@ -228,6 +284,39 @@ namespace vmsOpenAcars.Core.Flight
         #endregion
 
         #region Public Methods
+        // Propiedad pública para mostrar tiempo actual (para UI)
+        public string CurrentTimerDisplay
+        {
+            get
+            {
+                if (!_isTimerStarted) return "00:00:00";
+
+                TimeSpan elapsed = DateTime.UtcNow - _serverCreatedAt;
+                return $"{elapsed.Hours:D2}:{elapsed.Minutes:D2}:{elapsed.Seconds:D2}";
+            }
+        }
+
+        public string CurrentFlightTimerDisplay
+        {
+            get
+            {
+                if (!_isTimerStarted) return "00:00:00";
+
+                DateTime reference = _serverBlockOffTime != default ? _serverBlockOffTime : _serverCreatedAt;
+                TimeSpan elapsed = DateTime.UtcNow - reference;
+                return $"{elapsed.Hours:D2}:{elapsed.Minutes:D2}:{elapsed.Seconds:D2}";
+            }
+        }
+
+        // Propiedad para obtener el tiempo transcurrido desde created_at
+        public TimeSpan CurrentFlightTime => _isTimerStarted
+            ? DateTime.UtcNow - _serverCreatedAt
+            : TimeSpan.Zero;
+
+        // Propiedad para tiempo desde block_off (más preciso para vuelo real)
+        public TimeSpan ActualFlightTime => (_serverBlockOffTime != default && _serverBlockOffTime > _serverCreatedAt)
+            ? DateTime.UtcNow - _serverBlockOffTime
+            : CurrentFlightTime;
 
         public async Task<bool> CancelFlight()
         {
@@ -357,7 +446,11 @@ namespace vmsOpenAcars.Core.Flight
             return CurrentAirport?.Equals(requiredAirport, StringComparison.OrdinalIgnoreCase) ?? false;
         }
 
-        public async Task<bool> StartFlight(SimbriefPlan plan, Pilot pilot)
+        // En FlightManager.cs
+
+        // En FlightManager.cs - StartFlight() corregido
+
+        public async Task<bool> StartFlight(SimbriefPlan plan, Pilot pilot, double actualFuel)
         {
             try
             {
@@ -367,15 +460,66 @@ namespace vmsOpenAcars.Core.Flight
                     return false;
                 }
 
+                // Validar que tenemos combustible real
+                if (actualFuel <= 0)
+                {
+                    OnLog?.Invoke("ERROR: No fuel data from simulator.", Theme.Warning);
+                    return false;
+                }
+
                 _activePlan = plan;
                 _activePilot = pilot;
 
                 OnLog?.Invoke($"{_("SendingPrefile")}...", Theme.MainText);
+                OnLog?.Invoke($"⛽ Using actual simulator fuel: {actualFuel:F0} {plan.Units ?? "kg"}", Theme.MainText);
 
-                ActivePirepId = await _apiService.PrefileFlight(plan, pilot);
+                // Guardar el combustible planeado original antes de modificarlo
+                double plannedFuel = plan.BlockFuel;
+
+                // ACTUALIZAR EL PLAN CON EL COMBUSTIBLE REAL
+                plan.BlockFuel = actualFuel;
+
+                // Obtener PIREP ID y created_at del servidor
+                var result = await _apiService.PrefileFlight(plan, pilot);
+                string pirepId = result.pirepId;
+                DateTime serverCreatedAt = result.serverCreatedAt;
+
+                ActivePirepId = pirepId;
 
                 if (!string.IsNullOrEmpty(ActivePirepId))
                 {
+                    // REGISTRAR COMBUSTIBLE INICIAL
+                    _initialFuel = actualFuel;
+                    _lastFuelUpdate = actualFuel;
+                    _totalFuelUsed = 0;
+
+                    _serverCreatedAt = serverCreatedAt;
+                    _isTimerStarted = true;
+                    _serverBlockOffTime = default;
+                    _serverBlockOnTime = default;
+                    _blockOffRecorded = false;
+
+                    OnLog?.Invoke($"⏱️ PIREP created at: {_serverCreatedAt:HH:mm:ss} UTC", Theme.MainText);
+                    OnLog?.Invoke($"📊 Flight timer started (server time)", Theme.Success);
+                    OnLog?.Invoke($"⛽ Initial fuel recorded: {_initialFuel:F0} {plan.Units ?? "kg"}", Theme.Success);
+
+                    // Mostrar diferencia con el plan si es significativa
+                    double diff = actualFuel - plannedFuel;
+                    if (Math.Abs(diff) > 0)
+                    {
+                        string diffSymbol = diff > 0 ? "+" : "";
+                        OnLog?.Invoke($"ℹ️ Fuel difference from plan: {diffSymbol}{diff:F0} {plan.Units ?? "kg"}", Theme.MainText);
+                    }
+
+                    if (!string.IsNullOrEmpty(plan.BidId))
+                    {
+                        bool bidDeleted = await _apiService.DeleteBid(plan.BidId);
+                        if (bidDeleted)
+                            OnLog?.Invoke($"✅ Bid {plan.BidId} removed", Theme.Success);
+                        else
+                            OnLog?.Invoke($"⚠️ Could not remove bid {plan.BidId}", Theme.Warning);
+                    }
+
                     await Task.Run(() => UpdatePirepStatus("BST"));
 
                     _touchdownCaptured = false;
@@ -522,29 +666,27 @@ namespace vmsOpenAcars.Core.Flight
                         break;
 
                     case FlightPhase.TaxiIn:
-                        // Esperar 10 segundos parado antes de declarar ONBLOCK
-                        if (groundSpeed < 2)
+                        // Si estamos parados durante 15 segundos
+                        if (groundSpeed < 1)
                         {
-                            if (_pushbackStartTime == DateTime.MinValue)
-                                _pushbackStartTime = DateTime.UtcNow;
+                            if (_stoppedStartTime == DateTime.MinValue)
+                                _stoppedStartTime = DateTime.UtcNow;
 
-                            if ((DateTime.UtcNow - _pushbackStartTime).TotalSeconds >= 10)
+                            if ((DateTime.UtcNow - _stoppedStartTime).TotalSeconds >= 15)
                             {
                                 CurrentPhase = FlightPhase.OnBlock;
                                 _phaseStartTime = DateTime.UtcNow;
-                                _pushbackStartTime = DateTime.MinValue;
+                                _stoppedStartTime = DateTime.MinValue;
                                 OnLog?.Invoke($"🅿️ On block", Theme.Success);
+
+                                // Registrar block_on_time en el servidor
+                                Task.Run(() => UpdateBlockOnTime());
                             }
                         }
                         else
                         {
-                            _pushbackStartTime = DateTime.MinValue;
+                            _stoppedStartTime = DateTime.MinValue;
                         }
-                        break;
-
-                    case FlightPhase.OnBlock:
-                        // Esperar a que el usuario envíe el PIREP manualmente
-                        // O detectar motores apagados para pasar a Completed
                         break;
                 }
 
@@ -639,13 +781,91 @@ namespace vmsOpenAcars.Core.Flight
                 Task.Run(() => UpdateBlockOffTime());
             }
 
+            // ===== DETECCIÓN DE BLOCK_OFF MEJORADA =====
+            if (!_blockOffRecorded && _isTimerStarted && ActivePirepId != null)
+            {
+                // Caso 1: Transición de Boarding a TaxiOut (sin pushback)
+                if (previousPhase == FlightPhase.Boarding && CurrentPhase == FlightPhase.TaxiOut)
+                {
+                    OnLog?.Invoke($"🛫 Taxi out detected (direct), recording block_off", Theme.MainText);
+                    Task.Run(() => UpdateBlockOffTime());
+                }
+
+                // Caso 2: Transición de Pushback a TaxiOut (con pushback)
+                else if (previousPhase == FlightPhase.Pushback && CurrentPhase == FlightPhase.TaxiOut)
+                {
+                    OnLog?.Invoke($"🛫 Pushback complete, recording block_off", Theme.MainText);
+                    Task.Run(() => UpdateBlockOffTime());
+                }
+
+                // Caso 3: Movimiento sostenido después de Boarding (detección directa)
+                else if (CurrentPhase == FlightPhase.Boarding && groundSpeed > 10 &&
+                         (DateTime.UtcNow - _phaseStartTime).TotalSeconds > 5)
+                {
+                    OnLog?.Invoke($"🛫 Sustained movement detected ({groundSpeed} kts), recording block_off", Theme.MainText);
+                    CurrentPhase = FlightPhase.TaxiOut;
+                    _phaseStartTime = DateTime.UtcNow;
+                    Task.Run(() => UpdateBlockOffTime());
+                }
+            }
+
             _wasOnGround = isOnGround;
 
             if (previousPhase != CurrentPhase)
             {
                 OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
+                string statusCode = FlightPhaseHelper.GetStatusCode(CurrentPhase);
+                Task.Run(() => UpdatePirepStatus(statusCode));
                 PhaseChanged?.Invoke(CurrentPhase);
             }
+        }
+        private async Task UpdateBlockOnTime()
+        {
+            if (string.IsNullOrEmpty(ActivePirepId))
+                return;
+
+            try
+            {
+                var payload = new { block_on_time = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") };
+                string json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _apiService.HttpClient.PutAsync(
+                    $"{_apiService.BaseUrl}api/pireps/{ActivePirepId}", content);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _serverBlockOnTime = DateTime.UtcNow;
+                    OnLog?.Invoke($"⏱️ Block On recorded at {_serverBlockOnTime:HH:mm:ss} UTC", Theme.MainText);
+                    OnLog?.Invoke($"📊 Total flight time: {GetTotalFlightTimeDisplay()}", Theme.MainText);
+                }
+                else
+                {
+                    OnLog?.Invoke($"⚠️ Could not record block_on_time", Theme.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke($"❌ Error recording block_on_time: {ex.Message}", Theme.Danger);
+            }
+        }
+        // Método auxiliar para mostrar tiempo transcurrido
+        private string GetFlightTimeDisplay()
+        {
+            TimeSpan elapsed = DateTime.UtcNow - _serverCreatedAt;
+            return $"{elapsed.Hours:D2}:{elapsed.Minutes:D2}:{elapsed.Seconds:D2}";
+        }
+
+        private string GetTotalFlightTimeDisplay()
+        {
+            if (_serverBlockOffTime != default && _serverBlockOnTime != default)
+            {
+                TimeSpan flightTime = _serverBlockOnTime - _serverBlockOffTime;
+                return $"{flightTime.Hours:D2}:{flightTime.Minutes:D2}:{flightTime.Seconds:D2}";
+            }
+
+            TimeSpan total = DateTime.UtcNow - _serverCreatedAt;
+            return $"{total.Hours:D2}:{total.Minutes:D2}:{total.Seconds:D2}";
         }
 
         public void UpdateTelemetry(
@@ -683,6 +903,7 @@ namespace vmsOpenAcars.Core.Flight
             RadarAltitude = radarAlt;
             PositionOrder = order;
 
+            // Calcular distancia incremental (solo local, no se envía al servidor aquí)
             if (_lastPosition.HasValue && _lastPositionTime.HasValue)
             {
                 double distance = CalculateDistance(
@@ -702,7 +923,6 @@ namespace vmsOpenAcars.Core.Flight
 
             UpdatePhase(altitude, groundSpeed, isOnGround, verticalSpeed);
         }
-
         public async Task<bool> AbortFlight()
         {
             try
@@ -726,6 +946,8 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
+        // En FlightManager.FilePirep() - versión corregida
+
         public async Task<bool> FilePirep()
         {
             try
@@ -733,39 +955,76 @@ namespace vmsOpenAcars.Core.Flight
                 if (string.IsNullOrEmpty(ActivePirepId))
                     return false;
 
-                DateTime now = DateTime.UtcNow;
-                int totalFlightTime = (int)(now - FlightStartTime).TotalMinutes;
-                int airTime = (int)(_lastAirborneTime.HasValue ?
-                    (now - _lastAirborneTime.Value).TotalMinutes : totalFlightTime);
+                // Calcular tiempos basados en el cronómetro
+                TimeSpan totalElapsed = DateTime.UtcNow - _serverCreatedAt;
+                int totalFlightTimeMinutes = (int)totalElapsed.TotalMinutes;
 
+                // Calcular tiempo real de vuelo (si tenemos block_off y block_on)
+                int actualFlightTimeMinutes = totalFlightTimeMinutes;
+                if (_serverBlockOffTime != default && _serverBlockOnTime != default)
+                {
+                    TimeSpan actualFlight = _serverBlockOnTime - _serverBlockOffTime;
+                    actualFlightTimeMinutes = (int)actualFlight.TotalMinutes;
+                    OnLog?.Invoke($"📊 Actual flight time (block_off to block_on): {actualFlightTimeMinutes} min", Theme.MainText);
+                }
+                else if (_serverBlockOffTime != default)
+                {
+                    TimeSpan sinceBlockOff = DateTime.UtcNow - _serverBlockOffTime;
+                    actualFlightTimeMinutes = (int)sinceBlockOff.TotalMinutes;
+                    OnLog?.Invoke($"⚠️ Block_on not recorded, using current time", Theme.Warning);
+                }
+
+                // Calcular combustible usado
                 double fuelUsed = 0;
                 if (_activePlan?.BlockFuel > 0 && CurrentFuel > 0)
                 {
                     fuelUsed = _activePlan.BlockFuel - CurrentFuel;
+                    if (fuelUsed < 0) fuelUsed = 0;
+                }
+
+                // Si no tenemos combustible, usar el tracking
+                if (fuelUsed <= 0 && _totalFuelUsed > 0)
+                {
+                    fuelUsed = _totalFuelUsed;
                 }
 
                 double totalDistance = _totalDistance;
 
+                // Obtener valores del plan
+                double plannedDistance = _activePlan?.Distance ?? 0;
+                int plannedFlightTimeSeconds = _activePlan?.EstTimeEnroute ?? 0;
+                int plannedFlightTimeMinutes = plannedFlightTimeSeconds / 60;
+                double blockFuel = _activePlan?.BlockFuel ?? 0;
+
+                // Logs de depuración
+                OnLog?.Invoke($"📊 Planned Distance: {plannedDistance:F1} NM", Theme.MainText);
+                OnLog?.Invoke($"📊 Planned Flight Time: {plannedFlightTimeMinutes} min", Theme.MainText);
+                OnLog?.Invoke($"📊 Actual Distance: {totalDistance:F1} NM", Theme.MainText);
+                OnLog?.Invoke($"📊 Actual Flight Time: {actualFlightTimeMinutes} min", Theme.MainText);
+                OnLog?.Invoke($"⛽ Fuel Used: {fuelUsed:F0} {_activePlan?.Units ?? "kg"}", Theme.MainText);
+
                 var finalData = new
                 {
                     state = 2,
-                    submitted_at = now.ToString("yyyy-MM-dd HH:mm:ss"),
-                    block_off_time = FlightStartTime.ToString("yyyy-MM-dd HH:mm:ss"),
-                    block_on_time = now.ToString("yyyy-MM-dd HH:mm:ss"),
+                    submitted_at = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
                     distance = Math.Round(totalDistance, 2),
-                    planned_distance = _activePlan?.Distance ?? 0,
-                    flight_time = airTime,
-                    planned_flight_time = _activePlan?.EstTimeEnroute ?? 0,
-                    block_fuel = Math.Round(_activePlan?.BlockFuel ?? 0, 0),
+                    planned_distance = Math.Round(plannedDistance, 2),
+                    flight_time = actualFlightTimeMinutes,
+                    planned_flight_time = plannedFlightTimeMinutes,
+                    block_fuel = Math.Round(blockFuel, 0),
                     fuel_used = Math.Round(Math.Max(0, fuelUsed), 0),
                     landing_rate = (int)(TouchdownFpm ?? 0),
-                    notes = "vmsOpenAcars Report"
+                    notes = $"vmsOpenAcars Report - Total time: {totalFlightTimeMinutes} min, Flight time: {actualFlightTimeMinutes} min, Distance: {totalDistance:F1} NM"
                 };
 
                 bool success = await _apiService.FilePirep(ActivePirepId, finalData);
                 if (success)
                 {
-                    OnLog?.Invoke("✅ PIREP filed successfully", Theme.Success);
+                    OnLog?.Invoke($"✅ PIREP filed successfully", Theme.Success);
+                    OnLog?.Invoke($"📊 Total time: {totalFlightTimeMinutes} min", Theme.MainText);
+                    OnLog?.Invoke($"📊 Distance: {totalDistance:F1} NM", Theme.MainText);
+                    OnLog?.Invoke($"✈️ Flight time: {actualFlightTimeMinutes} min", Theme.MainText);
+                    OnLog?.Invoke($"⛽ Fuel used: {fuelUsed:F0} {_activePlan?.Units ?? "kg"}", Theme.Success);
                     ResetFlightState();
                     return true;
                 }
@@ -778,33 +1037,63 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        public async Task UpdatePirepFlightTime()
+        /// <summary>
+        /// Actualiza el estado del vuelo en el servidor (tiempo y distancia) en una sola llamada
+        /// </summary>
+        public async Task UpdateFlightProgress()
         {
             if (string.IsNullOrEmpty(ActivePirepId))
                 return;
 
-            int flightTimeMinutes = (int)(DateTime.UtcNow - FlightStartTime).TotalMinutes;
+            if (!_isTimerStarted)
+                return;
 
-            // Log para depuración
-            System.Diagnostics.Debug.WriteLine($"Updating flight time: {flightTimeMinutes} min");
+            // Calcular tiempos
+            DateTime referenceTime = _serverBlockOffTime != default ? _serverBlockOffTime : _serverCreatedAt;
+            int flightTimeMinutes = (int)(DateTime.UtcNow - referenceTime).TotalMinutes;
+            double currentDistance = Math.Round(_totalDistance, 2);
+
+            // Verificar si hay cambios significativos para actualizar en servidor
+            bool timeChanged = Math.Abs(flightTimeMinutes - _lastFlightTimeMinutesLogged) >= 1;
+            bool distanceChanged = Math.Abs(currentDistance - _lastDistanceLogged) >= 1;
+
+            // Solo actualizar si hay cambios significativos
+            if (!timeChanged && !distanceChanged)
+                return;
 
             try
             {
-                var updateData = new { flight_time = flightTimeMinutes };
+                var updateData = new
+                {
+                    flight_time = flightTimeMinutes,
+                    distance = currentDistance
+                };
+
                 bool success = await _apiService.UpdatePirep(ActivePirepId, updateData);
 
                 if (success)
                 {
-                    if (flightTimeMinutes % 5 == 0)
-                        OnLog?.Invoke($"⏱️ Flight time: {flightTimeMinutes} min", Theme.MainText);
+                    // Actualizar últimos valores registrados
+                    _lastFlightTimeMinutesLogged = flightTimeMinutes;
+                    _lastDistanceLogged = currentDistance;
+
+                    // Log cada 5 minutos o cada 10 NM
+                    if (flightTimeMinutes % 5 == 0 && flightTimeMinutes > 0)
+                    {
+                        TimeSpan elapsed = DateTime.UtcNow - _serverCreatedAt;
+                        OnLog?.Invoke($"⏱️ Flight time: {flightTimeMinutes} min | Distance: {currentDistance:F1} NM (Total: {elapsed.Hours:D2}:{elapsed.Minutes:D2}:{elapsed.Seconds:D2})", Theme.MainText);
+                    }
+                    else if ((int)currentDistance % 10 == 0 && currentDistance > 0 && currentDistance != _lastDistanceLogged)
+                    {
+                        OnLog?.Invoke($"📊 Distance: {currentDistance:F1} NM | Time: {flightTimeMinutes} min", Theme.MainText);
+                    }
                 }
             }
             catch (Exception ex)
             {
-                OnLog?.Invoke($"❌ Error updating flight time: {ex.Message}", Theme.Danger);
+                OnLog?.Invoke($"❌ Error updating flight progress: {ex.Message}", Theme.Danger);
             }
         }
-
         #endregion
     }
 

@@ -90,7 +90,10 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Core\Flight\FlightManager.cs" />
+    <Compile Include="Core\Flight\FlightTimer.cs" />
     <Compile Include="Core\Helpers\AppInfo.cs" />
+    <Compile Include="Helpers\Constants.cs" />
+    <Compile Include="Helpers\FlightPhaseHelper.cs" />
     <Compile Include="Helpers\L.cs" />
     <Compile Include="Models\AcarsPosition.cs" />
     <Compile Include="Models\Aircraft.cs" />

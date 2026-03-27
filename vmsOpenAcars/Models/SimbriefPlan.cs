@@ -97,6 +97,8 @@
         /// Example: "BE58", "B738", "A320"
         /// </summary>
         public string AircraftIcao { get; set; }
+        public string FlightId { get; set; }   // phpVMS flight ID 
+        public string BidId { get; set; }       // Bid ID
 
         #endregion
 
@@ -108,9 +110,25 @@
         public double BlockFuel { get; set; }
 
         /// <summary>
+        /// Gets or sets the actual block fuel from the simulator
+        /// </summary>
+        public double ActualBlockFuel { get; set; }
+
+        /// <summary>
+        /// Gets or sets the original planned block fuel (for reference)
+        /// </summary>
+        public double PlannedBlockFuel { get; set; }
+
+        /// <summary>
         /// Gets or sets the payload weight in the specified units.
         /// </summary>
         public double PayLoad { get; set; }
+
+        /// <summary>
+        /// Gets or sets the Zero Fuel Weight (ZFW) from SimBrief.
+        /// This is the weight of the aircraft without fuel.
+        /// </summary>
+        public double ZeroFuelWeight { get; set; }
 
         /// <summary>
         /// Gets or sets the number of passengers on board.

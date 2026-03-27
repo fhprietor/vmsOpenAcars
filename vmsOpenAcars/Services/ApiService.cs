@@ -179,73 +179,6 @@ namespace vmsOpenAcars.Services
             }
         }
 
-        /*
-        public async Task<List<Flight>> GetPilotBids()
-        {
-            try
-            {
-                var response = await _httpClient.GetAsync($"{_baseUrl}api/user/bids");
-                if (response.IsSuccessStatusCode)
-                {
-                    var content = await response.Content.ReadAsStringAsync();
-                    var json = JObject.Parse(content);
-                    var data = json["data"] as JArray;
-                    var flights = new List<Flight>();
-
-                    if (data != null)
-                    {
-                        foreach (var item in data)
-                        {
-                            var flightData = item["flight"] as JObject;
-                            if (flightData != null)
-                            {
-                                // Distancia en millas náuticas
-                                int nmDistance = flightData["distance"]?["nmi"]?.Value<int>() ?? 0;
-
-                                // Tipos de aeronave permitidos
-                                var subfleets = flightData["subfleets"] as JArray;
-                                var allowedTypes = new List<string>();
-                                if (subfleets != null)
-                                {
-                                    foreach (var sub in subfleets)
-                                    {
-                                        var type = sub["type"]?.ToString();
-                                        if (!string.IsNullOrEmpty(type) && !allowedTypes.Contains(type))
-                                            allowedTypes.Add(type);
-                                    }
-                                }
-
-                                var airline = flightData["airline"] as JObject;
-
-                                flights.Add(new Flight
-                                {
-                                    Id = flightData["id"]?.ToString(),
-                                    FlightNumber = flightData["flight_number"]?.ToString(),
-                                    Airline = airline?["icao"]?.ToString() ?? "VHR",
-                                    Departure = flightData["dpt_airport_id"]?.ToString(),
-                                    Arrival = flightData["arr_airport_id"]?.ToString(),
-                                    AllowedAircraftTypes = allowedTypes,
-                                    AllowedAircraftTypesDisplay = string.Join("/", allowedTypes),
-                                    Distance = nmDistance,
-                                    FlightTime = flightData["flight_time"]?.Value<int>() ?? 0,
-                                    Route = flightData["route"]?.ToString(),
-                                    Level = flightData["level"]?.Value<int>() ?? 0,
-                                    BidId = item["id"]?.ToString()
-                                });
-                            }
-                        }
-                    }
-                    return flights;
-                }
-                return new List<Flight>();
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error getting bids: {ex}");
-                return new List<Flight>();
-            }
-        }
-        */
         #endregion
 
         #region PIREP Management
@@ -340,14 +273,12 @@ namespace vmsOpenAcars.Services
             }
         }
 
+        // En ApiService.cs
+
         /// <summary>
-        /// Creates a new PIREP in 'in_progress' state via the prefile endpoint.
+        /// Prefile un vuelo y devuelve el ID del PIREP y la hora de creación del servidor
         /// </summary>
-        /// <param name="plan">The SimBrief flight plan containing route, fuel, and timing information.</param>
-        /// <param name="pilot">The pilot starting the flight.</param>
-        /// <returns>The ID of the newly created PIREP if successful.</returns>
-        /// <exception cref="Exception">Thrown when the server returns an error response.</exception>
-        public async Task<string> PrefileFlight(SimbriefPlan plan, Pilot pilot)
+        public async Task<(string pirepId, DateTime serverCreatedAt)> PrefileFlight(SimbriefPlan plan, Pilot pilot)
         {
             string appVersion = AppInfo.Version;
             var payload = new
@@ -355,20 +286,19 @@ namespace vmsOpenAcars.Services
                 airline_id = pilot.AirlineId,
                 aircraft_id = plan.AircraftId,
                 flight_number = plan.FlightNumber,
+                flight_id = plan.FlightId,
                 dpt_airport_id = plan.Origin,
                 arr_airport_id = plan.Destination,
+                alt_airport_id = plan.Alternate ?? "",
                 route = plan.Route,
                 level = plan.PlannedAltitude,
-
-                // Additional fields expected by phpVMS
                 planned_distance = Math.Round(plan.Distance, 2),
-                planned_flight_time = plan.EstTimeEnroute / 60, // Convert seconds to minutes
+                planned_flight_time = plan.EstTimeEnroute / 60,
+                zfw = Math.Round(plan.ZeroFuelWeight, 0),
                 block_fuel = Math.Round(plan.BlockFuel, 0),
-                distance = 0, // Initial distance (updated during flight)
-                flight_time = 0, // Initial flight time (updated during flight)
-                fuel_used = 0, // Initial fuel used (updated during flight)
-                submitted_at = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
-
+                distance = 0,
+                flight_time = 0,
+                fuel_used = 0,
                 source_name = $"vmsOpenAcars/{appVersion}",
                 state = "in_progress"
             };
@@ -386,15 +316,109 @@ namespace vmsOpenAcars.Services
                 var errorJson = JObject.Parse(result);
                 var message = errorJson["message"]?.ToString()
                               ?? errorJson["error"]?["message"]?.ToString()
-                              ?? errorJson["title"]?.ToString()
                               ?? result;
                 throw new Exception(message);
             }
 
             var jsonResult = JObject.Parse(result);
-            return jsonResult["data"]?["id"]?.ToString() ?? jsonResult["id"]?.ToString();
+
+            // Obtener el ID del PIREP
+            var pirepId = jsonResult["data"]?["id"]?.ToString()
+                          ?? jsonResult["id"]?.ToString();
+
+            // Obtener created_at de la respuesta del servidor
+            DateTime serverCreatedAt = DateTime.UtcNow; // fallback
+            var createdAt = jsonResult["data"]?["created_at"]?.ToString();
+            if (!string.IsNullOrEmpty(createdAt))
+            {
+                if (DateTime.TryParse(createdAt, out DateTime parsedDate))
+                {
+                    serverCreatedAt = parsedDate;
+                }
+            }
+
+            return (pirepId, serverCreatedAt);
+        }
+        public async Task<bool> DeleteBid(string bidId)
+        {
+            try
+            {
+                var payload = new { bid_id = bidId };
+                string json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var request = new HttpRequestMessage
+                {
+                    Method = HttpMethod.Delete,
+                    RequestUri = new Uri($"{_baseUrl}api/user/bids"),
+                    Content = content
+                };
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+                else
+                {
+                    string error = await response.Content.ReadAsStringAsync();
+                    System.Diagnostics.Debug.WriteLine($"Error deleting bid: {response.StatusCode} - {error}");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Exception deleting bid: {ex}");
+                return false;
+            }
         }
 
+        public async Task<bool> SetBlockOffTime(string pirepId)
+        {
+            try
+            {
+                // No enviamos la hora, el servidor usará su propia hora UTC
+                var payload = new { block_off_time = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") };
+                string json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.PutAsync(
+                    $"{_baseUrl}api/pireps/{pirepId}", content);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    string error = await response.Content.ReadAsStringAsync();
+                    System.Diagnostics.Debug.WriteLine($"Error setting block_off_time: {error}");
+                }
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Exception setting block_off_time: {ex}");
+                return false;
+            }
+        }
+        public async Task<bool> SetBlockOnTime(string pirepId)
+        {
+            try
+            {
+                var payload = new { block_on_time = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") };
+                string json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.PutAsync(
+                    $"{_baseUrl}api/pireps/{pirepId}", content);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Exception setting block_on_time: {ex}");
+                return false;
+            }
+        }
         #endregion
 
         #region ACARS Updates

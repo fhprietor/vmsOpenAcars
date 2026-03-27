@@ -10,6 +10,7 @@ using vmsOpenAcars.UI;
 using static vmsOpenAcars.Helpers.L;
 using vmsOpenAcars.UI.Forms;
 using System.Linq;
+using vmsOpenAcars.Helpers;
 
 namespace vmsOpenAcars.ViewModels
 {
@@ -210,7 +211,7 @@ namespace vmsOpenAcars.ViewModels
                 nav_type = e.NavType,
                 order = e.Order,
                 name = GetPhaseName(_flightManager.CurrentPhase),
-                status = GetPhpVmsStatusCode(_flightManager.CurrentPhase),
+                status = FlightPhaseHelper.GetStatusCode(_flightManager.CurrentPhase),
                 lat = e.Latitude,
                 lon = e.Longitude,
                 distance = distance,
@@ -268,7 +269,7 @@ namespace vmsOpenAcars.ViewModels
                     if (success)
                     {
                         _lastPositionUpdate = DateTime.UtcNow;
-                        await _flightManager.UpdatePirepFlightTime();
+                        await _flightManager.UpdateFlightProgress();
                     }
 
                     OnAcarsStatusChanged?.Invoke(success);
@@ -349,6 +350,8 @@ namespace vmsOpenAcars.ViewModels
             }
         }
 
+        // En MainViewModel.cs - StartFlight()
+
         private async Task StartFlight()
         {
             if (!_flightManager.CanStartFlight())
@@ -357,9 +360,72 @@ namespace vmsOpenAcars.ViewModels
                 return;
             }
 
+            var plan = _flightManager.ActivePlan;
+            if (plan == null)
+            {
+                OnLog?.Invoke("⛔ No flight plan loaded", Theme.Warning);
+                return;
+            }
+
+            // ===== VALIDAR COMBUSTIBLE ANTES DE PREFILE =====
+            double actualFuel = 0;
+            bool simulatorConnected = _fsuipc.IsConnected;
+
+            if (!simulatorConnected)
+            {
+                OnLog?.Invoke("❌ Simulator not connected. Cannot verify fuel quantity.", Theme.Danger);
+                OnLog?.Invoke("⛔ Please connect simulator before starting flight.", Theme.Warning);
+                return;
+            }
+
+            // Obtener combustible actual del simulador
+            actualFuel = _fsuipc.GetTotalFuel();
+            double plannedFuel = plan.BlockFuel;
+
+            OnLog?.Invoke($"⛽ Simulator fuel: {actualFuel:F0} {plan.Units ?? "kg"}", Theme.MainText);
+            OnLog?.Invoke($"📋 Planned fuel: {plannedFuel:F0} {plan.Units ?? "kg"}", Theme.MainText);
+
+            // Calcular diferencia
+            double difference = actualFuel - plannedFuel;
+            double differenceAbs = Math.Abs(difference);
+            double differencePercent = (differenceAbs / plannedFuel) * 100;
+
+            // Validar dentro de tolerancia
+            bool fuelValid = IsFuelWithinTolerance(plannedFuel, actualFuel);
+
+            if (!fuelValid)
+            {
+                string warningMessage = $"❌ FUEL VALIDATION FAILED\n\n" +
+                                        $"Planned fuel: {plannedFuel:F0} {plan.Units ?? "kg"}\n" +
+                                        $"Simulator fuel: {actualFuel:F0} {plan.Units ?? "kg"}\n" +
+                                        $"Difference: {differenceAbs:F0} {plan.Units ?? "kg"} ({differencePercent:F1}%)\n\n" +
+                                        $"Fuel must be within {Constants.FuelTolerancePercent * 100}% or {Constants.FuelToleranceAbsolute} {plan.Units ?? "kg"} of the flight plan.\n\n" +
+                                        $"Please adjust fuel in the simulator to match the flight plan.";
+
+                OnLog?.Invoke($"❌ Fuel validation failed", Theme.Danger);
+
+                if (OnShowConfirmation != null)
+                {
+                    await OnShowConfirmation(warningMessage, "FUEL ERROR", EcamDialogButtons.OK);
+                }
+                return;
+            }
+
+            // Mostrar información de combustible válido
+            string diffSymbol = difference > 0 ? "+" : "";
+            OnLog?.Invoke($"✅ Fuel validation passed: {diffSymbol}{difference:F0} {plan.Units ?? "kg"} ({diffSymbol}{differencePercent:F1}%)", Theme.Success);
+
+            // Si hay diferencia pequeña, mostrar advertencia pero permitir
+            if (differenceAbs > 0)
+            {
+                OnLog?.Invoke($"ℹ️ Fuel difference within tolerance. Continuing with flight.", Theme.MainText);
+            }
+
+            // ===== AHORA SÍ, CREAR EL PIREP =====
             bool started = await _flightManager.StartFlight(
-                _flightManager.ActivePlan,
-                _flightManager.ActivePilot
+                plan,
+                _flightManager.ActivePilot,
+                actualFuel  // Pasar el combustible real
             );
 
             if (started)
@@ -368,6 +434,24 @@ namespace vmsOpenAcars.ViewModels
                 OnLog?.Invoke(_("FlightStarted"), Theme.Success);
                 OnFlightStarted?.Invoke();
             }
+        }
+
+        /// <summary>
+        /// Valida si el combustible real está dentro de la tolerancia permitida
+        /// </summary>
+        private bool IsFuelWithinTolerance(double plannedFuel, double actualFuel)
+        {
+            if (actualFuel <= 0) return false;
+            if (plannedFuel <= 0) return false;
+
+            double difference = Math.Abs(actualFuel - plannedFuel);
+            double differencePercent = (difference / plannedFuel) * 100;
+
+            // Verificar tolerancia: dentro del porcentaje O dentro del valor absoluto
+            bool withinPercent = differencePercent <= (Constants.FuelTolerancePercent * 100);
+            bool withinAbsolute = difference <= Constants.FuelToleranceAbsolute;
+
+            return withinPercent || withinAbsolute;
         }
 
         public async Task CancelFlight()
@@ -525,24 +609,6 @@ namespace vmsOpenAcars.ViewModels
             }
         }
 
-        private string GetPhpVmsStatusCode(FlightPhase phase)
-        {
-            var dict = new System.Collections.Generic.Dictionary<FlightPhase, string>
-            {
-                [FlightPhase.Boarding] = "BST",
-                [FlightPhase.Pushback] = "PBT",
-                [FlightPhase.TaxiOut] = "TXI",
-                [FlightPhase.TaxiIn] = "TXI",
-                [FlightPhase.Takeoff] = "TOF",
-                [FlightPhase.Climb] = "ICL",
-                [FlightPhase.Enroute] = "ENR",
-                [FlightPhase.Descent] = "APR",
-                [FlightPhase.Approach] = "FIN",
-                [FlightPhase.Landing] = "LDG",
-                [FlightPhase.Completed] = "ARR"
-            };
-            return dict.TryGetValue(phase, out string code) ? code : "INI";
-        }
         /// <summary>
         /// Carga los datos de un vuelo seleccionado desde las reservas
         /// </summary>
@@ -557,12 +623,16 @@ namespace vmsOpenAcars.ViewModels
                 Airline = flight.Airline,
                 Origin = flight.Departure,
                 Destination = flight.Arrival,
+                Alternate = "",
                 Route = flight.Route,
                 CruiseAltitude = flight.Level,
                 Distance = flight.Distance,
-                EstTimeEnroute = flight.FlightTime * 60, // Convertir minutos a segundos
+                EstTimeEnroute = flight.FlightTime * 60,
                 AircraftIcao = flight.AircraftType,
-                Aircraft = flight.AircraftType
+                Aircraft = flight.AircraftType,
+                BlockFuel = 0,    
+                ZeroFuelWeight = 0, 
+                PayLoad = 0    
             };
 
             // Guardar el plan en el FlightManager (parcialmente completo)
@@ -591,6 +661,42 @@ namespace vmsOpenAcars.ViewModels
                 OnLog?.Invoke($"❌ Error cargando reservas: {ex.Message}", Theme.Danger);
                 return new List<Flight>();
             }
+        }
+        // En MainViewModel.cs - añadir método para mostrar estado de combustible
+
+        private async Task<bool> ValidateAndShowFuelStatus()
+        {
+            var plan = _flightManager.ActivePlan;
+            if (plan == null) return false;
+
+            if (!_fsuipc.IsConnected)
+            {
+                OnLog?.Invoke("❌ Simulator not connected. Cannot verify fuel.", Theme.Danger);
+                return false;
+            }
+
+            double actualFuel = _fsuipc.GetTotalFuel();
+            double plannedFuel = plan.BlockFuel;
+            double difference = actualFuel - plannedFuel;
+            double differenceAbs = Math.Abs(difference);
+            double differencePercent = (differenceAbs / plannedFuel) * 100;
+
+            bool isValid = IsFuelWithinTolerance(plannedFuel, actualFuel);
+
+            string statusIcon = isValid ? "✅" : "❌";
+            Color statusColor = isValid ? Theme.Success : Theme.Danger;
+
+            string diffSymbol = difference > 0 ? "+" : "";
+            string diffText = difference == 0 ? "exact match" : $"{diffSymbol}{difference:F0} ({diffSymbol}{differencePercent:F1}%)";
+
+            OnLog?.Invoke($"{statusIcon} Fuel validation: {actualFuel:F0} vs {plannedFuel:F0} = {diffText}", statusColor);
+
+            if (!isValid)
+            {
+                OnLog?.Invoke($"📏 Tolerance: {Constants.FuelTolerancePercent * 100}% or {Constants.FuelToleranceAbsolute} {plan.Units ?? "kg"}", Theme.Warning);
+            }
+
+            return isValid;
         }
     }
 }

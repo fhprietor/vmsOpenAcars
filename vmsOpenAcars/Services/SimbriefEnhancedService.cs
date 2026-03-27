@@ -76,63 +76,67 @@ namespace vmsOpenAcars.Services
         /// </summary>
         public async Task<SimbriefPlan> FetchAndParseOFP(string simbriefUsername)
         {
-            try
-            {
-                string url = $"https://www.simbrief.com/api/xml.fetcher.php?username={simbriefUsername}&json=1";
-                var response = await _apiService.HttpClient.GetAsync(url);
-
-                if (!response.IsSuccessStatusCode)
-                    return null;
-
-                string content = await response.Content.ReadAsStringAsync();
-                JObject json = JObject.Parse(content);
-
-                var plan = new SimbriefPlan
+                try
                 {
-                    // Información general del vuelo
-                    FlightNumber = json["general"]?["flight_number"]?.ToString() ?? "N/A",
-                    Airline = json["general"]?["icao_airline"]?.ToString() ?? "N/A",
+                    string url = $"https://www.simbrief.com/api/xml.fetcher.php?username={simbriefUsername}&json=1";
+                    var response = await _apiService.HttpClient.GetAsync(url);
 
-                    // Origen y destino
-                    Origin = json["origin"]?["icao_code"]?.ToString() ?? "ZZZZ",
-                    Destination = json["destination"]?["icao_code"]?.ToString() ?? "ZZZZ",
-                    DestinationElevation = json["destination"]?["elevation"]?.Value<int>() ?? 0,
-                    Alternate = json["alternate"]?["icao_code"]?.ToString(),
+                    if (!response.IsSuccessStatusCode)
+                        return null;
 
-                    // Ruta
-                    Route = json["general"]?["route"]?.ToString() ?? "DIRECT",
-                    CruiseAltitude = json["general"]?["initial_altitude"]?.Value<int>() ?? 0,
+                    string content = await response.Content.ReadAsStringAsync();
+                    JObject json = JObject.Parse(content);
 
-                    // Distancia
-                    Distance = json["general"]?["gc_distance"]?.Value<double>() ?? 0,
+                    var plan = new SimbriefPlan
+                    {
+                        // Información general del vuelo
+                        FlightNumber = json["general"]?["flight_number"]?.ToString() ?? "N/A",
+                        Airline = json["general"]?["icao_airline"]?.ToString() ?? "N/A",
 
-                    // Aeronave
-                    AircraftIcao = json["aircraft"]?["icao_code"]?.ToString() ?? "B58",
-                    Aircraft = json["aircraft"]?["icaocode"]?.ToString() ?? "B58",
-                    Registration = json["aircraft"]?["reg"]?.ToString() ?? "N-ACARS",
+                        // Origen y destino
+                        Origin = json["origin"]?["icao_code"]?.ToString() ?? "ZZZZ",
+                        Destination = json["destination"]?["icao_code"]?.ToString() ?? "ZZZZ",
+                        DestinationElevation = json["destination"]?["elevation"]?.Value<int>() ?? 0,
+                        Alternate = json["alternate"]?["icao_code"]?.ToString(),
 
-                    // Combustible
-                    BlockFuel = json["fuel"]?["plan_ramp"]?.Value<double>() ?? 0,
-                    DepartureFuel = json["fuel"]?["plan_ramp"]?.Value<double>() ?? 0, // Si lo necesitas
+                        // Ruta
+                        Route = json["general"]?["route"]?.ToString() ?? "DIRECT",
+                        CruiseAltitude = json["general"]?["initial_altitude"]?.Value<int>() ?? 0,
 
-                    // Pesos
-                    PayLoad = json["weights"]?["payload"]?.Value<double>() ?? 0,
-                    PaxCount = json["weights"]?["pax_count"]?.Value<int>() ?? 0,
+                        // Distancia
+                        Distance = json["general"]?["route_distance"]?.Value<double>()
+                                   ?? json["general"]?["gc_distance"]?.Value<double>()
+                                   ?? 0,
 
-                    // Tiempos - CORREGIDO: usar times.est_time_enroute
-                    EstTimeEnroute = json["times"]?["est_time_enroute"]?.Value<int>() ?? 0,
+                        // Aeronave
+                        AircraftIcao = json["aircraft"]?["icao_code"]?.ToString() ?? "B58",
+                        Aircraft = json["aircraft"]?["icaocode"]?.ToString() ?? "B58",
+                        Registration = json["aircraft"]?["reg"]?.ToString() ?? "N-ACARS",
 
-                    // Altitud
-                    PlannedAltitude = json["general"]?["initial_altitude"]?.ToString() ?? "FL230",
+                        // Combustible
+                        BlockFuel = json["fuel"]?["plan_ramp"]?.Value<double>() ?? 0,
+                        DepartureFuel = json["fuel"]?["plan_ramp"]?.Value<double>() ?? 0, // Si lo necesitas
 
-                    // Unidades
-                    Units = json["params"]?["units"]?.ToString()?.ToUpperInvariant() ?? "KG",
+                        // Pesos
+                        PayLoad = json["weights"]?["payload"]?.Value<double>() ?? 0,
+                        ZeroFuelWeight = json["weights"]?["est_zfw"]?.Value<double>() ?? 0,
+                        PaxCount = json["weights"]?["pax_count"]?.Value<int>() ?? 0,
 
-                    TimeGenerated = json["params"]?["time_generated"]?.Value<long>() ?? 0,
-                    ScheduledOffTime = json["times"]?["sched_off"]?.Value<long>() ?? 0,
+                        // Tiempos - CORREGIDO: usar times.est_time_enroute
+                        EstTimeEnroute = json["times"]?["est_time_enroute"]?.Value<int>() ?? 0,
 
-            };
+                        // Altitud
+                        PlannedAltitude = json["general"]?["initial_altitude"]?.ToString() ?? "FL230",
 
+                        // Unidades
+                        Units = json["params"]?["units"]?.ToString()?.ToUpperInvariant() ?? "KG",
+
+                        TimeGenerated = json["params"]?["time_generated"]?.Value<long>() ?? 0,
+                        ScheduledOffTime = json["times"]?["sched_off"]?.Value<long>() ?? 0,
+
+                };
+                System.Diagnostics.Debug.WriteLine($"SimBrief Distance: {plan.Distance} NM");
+                System.Diagnostics.Debug.WriteLine($"SimBrief EstTimeEnroute: {plan.EstTimeEnroute} seconds ({plan.EstTimeEnroute / 60} minutes)");
                 return plan;
             }
             catch (Exception ex)

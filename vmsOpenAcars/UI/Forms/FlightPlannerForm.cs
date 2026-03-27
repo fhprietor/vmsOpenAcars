@@ -612,6 +612,8 @@ namespace vmsOpenAcars.UI
                     }
                     plan.AircraftId = int.Parse(_selectedAircraft.Id);
                     // Si todo está bien
+                    plan.FlightId = _selectedFlight.Id;
+                    plan.BidId = _selectedFlight.BidId;
                     _loadedPlan = plan;
                     DisplayOFP(plan);
                     lblStatus.Text = $"✅ OFP loaded: {plan.FlightNumber}";
@@ -655,11 +657,21 @@ namespace vmsOpenAcars.UI
             // Líneas de contenido con formato fijo
             AddContentLine(sb, $"Flight: {plan.Airline}{plan.FlightNumber}", width);
             AddContentLine(sb, $"Route:  {plan.Origin} → {plan.Destination}", width);
+            if (!string.IsNullOrEmpty(plan.Alternate))
+            {
+                AddContentLine(sb, $"Alternate: {plan.Alternate}", width);
+            }
             AddContentLine(sb, $"Aircraft: {plan.AircraftIcao} ({plan.Registration})", width);
-            AddContentLine(sb, $"Fuel: {plan.BlockFuel:F0} kg", width);
-            AddContentLine(sb, $"Pax: {plan.PaxCount}", width);
-            AddContentLine(sb, $"Route: {plan.Route}", width);
+            AddContentLine(sb, $"Fuel: {plan.BlockFuel:F0} {plan.Units ?? "kg"}", width);
+            AddContentLine(sb, $"ZFW: {plan.ZeroFuelWeight:F0} {plan.Units ?? "kg"}", width);
+            AddContentLine(sb, $"Distance: {plan.Distance:F1} NM", width);
 
+            // Mostrar tiempo en formato HH:MM
+            int hours = plan.EstTimeEnroute / 3600;
+            int minutes = (plan.EstTimeEnroute % 3600) / 60;
+            AddContentLine(sb, $"Est Time: {hours}h {minutes}m", width);
+
+            AddContentLine(sb, $"Route: {plan.Route}", width);
             // Línea inferior
             sb.AppendLine("╚" + new string('═', width - 2) + "╝");
 
