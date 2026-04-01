@@ -149,7 +149,13 @@ namespace vmsOpenAcars.Services
         /// <summary>
         /// Asigna un vuelo a un piloto (bid)
         /// </summary>
-        public async Task<bool> AssignFlightToPilot(string flightId, string pilotId)
+        // En Services/PhpVmsFlightService.cs
+
+        /// <summary>
+        /// Asigna un vuelo a un piloto (bid)
+        /// </summary>
+        /// <returns>Tuple con éxito y mensaje de error si lo hay</returns>
+        public async Task<(bool success, string message)> AssignFlightToPilot(string flightId, string pilotId)
         {
             try
             {
@@ -163,20 +169,81 @@ namespace vmsOpenAcars.Services
                 var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
                 var response = await _apiService.HttpClient.PostAsync(
-                    $"{_apiService.BaseUrl}api/user/bids", content); // 👈 CAMBIO AQUÍ
+                    $"{_apiService.BaseUrl}api/user/bids", content);
 
-                if (!response.IsSuccessStatusCode)
+                if (response.IsSuccessStatusCode)
                 {
-                    var error = await response.Content.ReadAsStringAsync();
-                    System.Diagnostics.Debug.WriteLine($"Error assigning flight: {response.StatusCode} - {error}");
+                    return (true, "Flight assigned successfully");
                 }
-                return response.IsSuccessStatusCode;
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    string errorMessage = ParseErrorMessage(errorContent);
+                    return (false, errorMessage);
+                }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Exception assigning flight: {ex}");
-                return false;
+                return (false, $"Exception: {ex.Message}");
             }
+        }
+
+        // En Services/PhpVmsFlightService.cs
+
+        // En Services/PhpVmsFlightService.cs
+
+        private string ParseErrorMessage(string errorContent)
+        {
+            try
+            {
+                var errorJson = Newtonsoft.Json.Linq.JObject.Parse(errorContent);
+
+                // Prioridad 1: error.message (estructura anidada)
+                var errorObj = errorJson["error"];
+                if (errorObj != null)
+                {
+                    var errorMessage = errorObj["message"]?.ToString();
+                    if (!string.IsNullOrEmpty(errorMessage))
+                        return errorMessage;
+                }
+
+                // Prioridad 2: title
+                var title = errorJson["title"]?.ToString();
+                if (!string.IsNullOrEmpty(title))
+                    return title;
+
+                // Prioridad 3: details
+                var details = errorJson["details"]?.ToString();
+                if (!string.IsNullOrEmpty(details))
+                    return details;
+
+                // Prioridad 4: status code (solo si no tenemos mensaje)
+                var status = errorJson["status"]?.Value<int>();
+                if (status.HasValue)
+                {
+                    switch (status.Value)
+                    {
+                        case 409:
+                            return "You already have an active bid";
+                        case 403:
+                            return "You don't have permission for this flight";
+                        case 404:
+                            return "Flight not available";
+                        default:
+                            return $"Error {status.Value}";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error parsing error message: {ex.Message}");
+            }
+
+            // Fallback: devolver el texto original truncado
+            if (errorContent.Length > 200)
+                return errorContent.Substring(0, 197) + "...";
+
+            return errorContent;
         }
 
         private int GetRankFromString(string level)

@@ -179,6 +179,39 @@ namespace vmsOpenAcars.Services
             }
         }
 
+        /// <summary>
+        /// Obtiene el ID del bid para un vuelo específico
+        /// </summary>
+        public async Task<string> GetBidIdForFlight(string flightId)
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_baseUrl}api/user/bids");
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    var json = JObject.Parse(content);
+                    var data = json["data"] as JArray;
+
+                    if (data != null)
+                    {
+                        foreach (var item in data)
+                        {
+                            var flight = item["flight"] as JObject;
+                            if (flight != null && flight["id"]?.ToString() == flightId)
+                            {
+                                return item["id"]?.ToString();
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error getting bid ID for flight {flightId}: {ex.Message}");
+            }
+            return null;
+        }
         #endregion
 
         #region PIREP Management

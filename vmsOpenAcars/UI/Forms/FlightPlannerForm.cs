@@ -238,7 +238,6 @@ namespace vmsOpenAcars.UI
 
         private void InitializeAvailableFlightsTab()
         {
-            // ListView para vuelos disponibles
             lvAvailableFlights = new ListView
             {
                 Dock = DockStyle.Fill,
@@ -251,6 +250,7 @@ namespace vmsOpenAcars.UI
                 MultiSelect = false
             };
 
+            // Columnas para vuelos disponibles
             lvAvailableFlights.Columns.Add("Flight", 100);
             lvAvailableFlights.Columns.Add("From → To", 130);
             lvAvailableFlights.Columns.Add("Aircraft", 100);
@@ -266,7 +266,6 @@ namespace vmsOpenAcars.UI
 
         private void InitializeBidsTab()
         {
-            // ListView para reservas
             lvBids = new ListView
             {
                 Dock = DockStyle.Fill,
@@ -279,6 +278,8 @@ namespace vmsOpenAcars.UI
                 MultiSelect = false
             };
 
+            // Columnas para bids - incluye columna de Bid ID
+            lvBids.Columns.Add("Bid ID", 80);
             lvBids.Columns.Add("Flight", 100);
             lvBids.Columns.Add("From → To", 130);
             lvBids.Columns.Add("Aircraft", 100);
@@ -297,6 +298,8 @@ namespace vmsOpenAcars.UI
             await Task.WhenAll(LoadAvailableFlightsAsync(), LoadBidsAsync());
         }
 
+        // En FlightPlannerForm.cs - LoadAvailableFlightsAsync
+
         private async Task LoadAvailableFlightsAsync()
         {
             try
@@ -304,32 +307,37 @@ namespace vmsOpenAcars.UI
                 progressBar.Visible = true;
                 lblStatus.Text = "Loading available flights...";
 
-                // 1. Obtener todas las aeronaves disponibles en el aeropuerto actual
                 var availableAircraft = await _flightService.GetAvailableAircraftAtAirport(_currentAirport, null);
                 var availableTypes = availableAircraft.Select(a => a.Type).Distinct().ToList();
 
-                // 2. Obtener todos los vuelos desde el aeropuerto
                 var flights = await _flightService.GetAvailableFlightsFromAirport(_currentAirport, _currentPilot);
 
-                // 3. Filtrar los vuelos que tengan al menos un tipo de aeronave en común con los disponibles
                 var validFlights = flights.Where(f =>
                     f.AllowedAircraftTypes.Any(type => availableTypes.Contains(type))
                 ).ToList();
 
-                // 4. Mostrar los vuelos filtrados
                 lvAvailableFlights.Items.Clear();
                 foreach (var flight in validFlights)
                 {
-                    var item = CreateFlightListViewItem(flight);
+                    var item = CreateFlightListViewItem(flight, false);
                     lvAvailableFlights.Items.Add(item);
                 }
 
                 lvAvailableFlights.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
+
+                // Mostrar información adicional si hay menos vuelos disponibles
+                if (validFlights.Count < flights.Count)
+                {
+                    int filteredCount = flights.Count - validFlights.Count;
+                    AppendLog($"ℹ️ {filteredCount} flights filtered out due to aircraft type restrictions.", Color.Yellow);
+                }
+
                 lblStatus.Text = $"✅ {validFlights.Count} flights available (from {flights.Count} total).";
             }
             catch (Exception ex)
             {
                 lblStatus.Text = $"❌ Error: {ex.Message}";
+                AppendLog($"❌ Error loading flights: {ex.Message}", Color.Red);
             }
             finally
             {
@@ -345,32 +353,71 @@ namespace vmsOpenAcars.UI
 
                 // Filtrar por aeropuerto actual
                 var availableBids = bids.Where(b =>
-                    b.Departure?.Equals(_currentAirport, StringComparison.OrdinalIgnoreCase) ?? false)
+                        b.Departure?.Equals(_currentAirport, StringComparison.OrdinalIgnoreCase) ?? false)
                     .ToList();
 
                 lvBids.Items.Clear();
                 foreach (var bid in availableBids)
                 {
-                    var item = CreateFlightListViewItem(bid);
+                    // showBidId = true para mostrar el Bid ID
+                    var item = CreateFlightListViewItem(bid, true);
                     lvBids.Items.Add(item);
                 }
 
                 lvBids.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
+
+                AppendLog($"📋 Loaded {availableBids.Count} bids from {_currentAirport}");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Error loading bids: {ex}");
+                AppendLog($"❌ Error loading bids: {ex.Message}");
             }
         }
-
-        private ListViewItem CreateFlightListViewItem(Flight flight)
+        /// <summary>
+        /// Crea un item de ListView para mostrar un vuelo
+        /// </summary>
+        /// <param name="flight">El vuelo a mostrar</param>
+        /// <param name="showBidId">Indica si se debe mostrar la columna de Bid ID (para la pestaña de bids)</param>
+        /// <returns>ListViewItem configurado</returns>
+        private ListViewItem CreateFlightListViewItem(Flight flight, bool showBidId = false)
         {
-            var item = new ListViewItem($"{flight.Airline}{flight.FlightNumber}");
+            // Determinar el texto principal según si mostramos Bid ID o no
+            string primaryText;
+            if (showBidId)
+            {
+                // Para la pestaña de bids, mostrar el Bid ID
+                primaryText = !string.IsNullOrEmpty(flight.BidId) ? flight.BidId : "---";
+            }
+            else
+            {
+                // Para vuelos disponibles, mostrar el callsign
+                primaryText = $"{flight.Airline}{flight.FlightNumber}";
+            }
 
+            var item = new ListViewItem(primaryText);
+
+            // Si es un vuelo con bid (pero no estamos en la pestaña de bids), mostrar indicador visual
+            if (!showBidId && !string.IsNullOrEmpty(flight.BidId))
+            {
+                item.ForeColor = Color.LightGreen;
+                item.ToolTipText = $"Bid ID: {flight.BidId}";
+            }
+
+            // Si estamos en la pestaña de bids, añadir el callsign como segunda columna
+            if (showBidId)
+            {
+                item.SubItems.Add($"{flight.Airline}{flight.FlightNumber}");
+            }
+
+            // Ruta (acortar si es muy larga)
             string routeDisplay = flight.Route;
-            if (routeDisplay?.Length > 30)
+            if (!string.IsNullOrEmpty(routeDisplay) && routeDisplay.Length > 30)
+            {
                 routeDisplay = routeDisplay.Substring(0, 27) + "...";
+            }
 
+            // Tiempo de vuelo en formato legible
             string flightTimeDisplay = "N/A";
             if (flight.FlightTime > 0)
             {
@@ -379,15 +426,32 @@ namespace vmsOpenAcars.UI
                 flightTimeDisplay = $"{hours}h {minutes}m";
             }
 
+            // Distancia
             string distanceDisplay = flight.Distance > 0 ? $"{flight.Distance} NM" : "N/A";
 
-            item.SubItems.Add($"{flight.Departure} → {flight.Arrival}");
-            item.SubItems.Add(flight.AllowedAircraftTypesDisplay ?? "Unknown");
-            item.SubItems.Add(distanceDisplay);
-            item.SubItems.Add(flightTimeDisplay);
-            item.SubItems.Add(routeDisplay ?? "DIRECT");
+            // Añadir subitems según el modo
+            if (showBidId)
+            {
+                // Para la pestaña de bids: [Bid ID] | [Callsign] | [Ruta] | [Aircraft] | [Distance] | [Time] | [Route]
+                item.SubItems.Add($"{flight.Departure} → {flight.Arrival}");
+                item.SubItems.Add(flight.AllowedAircraftTypesDisplay ?? "Unknown");
+                item.SubItems.Add(distanceDisplay);
+                item.SubItems.Add(flightTimeDisplay);
+                item.SubItems.Add(routeDisplay ?? "DIRECT");
+            }
+            else
+            {
+                // Para vuelos disponibles: [Callsign] | [Ruta] | [Aircraft] | [Distance] | [Time] | [Route]
+                item.SubItems.Add($"{flight.Departure} → {flight.Arrival}");
+                item.SubItems.Add(flight.AllowedAircraftTypesDisplay ?? "Unknown");
+                item.SubItems.Add(distanceDisplay);
+                item.SubItems.Add(flightTimeDisplay);
+                item.SubItems.Add(routeDisplay ?? "DIRECT");
+            }
 
+            // Guardar el objeto Flight completo en el Tag
             item.Tag = flight;
+
             return item;
         }
 
@@ -488,6 +552,14 @@ namespace vmsOpenAcars.UI
             }
         }
 
+        // En FlightPlannerForm.cs
+
+        // En FlightPlannerForm.cs - BtnPlanWithSimbrief_Click
+
+        // En FlightPlannerForm.cs - BtnPlanWithSimbrief_Click
+
+        // En FlightPlannerForm.cs - BtnPlanWithSimbrief_Click
+
         private async void BtnPlanWithSimbrief_Click(object sender, EventArgs e)
         {
             if (_selectedFlight == null || _selectedAircraft == null) return;
@@ -495,13 +567,15 @@ namespace vmsOpenAcars.UI
             try
             {
                 progressBar.Visible = true;
-                lblStatus.Text = "Assigning flight...";
 
-                bool assigned = await _flightService.AssignFlightToPilot(_selectedFlight.Id, _currentPilot.Id.ToString());
+                bool hasBid = !string.IsNullOrEmpty(_selectedFlight.BidId);
 
-                if (assigned)
+                if (hasBid)
                 {
-                    lblStatus.Text = "✅ Flight assigned. Opening SimBrief...";
+                    // CASO 1: Ya existe un bid
+                    lblStatus.Text = "✅ Using existing bid. Opening SimBrief...";
+                    AppendLog($"📋 Using existing bid ID: {_selectedFlight.BidId}");
+
                     string url = _simbriefService.GenerateDispatchUrl(_selectedFlight, _currentPilot, _selectedAircraft);
                     System.Diagnostics.Process.Start(url);
                     lblStatus.Text = "✈️ Plan in SimBrief, then click 'FETCH OFP'";
@@ -509,18 +583,112 @@ namespace vmsOpenAcars.UI
                 }
                 else
                 {
-                    lblStatus.Text = "❌ Could not assign flight.";
+                    // CASO 2: No hay bid - crear uno nuevo
+                    lblStatus.Text = "Assigning flight...";
+                    AppendLog($"📋 Creating new bid for flight {_selectedFlight.Airline}{_selectedFlight.FlightNumber}");
+
+                    var (assigned, message) = await _flightService.AssignFlightToPilot(_selectedFlight.Id, _currentPilot.Id.ToString());
+
+                    if (assigned)
+                    {
+                        // Obtener el bid ID recién creado
+                        string newBidId = await _apiService.GetBidIdForFlight(_selectedFlight.Id);
+                        if (!string.IsNullOrEmpty(newBidId))
+                        {
+                            _selectedFlight.BidId = newBidId;
+                            AppendLog($"✅ New bid created: {_selectedFlight.BidId}");
+                        }
+                        else
+                        {
+                            AppendLog($"⚠️ Bid created but could not retrieve ID");
+                        }
+
+                        lblStatus.Text = "✅ Flight assigned. Opening SimBrief...";
+                        string url = _simbriefService.GenerateDispatchUrl(_selectedFlight, _currentPilot, _selectedAircraft);
+                        System.Diagnostics.Process.Start(url);
+                        lblStatus.Text = "✈️ Plan in SimBrief, then click 'FETCH OFP'";
+                        _hasPlanned = true;
+                    }
+                    else
+                    {
+                        // Mostrar el mensaje de error específico del servidor
+                        lblStatus.Text = $"❌ Could not assign flight: {message}";
+                        AppendLog($"❌ Failed to create bid: {message}");
+
+                        // Si el error es por tener un bid activo, ofrecer opciones
+                        if (message.Contains("already") || message.Contains("active") || message.Contains("reserva"))
+                        {
+                            AppendLog($"ℹ️ You already have an active bid. Please cancel it first or use the 'My Bids' tab.", Color.Yellow);
+
+                            // Opcional: preguntar si quiere ver sus bids activos
+                            var result = EcamDialog.Show(this,
+                                "You already have an active bid.\n\nDo you want to view your current bids?",
+                                "Active Bid Detected",
+                                EcamDialogButtons.YesNo);
+
+                            if (result == DialogResult.Yes)
+                            {
+                                // Cambiar al tab de bids
+                                tabControl.SelectedTab = tabBids;
+                                await LoadBidsAsync();
+                            }
+                        }
+                    }
                 }
             }
             catch (Exception ex)
             {
                 lblStatus.Text = $"❌ Error: {ex.Message}";
+                AppendLog($"❌ Error in flight planning: {ex.Message}");
             }
             finally
             {
                 progressBar.Visible = false;
             }
         }
+
+        // Método auxiliar para añadir logs al RichTextBox
+        // En FlightPlannerForm.cs
+
+        private void AppendLog(string message, Color? color = null)
+        {
+            if (txtOFPPreview.InvokeRequired)
+            {
+                txtOFPPreview.Invoke(new Action(() =>
+                {
+                    if (color.HasValue)
+                    {
+                        txtOFPPreview.SelectionStart = txtOFPPreview.TextLength;
+                        txtOFPPreview.SelectionLength = 0;
+                        txtOFPPreview.SelectionColor = color.Value;
+                        txtOFPPreview.AppendText($"{DateTime.Now:HH:mm:ss} - {message}\n");
+                        txtOFPPreview.SelectionColor = txtOFPPreview.ForeColor;
+                    }
+                    else
+                    {
+                        txtOFPPreview.AppendText($"{DateTime.Now:HH:mm:ss} - {message}\n");
+                    }
+                    txtOFPPreview.ScrollToCaret();
+                }));
+            }
+            else
+            {
+                if (color.HasValue)
+                {
+                    txtOFPPreview.SelectionStart = txtOFPPreview.TextLength;
+                    txtOFPPreview.SelectionLength = 0;
+                    txtOFPPreview.SelectionColor = color.Value;
+                    txtOFPPreview.AppendText($"{DateTime.Now:HH:mm:ss} - {message}\n");
+                    txtOFPPreview.SelectionColor = txtOFPPreview.ForeColor;
+                }
+                else
+                {
+                    txtOFPPreview.AppendText($"{DateTime.Now:HH:mm:ss} - {message}\n");
+                }
+                txtOFPPreview.ScrollToCaret();
+            }
+        }
+
         private void BtnAccept_Click(object sender, EventArgs e)
         {
             if (_loadedPlan != null)
