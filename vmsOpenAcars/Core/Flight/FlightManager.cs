@@ -57,7 +57,7 @@ namespace vmsOpenAcars.Core.Flight
         // Variables para pushback
         private DateTime _pushbackStartTime = DateTime.MinValue;
         private const double PUSHBACK_MIN_SPEED = 0.5;
-        private const double PUSHBACK_MAX_SPEED = 5.0;
+        private const double PUSHBACK_MAX_SPEED = 4.0;
         private const int PUSHBACK_MIN_DURATION = 5;
 
         private DateTime _stoppedStartTime = DateTime.MinValue; // Para detectar inmovilidad sostenida
