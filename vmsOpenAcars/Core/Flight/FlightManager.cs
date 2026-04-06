@@ -31,6 +31,9 @@ namespace vmsOpenAcars.Core.Flight
         private DateTime? _lastAirborneTime = null;
         private DateTime? _lastPositionTime = null;
         private (double lat, double lon)? _lastPosition = null;
+        private double _currentPitch = 0;
+        private double _currentBank = 0;
+        private double _totalDistanceKm = 0;  // Distancia total en KM
 
         // Cronómetro real basado en Stopwatch
         private readonly FlightTimer _flightTimer = new FlightTimer();
@@ -59,6 +62,7 @@ namespace vmsOpenAcars.Core.Flight
         private const double PUSHBACK_MIN_SPEED = 0.5;
         private const double PUSHBACK_MAX_SPEED = 4.0;
         private const int PUSHBACK_MIN_DURATION = 5;
+        
 
         private DateTime _stoppedStartTime = DateTime.MinValue; // Para detectar inmovilidad sostenida
 
@@ -73,7 +77,7 @@ namespace vmsOpenAcars.Core.Flight
                 OnAirportChanged?.Invoke(value);
             }
         }
-
+        public double TotalDistanceKm => _totalDistanceKm;
         public double CurrentLat { get; private set; }
         public double CurrentLon { get; private set; }
         public int CurrentIndicatedAirspeed { get; private set; }
@@ -110,8 +114,17 @@ namespace vmsOpenAcars.Core.Flight
         public event Action<string> OnAirportChanged;
         public event Action<string, Color> OnLog;
         public event Action<ValidationStatus> OnPositionValidated;
+        public event Action<int, double, double, double> OnLandingDetected; // vs, gforce, pitch, bank
 
         #endregion
+        // Método para añadir distancia incremental y actualizar total
+        public void AddDistanceIncremental(double distanceKm)
+        {
+            if (distanceKm > 0 && distanceKm < 10) // Validar
+            {
+                _totalDistanceKm += distanceKm;
+            }
+        }
 
         public FlightManager(ApiService apiService)
         {
@@ -124,6 +137,52 @@ namespace vmsOpenAcars.Core.Flight
 
         #region Private Methods
 
+        /// <summary>
+        /// Calcula la fuerza G a partir del vertical speed en el aterrizaje
+        /// Fórmula: G = 1 + (ΔV / Δt) / 9.81
+        /// Para un touchdown típico, usamos una aproximación simplificada
+        /// </summary>
+        /// <param name="verticalSpeedFpm">Vertical speed en pies por minuto (negativo en descenso)</param>
+        /// <returns>Fuerza G (1.0 = 1G, >1 = impacto)</returns>
+        private double CalculateGForce(int verticalSpeedFpm)
+        {
+            // Convertir de pies/minuto a metros/segundo
+            // 1 ft/min = 0.00508 m/s
+            double verticalSpeedMps = Math.Abs(verticalSpeedFpm) * 0.00508;
+
+            // Tiempo estimado de desaceleración en el touchdown (segundos)
+            // Un aterrizaje típico tiene una desaceleración en 0.1-0.3 segundos
+            double decelerationTime = 0.15; // segundos
+
+            // Calcular desaceleración: a = Δv / Δt
+            double deceleration = verticalSpeedMps / decelerationTime;
+
+            // Calcular G-Force: G = 1 + (a / 9.81)
+            double gForce = 1.0 + (deceleration / 9.81);
+
+            // Limitar a valores razonables (1.0 a 3.0 G)
+            if (gForce < 1.0) gForce = 1.0;
+            if (gForce > 3.0) gForce = 3.0;
+
+            // Redondear a 2 decimales
+            return Math.Round(gForce, 2);
+        }
+
+        /// <summary>
+        /// Versión alternativa usando una tabla de valores típicos
+        /// </summary>
+        private double CalculateGForceFromTable(int verticalSpeedFpm)
+        {
+            int vs = Math.Abs(verticalSpeedFpm);
+
+            if (vs <= 100) return 1.0;      // Aterrizaje muy suave
+            if (vs <= 200) return 1.1;      // Aterrizaje suave
+            if (vs <= 300) return 1.3;      // Aterrizaje normal
+            if (vs <= 400) return 1.6;      // Aterrizaje firme
+            if (vs <= 600) return 2.0;      // Aterrizaje duro
+            if (vs <= 800) return 2.5;      // Aterrizaje muy duro
+            return 3.0;                      // Aterrizaje severo
+        }
         private async Task UpdatePirepStatus(string statusCode)
         {
             if (string.IsNullOrEmpty(ActivePirepId))
@@ -242,7 +301,15 @@ namespace vmsOpenAcars.Core.Flight
 
             TouchdownFpm = verticalSpeed;
             _touchdownCaptured = true;
-            OnLog?.Invoke($"✈️ Touchdown: {verticalSpeed} FPM", Theme.MainText);
+
+            // Calcular G-Force
+            double gforce = CalculateGForceFromTable(verticalSpeed);
+
+            // Registrar en log
+            OnLog?.Invoke($"✈️ Touchdown: {verticalSpeed} FPM, {gforce:F2} G", Theme.MainText);
+
+            // Disparar evento con todos los datos
+            OnLandingDetected?.Invoke(verticalSpeed, gforce, _currentPitch, _currentBank);
         }
 
         private double CalculateDistance(double lat1, double lon1, double lat2, double lon2)
@@ -882,11 +949,24 @@ namespace vmsOpenAcars.Core.Flight
             bool autopilot = false,
             DateTime simTime = default,
             double radarAlt = 0,
-            int order = 0)
+            int order = 0,
+            double pitch = 0,
+            double bank = 0) 
         {
             if (string.IsNullOrEmpty(ActivePirepId))
                 return;
-
+            // Validar vertical speed (valores típicos entre -10000 y +10000 fpm)
+            if (Math.Abs(verticalSpeed) > 10000)
+            {
+                OnLog?.Invoke($"⚠️ Unusual vertical speed detected: {verticalSpeed} fpm", Theme.Warning);
+                // Podríamos ignorar este valor o limitarlo
+                verticalSpeed = Math.Max(-10000, Math.Min(10000, verticalSpeed));
+            }
+            // Para touchdown, valores negativos (descenso)
+            if (verticalSpeed < -1000)
+            {
+                OnLog?.Invoke($"⚠️ High descent rate: {verticalSpeed} fpm", Theme.Warning);
+            }
             CurrentAltitude = altitude;
             CurrentGroundSpeed = groundSpeed;
             CurrentVerticalSpeed = verticalSpeed;
@@ -894,7 +974,8 @@ namespace vmsOpenAcars.Core.Flight
             IsOnGround = isOnGround;
             CurrentLat = lat;
             CurrentLon = lon;
-
+            _currentPitch = pitch;
+            _currentBank = bank;
             CurrentIndicatedAirspeed = indicatedAirspeed > 0 ? (int)indicatedAirspeed : groundSpeed;
             CurrentFuelFlow = fuelFlow;
             CurrentTransponder = transponder;
@@ -903,14 +984,17 @@ namespace vmsOpenAcars.Core.Flight
             RadarAltitude = radarAlt;
             PositionOrder = order;
 
-            // Calcular distancia incremental (solo local, no se envía al servidor aquí)
             if (_lastPosition.HasValue && _lastPositionTime.HasValue)
             {
-                double distance = CalculateDistance(
+                double distanceKm = CalculateDistanceKm(
                     _lastPosition.Value.lat, _lastPosition.Value.lon,
                     lat, lon
                 );
-                _totalDistance += distance;
+
+                if (distanceKm > 0 && distanceKm < 10)
+                {
+                    _totalDistanceKm += distanceKm;
+                }
             }
 
             _lastPosition = (lat, lon);
@@ -922,6 +1006,17 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             UpdatePhase(altitude, groundSpeed, isOnGround, verticalSpeed);
+        }
+        public double CalculateDistanceKm(double lat1, double lon1, double lat2, double lon2)
+        {
+            const double R = 6371; // Radio de la Tierra en KM
+            var dLat = (lat2 - lat1) * Math.PI / 180;
+            var dLon = (lon2 - lon1) * Math.PI / 180;
+            var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                    Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180) *
+                    Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+            var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+            return R * c;
         }
         public async Task<bool> AbortFlight()
         {
@@ -1081,7 +1176,7 @@ namespace vmsOpenAcars.Core.Flight
                     if (flightTimeMinutes % 5 == 0 && flightTimeMinutes > 0)
                     {
                         TimeSpan elapsed = DateTime.UtcNow - _serverCreatedAt;
-                        OnLog?.Invoke($"⏱️ Flight time: {flightTimeMinutes} min | Distance: {currentDistance:F1} NM (Total: {elapsed.Hours:D2}:{elapsed.Minutes:D2}:{elapsed.Seconds:D2})", Theme.MainText);
+                        // OnLog?.Invoke($"⏱️ Flight time: {flightTimeMinutes} min | Distance: {currentDistance:F1} NM (Total: {elapsed.Hours:D2}:{elapsed.Minutes:D2}:{elapsed.Seconds:D2})", Theme.MainText);
                     }
                     else if ((int)currentDistance % 10 == 0 && currentDistance > 0 && currentDistance != _lastDistanceLogged)
                     {

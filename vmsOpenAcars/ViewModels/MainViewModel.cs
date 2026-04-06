@@ -58,6 +58,7 @@ namespace vmsOpenAcars.ViewModels
         public event Action<string> OnRegistrationChanged;
         public event Func<string, string, EcamDialogButtons, Task<DialogResult>> OnShowConfirmation;
         public event Action OnFlightStarted;
+        
 
         public MainViewModel(
             FlightManager flightManager,
@@ -94,8 +95,43 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.DataUpdated += OnFsuipcDataUpdated;
             _fsuipc.Connected += OnFsuipcConnected;
             _fsuipc.Disconnected += OnFsuipcDisconnected;
+            _flightManager.OnLandingDetected += OnLandingDetected;
         }
+        // Método que maneja el aterrizaje
+        private void OnLandingDetected(int verticalSpeed, double gforce, double pitch, double bank)
+        {
+            // Crear registro ACARS especial para el aterrizaje
+            var landingRecord = new AcarsPosition
+            {
+                type = 0,                           // FLIGHT_PATH
+                status = "LDG",                     // Landing status
+                nav_type = 0,
+                order = _flightManager.PositionOrder + 1,
+                name = "TOUCHDOWN",
+                lat = _flightManager.CurrentLat,
+                lon = _flightManager.CurrentLon,
+                altitude = _flightManager.CurrentAltitude,
+                altitude_agl = 0,                   // En el momento del touchdown
+                heading = (int)_fsuipc.GetHeading(),
+                vs = verticalSpeed,
+                gs = _flightManager.CurrentGroundSpeed,
+                ias = _flightManager.CurrentIndicatedAirspeed,
+                gforce = gforce,                    // Campo nuevo
+                pitch = pitch,                      // Campo nuevo
+                bank = bank,                        // Campo nuevo
+                sim_time = DateTime.UtcNow,
+                source = "vmsOpenAcars"
+            };
 
+            // Enviar inmediatamente al servidor
+            Task.Run(async () =>
+            {
+                var update = new AcarsPositionUpdate { positions = new[] { landingRecord } };
+                await _apiService.SendPositionUpdate(_flightManager.ActivePirepId, update);
+
+                OnLog?.Invoke($"🛬 Landing recorded: {verticalSpeed} fpm, {gforce:F2} G, Heading: {(int)_fsuipc.GetHeading()}°, Pitch: {pitch:F1}°, Bank: {bank:F1}°", Theme.Success);
+            });
+        }
         private void OnFlightManagerLog(string msg, Color color)
         {
             OnLog?.Invoke(msg, color);
@@ -164,7 +200,9 @@ namespace vmsOpenAcars.ViewModels
                 e.AutopilotMaster,
                 e.SimulationZuluTime,
                 e.RadarAltitude,
-                e.Order
+                e.Order,
+                e.Pitch,   
+                e.Bank
             );
 
             // Actualizar UI específica
@@ -185,20 +223,28 @@ namespace vmsOpenAcars.ViewModels
             PrepareTelemetry(e);
         }
 
+        // En MainViewModel.PrepareTelemetry
+
         private void PrepareTelemetry(DataUpdatedEventArgs e)
         {
             if (string.IsNullOrEmpty(_flightManager?.ActivePirepId))
                 return;
 
-            double? distance = null;
+            // Obtener la distancia TOTAL acumulada desde el FlightManager (en KM)
+            double totalDistanceKm = _flightManager.TotalDistanceKm;
+
+            // También podemos calcular la distancia incremental si la quisiéramos,
+            // pero phpVMS prefiere la acumulada en la tabla acars
+            double? incrementalDistance = null;
             if (_lastPosition.HasValue)
             {
-                distance = CalculateDistance(
+                double distKm = _flightManager.CalculateDistanceKm(
                     _lastPosition.Value.lat,
                     _lastPosition.Value.lon,
                     e.Latitude,
                     e.Longitude
                 );
+                incrementalDistance = Math.Round(distKm, 3);
             }
             _lastPosition = (e.Latitude, e.Longitude);
 
@@ -214,7 +260,7 @@ namespace vmsOpenAcars.ViewModels
                 status = FlightPhaseHelper.GetStatusCode(_flightManager.CurrentPhase),
                 lat = e.Latitude,
                 lon = e.Longitude,
-                distance = distance,
+                distance = Math.Round(totalDistanceKm, 2),  // DISTANCIA ACUMULADA EN KM
                 heading = (int)Math.Round(e.Heading, 0),
                 altitude = Math.Round(e.Altitude, 0),
                 altitude_agl = Math.Round(agl, 0),

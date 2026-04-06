@@ -26,6 +26,10 @@ namespace vmsOpenAcars.Services
         private bool _lastConnectionState;
         private ConnectionState _currentState;
 
+        private double _verticalSpeedScale = 256;
+        private bool _verticalSpeedScaleDetected = false;
+        private double _verticalSpeedMultiplier = 1.0;
+
         // Contador para el orden de posiciones
         private int _positionOrder = 0; // <--- AÑADIR AQUÍ
 
@@ -35,7 +39,13 @@ namespace vmsOpenAcars.Services
         private Offset<long> playerAltitude = new Offset<long>(0x0570);
         private Offset<uint> playerHeading = new Offset<uint>(0x0580);
         private Offset<int> groundSpeedRaw = new Offset<int>(0x02B4);
-        private Offset<int> verticalSpeed = new Offset<int>(0x02C8);
+        private Offset<int> verticalSpeed = new Offset<int>(0x02C8);  // VS en pies/minuto * 256 (FSX/P3D)
+        private Offset<int> verticalSpeedRaw = new Offset<int>(0x030C);  // VS en pies/minuto directo (MSFS)
+        private Offset<int> verticalSpeedFSX = new Offset<int>(0x02C8);   // FSX/P3D: pies/min × 256
+        private Offset<int> verticalSpeedMSFS = new Offset<int>(0x030C);  // MSFS: pies/min directo
+        private Offset<short> verticalSpeedSimple = new Offset<short>(0x02C8); // Alternativo
+
+
         private Offset<short> onGround = new Offset<short>(0x0366);
         private Offset<int> gearPos = new Offset<int>(0x0BE8);
         private Offset<short> parkingBrake = new Offset<short>(0x0BC8);
@@ -47,6 +57,8 @@ namespace vmsOpenAcars.Services
         private Offset<int> externalPower = new Offset<int>(0x0B4C);
         private Offset<int> apuN1 = new Offset<int>(0x0B54);
         private Offset<int> simulationTime = new Offset<int>(0x023A); // Tiempo sim (segundos)
+        private Offset<short> aircraftPitch = new Offset<short>(0x0578);  // Pitch en grados * 65536
+        private Offset<short> aircraftBank = new Offset<short>(0x057C);   // Bank en grados * 65536
         // Velocidades
         private Offset<int> indicatedAirspeed = new Offset<int>(0x02BC); // IAS en nudos * 128
 
@@ -99,7 +111,18 @@ namespace vmsOpenAcars.Services
             catch { } // Silenciar excepciones en reconexión
         }
 
-        // ===== NUEVO: GetSimName (restaurado) =====
+        public double GetPitch()
+        {
+            if (!IsConnected) return 0;
+            return (double)aircraftPitch.Value / 65536.0;
+        }
+
+        public double GetBank()
+        {
+            if (!IsConnected) return 0;
+            return (double)aircraftBank.Value / 65536.0;
+        }
+
         public string GetSimName()
         {
             if (!IsConnected) return "Disconnected";
@@ -189,6 +212,7 @@ namespace vmsOpenAcars.Services
             {
                 // Incrementar orden para cada actualización
                 _positionOrder++;
+                double verticalSpeedFpm = GetVerticalSpeed();
 
                 var args = new DataUpdatedEventArgs
                 {
@@ -198,11 +222,10 @@ namespace vmsOpenAcars.Services
                     Altitude = GetAltitude(),
                     GroundSpeed = GetGroundSpeed(),
                     Heading = GetHeading(),
-                    VerticalSpeed = GetVerticalSpeed(),
+                    VerticalSpeed = verticalSpeedFpm,
                     IsOnGround = IsOnGround,
                     FuelTotal = GetTotalFuel(),
 
-                    // NUEVOS CAMPOS
                     IndicatedAirspeed = GetIndicatedAirspeed(),
                     FuelFlow = GetFuelFlow(),
                     TransponderCode = GetTransponderCode(),
@@ -212,7 +235,9 @@ namespace vmsOpenAcars.Services
                     SimulationLocalTime = GetSimulationLocalTime(),
                     RadarAltitude = GetRadarAltitude(),
                     Order = _positionOrder,
-                    NavType = DetermineNavType() // Según fase de vuelo o modo de navegación
+                    NavType = DetermineNavType(), // Según fase de vuelo o modo de navegación
+                    Pitch = GetPitch(),
+                    Bank = GetBank()
                 };
 
                 DataUpdated?.Invoke(this, args);
@@ -233,9 +258,87 @@ namespace vmsOpenAcars.Services
 
         public double GetGroundSpeed() => IsConnected ? ((double)groundSpeedRaw.Value / 65536.0) * 1.94384 : 0;
 
-        public double GetVerticalSpeed() => IsConnected ? (double)verticalSpeed.Value * 3.28084 * 60.0 / 256.0 : 0;
+        /// <summary>
+        /// Obtiene el vertical speed en pies por minuto (fpm)
+        /// Detecta automáticamente la escala correcta
+        /// </summary>
+        public double GetVerticalSpeed()
+        {
+            if (!IsConnected) return 0;
 
+            try
+            {
+                DetectVerticalSpeedScale();
+
+                // Intentar primero con MSFS directo
+                int msfsValue = verticalSpeedMSFS.Value;
+                if (Math.Abs(msfsValue) > 0 && Math.Abs(msfsValue) < 10000)
+                {
+                    return msfsValue;
+                }
+
+                // Usar el offset escalado
+                int scaledValue = verticalSpeedFSX.Value;
+                return scaledValue * _verticalSpeedMultiplier;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error getting vertical speed: {ex.Message}");
+                return 0;
+            }
+        }
+        
         public double GetTotalFuel() => IsConnected ? (double)fuelTotalWeight.Value : 0;
+        /// <summary>
+        /// Detecta automáticamente la escala correcta del vertical speed
+        /// </summary>
+        private void DetectVerticalSpeedScale()
+        {
+            if (_verticalSpeedScaleDetected) return;
+
+            try
+            {
+                // Probar con el offset directo de MSFS (0x030C)
+                int msfsValue = verticalSpeedMSFS.Value;
+                if (Math.Abs(msfsValue) > 0 && Math.Abs(msfsValue) < 10000)
+                {
+                    _verticalSpeedMultiplier = 1.0;
+                    _verticalSpeedScaleDetected = true;
+                    System.Diagnostics.Debug.WriteLine($"VS Scale detected: MSFS direct (multiplier=1)");
+                    return;
+                }
+
+                // Probar con el offset escalado (0x02C8 como int)
+                int scaledValue = verticalSpeedFSX.Value;
+                if (Math.Abs(scaledValue) > 0 && Math.Abs(scaledValue) < 1000000)
+                {
+                    // Si el valor es grande (>1000), probablemente está escalado
+                    if (Math.Abs(scaledValue) > 1000)
+                    {
+                        _verticalSpeedMultiplier = 1.0 / 256.0;
+                        System.Diagnostics.Debug.WriteLine($"VS Scale detected: FSX/P3D scaled (multiplier=1/256)");
+                    }
+                    else
+                    {
+                        _verticalSpeedMultiplier = 1.0;
+                        System.Diagnostics.Debug.WriteLine($"VS Scale detected: Direct (multiplier=1)");
+                    }
+                    _verticalSpeedScaleDetected = true;
+                    return;
+                }
+
+                // Fallback: asumir escala 1/256 (más común)
+                _verticalSpeedMultiplier = 1.0 / 256.0;
+                _verticalSpeedScaleDetected = true;
+                System.Diagnostics.Debug.WriteLine($"VS Scale: Using default (1/256)");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error detecting VS scale: {ex.Message}");
+                _verticalSpeedMultiplier = 1.0 / 256.0;
+                _verticalSpeedScaleDetected = true;
+            }
+        }
 
         private double GetIndicatedAirspeed()
         {
@@ -352,6 +455,8 @@ namespace vmsOpenAcars.Services
         public double RadarAltitude { get; set; } // AGL
         public int Order { get; set; } // Secuencia de posiciones
         public int NavType { get; set; } // Tipo de navegación
+        public double Pitch { get; set; }      // Pitch en grados
+        public double Bank { get; set; }       // Bank en grados
     }
 
     public class LandingEventArgs : EventArgs

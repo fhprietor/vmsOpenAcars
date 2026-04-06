@@ -731,7 +731,7 @@ namespace vmsOpenAcars.UI.Forms
                 Padding = new Padding(10)
             };
 
-            string[] buttonNames = { "MENU", "LOGIN", "ATIS", "OFP", "MSG", "WEATHER", "SIMBRIEF", "START", "CANCEL" };
+            string[] buttonNames = { "MENU", "LOGIN", "ATIS", "OFP", "MSG", "WEATHER", "DISPATCH", "START", "CANCEL" };
             Color[] buttonColors = {
                 Color.FromArgb(60, 70, 80),
                 Color.FromArgb(0, 120, 200),
@@ -768,7 +768,7 @@ namespace vmsOpenAcars.UI.Forms
                         btnLogin = btn;
                         btn.Click += BtnLogin_Click;
                         break;
-                    case "SIMBRIEF":
+                    case "DISPATCH":
                         btnSimbrief = btn;
                         btn.Click += BtnSimbrief_Click;
                         break;

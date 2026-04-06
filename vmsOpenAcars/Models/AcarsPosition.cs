@@ -156,6 +156,22 @@ namespace vmsOpenAcars.Models
         public string source { get; set; }
 
         /// <summary>
+        /// Fuerza G durante el aterrizaje (en G)
+        /// Calculado a partir del vertical speed
+        /// </summary>
+        public double? gforce { get; set; }
+
+        /// <summary>
+        /// Pitch del avión en grados (positivo = nariz arriba)
+        /// </summary>
+        public double? pitch { get; set; }
+
+        /// <summary>
+        /// Bank/Roll del avión en grados (positivo = ala derecha abajo)
+        /// </summary>
+        public double? bank { get; set; }
+
+        /// <summary>
         /// Record creation timestamp (server-generated)
         /// </summary>
         public DateTime? created_at { get; set; }
