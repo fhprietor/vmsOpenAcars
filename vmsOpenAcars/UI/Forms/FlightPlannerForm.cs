@@ -382,42 +382,35 @@ namespace vmsOpenAcars.UI
         /// <returns>ListViewItem configurado</returns>
         private ListViewItem CreateFlightListViewItem(Flight flight, bool showBidId = false)
         {
-            // Determinar el texto principal según si mostramos Bid ID o no
             string primaryText;
             if (showBidId)
             {
-                // Para la pestaña de bids, mostrar el Bid ID
                 primaryText = !string.IsNullOrEmpty(flight.BidId) ? flight.BidId : "---";
             }
             else
             {
-                // Para vuelos disponibles, mostrar el callsign
                 primaryText = $"{flight.Airline}{flight.FlightNumber}";
             }
 
             var item = new ListViewItem(primaryText);
 
-            // Si es un vuelo con bid (pero no estamos en la pestaña de bids), mostrar indicador visual
             if (!showBidId && !string.IsNullOrEmpty(flight.BidId))
             {
                 item.ForeColor = Color.LightGreen;
                 item.ToolTipText = $"Bid ID: {flight.BidId}";
             }
 
-            // Si estamos en la pestaña de bids, añadir el callsign como segunda columna
             if (showBidId)
             {
                 item.SubItems.Add($"{flight.Airline}{flight.FlightNumber}");
             }
 
-            // Ruta (acortar si es muy larga)
             string routeDisplay = flight.Route;
             if (!string.IsNullOrEmpty(routeDisplay) && routeDisplay.Length > 30)
             {
                 routeDisplay = routeDisplay.Substring(0, 27) + "...";
             }
 
-            // Tiempo de vuelo en formato legible
             string flightTimeDisplay = "N/A";
             if (flight.FlightTime > 0)
             {
@@ -426,13 +419,10 @@ namespace vmsOpenAcars.UI
                 flightTimeDisplay = $"{hours}h {minutes}m";
             }
 
-            // Distancia
             string distanceDisplay = flight.Distance > 0 ? $"{flight.Distance} NM" : "N/A";
 
-            // Añadir subitems según el modo
             if (showBidId)
             {
-                // Para la pestaña de bids: [Bid ID] | [Callsign] | [Ruta] | [Aircraft] | [Distance] | [Time] | [Route]
                 item.SubItems.Add($"{flight.Departure} → {flight.Arrival}");
                 item.SubItems.Add(flight.AllowedAircraftTypesDisplay ?? "Unknown");
                 item.SubItems.Add(distanceDisplay);
@@ -441,7 +431,6 @@ namespace vmsOpenAcars.UI
             }
             else
             {
-                // Para vuelos disponibles: [Callsign] | [Ruta] | [Aircraft] | [Distance] | [Time] | [Route]
                 item.SubItems.Add($"{flight.Departure} → {flight.Arrival}");
                 item.SubItems.Add(flight.AllowedAircraftTypesDisplay ?? "Unknown");
                 item.SubItems.Add(distanceDisplay);
@@ -449,9 +438,7 @@ namespace vmsOpenAcars.UI
                 item.SubItems.Add(routeDisplay ?? "DIRECT");
             }
 
-            // Guardar el objeto Flight completo en el Tag
             item.Tag = flight;
-
             return item;
         }
 
@@ -552,14 +539,6 @@ namespace vmsOpenAcars.UI
             }
         }
 
-        // En FlightPlannerForm.cs
-
-        // En FlightPlannerForm.cs - BtnPlanWithSimbrief_Click
-
-        // En FlightPlannerForm.cs - BtnPlanWithSimbrief_Click
-
-        // En FlightPlannerForm.cs - BtnPlanWithSimbrief_Click
-
         private async void BtnPlanWithSimbrief_Click(object sender, EventArgs e)
         {
             if (_selectedFlight == null || _selectedAircraft == null) return;
@@ -572,7 +551,6 @@ namespace vmsOpenAcars.UI
 
                 if (hasBid)
                 {
-                    // CASO 1: Ya existe un bid
                     lblStatus.Text = "✅ Using existing bid. Opening SimBrief...";
                     AppendLog($"📋 Using existing bid ID: {_selectedFlight.BidId}");
 
@@ -583,7 +561,6 @@ namespace vmsOpenAcars.UI
                 }
                 else
                 {
-                    // CASO 2: No hay bid - crear uno nuevo
                     lblStatus.Text = "Assigning flight...";
                     AppendLog($"📋 Creating new bid for flight {_selectedFlight.Airline}{_selectedFlight.FlightNumber}");
 
@@ -591,16 +568,11 @@ namespace vmsOpenAcars.UI
 
                     if (assigned)
                     {
-                        // Obtener el bid ID recién creado
                         string newBidId = await _apiService.GetBidIdForFlight(_selectedFlight.Id);
                         if (!string.IsNullOrEmpty(newBidId))
                         {
                             _selectedFlight.BidId = newBidId;
                             AppendLog($"✅ New bid created: {_selectedFlight.BidId}");
-                        }
-                        else
-                        {
-                            AppendLog($"⚠️ Bid created but could not retrieve ID");
                         }
 
                         lblStatus.Text = "✅ Flight assigned. Opening SimBrief...";
@@ -611,16 +583,13 @@ namespace vmsOpenAcars.UI
                     }
                     else
                     {
-                        // Mostrar el mensaje de error específico del servidor
                         lblStatus.Text = $"❌ Could not assign flight: {message}";
                         AppendLog($"❌ Failed to create bid: {message}");
 
-                        // Si el error es por tener un bid activo, ofrecer opciones
-                        if (message.Contains("already") || message.Contains("active") || message.Contains("reserva"))
+                        if (message.Contains("maximum number of bids") || message.Contains("active bid"))
                         {
-                            AppendLog($"ℹ️ You already have an active bid. Please cancel it first or use the 'My Bids' tab.", Color.Yellow);
+                            AppendLog($"ℹ️ You already have an active bid. Please cancel it first or use the 'My Bids' tab.");
 
-                            // Opcional: preguntar si quiere ver sus bids activos
                             var result = EcamDialog.Show(this,
                                 "You already have an active bid.\n\nDo you want to view your current bids?",
                                 "Active Bid Detected",
@@ -628,7 +597,6 @@ namespace vmsOpenAcars.UI
 
                             if (result == DialogResult.Yes)
                             {
-                                // Cambiar al tab de bids
                                 tabControl.SelectedTab = tabBids;
                                 await LoadBidsAsync();
                             }
@@ -647,8 +615,6 @@ namespace vmsOpenAcars.UI
             }
         }
 
-        // Método auxiliar para añadir logs al RichTextBox
-        // En FlightPlannerForm.cs
 
         private void AppendLog(string message, Color? color = null)
         {
@@ -659,7 +625,6 @@ namespace vmsOpenAcars.UI
                     if (color.HasValue)
                     {
                         txtOFPPreview.SelectionStart = txtOFPPreview.TextLength;
-                        txtOFPPreview.SelectionLength = 0;
                         txtOFPPreview.SelectionColor = color.Value;
                         txtOFPPreview.AppendText($"{DateTime.Now:HH:mm:ss} - {message}\n");
                         txtOFPPreview.SelectionColor = txtOFPPreview.ForeColor;
@@ -676,7 +641,6 @@ namespace vmsOpenAcars.UI
                 if (color.HasValue)
                 {
                     txtOFPPreview.SelectionStart = txtOFPPreview.TextLength;
-                    txtOFPPreview.SelectionLength = 0;
                     txtOFPPreview.SelectionColor = color.Value;
                     txtOFPPreview.AppendText($"{DateTime.Now:HH:mm:ss} - {message}\n");
                     txtOFPPreview.SelectionColor = txtOFPPreview.ForeColor;

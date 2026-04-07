@@ -45,7 +45,7 @@
   "FlightStopped": "⏹️ FLIGHT STOPPED",
   "FlightCancelled": "✖️ FLIGHT CANCELLED",
   "PlanLoaded": "✅ OFP LOADED: {0} → {1}",
-  "LoginSuccess": "✅ LOGIN SUCCESS: {0} (Rango: {1})",
+  "LoginSuccess": "✅ LOGIN SUCCESS: {0} (RANK: {1})",
   "AirportAssigned": "📍 ASSIGNED AIRPORT",
   "AirportUpdated": "📍 AIRPORT UPDATED",
   "DepartureAirportOk": "✅ DEPARTURE AIRPORT OK",

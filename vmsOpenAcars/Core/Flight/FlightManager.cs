@@ -34,6 +34,8 @@ namespace vmsOpenAcars.Core.Flight
         private double _currentPitch = 0;
         private double _currentBank = 0;
         private double _totalDistanceKm = 0;  // Distancia total en KM
+        private DateTime _lastDescentWarning = DateTime.MinValue;
+        private const int DescentWarningIntervalSeconds = 30;
 
         // Cronómetro real basado en Stopwatch
         private readonly FlightTimer _flightTimer = new FlightTimer();
@@ -114,7 +116,9 @@ namespace vmsOpenAcars.Core.Flight
         public event Action<string> OnAirportChanged;
         public event Action<string, Color> OnLog;
         public event Action<ValidationStatus> OnPositionValidated;
-        public event Action<int, double, double, double> OnLandingDetected; // vs, gforce, pitch, bank
+        public event Action<int, double, double, double> OnLandingDetected;  // vs, gforce, pitch, bank
+        public event Action OnBlockDetected;
+        public event Action<int, int, int> OnTakeoffDetected;
 
         #endregion
         // Método para añadir distancia incremental y actualizar total
@@ -146,26 +150,23 @@ namespace vmsOpenAcars.Core.Flight
         /// <returns>Fuerza G (1.0 = 1G, >1 = impacto)</returns>
         private double CalculateGForce(int verticalSpeedFpm)
         {
-            // Convertir de pies/minuto a metros/segundo
-            // 1 ft/min = 0.00508 m/s
-            double verticalSpeedMps = Math.Abs(verticalSpeedFpm) * 0.00508;
+            int vs = Math.Abs(verticalSpeedFpm);
 
-            // Tiempo estimado de desaceleración en el touchdown (segundos)
-            // Un aterrizaje típico tiene una desaceleración en 0.1-0.3 segundos
-            double decelerationTime = 0.15; // segundos
-
-            // Calcular desaceleración: a = Δv / Δt
-            double deceleration = verticalSpeedMps / decelerationTime;
-
-            // Calcular G-Force: G = 1 + (a / 9.81)
-            double gForce = 1.0 + (deceleration / 9.81);
-
-            // Limitar a valores razonables (1.0 a 3.0 G)
-            if (gForce < 1.0) gForce = 1.0;
-            if (gForce > 3.0) gForce = 3.0;
-
-            // Redondear a 2 decimales
-            return Math.Round(gForce, 2);
+            if (vs <= 30) return 1.00;
+            if (vs <= 60) return 1.02;
+            if (vs <= 90) return 1.05;
+            if (vs <= 120) return 1.10;
+            if (vs <= 150) return 1.18;
+            if (vs <= 180) return 1.28;
+            if (vs <= 210) return 1.38;
+            if (vs <= 240) return 1.48;
+            if (vs <= 270) return 1.58;
+            if (vs <= 300) return 1.68;
+            if (vs <= 350) return 1.85;
+            if (vs <= 400) return 2.00;
+            if (vs <= 500) return 2.20;
+            if (vs <= 600) return 2.40;
+            return 2.50;
         }
 
         /// <summary>
@@ -206,13 +207,11 @@ namespace vmsOpenAcars.Core.Flight
 
         private async Task UpdateBlockOffTime()
         {
-            if (string.IsNullOrEmpty(ActivePirepId))
+            if (string.IsNullOrEmpty(ActivePirepId) || _blockOffRecorded)
                 return;
 
             try
             {
-                // Obtener hora actual UTC (la usamos para calcular tiempo local)
-                // Pero enviamos al servidor para que registre su propia hora
                 var payload = new { block_off_time = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") };
                 string json = JsonConvert.SerializeObject(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -223,10 +222,10 @@ namespace vmsOpenAcars.Core.Flight
                 if (response.IsSuccessStatusCode)
                 {
                     _blockOffRecorded = true;
-                    // Guardamos la hora local como referencia para cálculos
                     _serverBlockOffTime = DateTime.UtcNow;
+
+                    // Solo mostrar UNA vez
                     OnLog?.Invoke($"⏱️ Block Off recorded at {_serverBlockOffTime:HH:mm:ss} UTC", Theme.MainText);
-                    OnLog?.Invoke($"📊 Timer reference updated: {GetFlightTimeDisplay()}", Theme.MainText);
                 }
                 else
                 {
@@ -240,7 +239,6 @@ namespace vmsOpenAcars.Core.Flight
                 OnLog?.Invoke($"❌ Error recording block_off_time: {ex.Message}", Theme.Danger);
             }
         }
-
 
         private void ValidateAirportMatch()
         {
@@ -302,13 +300,10 @@ namespace vmsOpenAcars.Core.Flight
             TouchdownFpm = verticalSpeed;
             _touchdownCaptured = true;
 
-            // Calcular G-Force
-            double gforce = CalculateGForceFromTable(verticalSpeed);
+            double gforce = CalculateGForce(verticalSpeed);
 
-            // Registrar en log
             OnLog?.Invoke($"✈️ Touchdown: {verticalSpeed} FPM, {gforce:F2} G", Theme.MainText);
 
-            // Disparar evento con todos los datos
             OnLandingDetected?.Invoke(verticalSpeed, gforce, _currentPitch, _currentBank);
         }
 
@@ -464,7 +459,7 @@ namespace vmsOpenAcars.Core.Flight
                 PositionValidationStatus.DistanceFromAirport = 0;
                 OnPositionValidated?.Invoke(PositionValidationStatus);
             }
-
+/*
             if (connected)
             {
                 OnLog?.Invoke(_("SimConnected"), Theme.MainText);
@@ -473,6 +468,7 @@ namespace vmsOpenAcars.Core.Flight
             {
                 OnLog?.Invoke(_("SimDisconnected"), Theme.Warning);
             }
+            */
         }
 
         public void UpdatePositionValidation(double lat, double lon)
@@ -638,6 +634,21 @@ namespace vmsOpenAcars.Core.Flight
         {
             var previousPhase = CurrentPhase;
 
+            if (_wasOnGround == true && isOnGround == false && previousPhase != FlightPhase.Takeoff)
+            {
+                CurrentPhase = FlightPhase.Takeoff;
+                _phaseStartTime = DateTime.UtcNow;
+
+                OnLog?.Invoke($"🛫 LIFTOFF DETECTED! Speed: {groundSpeed} kts, VS: {verticalSpeed} fpm", Theme.Success);
+
+                OnTakeoffDetected?.Invoke(groundSpeed, altitude, verticalSpeed);
+
+                Task.Run(() => UpdatePirepStatus("TOF"));
+                PhaseChanged?.Invoke(CurrentPhase);
+                _wasOnGround = isOnGround;
+                return;
+            }
+
             if (altitude > _maxAltitudeReached)
                 _maxAltitudeReached = altitude;
 
@@ -733,7 +744,6 @@ namespace vmsOpenAcars.Core.Flight
                         break;
 
                     case FlightPhase.TaxiIn:
-                        // Si estamos parados durante 15 segundos
                         if (groundSpeed < 1)
                         {
                             if (_stoppedStartTime == DateTime.MinValue)
@@ -746,7 +756,7 @@ namespace vmsOpenAcars.Core.Flight
                                 _stoppedStartTime = DateTime.MinValue;
                                 OnLog?.Invoke($"🅿️ On block", Theme.Success);
 
-                                // Registrar block_on_time en el servidor
+                                OnBlockDetected?.Invoke();
                                 Task.Run(() => UpdateBlockOnTime());
                             }
                         }

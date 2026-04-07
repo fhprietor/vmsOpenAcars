@@ -1,5 +1,4 @@
-﻿// Helpers/FlightPhaseHelper.cs
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using vmsOpenAcars.Models;
 
 namespace vmsOpenAcars.Helpers
@@ -11,13 +10,13 @@ namespace vmsOpenAcars.Helpers
             [FlightPhase.Boarding] = "BST",
             [FlightPhase.Pushback] = "PBT",
             [FlightPhase.TaxiOut] = "TXI",
+            [FlightPhase.TaxiIn] = "TXI",
             [FlightPhase.Takeoff] = "TOF",
             [FlightPhase.Climb] = "ICL",
             [FlightPhase.Enroute] = "ENR",
             [FlightPhase.Descent] = "APR",
             [FlightPhase.Approach] = "FIN",
             [FlightPhase.Landing] = "LDG",
-            [FlightPhase.TaxiIn] = "TXI",
             [FlightPhase.OnBlock] = "ARR",
             [FlightPhase.Completed] = "ARR"
         };

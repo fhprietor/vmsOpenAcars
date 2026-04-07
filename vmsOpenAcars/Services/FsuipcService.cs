@@ -1,187 +1,233 @@
-﻿// FsuipcServices.cs
+﻿// En Services/FsuipcService.cs - reemplazar el contenido
+
 using System;
 using System.Diagnostics;
-using System.Windows.Forms;
+using System.Threading;
+using vmsOpenAcars.Helpers;
+using vmsOpenAcars.Models;
 using FSUIPC;
 
 namespace vmsOpenAcars.Services
 {
     public class FsuipcService : IDisposable
     {
-        // Eventos públicos (los mismos)
-        public event EventHandler Connected;
-        public event EventHandler Disconnected;
-        public event EventHandler<DataUpdatedEventArgs> DataUpdated;
-        public event EventHandler<LandingEventArgs> LandingDetected;
-        public event EventHandler<LightChangedEventArgs> LightChanged;
-        public event EventHandler<BoolEventArgs> ParkingBrakeChanged;
-        public event EventHandler<BoolEventArgs> GearChanged;
-        public event EventHandler<BoolEventArgs> BatteryChanged;
-        public event EventHandler<BoolEventArgs> AvionicsChanged;
-        public event EventHandler<BoolEventArgs> ExternalPowerChanged;
-        public event EventHandler<BoolEventArgs> APUChanged;
-
-        // Estado interno
-        private Timer _heartbeatTimer;
-        private bool _lastConnectionState;
-        private ConnectionState _currentState;
-
-        private double _verticalSpeedScale = 256;
-        private bool _verticalSpeedScaleDetected = false;
-        private double _verticalSpeedMultiplier = 1.0;
-
-        // Contador para el orden de posiciones
-        private int _positionOrder = 0; // <--- AÑADIR AQUÍ
-
-        // Offsets (los mismos)
+        // Offsets (mantener los mismos)
         private Offset<long> playerLatitude = new Offset<long>(0x0560);
         private Offset<long> playerLongitude = new Offset<long>(0x0568);
         private Offset<long> playerAltitude = new Offset<long>(0x0570);
         private Offset<uint> playerHeading = new Offset<uint>(0x0580);
         private Offset<int> groundSpeedRaw = new Offset<int>(0x02B4);
-        private Offset<int> verticalSpeed = new Offset<int>(0x02C8);  // VS en pies/minuto * 256 (FSX/P3D)
-        private Offset<int> verticalSpeedRaw = new Offset<int>(0x030C);  // VS en pies/minuto directo (MSFS)
-        private Offset<int> verticalSpeedFSX = new Offset<int>(0x02C8);   // FSX/P3D: pies/min × 256
-        private Offset<int> verticalSpeedMSFS = new Offset<int>(0x030C);  // MSFS: pies/min directo
-        private Offset<short> verticalSpeedSimple = new Offset<short>(0x02C8); // Alternativo
-
-
+        private Offset<int> verticalSpeed = new Offset<int>(0x02C8);
+        private Offset<int> verticalSpeedRaw = new Offset<int>(0x030C);
         private Offset<short> onGround = new Offset<short>(0x0366);
         private Offset<int> gearPos = new Offset<int>(0x0BE8);
         private Offset<short> parkingBrake = new Offset<short>(0x0BC8);
-        private Offset<short> lightsMask = new Offset<short>(0x0D0C);
         private Offset<int> fuelTotalWeight = new Offset<int>(0x126C);
-        private Offset<int> vsAtTouchdown = new Offset<int>(0x030C);
-        private Offset<int> batterySwitch = new Offset<int>(0x281C);
-        private Offset<int> avionicsSwitch = new Offset<int>(0x2E80);
-        private Offset<int> externalPower = new Offset<int>(0x0B4C);
-        private Offset<int> apuN1 = new Offset<int>(0x0B54);
-        private Offset<int> simulationTime = new Offset<int>(0x023A); // Tiempo sim (segundos)
-        private Offset<short> aircraftPitch = new Offset<short>(0x0578);  // Pitch en grados * 65536
-        private Offset<short> aircraftBank = new Offset<short>(0x057C);   // Bank en grados * 65536
-        // Velocidades
-        private Offset<int> indicatedAirspeed = new Offset<int>(0x02BC); // IAS en nudos * 128
+        private Offset<int> indicatedAirspeed = new Offset<int>(0x02BC);
+        private Offset<int> fuelFlow = new Offset<int>(0x0B54);
+        private Offset<short> transponderCode = new Offset<short>(0x0354);
+        private Offset<short> autopilotMaster = new Offset<short>(0x07BC);
+        private Offset<short> autopilotNavMode = new Offset<short>(0x07CC);
+        private Offset<int> simulationZuluTime = new Offset<int>(0x023A);
+        private Offset<short> radarAltitude = new Offset<short>(0x31E4);
+        private Offset<short> aircraftPitch = new Offset<short>(0x0578);
+        private Offset<short> aircraftBank = new Offset<short>(0x057C);
+        private Offset<short> spoilersDeployed = new Offset<short>(0x0BD8);
+        private Offset<short> spoilersArmed = new Offset<short>(0x0BCC);
+        private Offset<short> flapsHandle = new Offset<short>(0x0BDC);
+        private Offset<short> windDirection = new Offset<short>(0x0E90);
+        private Offset<short> windSpeed = new Offset<short>(0x0E92);
+        private Offset<int> engineRpm1 = new Offset<int>(0x0898);
 
-        // Combustible
-        private Offset<int> fuelFlow = new Offset<int>(0x0B54); // Fuel flow en libras/hora * 256? (verificar)
+        // Polling con backoff
+        private Timer _highFreqTimer;
+        private int _pollingIntervalMs;
+        private bool _isRunning = false;
+        private ConnectionState _currentState = ConnectionState.Disconnected;
+        private int _positionOrder = 0;
+        private int _connectionRetryCount = 0;
+        private int _currentBackoffMs = 1000;
+        private bool _isReconnecting = false;
 
-        // Transponder
-        private Offset<short> transponderCode = new Offset<short>(0x0354); // Código transponder
+        private DateTime _lastParkingBrakeChange = DateTime.MinValue;
+        private bool _lastParkingBrakeValue = false;
 
-        // Autopilot
-        private Offset<short> autopilotMaster = new Offset<short>(0x07BC); // 0 = off, 1 = on
-        private Offset<short> autopilotNavMode = new Offset<short>(0x07CC); // Modo navegación
+        // Estado anterior para detección de eventos
+        private bool _lastOnGround = true;
+        private int _lastGearPosition = 0;
+        private double _lastFlapsPosition = 0;
+        private bool _lastSpoilersDeployed = false;
+        private int _lastEngineRpm = 0;
+        private int _lastParkingBrake = 0;
 
-        // Tiempo de simulación
-        private Offset<int> simulationZuluTime = new Offset<int>(0x023A); // Tiempo Zulu en segundos desde medianoche
-        private Offset<int> simulationLocalTime = new Offset<int>(0x0238); // Tiempo local
+        // Buffer para envío periódico
+        private DateTime _lastTelemetrySend = DateTime.MinValue;
+        private double _currentPhaseInterval = AppConfig.UpdateIntervalOther;
 
-        // AGL (necesita elevación del terreno)
-        private Offset<short> radarAltitude = new Offset<short>(0x31E4); // Altitud radar en pies (AGL)
         // Propiedades públicas
         public bool IsConnected => _currentState == ConnectionState.Connected;
         public string SimulatorName { get; private set; } = "Desconocido";
-        public double LastLandingRate { get; private set; }
+
+        // Eventos
+        public event EventHandler Connected;
+        public event EventHandler Disconnected;
+        public event EventHandler<DataUpdatedEventArgs> DataUpdated;
+
+        // Eventos de alta precisión
+        public event Action<int, int, int, double, double, double, double> OnTakeoffDetected;
+        public event Action<int, int, int, double, double, double, bool, double, int> OnTouchdownDetected;
+        public event Action<int, int> OnGearChanged;
+        public event Action<double, double> OnFlapsChanged;
+        public event Action<bool> OnSpoilersChanged;
+        public event Action<bool> OnParkingBrakeChanged;
+        public event Action<int> OnEngineChanged;
 
         public FsuipcService()
         {
-            _heartbeatTimer = new Timer { Interval = 1000 };
-            _heartbeatTimer.Tick += Heartbeat_Tick;
+            _pollingIntervalMs = AppConfig.PollingIntervalMs;
         }
 
         public void Start()
         {
-            _heartbeatTimer.Start();
+            if (_isRunning) return;
+
+            _isRunning = true;
+            _connectionRetryCount = 0;
+            _currentBackoffMs = 1000;
+
+            // Iniciar con un intervalo más largo para la primera conexión
+            _highFreqTimer = new Timer(OnHighFreqTick, null, 500, _pollingIntervalMs);
+            Debug.WriteLine($"FSUIPC Polling started");
         }
 
         public void Stop()
         {
-            _heartbeatTimer.Stop();
+            if (!_isRunning) return;
+
+            _isRunning = false;
+            _isReconnecting = false;
+
+            if (_highFreqTimer != null)
+            {
+                _highFreqTimer.Dispose();
+                _highFreqTimer = null;
+            }
+
             Disconnect();
+            Debug.WriteLine("FSUIPC Polling stopped");
         }
-        public void TryReconnect()
+
+        public void SetUpdateIntervalForPhase(FlightPhase phase)
         {
-            try
+            if (phase == FlightPhase.TaxiOut || phase == FlightPhase.TaxiIn)
             {
-                if (!IsConnected)
-                {
-                    CheckConnection();
-                }
+                _currentPhaseInterval = AppConfig.UpdateIntervalTaxi;
             }
-            catch { } // Silenciar excepciones en reconexión
-        }
-
-        public double GetPitch()
-        {
-            if (!IsConnected) return 0;
-            return (double)aircraftPitch.Value / 65536.0;
-        }
-
-        public double GetBank()
-        {
-            if (!IsConnected) return 0;
-            return (double)aircraftBank.Value / 65536.0;
-        }
-
-        public string GetSimName()
-        {
-            if (!IsConnected) return "Disconnected";
-            return SimulatorName;
-        }
-
-        private void Heartbeat_Tick(object sender, EventArgs e)
-        {
-            bool wasConnected = _lastConnectionState;
-            bool isConnected = CheckConnection();
-
-            // Detectar cambio de estado
-            if (wasConnected != isConnected)
+            else if (phase == FlightPhase.Takeoff)
             {
-                if (isConnected)
-                {
-                    OnConnected();
-                }
-                else
-                {
-                    OnDisconnected();
-                }
-                _lastConnectionState = isConnected;
+                _currentPhaseInterval = AppConfig.UpdateIntervalTakeoff;
             }
-
-            // Si estamos conectados, actualizar datos
-            if (isConnected)
+            else if (phase == FlightPhase.Climb)
             {
-                UpdateSimData();
+                _currentPhaseInterval = AppConfig.UpdateIntervalClimb;
+            }
+            else if (phase == FlightPhase.Enroute)
+            {
+                _currentPhaseInterval = AppConfig.UpdateIntervalCruise;
+            }
+            else if (phase == FlightPhase.Descent)
+            {
+                _currentPhaseInterval = AppConfig.UpdateIntervalDescent;
+            }
+            else if (phase == FlightPhase.Approach)
+            {
+                _currentPhaseInterval = AppConfig.UpdateIntervalApproach;
+            }
+            else
+            {
+                _currentPhaseInterval = AppConfig.UpdateIntervalOther;
             }
         }
 
-        private bool CheckConnection()
+        private void OnHighFreqTick(object state)
         {
-            try
-            {
-                // Intentar abrir si no está conectado
-                if (_currentState == ConnectionState.Disconnected)
-                {
-                    FSUIPCConnection.Open();
-                    _currentState = ConnectionState.Connected;
-                    SimulatorName = DetectSimulator();
-                    return true;
-                }
+            if (!_isRunning) return;
 
-                // Verificar que sigue conectado
-                FSUIPCConnection.Process();
-                return true;
-            }
-            catch
+            // Intentar conectar si está desconectado
+            if (_currentState == ConnectionState.Disconnected)
             {
-                // Error al procesar → desconectado
-                if (_currentState == ConnectionState.Connected)
+                TryConnect();
+                return;
+            }
+
+            // Si está conectado, procesar datos
+            if (_currentState == ConnectionState.Connected)
+            {
+                try
                 {
+                    FSUIPCConnection.Process();
+                    // Resetear backoff en caso de éxito
+                    _connectionRetryCount = 0;
+                    _currentBackoffMs = 1000;
+                    _isReconnecting = false;
+
+                    DetectEvents();
+                    UpdateTelemetryBuffer();
+                }
+                catch (Exception ex)
+                {
+                    // Error de conexión, marcar como desconectado
+                    Debug.WriteLine($"FSUIPC Process error: {ex.Message}");
                     _currentState = ConnectionState.Disconnected;
                     SimulatorName = "Desconocido";
-                    try { FSUIPCConnection.Close(); } catch { }
+
+                    if (Disconnected != null)
+                    {
+                        Disconnected(this, EventArgs.Empty);
+                    }
                 }
-                return false;
+            }
+        }
+
+        private void TryConnect()
+        {
+            if (_isReconnecting) return;
+
+            _isReconnecting = true;
+
+            try
+            {
+                Debug.WriteLine($"Attempting to connect to FSUIPC (attempt {_connectionRetryCount + 1})...");
+                FSUIPCConnection.Open();
+                _currentState = ConnectionState.Connected;
+                SimulatorName = DetectSimulator();
+                _connectionRetryCount = 0;
+                _currentBackoffMs = 1000;
+                _isReconnecting = false;
+
+                Debug.WriteLine($"Connected to {SimulatorName}");
+
+                if (Connected != null)
+                {
+                    Connected(this, EventArgs.Empty);
+                }
+            }
+            catch (Exception ex)
+            {
+                _currentState = ConnectionState.Disconnected;
+                _isReconnecting = false;
+                _connectionRetryCount++;
+
+                // Backoff exponencial: 1s, 2s, 4s, 8s, 16s, max 30s
+                _currentBackoffMs = Math.Min(30000, 1000 * (int)Math.Pow(2, Math.Min(5, _connectionRetryCount)));
+
+                Debug.WriteLine($"FSUIPC connection failed: {ex.Message}. Retry in {_currentBackoffMs}ms");
+
+                // Programar reconexión con backoff
+                if (_isRunning && _highFreqTimer != null)
+                {
+                    _highFreqTimer.Change(_currentBackoffMs, _pollingIntervalMs);
+                }
             }
         }
 
@@ -193,245 +239,341 @@ namespace vmsOpenAcars.Services
             }
             catch { }
             _currentState = ConnectionState.Disconnected;
-            SimulatorName = "Desconocido";
         }
 
-        private void OnConnected()
+        private void DetectEvents()
         {
-            Connected?.Invoke(this, EventArgs.Empty);
-        }
+            bool isOnGround = IsOnGround;
+            int gearPosition = GetGearPosition();
+            double flapsPosition = GetFlapsPosition();
+            bool spoilersDeployed = IsSpoilersDeployed();
+            int engineRpm = GetEngineRpm();
+            int parkingBrake = GetParkingBrake();
 
-        private void OnDisconnected()
-        {
-            Disconnected?.Invoke(this, EventArgs.Empty);
-        }
-
-        private void UpdateSimData()
-        {
-            try
+            // Takeoff detection - solo si realmente está despegando
+            if (_lastOnGround && !isOnGround && GetGroundSpeed() > 60)
             {
-                // Incrementar orden para cada actualización
-                _positionOrder++;
-                double verticalSpeedFpm = GetVerticalSpeed();
+                int speed = (int)GetGroundSpeed();
+                int altitude = (int)GetAltitude();
+                int vs = (int)GetVerticalSpeed();
+                double pitch = GetPitch();
+                double bank = GetBank();
+                double heading = GetHeading();
+                double flaps = GetFlapsPosition();
 
-                var args = new DataUpdatedEventArgs
+                // No mostrar VS negativo en despegue
+                if (vs < 0) vs = 0;
+
+                if (OnTakeoffDetected != null)
                 {
-                    // Campos existentes
-                    Latitude = GetLatitude(),
-                    Longitude = GetLongitude(),
-                    Altitude = GetAltitude(),
-                    GroundSpeed = GetGroundSpeed(),
-                    Heading = GetHeading(),
-                    VerticalSpeed = verticalSpeedFpm,
-                    IsOnGround = IsOnGround,
-                    FuelTotal = GetTotalFuel(),
-
-                    IndicatedAirspeed = GetIndicatedAirspeed(),
-                    FuelFlow = GetFuelFlow(),
-                    TransponderCode = GetTransponderCode(),
-                    AutopilotMaster = GetAutopilotMaster(),
-                    AutopilotMode = GetAutopilotMode(),
-                    SimulationZuluTime = GetSimulationZuluTime(),
-                    SimulationLocalTime = GetSimulationLocalTime(),
-                    RadarAltitude = GetRadarAltitude(),
-                    Order = _positionOrder,
-                    NavType = DetermineNavType(), // Según fase de vuelo o modo de navegación
-                    Pitch = GetPitch(),
-                    Bank = GetBank()
-                };
-
-                DataUpdated?.Invoke(this, args);
+                    OnTakeoffDetected(speed, altitude, vs, pitch, bank, heading, flaps);
+                }
             }
-            catch { }
+
+            // Touchdown detection
+            if (!_lastOnGround && isOnGround)
+            {
+                int vs = (int)GetVerticalSpeed();
+                int speed = (int)GetGroundSpeed();
+                int altitude = (int)GetAltitude();
+                double pitch = GetPitch();
+                double bank = GetBank();
+                double heading = GetHeading();
+                bool spoilers = IsSpoilersDeployed();
+                double flaps = GetFlapsPosition();
+                int gear = GetGearPosition();
+
+                if (OnTouchdownDetected != null)
+                {
+                    OnTouchdownDetected(vs, speed, altitude, pitch, bank, heading, spoilers, flaps, gear);
+                }
+            }
+
+            // Gear changes
+            if (AppConfig.ReportGearChanges && gearPosition != _lastGearPosition)
+            {
+                if (OnGearChanged != null)
+                {
+                    OnGearChanged(_lastGearPosition, gearPosition);
+                }
+            }
+
+            // Flaps changes
+            if (AppConfig.ReportFlapChanges && Math.Abs(flapsPosition - _lastFlapsPosition) > 1.0)
+            {
+                if (OnFlapsChanged != null)
+                {
+                    OnFlapsChanged(_lastFlapsPosition, flapsPosition);
+                }
+            }
+
+            // Spoilers changes
+            if (AppConfig.ReportSpoilerChanges && spoilersDeployed != _lastSpoilersDeployed)
+            {
+                if (OnSpoilersChanged != null)
+                {
+                    OnSpoilersChanged(spoilersDeployed);
+                }
+            }
+
+            // Engine changes
+            if (AppConfig.ReportEngineChanges && Math.Abs(engineRpm - _lastEngineRpm) > 100)
+            {
+                if (OnEngineChanged != null)
+                {
+                    OnEngineChanged(engineRpm);
+                }
+            }
+
+            if (parkingBrake != _lastParkingBrake)
+            {
+                // Debounce: solo reportar si ha pasado al menos 1 segundo
+                if ((DateTime.UtcNow - _lastParkingBrakeChange).TotalSeconds >= 1)
+                {
+                    _lastParkingBrakeChange = DateTime.UtcNow;
+                    if (OnParkingBrakeChanged != null)
+                    {
+                        OnParkingBrakeChanged(parkingBrake == 1);
+                    }
+                }
+                _lastParkingBrake = parkingBrake;
+            }
+
+            // Update state
+            _lastOnGround = isOnGround;
+            _lastGearPosition = gearPosition;
+            _lastFlapsPosition = flapsPosition;
+            _lastSpoilersDeployed = spoilersDeployed;
+            _lastEngineRpm = engineRpm;
+            _lastParkingBrake = parkingBrake;
         }
 
-        // ===== MÉTODOS DE DATOS =====
+        private void UpdateTelemetryBuffer()
+        {
+            if (DateTime.UtcNow - _lastTelemetrySend >= TimeSpan.FromSeconds(_currentPhaseInterval))
+            {
+                _lastTelemetrySend = DateTime.UtcNow;
+                _positionOrder++;
+
+                DataUpdatedEventArgs args = new DataUpdatedEventArgs();
+                args.Latitude = GetLatitude();
+                args.Longitude = GetLongitude();
+                args.Altitude = GetAltitude();
+                args.GroundSpeed = (int)GetGroundSpeed();
+                args.Heading = GetHeading();
+                args.VerticalSpeed = GetVerticalSpeed();
+                args.IsOnGround = IsOnGround;
+                args.FuelTotal = GetTotalFuel();
+                args.IndicatedAirspeed = GetIndicatedAirspeed();
+                args.FuelFlow = GetFuelFlow();
+                args.TransponderCode = GetTransponderCode();
+                args.AutopilotMaster = GetAutopilotMaster();
+                args.SimulationZuluTime = GetSimulationZuluTime();
+                args.RadarAltitude = GetRadarAltitude();
+                args.Order = _positionOrder;
+                args.Pitch = GetPitch();
+                args.Bank = GetBank();
+                args.SpoilersDeployed = IsSpoilersDeployed();
+                args.FlapsPosition = GetFlapsPosition();
+                args.GearPosition = GetGearPosition();
+                args.Wind = GetWindDisplay();
+                args.NavType = DetermineNavType();
+
+                if (DataUpdated != null)
+                {
+                    DataUpdated(this, args);
+                }
+            }
+        }
+
+        private int DetermineNavType()
+        {
+            if (!IsConnected) return 0;
+
+            if (autopilotMaster.Value == 1)
+            {
+                int navMode = autopilotNavMode.Value;
+                if (navMode == 1) return 1;
+                if (navMode == 2) return 3;
+                if (navMode == 3) return 1;
+                return 0;
+            }
+
+            return 0;
+        }
+
+        // Métodos de lectura (mantener igual)
         public bool IsOnGround => IsConnected && onGround.Value == 1;
 
-        public double GetLatitude() => IsConnected ? (double)playerLatitude.Value * 90.0 / (10001750.0 * 65536.0 * 65536.0) : 0;
+        public double GetLatitude()
+        {
+            if (!IsConnected) return 0;
+            return (double)playerLatitude.Value * 90.0 / (10001750.0 * 65536.0 * 65536.0);
+        }
 
-        public double GetLongitude() => IsConnected ? (double)playerLongitude.Value * 360.0 / (65536.0 * 65536.0 * 65536.0 * 65536.0) : 0;
+        public double GetLongitude()
+        {
+            if (!IsConnected) return 0;
+            return (double)playerLongitude.Value * 360.0 / (65536.0 * 65536.0 * 65536.0 * 65536.0);
+        }
 
-        public double GetAltitude() => IsConnected ? ((double)playerAltitude.Value / (65536.0 * 65536.0)) * 3.28084 : 0;
+        public double GetAltitude()
+        {
+            if (!IsConnected) return 0;
+            return ((double)playerAltitude.Value / (65536.0 * 65536.0)) * 3.28084;
+        }
 
-        public double GetHeading() => IsConnected ? (double)playerHeading.Value * 360.0 / (65536.0 * 65536.0) : 0;
+        public double GetHeading()
+        {
+            if (!IsConnected) return 0;
+            return (double)playerHeading.Value * 360.0 / (65536.0 * 65536.0);
+        }
 
-        public double GetGroundSpeed() => IsConnected ? ((double)groundSpeedRaw.Value / 65536.0) * 1.94384 : 0;
+        public double GetGroundSpeed()
+        {
+            if (!IsConnected) return 0;
+            return ((double)groundSpeedRaw.Value / 65536.0) * 1.94384;
+        }
 
-        /// <summary>
-        /// Obtiene el vertical speed en pies por minuto (fpm)
-        /// Detecta automáticamente la escala correcta
-        /// </summary>
         public double GetVerticalSpeed()
         {
             if (!IsConnected) return 0;
-
-            try
-            {
-                DetectVerticalSpeedScale();
-
-                // Intentar primero con MSFS directo
-                int msfsValue = verticalSpeedMSFS.Value;
-                if (Math.Abs(msfsValue) > 0 && Math.Abs(msfsValue) < 10000)
-                {
-                    return msfsValue;
-                }
-
-                // Usar el offset escalado
-                int scaledValue = verticalSpeedFSX.Value;
-                return scaledValue * _verticalSpeedMultiplier;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error getting vertical speed: {ex.Message}");
-                return 0;
-            }
-        }
-        
-        public double GetTotalFuel() => IsConnected ? (double)fuelTotalWeight.Value : 0;
-        /// <summary>
-        /// Detecta automáticamente la escala correcta del vertical speed
-        /// </summary>
-        private void DetectVerticalSpeedScale()
-        {
-            if (_verticalSpeedScaleDetected) return;
-
-            try
-            {
-                // Probar con el offset directo de MSFS (0x030C)
-                int msfsValue = verticalSpeedMSFS.Value;
-                if (Math.Abs(msfsValue) > 0 && Math.Abs(msfsValue) < 10000)
-                {
-                    _verticalSpeedMultiplier = 1.0;
-                    _verticalSpeedScaleDetected = true;
-                    System.Diagnostics.Debug.WriteLine($"VS Scale detected: MSFS direct (multiplier=1)");
-                    return;
-                }
-
-                // Probar con el offset escalado (0x02C8 como int)
-                int scaledValue = verticalSpeedFSX.Value;
-                if (Math.Abs(scaledValue) > 0 && Math.Abs(scaledValue) < 1000000)
-                {
-                    // Si el valor es grande (>1000), probablemente está escalado
-                    if (Math.Abs(scaledValue) > 1000)
-                    {
-                        _verticalSpeedMultiplier = 1.0 / 256.0;
-                        System.Diagnostics.Debug.WriteLine($"VS Scale detected: FSX/P3D scaled (multiplier=1/256)");
-                    }
-                    else
-                    {
-                        _verticalSpeedMultiplier = 1.0;
-                        System.Diagnostics.Debug.WriteLine($"VS Scale detected: Direct (multiplier=1)");
-                    }
-                    _verticalSpeedScaleDetected = true;
-                    return;
-                }
-
-                // Fallback: asumir escala 1/256 (más común)
-                _verticalSpeedMultiplier = 1.0 / 256.0;
-                _verticalSpeedScaleDetected = true;
-                System.Diagnostics.Debug.WriteLine($"VS Scale: Using default (1/256)");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error detecting VS scale: {ex.Message}");
-                _verticalSpeedMultiplier = 1.0 / 256.0;
-                _verticalSpeedScaleDetected = true;
-            }
+            int rawVs = verticalSpeedRaw.Value;
+            if (rawVs != 0 && Math.Abs(rawVs) < 10000) return rawVs;
+            return (double)verticalSpeed.Value / 256.0;
         }
 
-        private double GetIndicatedAirspeed()
+        public double GetTotalFuel()
         {
             if (!IsConnected) return 0;
-            // El offset 0x02BC da IAS en nudos * 128
+            return (double)fuelTotalWeight.Value;
+        }
+
+        public double GetIndicatedAirspeed()
+        {
+            if (!IsConnected) return 0;
             return (double)indicatedAirspeed.Value / 128.0;
         }
 
-        private double GetFuelFlow()
+        public double GetFuelFlow()
         {
             if (!IsConnected) return 0;
-            // El offset puede variar según el avión, ajusta según necesites
             return (double)fuelFlow.Value / 256.0;
         }
 
-        private int GetTransponderCode()
+        public int GetTransponderCode()
         {
-            if (!IsConnected) return 1200; // Código por defecto
+            if (!IsConnected) return 1200;
             return transponderCode.Value;
         }
 
-        private bool GetAutopilotMaster()
+        public bool GetAutopilotMaster()
         {
             if (!IsConnected) return false;
             return autopilotMaster.Value == 1;
         }
 
-        private string GetAutopilotMode()
-        {
-            if (!IsConnected || autopilotMaster.Value == 0) return "OFF";
-
-            // Interpretar modo de autopilot (simplificado)
-            switch (autopilotNavMode.Value)
-            {
-                case 0: return "OFF";
-                case 1: return "HDG";
-                case 2: return "NAV";
-                case 3: return "APR";
-                case 4: return "REV";
-                default: return "UNKNOWN";
-            }
-        }
-
-        private DateTime GetSimulationZuluTime()
+        public DateTime GetSimulationZuluTime()
         {
             if (!IsConnected) return DateTime.UtcNow;
-            // Convertir segundos desde medianoche a DateTime
             return DateTime.UtcNow.Date.AddSeconds(simulationZuluTime.Value);
         }
 
-        private DateTime GetSimulationLocalTime()
-        {
-            if (!IsConnected) return DateTime.Now;
-            return DateTime.Now.Date.AddSeconds(simulationLocalTime.Value);
-        }
-
-        private double GetRadarAltitude()
+        public double GetRadarAltitude()
         {
             if (!IsConnected) return 0;
-            return radarAltitude.Value; // En pies
+            return radarAltitude.Value;
         }
 
-        private int DetermineNavType()
+        public double GetPitch()
         {
-            // 0 = normal, 1 = VOR, 2 = NDB, 3 = GPS, 4 = FMS
-            // Puedes determinar esto según el modo de autopilot o fase de vuelo
-            if (autopilotNavMode.Value == 2) return 3; // GPS
-            if (autopilotNavMode.Value == 3) return 1; // VOR/ILS
-            return 0;
+            if (!IsConnected) return 0;
+            double pitch = (double)aircraftPitch.Value / 65536.0;
+            if (IsOnGround && pitch > 0) pitch = -pitch;
+            return Math.Round(pitch, 2);
         }
+
+        public double GetBank()
+        {
+            if (!IsConnected) return 0;
+            return Math.Round((double)aircraftBank.Value / 65536.0, 2);
+        }
+
+        public bool IsSpoilersDeployed()
+        {
+            if (!IsConnected) return false;
+            return spoilersDeployed.Value > 0 || spoilersArmed.Value > 0;
+        }
+
+        public double GetFlapsPosition()
+        {
+            if (!IsConnected) return 0;
+            int flaps = flapsHandle.Value;
+            if (flaps <= 0) return 0;
+            if (flaps >= 16383) return 100;
+
+            // Mapeo específico para Boeing 737 (valores típicos)
+            // 0=0%, 1=~15%, 2=~25%, 5=~50%, 10=~63%, 15=~75%, 25=~88%, 30=100%
+            double percent = (double)flaps / 163.83;
+
+            // Redondear a valores discretos de flaps para B737
+            if (percent < 2) return 0;
+            if (percent < 10) return 15;      // Flaps 1
+            if (percent < 18) return 25;      // Flaps 2
+            if (percent < 35) return 50;      // Flaps 5
+            if (percent < 55) return 63;      // Flaps 10
+            if (percent < 70) return 75;      // Flaps 15
+            if (percent < 85) return 88;      // Flaps 25
+            return 100;                        // Flaps 30/40
+        }
+
+        public int GetGearPosition()
+        {
+            if (!IsConnected) return 0;
+            return gearPos.Value > 8000 ? 1 : 0;
+        }
+
+        public string GetWindDisplay()
+        {
+            if (!IsConnected) return "Unknown";
+            int dir = windDirection.Value;
+            int spd = windSpeed.Value;
+            if (dir == 0 && spd == 0) return "Calm";
+            return $"{dir:000}° at {spd} kts";
+        }
+
+        private int GetEngineRpm()
+        {
+            if (!IsConnected) return 0;
+            return engineRpm1.Value;
+        }
+
+        private int GetParkingBrake()
+        {
+            if (!IsConnected) return 0;
+            return parkingBrake.Value;
+        }
+
         private string DetectSimulator()
         {
-            // Detectar por procesos
             if (Process.GetProcessesByName("FlightSimulator2024").Length > 0) return "MSFS 2024";
             if (Process.GetProcessesByName("FlightSimulator").Length > 0) return "MSFS 2020";
-            if (Process.GetProcessesByName("X-Plane").Length > 0 ||
-                Process.GetProcessesByName("X-Plane 12").Length > 0) return "X-Plane 12";
+            if (Process.GetProcessesByName("X-Plane").Length > 0) return "X-Plane";
             if (Process.GetProcessesByName("Prepar3D").Length > 0) return "Prepar3D";
+            return FSUIPCConnection.FlightSimVersionConnected.ToString();
+        }
 
-            // Fallback a FSUIPC
-            string version = FSUIPCConnection.FlightSimVersionConnected.ToString();
-            if (version.Contains("FSX")) return "FSX (o X-Plane via XUIPC)";
-            return version;
+        public string GetSimName()
+        {
+            return IsConnected ? SimulatorName : "Disconnected";
         }
 
         public void Dispose()
         {
-            _heartbeatTimer?.Dispose();
-            Disconnect();
+            Stop();
         }
     }
 
-    // ===== CLASES DE EVENTOS =====
     public class DataUpdatedEventArgs : EventArgs
     {
         public double Latitude { get; set; }
@@ -442,37 +584,20 @@ namespace vmsOpenAcars.Services
         public double VerticalSpeed { get; set; }
         public bool IsOnGround { get; set; }
         public double FuelTotal { get; set; }
-        public int Transponder { get; set; }
-        public bool Autopilot { get; set; }
-        public DateTime SimulationTime { get; set; }
         public double IndicatedAirspeed { get; set; }
         public double FuelFlow { get; set; }
         public int TransponderCode { get; set; }
         public bool AutopilotMaster { get; set; }
-        public string AutopilotMode { get; set; }
         public DateTime SimulationZuluTime { get; set; }
-        public DateTime SimulationLocalTime { get; set; }
-        public double RadarAltitude { get; set; } // AGL
-        public int Order { get; set; } // Secuencia de posiciones
-        public int NavType { get; set; } // Tipo de navegación
-        public double Pitch { get; set; }      // Pitch en grados
-        public double Bank { get; set; }       // Bank en grados
-    }
-
-    public class LandingEventArgs : EventArgs
-    {
-        public double VerticalSpeed { get; set; }
-    }
-
-    public class LightChangedEventArgs : EventArgs
-    {
-        public string LightName { get; set; }
-        public bool IsOn { get; set; }
-    }
-
-    public class BoolEventArgs : EventArgs
-    {
-        public bool Value { get; set; }
+        public double RadarAltitude { get; set; }
+        public int Order { get; set; }
+        public double Pitch { get; set; }
+        public double Bank { get; set; }
+        public bool SpoilersDeployed { get; set; }
+        public double FlapsPosition { get; set; }
+        public int GearPosition { get; set; }
+        public string Wind { get; set; }
+        public int NavType { get; set; }
     }
 
     public enum ConnectionState

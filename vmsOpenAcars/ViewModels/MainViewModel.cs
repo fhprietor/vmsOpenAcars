@@ -32,6 +32,7 @@ namespace vmsOpenAcars.ViewModels
         private readonly TimeSpan _positionUpdateInterval = TimeSpan.FromSeconds(5);
         private object _lastTelemetry;
         private (double lat, double lon)? _lastPosition;
+        private int _lastEngineRpm = 0;
 
         // Eventos para comunicación con la UI
         public event Action<string, Color> OnLog;
@@ -78,25 +79,223 @@ namespace vmsOpenAcars.ViewModels
 
         private void SubscribeToEvents()
         {
-            // Desuscribir primero para evitar duplicados
+            // Desuscribir eventos de FlightManager
             _flightManager.OnLog -= OnFlightManagerLog;
             _flightManager.PhaseChanged -= OnFlightPhaseChanged;
             _flightManager.OnPositionValidated -= OnPositionValidated;
             _flightManager.OnAirportChanged -= OnAirportChanged;
+            _flightManager.OnLandingDetected -= OnLandingDetected;
+            _flightManager.OnBlockDetected -= OnBlockDetected;
+            _flightManager.OnTakeoffDetected -= OnTakeoffDetected;
+
+            // Desuscribir eventos de FsuipcService
             _fsuipc.DataUpdated -= OnFsuipcDataUpdated;
             _fsuipc.Connected -= OnFsuipcConnected;
             _fsuipc.Disconnected -= OnFsuipcDisconnected;
+            _fsuipc.OnTakeoffDetected -= OnTakeoffDetectedHighPrecision;
+            _fsuipc.OnTouchdownDetected -= OnTouchdownDetectedHighPrecision;
+            _fsuipc.OnGearChanged -= OnGearChanged;
+            _fsuipc.OnFlapsChanged -= OnFlapsChanged;
+            _fsuipc.OnSpoilersChanged -= OnSpoilersChanged;
+            _fsuipc.OnEngineChanged -= OnEngineChanged;
+            _fsuipc.OnParkingBrakeChanged -= OnParkingBrakeChanged;
 
-            // Suscribir
+            // Suscribir eventos de FlightManager
             _flightManager.OnLog += OnFlightManagerLog;
             _flightManager.PhaseChanged += OnFlightPhaseChanged;
             _flightManager.OnPositionValidated += OnPositionValidated;
             _flightManager.OnAirportChanged += OnAirportChanged;
+            _flightManager.OnLandingDetected += OnLandingDetected;
+            _flightManager.OnBlockDetected += OnBlockDetected;
+            _flightManager.OnTakeoffDetected += OnTakeoffDetected;
+
+            // Suscribir eventos de FsuipcService
             _fsuipc.DataUpdated += OnFsuipcDataUpdated;
             _fsuipc.Connected += OnFsuipcConnected;
             _fsuipc.Disconnected += OnFsuipcDisconnected;
-            _flightManager.OnLandingDetected += OnLandingDetected;
+            _fsuipc.OnTakeoffDetected += OnTakeoffDetectedHighPrecision;
+            _fsuipc.OnTouchdownDetected += OnTouchdownDetectedHighPrecision;
+            _fsuipc.OnGearChanged += OnGearChanged;
+            _fsuipc.OnFlapsChanged += OnFlapsChanged;
+            _fsuipc.OnSpoilersChanged += OnSpoilersChanged;
+            _fsuipc.OnEngineChanged += OnEngineChanged;
+            _fsuipc.OnParkingBrakeChanged += OnParkingBrakeChanged;
         }
+        // Eventos de alta precisión
+        private void OnTakeoffDetectedHighPrecision(int speed, int altitude, int vs, double pitch, double bank, double heading, double flaps)
+        {
+            OnLog?.Invoke($"🛫 LIFTOFF @ {speed} kts, VS: {vs} fpm, Pitch: {pitch:F1}°", Theme.Success);
+
+            var takeoffRecord = new AcarsPosition
+            {
+                type = 0,
+                status = "TOF",
+                name = "LIFTOFF",
+                lat = _flightManager.CurrentLat,
+                lon = _flightManager.CurrentLon,
+                altitude = altitude,
+                gs = speed,
+                ias = _flightManager.CurrentIndicatedAirspeed,
+                vs = vs,
+                pitch = pitch,
+                bank = bank,
+                heading = (int)heading,
+                flaps = flaps,
+                sim_time = DateTime.UtcNow,
+                source = "vmsOpenAcars"
+            };
+
+            Task.Run(async () =>
+            {
+                var update = new AcarsPositionUpdate { positions = new[] { takeoffRecord } };
+                await _apiService.SendPositionUpdate(_flightManager.ActivePirepId, update);
+            });
+        }
+
+        private void OnTouchdownDetectedHighPrecision(int vs, int speed, int altitude, double pitch, double bank, double heading, bool spoilers, double flaps, int gear)
+        {
+            double gforce = CalculateGForceFromVS(vs);
+
+            OnLog?.Invoke($"🛬 TOUCHDOWN @ {speed} kts, VS: {vs} fpm, G: {gforce:F2}g", Theme.Success);
+
+            var landingRecord = new AcarsPosition
+            {
+                type = 0,
+                status = "LDG",
+                name = "TOUCHDOWN",
+                lat = _flightManager.CurrentLat,
+                lon = _flightManager.CurrentLon,
+                altitude = altitude,
+                gs = speed,
+                vs = vs,
+                gforce = gforce,
+                pitch = pitch,
+                bank = bank,
+                heading = (int)heading,
+                spoilers = spoilers ? 1 : 0,
+                flaps = flaps,
+                gear = gear,
+                sim_time = DateTime.UtcNow,
+                source = "vmsOpenAcars"
+            };
+
+            Task.Run(async () =>
+            {
+                var update = new AcarsPositionUpdate { positions = new[] { landingRecord } };
+                await _apiService.SendPositionUpdate(_flightManager.ActivePirepId, update);
+            });
+        }
+
+        private void OnGearChanged(int oldPos, int newPos)
+        {
+            string status = newPos == 1 ? "DOWN" : "UP";
+            OnLog?.Invoke($"🛬 Gear {status}", Theme.MainText);
+        }
+
+        private void OnFlapsChanged(double oldPos, double newPos)
+        {
+            OnLog?.Invoke($"🛫 Flaps: {oldPos:F0}% → {newPos:F0}%", Theme.SecondaryText);
+        }
+
+        private void OnSpoilersChanged(bool deployed)
+        {
+            OnLog?.Invoke($"🛫 Spoilers: {(deployed ? "DEPLOYED" : "RETRACTED")}", Theme.Warning);
+        }
+
+        private void OnEngineChanged(int rpm)
+        {
+            if (rpm > 100 && _lastEngineRpm <= 100)
+                OnLog?.Invoke($"🔄 Engines started", Theme.Success);
+            else if (rpm <= 100 && _lastEngineRpm > 100)
+                OnLog?.Invoke($"🔄 Engines shutdown", Theme.Warning);
+            _lastEngineRpm = rpm;
+        }
+
+        private void OnParkingBrakeChanged(bool engaged)
+        {
+            string status = engaged ? "SET" : "RELEASED";
+            OnLog?.Invoke($"🅿️ Parking Brake: {status}", Theme.MainText);
+        }
+
+        private double CalculateGForceFromVS(int vsFpm)
+        {
+            int vs = Math.Abs(vsFpm);
+
+            // Tabla más precisa basada en datos reales
+            if (vs <= 50) return 1.00;
+            if (vs <= 100) return 1.05;
+            if (vs <= 150) return 1.12;
+            if (vs <= 200) return 1.20;  // 187 fpm -> ~1.20g
+            if (vs <= 250) return 1.30;
+            if (vs <= 300) return 1.40;
+            if (vs <= 350) return 1.55;
+            if (vs <= 400) return 1.70;
+            if (vs <= 500) return 1.90;
+            if (vs <= 600) return 2.10;
+            if (vs <= 700) return 2.30;
+            if (vs <= 800) return 2.50;
+            if (vs <= 900) return 2.70;
+            return 3.00;
+        }
+
+        private void OnTakeoffDetected(int speed, int altitude, int verticalSpeed)
+        {
+            OnLog?.Invoke($"🛫 TAKEOFF DETECTED - Speed: {speed} kts, Alt: {altitude} ft, VS: {verticalSpeed} fpm",
+                Theme.Success);
+
+            // Crear registro ACARS para el despegue
+            var takeoffRecord = new AcarsPosition
+            {
+                type = 0,
+                status = "TOF",
+                name = "TAKEOFF",
+                lat = _flightManager.CurrentLat,
+                lon = _flightManager.CurrentLon,
+                altitude = altitude,
+                gs = speed,
+                vs = verticalSpeed,
+                sim_time = DateTime.UtcNow,
+                source = "vmsOpenAcars"
+            };
+
+            Task.Run(async () =>
+            {
+                if (!string.IsNullOrEmpty(_flightManager.ActivePirepId))
+                {
+                    var update = new AcarsPositionUpdate {positions = new[] {takeoffRecord}};
+                    await _apiService.SendPositionUpdate(_flightManager.ActivePirepId, update);
+                }
+            });
+        }
+
+        private void OnBlockDetected()
+        {
+            OnLog?.Invoke($"🅿️ ON BLOCK DETECTED", Theme.Success);
+
+            // Crear registro ACARS para OnBlock
+            var blockRecord = new AcarsPosition
+            {
+                type = 0,
+                status = "ARR",
+                name = "ON BLOCK",
+                lat = _flightManager.CurrentLat,
+                lon = _flightManager.CurrentLon,
+                altitude = _flightManager.CurrentAltitude,
+                heading = (int)_fsuipc.GetHeading(),
+                sim_time = DateTime.UtcNow,
+                source = "vmsOpenAcars"
+            };
+
+            Task.Run(async () =>
+            {
+                if (!string.IsNullOrEmpty(_flightManager.ActivePirepId))
+                {
+                    var update = new AcarsPositionUpdate { positions = new[] { blockRecord } };
+                    await _apiService.SendPositionUpdate(_flightManager.ActivePirepId, update);
+                }
+            });
+        }
+
         // Método que maneja el aterrizaje
         private void OnLandingDetected(int verticalSpeed, double gforce, double pitch, double bank)
         {
@@ -223,18 +422,13 @@ namespace vmsOpenAcars.ViewModels
             PrepareTelemetry(e);
         }
 
-        // En MainViewModel.PrepareTelemetry
-
         private void PrepareTelemetry(DataUpdatedEventArgs e)
         {
             if (string.IsNullOrEmpty(_flightManager?.ActivePirepId))
                 return;
 
-            // Obtener la distancia TOTAL acumulada desde el FlightManager (en KM)
             double totalDistanceKm = _flightManager.TotalDistanceKm;
 
-            // También podemos calcular la distancia incremental si la quisiéramos,
-            // pero phpVMS prefiere la acumulada en la tabla acars
             double? incrementalDistance = null;
             if (_lastPosition.HasValue)
             {
@@ -244,23 +438,27 @@ namespace vmsOpenAcars.ViewModels
                     e.Latitude,
                     e.Longitude
                 );
-                incrementalDistance = Math.Round(distKm, 3);
+
+                if (distKm > 0.001)
+                {
+                    incrementalDistance = Math.Round(distKm, 3);
+                }
             }
             _lastPosition = (e.Latitude, e.Longitude);
 
             double agl = e.RadarAltitude > 0 ? e.RadarAltitude :
-                        (e.Altitude - GetTerrainElevation(_flightManager.CurrentPhase));
+                (e.Altitude - GetTerrainElevation(_flightManager.CurrentPhase));
 
             var position = new AcarsPosition
             {
                 type = 0,
-                nav_type = e.NavType,
+                nav_type = e.NavType,  // AHORA SÍ EXISTE
                 order = e.Order,
                 name = GetPhaseName(_flightManager.CurrentPhase),
                 status = FlightPhaseHelper.GetStatusCode(_flightManager.CurrentPhase),
                 lat = e.Latitude,
                 lon = e.Longitude,
-                distance = Math.Round(totalDistanceKm, 2),  // DISTANCIA ACUMULADA EN KM
+                distance = Math.Round(totalDistanceKm, 2),
                 heading = (int)Math.Round(e.Heading, 0),
                 altitude = Math.Round(e.Altitude, 0),
                 altitude_agl = Math.Round(agl, 0),
@@ -546,15 +744,15 @@ namespace vmsOpenAcars.ViewModels
         {
             try
             {
-                OnLog?.Invoke("🔑 Iniciando sesión...", Theme.MainText);
+                OnLog?.Invoke(L._("LoggingIn"), Theme.MainText);
 
                 var result = await _apiService.GetPilotData();
                 if (result.Data != null)
                 {
                     Pilot pilot = result.Data;
                     _flightManager.SetActivePilot(pilot);
-                    OnLog?.Invoke($"✅ Login exitoso: {pilot.Name} (Rango: {pilot.Rank})", Theme.Success);
-                    OnLog?.Invoke($"📍 Aeropuerto asignado: {pilot.CurrentAirport}", Theme.MainText);
+                    OnLog?.Invoke(string.Format(L._("LoginSuccess"), pilot.Name, pilot.Rank), Theme.Success);
+                    OnLog?.Invoke($"{L._("AirportAssigned")}: {pilot.CurrentAirport}", Theme.MainText);
                     OnAirportChanged?.Invoke(pilot.CurrentAirport);
 
                     OnAcarsStatusChanged?.Invoke(true);

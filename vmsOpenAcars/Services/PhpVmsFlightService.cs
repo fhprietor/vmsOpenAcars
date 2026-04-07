@@ -155,6 +155,8 @@ namespace vmsOpenAcars.Services
         /// Asigna un vuelo a un piloto (bid)
         /// </summary>
         /// <returns>Tuple con éxito y mensaje de error si lo hay</returns>
+        // En Services/PhpVmsFlightService.cs - método AssignFlightToPilot modificado
+
         public async Task<(bool success, string message)> AssignFlightToPilot(string flightId, string pilotId)
         {
             try
@@ -184,13 +186,9 @@ namespace vmsOpenAcars.Services
             }
             catch (Exception ex)
             {
-                return (false, $"Exception: {ex.Message}");
+                return (false, $"Connection error: {ex.Message}");
             }
         }
-
-        // En Services/PhpVmsFlightService.cs
-
-        // En Services/PhpVmsFlightService.cs
 
         private string ParseErrorMessage(string errorContent)
         {
@@ -198,7 +196,7 @@ namespace vmsOpenAcars.Services
             {
                 var errorJson = Newtonsoft.Json.Linq.JObject.Parse(errorContent);
 
-                // Prioridad 1: error.message (estructura anidada)
+                // Buscar error.message (estructura anidada)
                 var errorObj = errorJson["error"];
                 if (errorObj != null)
                 {
@@ -207,39 +205,23 @@ namespace vmsOpenAcars.Services
                         return errorMessage;
                 }
 
-                // Prioridad 2: title
+                // Buscar title
                 var title = errorJson["title"]?.ToString();
                 if (!string.IsNullOrEmpty(title))
                     return title;
 
-                // Prioridad 3: details
+                // Buscar details
                 var details = errorJson["details"]?.ToString();
                 if (!string.IsNullOrEmpty(details))
                     return details;
 
-                // Prioridad 4: status code (solo si no tenemos mensaje)
-                var status = errorJson["status"]?.Value<int>();
-                if (status.HasValue)
-                {
-                    switch (status.Value)
-                    {
-                        case 409:
-                            return "You already have an active bid";
-                        case 403:
-                            return "You don't have permission for this flight";
-                        case 404:
-                            return "Flight not available";
-                        default:
-                            return $"Error {status.Value}";
-                    }
-                }
+                // Buscar message directo
+                var message = errorJson["message"]?.ToString();
+                if (!string.IsNullOrEmpty(message))
+                    return message;
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error parsing error message: {ex.Message}");
-            }
+            catch { }
 
-            // Fallback: devolver el texto original truncado
             if (errorContent.Length > 200)
                 return errorContent.Substring(0, 197) + "...";
 
