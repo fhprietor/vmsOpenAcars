@@ -99,6 +99,8 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.OnSpoilersChanged -= OnSpoilersChanged;
             _fsuipc.OnEngineChanged -= OnEngineChanged;
             _fsuipc.OnParkingBrakeChanged -= OnParkingBrakeChanged;
+            _fsuipc.OnTakeoffAccurate -= OnTakeoffAccurate;
+            _fsuipc.OnTouchdownAccurate -= OnTouchdownAccurate;
 
             // Suscribir eventos de FlightManager
             _flightManager.OnLog += OnFlightManagerLog;
@@ -120,6 +122,49 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.OnSpoilersChanged += OnSpoilersChanged;
             _fsuipc.OnEngineChanged += OnEngineChanged;
             _fsuipc.OnParkingBrakeChanged += OnParkingBrakeChanged;
+            _fsuipc.OnTakeoffAccurate += OnTakeoffAccurate;
+            _fsuipc.OnTouchdownAccurate += OnTouchdownAccurate;
+        }
+
+        private void OnTakeoffAccurate(object sender, TakeoffData data)
+        {
+            OnLog?.Invoke($"🛫 ACCURATE TAKEOFF DATA:", Theme.Success);
+            OnLog?.Invoke($"   Rotation Speed: {data.RotationIasKt:F0} kts", Theme.MainText);
+            OnLog?.Invoke($"   Ground Speed: {data.GroundSpeedKt:F0} kts", Theme.MainText);
+            OnLog?.Invoke($"   Pitch: {data.PitchDeg:F1}° | Bank: {data.BankDeg:F1}°", Theme.MainText);
+            OnLog?.Invoke($"   Heading: {data.HeadingDeg:F0}°", Theme.MainText);
+            OnLog?.Invoke($"   N1: {data.Eng1N1Pct:F0}% / {data.Eng2N1Pct:F0}%", Theme.MainText);
+            OnLog?.Invoke($"   Flaps: {data.FlapsPosition * 100:F0}%", Theme.MainText);
+            OnLog?.Invoke($"   OAT: {data.OatCelsius:F0}°C | Wind: {data.WindSpeedKt:F0}@{data.WindDirDeg:F0}°", Theme.MainText);
+        }
+
+        private void OnTouchdownAccurate(object sender, TouchdownData data)
+        {
+            string gForceRating = data.GForcePeak < 1.3 ? "Perfect" : (data.GForcePeak < 1.8 ? "Normal" : (data.GForcePeak < 2.5 ? "Hard" : "Crash"));
+
+            OnLog?.Invoke($"🛬 ACCURATE TOUCHDOWN DATA:", Theme.Success);
+            OnLog?.Invoke($"   VS: {data.VerticalSpeedFpm:F0} fpm", Theme.MainText);
+            OnLog?.Invoke($"   G-Force: {data.GForcePeak:F2}g ({gForceRating})", Theme.MainText);
+            OnLog?.Invoke($"   Speed: {data.IasKt:F0} kts (IAS) / {data.GroundSpeedKt:F0} kts (GS)", Theme.MainText);
+            OnLog?.Invoke($"   Pitch: {data.PitchDeg:F1}° | Bank: {data.BankDeg:F1}°", Theme.MainText);
+            OnLog?.Invoke($"   Flaps: {data.FlapsPosition * 100:F0}% | Spoilers: {data.SpoilersPosition * 100:F0}%", Theme.MainText);
+            OnLog?.Invoke($"   Reversers: {data.Eng1ReverserPct:F0}% / {data.Eng2ReverserPct:F0}%", Theme.MainText);
+            OnLog?.Invoke($"   Brakes: L={data.BrakeLeft * 100:F0}% R={data.BrakeRight * 100:F0}% | Autobrake: {GetAutobrakeName(data.AutobrakeSetting)}", Theme.MainText);
+            OnLog?.Invoke($"   OAT: {data.OatCelsius:F0}°C | Wind: {data.WindSpeedKt:F0}@{data.WindDirDeg:F0}°", Theme.MainText);
+        }
+
+        private string GetAutobrakeName(int setting)
+        {
+            switch (setting)
+            {
+                case 0: return "RTO";
+                case 1: return "OFF";
+                case 2: return "1";
+                case 3: return "2";
+                case 4: return "3";
+                case 5: return "MAX";
+                default: return setting.ToString();
+            }
         }
         // Eventos de alta precisión
         private void OnTakeoffDetectedHighPrecision(int speed, int altitude, int vs, double pitch, double bank, double heading, double flaps)
