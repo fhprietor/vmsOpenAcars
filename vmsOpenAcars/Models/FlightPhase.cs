@@ -32,6 +32,11 @@
         TaxiOut,
 
         /// <summary>
+        /// cuando se inicia la carrera de despegue.
+        /// </summary>
+        TakeoffRoll,
+
+        /// <summary>
         /// Takeoff roll and initial climb.
         /// </summary>
         Takeoff,

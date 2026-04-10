@@ -56,6 +56,7 @@ namespace vmsOpenAcars.UI
             FlightManager flightManager,
             Pilot currentPilot,
             string currentAirport,
+            UIService uiService = null,
             List<Flight> bids = null)
         {
             _apiService = apiService;

@@ -102,6 +102,7 @@
     <Compile Include="Models\Flight.cs" />
     <Compile Include="Models\FlightPhase.cs" />
     <Compile Include="Models\Pilot.cs" />
+    <Compile Include="Models\Pirep.cs" />
     <Compile Include="Models\SimbriefPlan.cs" />
     <Compile Include="Models\TakeoffData.cs" />
     <Compile Include="Models\TouchdownData.cs" />

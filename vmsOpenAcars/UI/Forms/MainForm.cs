@@ -69,6 +69,8 @@ namespace vmsOpenAcars.UI.Forms
         public Button btnStartStop;
         private Button btnCancel;
         private NotifyIcon _notifyIcon;
+        private bool _isFlightActive = false;
+
 
         // ========== VIEWMODEL Y SERVICIOS ==========
         private MainViewModel _viewModel;
@@ -113,6 +115,36 @@ namespace vmsOpenAcars.UI.Forms
             catch (Exception ex)
             {
                 MessageBox.Show($"Error inicializando servicios: {ex.Message}");
+            }
+            _viewModel.OnFlightStarted += () =>
+            {
+                _isFlightActive = true;
+                UpdateCancelButton();
+            };
+
+            _viewModel.OnFlightEnded += () =>
+            {
+                _isFlightActive = false;
+                UpdateCancelButton();
+            };
+        }
+        private void UpdateCancelButton()
+        {
+            if (btnCancel.InvokeRequired)
+            {
+                btnCancel.Invoke(new Action(UpdateCancelButton));
+                return;
+            }
+
+            if (_isFlightActive)
+            {
+                btnCancel.Text = "CANCEL";
+                btnCancel.BackColor = Color.FromArgb(150, 0, 0);
+            }
+            else
+            {
+                btnCancel.Text = "EXIT";
+                btnCancel.BackColor = Color.FromArgb(100, 0, 0);
             }
         }
 
@@ -850,6 +882,10 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel?.Login();
         }
 
+        // En UI/Forms/MainForm.cs
+
+        // En UI/Forms/MainForm.cs
+
         private async void BtnSimbrief_Click(object sender, EventArgs e)
         {
             if (_viewModel?.FlightManager?.ActivePilot == null)
@@ -858,13 +894,24 @@ namespace vmsOpenAcars.UI.Forms
                 return;
             }
 
+            // Verificar y limpiar PIREPs activos (huérfanos)
+            var canContinue = await _viewModel.CheckAndCleanActivePireps();
+
+            if (!canContinue)
+            {
+                // El usuario canceló o hubo un error
+                return;
+            }
+
+            // Continuar con la apertura normal del planificador
             using (var planner = new FlightPlannerForm(
                 _viewModel.ApiService,
                 _viewModel.PhpVmsFlightService,
                 _viewModel.SimbriefEnhancedService,
                 _viewModel.FlightManager,
                 _viewModel.FlightManager.ActivePilot,
-                _viewModel.FlightManager.CurrentAirport))
+                _viewModel.FlightManager.CurrentAirport,
+                _uiService))
             {
                 if (planner.ShowDialog(this) == DialogResult.OK)
                 {
@@ -874,8 +921,8 @@ namespace vmsOpenAcars.UI.Forms
                     {
                         _viewModel.SetActivePlan(completePlan);
                         _uiService.AddLog($"✅ Plan loaded: {completePlan.Origin} → {completePlan.Destination}", Theme.Success);
-                        UpdateFlightInfoPanel();
-                        return; // Salir, ya tenemos el plan completo
+                        _viewModel.UpdateFlightInfo();
+                        return;
                     }
 
                     // PRIORIDAD 2: Si no hay plan, usar el vuelo seleccionado (plan básico)
@@ -884,7 +931,7 @@ namespace vmsOpenAcars.UI.Forms
                     {
                         _viewModel.LoadFlightFromBid(selectedFlight);
                         _uiService.AddLog($"✅ Flight selected: {selectedFlight.Airline}{selectedFlight.FlightNumber}", Theme.Success);
-                        UpdateFlightInfoPanel();
+                        _viewModel.UpdateFlightInfo();
                     }
                 }
             }
@@ -894,18 +941,33 @@ namespace vmsOpenAcars.UI.Forms
             await _viewModel?.HandleStartStopButton(btnStartStop.Text);
         }
 
-        private void BtnCancel_Click(object sender, EventArgs e)
+        private async void BtnCancel_Click(object sender, EventArgs e)
         {
-            if (btnCancel.Text == "EXIT")
+            if (_isFlightActive)
             {
-                if (EcamDialog.Show(this, "¿Salir de la aplicación?", "SALIR", EcamDialogButtons.YesNo) == DialogResult.Yes)
+                // Hay vuelo activo -> cancelar vuelo
+                var result = EcamDialog.Show(this,
+                    "There is an active flight.\n\nDo you want to cancel it?",
+                    "CANCEL FLIGHT",
+                    EcamDialogButtons.YesNo);
+
+                if (result == DialogResult.Yes)
                 {
-                    Application.Exit();
+                    await _viewModel?.CancelFlight();
                 }
             }
             else
             {
-                _viewModel?.CancelFlight();
+                // No hay vuelo activo -> salir de la aplicación
+                var result = EcamDialog.Show(this,
+                    "¿Salir de la aplicación?",
+                    "SALIR",
+                    EcamDialogButtons.YesNo);
+
+                if (result == DialogResult.Yes)
+                {
+                    Application.Exit();
+                }
             }
         }
 
@@ -926,30 +988,59 @@ namespace vmsOpenAcars.UI.Forms
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            _viewModel?.Stop();
-            base.OnFormClosing(e);
-
-            try
+            if (_isFlightActive)
             {
-                Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                var result = EcamDialog.Show(this,
+                    "There is an active flight.\n\nIf you close the application, the flight will be lost.\n\nDo you want to cancel the flight and exit?",
+                    "ACTIVE FLIGHT DETECTED",
+                    EcamDialogButtons.YesNo);
 
-                // Asegurar que las claves existen antes de asignar
-                EnsureConfigKey(config, "window_left", this.Location.X.ToString());
-                EnsureConfigKey(config, "window_top", this.Location.Y.ToString());
-                EnsureConfigKey(config, "window_width", this.Size.Width.ToString());
-                EnsureConfigKey(config, "window_height", this.Size.Height.ToString());
-
-                int screenIndex = GetCurrentScreenIndex();
-                EnsureConfigKey(config, "last_screen", screenIndex.ToString());
-
-                config.Save(ConfigurationSaveMode.Modified);
-                ConfigurationManager.RefreshSection("appSettings");
-
-                Debug.WriteLine("✅ Configuración guardada correctamente");
+                if (result == DialogResult.Yes)
+                {
+                    // Cancelar el vuelo de forma asíncrona y luego salir
+                    Task.Run(async () =>
+                    {
+                        if (_viewModel != null)
+                        {
+                            await _viewModel.CancelFlight();
+                            _viewModel.Stop();
+                        }
+                        Application.Exit();
+                    });
+                    e.Cancel = true; // Cancelamos el cierre inmediato, lo hacemos manual
+                }
+                else
+                {
+                    e.Cancel = true; // Cancelar el cierre
+                }
             }
-            catch (Exception ex)
+            else
             {
-                Debug.WriteLine($"❌ Error guardando configuración: {ex.Message}");
+                _viewModel?.Stop();
+                base.OnFormClosing(e);
+
+                try
+                {
+                    Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+
+                    // Asegurar que las claves existen antes de asignar
+                    EnsureConfigKey(config, "window_left", this.Location.X.ToString());
+                    EnsureConfigKey(config, "window_top", this.Location.Y.ToString());
+                    EnsureConfigKey(config, "window_width", this.Size.Width.ToString());
+                    EnsureConfigKey(config, "window_height", this.Size.Height.ToString());
+
+                    int screenIndex = GetCurrentScreenIndex();
+                    EnsureConfigKey(config, "last_screen", screenIndex.ToString());
+
+                    config.Save(ConfigurationSaveMode.Modified);
+                    ConfigurationManager.RefreshSection("appSettings");
+
+                    Debug.WriteLine("✅ Configuración guardada correctamente");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"❌ Error guardando configuración: {ex.Message}");
+                }
             }
         }
 

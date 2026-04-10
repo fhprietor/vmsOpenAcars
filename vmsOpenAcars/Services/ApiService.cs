@@ -212,6 +212,40 @@ namespace vmsOpenAcars.Services
             }
             return null;
         }
+        public async Task<bool> DeleteBid(string bidId)
+        {
+            try
+            {
+                var payload = new { bid_id = bidId };
+                string json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var request = new HttpRequestMessage
+                {
+                    Method = HttpMethod.Delete,
+                    RequestUri = new Uri($"{_baseUrl}api/user/bids"),
+                    Content = content
+                };
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+                else
+                {
+                    string error = await response.Content.ReadAsStringAsync();
+                    System.Diagnostics.Debug.WriteLine($"Error deleting bid: {response.StatusCode} - {error}");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Exception deleting bid: {ex}");
+                return false;
+            }
+        }
         #endregion
 
         #region PIREP Management
@@ -306,8 +340,6 @@ namespace vmsOpenAcars.Services
             }
         }
 
-        // En ApiService.cs
-
         /// <summary>
         /// Prefile un vuelo y devuelve el ID del PIREP y la hora de creación del servidor
         /// </summary>
@@ -372,22 +404,64 @@ namespace vmsOpenAcars.Services
 
             return (pirepId, serverCreatedAt);
         }
-        public async Task<bool> DeleteBid(string bidId)
+
+        /// <summary>
+        /// Obtiene los PIREPs activos (en progreso) del piloto autenticado
+        /// </summary>
+        public async Task<List<Models.Pirep>> GetActivePireps()
         {
             try
             {
-                var payload = new { bid_id = bidId };
-                string json = JsonConvert.SerializeObject(payload);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                var request = new HttpRequestMessage
+                var response = await _httpClient.GetAsync($"{_baseUrl}api/user/pireps");
+                if (response.IsSuccessStatusCode)
                 {
-                    Method = HttpMethod.Delete,
-                    RequestUri = new Uri($"{_baseUrl}api/user/bids"),
-                    Content = content
-                };
+                    var content = await response.Content.ReadAsStringAsync();
+                    var json = JObject.Parse(content);
+                    var data = json["data"] as JArray;
+                    var activePireps = new List<Models.Pirep>();
 
-                var response = await _httpClient.SendAsync(request);
+                    if (data != null)
+                    {
+                        foreach (var item in data)
+                        {
+                            var state = item["state"]?.Value<int>();
+                            // state 0 = in_progress (activo)
+                            if (state == 0)
+                            {
+                                activePireps.Add(new Models.Pirep
+                                {
+                                    Id = item["id"]?.ToString(),
+                                    FlightNumber = item["flight_number"]?.ToString(),
+                                    Origin = item["dpt_airport_id"]?.ToString(),
+                                    Destination = item["arr_airport_id"]?.ToString(),
+                                    AircraftId = item["aircraft_id"]?.ToString(),
+                                    State = state ?? 0,
+                                    CreatedAt = item["created_at"]?.ToString(),
+                                    SubmittedAt = item["submitted_at"]?.ToString()
+                                });
+                            }
+                        }
+                    }
+                    return activePireps;
+                }
+                return new List<Models.Pirep>();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error getting active pireps: {ex.Message}");
+                return new List<Models.Pirep>();
+            }
+        }
+
+        /// <summary>
+        /// Cancela/elimina un PIREP por ID usando el endpoint de cancelación
+        /// </summary>
+        public async Task<bool> DeletePirepById(string pirepId)
+        {
+            try
+            {
+                // Usar DELETE api/pireps/{pirep_id}/cancel (también funciona PUT)
+                var response = await _httpClient.DeleteAsync($"{_baseUrl}api/pireps/{pirepId}/cancel");
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -396,59 +470,13 @@ namespace vmsOpenAcars.Services
                 else
                 {
                     string error = await response.Content.ReadAsStringAsync();
-                    System.Diagnostics.Debug.WriteLine($"Error deleting bid: {response.StatusCode} - {error}");
+                    System.Diagnostics.Debug.WriteLine($"Error cancelling pirep: {response.StatusCode} - {error}");
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Exception deleting bid: {ex}");
-                return false;
-            }
-        }
-
-        public async Task<bool> SetBlockOffTime(string pirepId)
-        {
-            try
-            {
-                // No enviamos la hora, el servidor usará su propia hora UTC
-                var payload = new { block_off_time = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") };
-                string json = JsonConvert.SerializeObject(payload);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                var response = await _httpClient.PutAsync(
-                    $"{_baseUrl}api/pireps/{pirepId}", content);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    string error = await response.Content.ReadAsStringAsync();
-                    System.Diagnostics.Debug.WriteLine($"Error setting block_off_time: {error}");
-                }
-
-                return response.IsSuccessStatusCode;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Exception setting block_off_time: {ex}");
-                return false;
-            }
-        }
-        public async Task<bool> SetBlockOnTime(string pirepId)
-        {
-            try
-            {
-                var payload = new { block_on_time = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") };
-                string json = JsonConvert.SerializeObject(payload);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                var response = await _httpClient.PutAsync(
-                    $"{_baseUrl}api/pireps/{pirepId}", content);
-
-                return response.IsSuccessStatusCode;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Exception setting block_on_time: {ex}");
+                System.Diagnostics.Debug.WriteLine($"Exception cancelling pirep: {ex.Message}");
                 return false;
             }
         }

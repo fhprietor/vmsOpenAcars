@@ -64,8 +64,7 @@ namespace vmsOpenAcars.Services
                 ["depm"] = depTime.ToString("mm"),
                 ["extrarmk"] = "CS/VHOLAR IVAOVA/VHR OPR/VHR",
                 ["flightrules"] = "",
-                ["flighttype"] = simbriefFlightType,
-                ["maps"] = "0"
+                ["flighttype"] = simbriefFlightType
             };
 
             var queryString = BuildQueryString(parameters);
