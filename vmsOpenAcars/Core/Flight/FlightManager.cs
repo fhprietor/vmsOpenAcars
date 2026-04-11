@@ -450,6 +450,7 @@ namespace vmsOpenAcars.Core.Flight
 
                 OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                 PhaseChanged?.Invoke(CurrentPhase);
+                PhaseChanged?.Invoke(CurrentPhase);
                 _wasOnGround = isOnGround;
                 return;
             }
@@ -700,6 +701,7 @@ namespace vmsOpenAcars.Core.Flight
             if (previousPhase != CurrentPhase)
             {
                 OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Phase changed: {previousPhase} → {CurrentPhase}");
                 Task.Run(() => UpdatePirepStatus(FlightPhaseHelper.GetStatusCode(CurrentPhase)));
                 PhaseChanged?.Invoke(CurrentPhase);
             }

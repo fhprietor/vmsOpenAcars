@@ -294,6 +294,8 @@ namespace vmsOpenAcars.ViewModels
 
             double totalDistanceKm = _flightManager.TotalDistanceKm;
 
+            System.Diagnostics.Debug.WriteLine($"[DEBUG] PrepareTelemetry - CurrentPhase: {_flightManager.CurrentPhase}");
+
             if (_lastPosition.HasValue)
             {
                 double distKm = _flightManager.CalculateDistanceKm(
@@ -348,8 +350,10 @@ namespace vmsOpenAcars.ViewModels
                 autopilot = e.AutopilotEngaged,
 
                 // Combustible en lbs (unidad estándar phpVMS para fuel en posiciones ACARS)
-                fuel_flow = Math.Round(e.FuelFlow, 1),
-                fuel = Math.Round(e.FuelLbs, 1),
+                fuel = Math.Round(e.FuelLbs, 1),           // Combustible en lbs
+                fuel_flow = Math.Round(e.FuelFlow, 1),     // Flujo de combustible en lbs/hr
+                pitch = e.PitchDeg,                        // Pitch en grados
+                bank = e.BankDeg,                          // Bank en grados
 
                 // Fecha/hora siempre UTC, formato ISO 8601 por el serializador JSON
                 sim_time = DateTime.UtcNow,
@@ -394,7 +398,20 @@ namespace vmsOpenAcars.ViewModels
             OnLog?.Invoke($"   Ground Speed: {data.GroundSpeedKt:F0} kts", Theme.MainText);
             OnLog?.Invoke($"   Pitch: {data.PitchDeg:F1}° | Bank: {data.BankDeg:F1}°", Theme.MainText);
             OnLog?.Invoke($"   Heading: {data.HeadingDeg:F0}°", Theme.MainText);
-            OnLog?.Invoke($"   N1: {data.Eng1N1Pct:F0}% / {data.Eng2N1Pct:F0}%", Theme.MainText);
+
+            if (data.EngineType == "N1")
+            {
+                OnLog?.Invoke($"   N1: {data.Eng1N1Pct:F0}% / {data.Eng2N1Pct:F0}%", Theme.MainText);
+            }
+            else if (data.EngineType == "PROP RPM")
+            {
+                OnLog?.Invoke($"   Prop RPM: {data.Eng1Rpm:F0} / {data.Eng2Rpm:F0}", Theme.MainText);
+            }
+            else if (data.EngineType == "PISTON RPM")
+            {
+                OnLog?.Invoke($"   RPM: {data.Eng1Rpm:F0} / {data.Eng2Rpm:F0}", Theme.MainText);
+            }
+
             OnLog?.Invoke($"   Flaps: {data.FlapsPosition * 100:F0}%", Theme.MainText);
             OnLog?.Invoke($"   OAT: {data.OatCelsius:F0}°C | Wind: {data.WindSpeedKt:F0}@{data.WindDirDeg:F0}°", Theme.MainText);
         }

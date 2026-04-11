@@ -17,6 +17,9 @@ namespace vmsOpenAcars.Models
         public double BankDeg { get; set; }
         public double Eng1N1Pct { get; set; }
         public double Eng2N1Pct { get; set; }
+        public double Eng1Rpm { get; set; }
+        public double Eng2Rpm { get; set; }
+        public string EngineType { get; set; }
         public double FlapsPosition { get; set; }
         public double OatCelsius { get; set; }
         public double WindSpeedKt { get; set; }

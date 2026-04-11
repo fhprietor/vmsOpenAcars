@@ -81,15 +81,15 @@ namespace vmsOpenAcars.Services
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// 0x0578 · 2 bytes signed · rango −16384 = −90° .. +16384 = +90°.
+        /// 0x0578 · 4 bytes signed
         /// Convención FSUIPC: nose-UP = valor NEGATIVO → el decoder invierte el signo.
         /// </summary>
-        private readonly Offset<short> _pitchOffset = new Offset<short>(0x0578);
+        private Offset<int> _pitchOffset = new Offset<int>(0x0578);
 
         /// <summary>
         /// 0x057C · 2 bytes signed · rango −16384 = −90° (izquierda) .. +16384 = +90° (derecha).
         /// </summary>
-        private readonly Offset<short> _bankOffset = new Offset<short>(0x057C);
+        private Offset<int> _bankOffset = new Offset<int>(0x057C);
 
         // ------------------------------------------------------------------
         // Altimetría de radio / terreno
@@ -142,6 +142,16 @@ namespace vmsOpenAcars.Services
 
         /// <summary>0x0898 · 4 bytes signed · RPM del motor 1, valor directo sin escala</summary>
         private readonly Offset<int> _engRpmOffset = new Offset<int>(0x0898);
+
+        // ===== MOTORES - OFFSETS UNIVERSALES =====
+
+        // N1 para jets (int16) - offsets correctos
+        private Offset<short> _eng1N1 = new Offset<short>(0x0898);
+        private Offset<short> _eng2N1 = new Offset<short>(0x0930);
+
+        // RPM para pistón/turboprop (int16)
+        private Offset<short> _eng1Rpm = new Offset<short>(0x0890);
+        private Offset<short> _eng2Rpm = new Offset<short>(0x0928);
 
         // ------------------------------------------------------------------
         // Controles de vuelo
@@ -196,11 +206,11 @@ namespace vmsOpenAcars.Services
         // Meteorología
         // ------------------------------------------------------------------
 
-        /// <summary>0x0E90 · 2 bytes signed · dirección del viento en grados (valor directo)</summary>
-        private readonly Offset<short> _windDirOffset = new Offset<short>(0x0E90);
+        /// <summary>0x0E92 · 2 bytes signed · dirección del viento en grados (valor directo)</summary>
+        private readonly Offset<short> _windDirOffset = new Offset<short>(0x0E92);
 
-        /// <summary>0x0E92 · 2 bytes signed · velocidad del viento en knots (valor directo)</summary>
-        private readonly Offset<short> _windSpeedOffset = new Offset<short>(0x0E92);
+        /// <summary>0x0E90 · 2 bytes signed · velocidad del viento en knots (valor directo)</summary>
+        private readonly Offset<short> _windSpeedOffset = new Offset<short>(0x0E90);
 
         /// <summary>0x0E8C · 2 bytes signed · OAT = °C × 256</summary>
         private readonly Offset<short> _oatOffset = new Offset<short>(0x0E8C);
@@ -300,6 +310,7 @@ namespace vmsOpenAcars.Services
         // Todas siguen las unidades estándar descritas en la cabecera del archivo.
         // =====================================================================
 
+
         /// <summary>Indica si hay conexión activa con FSUIPC.</summary>
         public bool IsConnected => _connectionState == ConnectionState.Connected;
 
@@ -381,6 +392,10 @@ namespace vmsOpenAcars.Services
 
         /// <summary>RPM del motor 1 para aviones de pistón. Valor directo sin escala.</summary>
         public int CurrentEngineRpm => _engRpmOffset.Value;
+
+        public EnginePower Engine1Power { get; private set; }
+        public EnginePower Engine2Power { get; private set; }
+
 
         // ---- Identificación de aeronave ----
 
@@ -581,6 +596,8 @@ namespace vmsOpenAcars.Services
                 {
                     ReadAircraftInfo();
                     _aircraftInfoRead = true;
+                    ReadAllOffsets();
+                    OnAircraftInfoReady?.Invoke();
                 }
 
                 // Restablecer contadores de backoff tras un ciclo exitoso
@@ -683,6 +700,15 @@ namespace vmsOpenAcars.Services
             CurrentGearPosition = DecodeGear(_gearOffset.Value);
             CurrentFlapsPercent = DecodeFlaps(_flapsOffset.Value);
             CurrentSpoilersDeployed = _spoilersOffset.Value > 0 || _spoilersArmedOffset.Value > 0;
+
+            // Leer motores
+            short eng1N1Raw = _eng1N1.Value;
+            short eng2N1Raw = _eng2N1.Value;
+            short eng1RpmRaw = _eng1Rpm.Value;
+            short eng2RpmRaw = _eng2Rpm.Value;
+
+            Engine1Power = DecodeEnginePower(eng1N1Raw, eng1RpmRaw);
+            Engine2Power = DecodeEnginePower(eng2N1Raw, eng2RpmRaw);
         }
 
         #endregion
@@ -691,6 +717,48 @@ namespace vmsOpenAcars.Services
         #region Decodificadores de Offsets
         // Un método estático por variable, con offset, tipo FSUIPC y fórmula documentados.
         // =====================================================================
+
+        private EnginePower DecodeEnginePower(short n1Raw, short rpmRaw)
+        {
+            // N1 = raw * 100 / 16384
+            double n1 = n1Raw * 100.0 / 16384.0;
+
+            // RPM = raw / 4 (simplificado de raw * 16384 / 65536)
+            double rpm = rpmRaw / 4.0;
+
+            // Jet detectado por N1 > 5% (ralentí)
+            if (n1 > 5)
+            {
+                return new EnginePower
+                {
+                    Value = n1,
+                    Type = "N1"
+                };
+            }
+
+            // Turboprop vs Piston por RPM
+            if (rpm > 0)
+            {
+                if (rpm < 1200)
+                {
+                    return new EnginePower
+                    {
+                        Value = rpm,
+                        Type = "PROP RPM"
+                    };
+                }
+                else
+                {
+                    return new EnginePower
+                    {
+                        Value = rpm,
+                        Type = "PISTON RPM"
+                    };
+                }
+            }
+
+            return new EnginePower { Value = 0, Type = "OFF" };
+        }
 
         /// <summary>
         /// Convierte el offset de latitud a grados decimales.
@@ -746,20 +814,32 @@ namespace vmsOpenAcars.Services
 
         /// <summary>
         /// Convierte el offset de pitch a grados con convención nose-up positivo.
-        /// <para>Offset 0x0578 · signed 16-bit · rango −16384 = −90° .. +16384 = +90°</para>
-        /// <para>Convención FSUIPC: nose-UP = valor NEGATIVO → se invierte el signo.</para>
-        /// <para>Fórmula: degrees = −(raw × 360 / 65536)</para>
         /// </summary>
-        private static double DecodePitch(short raw)
-            => -(raw * 360.0 / 65536.0 / 65536.0);
+        private static double DecodePitch(int raw)
+        {
+            // Fórmula correcta para 32 bits
+            // raw = grados × 2³² / 360
+            double pitch = raw * 360.0 / 4294967296.0;
+
+            // Limitar a rango realista
+            if (pitch > 30) pitch = 30;
+            if (pitch < -30) pitch = -30;
+
+            return Math.Round(pitch, 1);
+        }
 
         /// <summary>
         /// Convierte el offset de bank a grados con convención bank-derecha positivo.
-        /// <para>Offset 0x057C · signed 16-bit · rango −16384 = −90° .. +16384 = +90°</para>
-        /// <para>Fórmula: degrees = raw × 360 / 65536</para>
         /// </summary>
-        private static double DecodeBank(short raw)
-            => raw * 360.0 / 65536.0 / 65536.0;
+        private static double DecodeBank(int raw)
+        {
+            double bank = raw * 360.0 / 4294967296.0;
+
+            if (bank > 45) bank = 45;
+            if (bank < -45) bank = -45;
+
+            return Math.Round(bank, 1);
+        }
 
         /// <summary>
         /// Convierte el offset del tren de aterrizaje a estado binario.
@@ -774,11 +854,25 @@ namespace vmsOpenAcars.Services
         /// <para>Offset 0x0BDC · signed 16-bit · rango 0 (arriba) .. 16383 (fondo)</para>
         /// <para>Factor de escala: 16383 / 100 = 163.83</para>
         /// </summary>
+
         private static double DecodeFlaps(short raw)
         {
-            if (raw <= 0) return 0.0;
-            if (raw >= 16383) return 100.0;
-            return raw / 163.83;
+            double p = raw / 16383.0;
+
+            int detent;
+
+            // 9 detents (Boeing)
+            if (p < 0.02) detent = 0;
+            else if (p < 0.08) detent = 1;
+            else if (p < 0.14) detent = 2;
+            else if (p < 0.22) detent = 5;
+            else if (p < 0.32) detent = 10;
+            else if (p < 0.45) detent = 15;
+            else if (p < 0.62) detent = 25;
+            else if (p < 0.78) detent = 30;
+            else detent = 40;
+
+            return detent;
         }
 
         #endregion
@@ -837,12 +931,28 @@ namespace vmsOpenAcars.Services
             _lastGearPosition = gear;
         }
 
+        private const double FLAPS_HYSTERESIS = 1.0;
+        private DateTime _lastFlapsChangeTime = DateTime.MinValue;
+        private const double FLAPS_DEBOUNCE_MS = 500;
+
         private void DetectFlapsChange()
         {
             double flaps = CurrentFlapsPercent;
-            if (Math.Abs(flaps - _lastFlapsPercent) <= 2.0) return;
-            FlapsChanged?.Invoke(_lastFlapsPercent, flaps);
-            _lastFlapsPercent = flaps;
+
+            // Calcular diferencia real
+            double diff = Math.Abs(flaps - _lastFlapsPercent);
+
+            // Solo considerar cambio si supera la histéresis O ha pasado el debounce
+            if (diff > FLAPS_HYSTERESIS ||
+                (diff > 0 && (DateTime.UtcNow - _lastFlapsChangeTime).TotalMilliseconds > FLAPS_DEBOUNCE_MS))
+            {
+                if (diff > 0)
+                {
+                    FlapsChanged?.Invoke(_lastFlapsPercent, flaps);
+                    _lastFlapsChangeTime = DateTime.UtcNow;
+                }
+                _lastFlapsPercent = flaps;
+            }
         }
 
         private void DetectSpoilersChange()
@@ -916,8 +1026,13 @@ namespace vmsOpenAcars.Services
                 PitchDeg = CurrentPitch,
                 BankDeg = CurrentBank,
                 FlapsPosition = CurrentFlapsPercent / 100.0,
-                Eng1N1Pct = _eng1N1Offset.Value * 100.0,
-                Eng2N1Pct = _eng2N1Offset.Value * 100.0,
+
+                Eng1N1Pct = Engine1Power.GetN1(),
+                Eng2N1Pct = Engine2Power.GetN1(),
+                Eng1Rpm = Engine1Power.GetRpm(),
+                Eng2Rpm = Engine2Power.GetRpm(),
+                EngineType = Engine1Power.Type,
+
                 OatCelsius = _oatOffset.Value / 256.0,
                 WindSpeedKt = _windSpeedOffset.Value,
                 WindDirDeg = _windDirOffset.Value
@@ -1468,5 +1583,23 @@ namespace vmsOpenAcars.Services
         public double FlapsPercent { get; set; }
         public bool GearDown { get; set; }
         public int Order { get; set; }
+    }
+
+    public class EnginePower
+    {
+        public double Value { get; set; }
+        public string Type { get; set; }  // "N1", "PROP RPM", "PISTON RPM"
+
+        public string Display => $"{Value:F0} {Type}";
+
+        public double GetN1()
+        {
+            return Type == "N1" ? Value : 0;
+        }
+
+        public double GetRpm()
+        {
+            return (Type == "PROP RPM" || Type == "PISTON RPM") ? Value : 0;
+        }
     }
 }

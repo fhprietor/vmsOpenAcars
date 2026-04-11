@@ -109,7 +109,7 @@ namespace vmsOpenAcars.UI.Forms
                     var simbriefEnhancedService = new SimbriefEnhancedService(apiService);
 
                     _viewModel = new MainViewModel(flightManager, fsuipc, apiService, phpVmsFlightService, simbriefEnhancedService);
-                    _uiService = new UIService(this, flightManager);
+                    _uiService = new UIService(this, flightManager, apiService);
                 }
             }
             catch (Exception ex)

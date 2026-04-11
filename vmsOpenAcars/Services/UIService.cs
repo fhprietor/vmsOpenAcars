@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Drawing;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
 using vmsOpenAcars.Models;
@@ -12,11 +13,13 @@ namespace vmsOpenAcars.Services
     {
         private readonly MainForm _form;
         private readonly FlightManager _flightManager;
+        private readonly ApiService _apiService;
 
-        public UIService(MainForm form, FlightManager flightManager)
+        public UIService(MainForm form, FlightManager flightManager, ApiService apiService)
         {
             _form = form;
             _flightManager = flightManager;
+            _apiService = apiService;
         }
 
         private void Notify(string message, ToolTipIcon icon = ToolTipIcon.Info)
@@ -49,7 +52,10 @@ namespace vmsOpenAcars.Services
                 _form.txtIncomingMsg.SelectionColor = color;
                 _form.txtIncomingMsg.SelectedText = $"{DateTime.UtcNow:HH:mm:ss} - {message}\n";
             }
-
+            if (!string.IsNullOrEmpty(_flightManager?.ActivePirepId))
+            {
+                SendLogToAcars(message);
+            }
             // Notificaciones para eventos importantes
             if (message.Contains("Takeoff"))
                 Notify("🛫 Takeoff", ToolTipIcon.Info);
@@ -67,6 +73,51 @@ namespace vmsOpenAcars.Services
                 Notify("❌ OFP mismatch", ToolTipIcon.Error);
             else if (message.Contains("Simulator disconnected"))
                 Notify("🔌 Simulator disconnected", ToolTipIcon.Warning);
+        }
+
+        // En Services/UIService.cs
+
+        private void SendLogToAcars(string message)
+        {
+            try
+            {
+                // Obtener posición actual del simulador si está disponible
+                double lat = 0;
+                double lon = 0;
+
+                if (_flightManager != null)
+                {
+                    lat = _flightManager.CurrentLat;
+                    lon = _flightManager.CurrentLon;
+                }
+
+                var logRecord = new AcarsPosition
+                {
+                    type = 1,                                    // LOG
+                    status = "SCH",                              // SCHEDULED
+                    log = message,                               // El texto del mensaje
+                    lat = lat,                                   // Latitud actual
+                    lon = lon,                                   // Longitud actual
+                    altitude_agl = 0,                            // No aplica para logs
+                    altitude_msl = 0,                            // No aplica para logs
+                    ias = null,
+                    gs = null,
+                    sim_time = DateTime.UtcNow,
+                    source = "vmsOpenAcars"
+                };
+
+                var update = new AcarsPositionUpdate { positions = new[] { logRecord } };
+
+                // Enviar de forma asíncrona sin bloquear
+                Task.Run(async () =>
+                {
+                    await _apiService.SendPositionUpdate(_flightManager.ActivePirepId, update);
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error sending log to ACARS: {ex.Message}");
+            }
         }
 
         public void UpdatePosition(string positionText)
