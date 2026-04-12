@@ -376,9 +376,6 @@ namespace vmsOpenAcars.Core.Flight
                 _serverBlockOffTime = default;
                 _serverBlockOnTime = default;
                 _blockOffRecorded = false;
-                OnLog?.Invoke($"⏱️ PIREP created at: {_serverCreatedAt:HH:mm:ss} UTC", Theme.MainText);
-                OnLog?.Invoke($"📊 Flight timer started (server time)", Theme.Success);
-                OnLog?.Invoke($"⛽ Initial fuel recorded: {_initialFuel:F0} kg", Theme.Success);
 
                 if (!string.IsNullOrEmpty(plan.BidId))
                 {
@@ -388,6 +385,9 @@ namespace vmsOpenAcars.Core.Flight
                 }
 
                 await Task.Run(() => UpdatePirepStatus("BST"));
+                OnLog?.Invoke($"⏱️ PIREP created at: {_serverCreatedAt:HH:mm:ss} UTC", Theme.MainText);
+                OnLog?.Invoke($"📊 Flight timer started (server time)", Theme.Success);
+                OnLog?.Invoke($"⛽ Initial fuel recorded: {_initialFuel:F0} kg", Theme.Success);
                 _touchdownCaptured = false;
                 TouchdownFpm = null;
                 CurrentPhase = FlightPhase.Boarding;
@@ -410,13 +410,12 @@ namespace vmsOpenAcars.Core.Flight
         /// <summary>
         /// Updates the flight phase based on current telemetry using relative thresholds.
         /// </summary>
+        /// <summary>
+        /// Updates the flight phase based on current telemetry using relative thresholds.
+        /// </summary>
         public void UpdatePhase(int altitude, int groundSpeed, bool isOnGround, int verticalSpeed, double distanceToDestination = -1)
         {
             var previousPhase = CurrentPhase;
-
-            // ===== DETECCIÓN DE BLOCK OFF (inicio del movimiento real) =====
-            // Nota: El parking brake se maneja en MainViewModel, que llama a UpdateBlockOffTime
-            // cuando se libera el freno y hay movimiento
 
             // ===== ACTUALIZAR ALTITUD MÁXIMA =====
             if (altitude > _maxAltitudeReached)
@@ -437,31 +436,27 @@ namespace vmsOpenAcars.Core.Flight
             bool canChangePhase = (DateTime.UtcNow - _phaseStartTime).TotalSeconds >= 5;
 
             // ===== DETECCIÓN DE ROTACIÓN (inicio del despegue) =====
-            // Detectamos cuando el pitch supera 2 grados y hay velocidad suficiente
-            if (_wasOnGround && isOnGround && groundSpeed > 60 && _currentPitch > 2.0 && _currentPitch < 20 && 
-                previousPhase != FlightPhase.Takeoff && previousPhase != FlightPhase.TakeoffRoll && 
-                previousPhase != FlightPhase.AfterLanding && previousPhase != FlightPhase.TaxiIn)
+            // Detectar cuando el pitch supera 2 grados Y hay velocidad suficiente Y estamos en tierra
+            if (_wasOnGround && groundSpeed > 60 && _currentPitch > 2.0 && _currentPitch < 20)
             {
-                CurrentPhase = FlightPhase.Takeoff;
-                _phaseStartTime = DateTime.UtcNow;
-                OnLog?.Invoke($"🛫 ROTATION DETECTED! Speed: {groundSpeed} kts, Pitch: {_currentPitch:F1}°, VS: {verticalSpeed} fpm", Theme.Success);
-                OnTakeoffDetected?.Invoke(groundSpeed, altitude, verticalSpeed);
-                Task.Run(() => UpdatePirepStatus("TOF"));
-
-                OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
-                PhaseChanged?.Invoke(CurrentPhase);
-                PhaseChanged?.Invoke(CurrentPhase);
-                _wasOnGround = isOnGround;
-                return;
+                if (CurrentPhase != FlightPhase.Takeoff && CurrentPhase != FlightPhase.TakeoffRoll)
+                {
+                    CurrentPhase = FlightPhase.Takeoff;
+                    _phaseStartTime = DateTime.UtcNow;
+                    OnLog?.Invoke($"🛫 ROTATION DETECTED! Speed: {groundSpeed} kts, Pitch: {_currentPitch:F1}°, VS: {verticalSpeed} fpm", Theme.Success);
+                    OnTakeoffDetected?.Invoke(groundSpeed, altitude, verticalSpeed);
+                    Task.Run(() => UpdatePirepStatus("TOF"));
+                    OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
+                    PhaseChanged?.Invoke(CurrentPhase);
+                }
             }
 
             // ===== LIFTOFF REAL (momento en que la rueda deja el suelo) =====
-            // Solo registramos, no cambiamos fase
-            if (_wasOnGround && !isOnGround && previousPhase == FlightPhase.Takeoff)
+            if (_wasOnGround && !isOnGround && CurrentPhase == FlightPhase.Takeoff)
             {
                 OnLog?.Invoke($"🛫 LIFTOFF! Speed: {groundSpeed} kts, VS: {verticalSpeed} fpm", Theme.Success);
                 _wasOnGround = isOnGround;
-                return;
+                // No cambiamos fase, seguimos en Takeoff
             }
 
             // ===== DETECCIÓN DE TOMACONTACTO (transición aire → suelo) =====
@@ -471,7 +466,6 @@ namespace vmsOpenAcars.Core.Flight
                 CurrentPhase = FlightPhase.AfterLanding;
                 _phaseStartTime = DateTime.UtcNow;
                 Task.Run(() => UpdatePirepStatus("LAN"));
-
                 OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                 PhaseChanged?.Invoke(CurrentPhase);
                 _wasOnGround = isOnGround;
@@ -498,18 +492,16 @@ namespace vmsOpenAcars.Core.Flight
                                 _phaseStartTime = DateTime.UtcNow;
                                 _pushbackStartTime = DateTime.MinValue;
                                 OnLog?.Invoke($"🔄 Pushback confirmed at {groundSpeed:F1} kts", Theme.Taxi);
-
                                 OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                                 PhaseChanged?.Invoke(CurrentPhase);
                             }
-                            // Movimiento rápido y sostenido = taxiout directo (sin pushback)
+                            // Movimiento rápido y sostenido = taxiout directo
                             else if (groundSpeed > TAXIOUT_MIN_SPEED && secondsMoving >= TAXIOUT_MIN_DURATION)
                             {
                                 CurrentPhase = FlightPhase.TaxiOut;
                                 _phaseStartTime = DateTime.UtcNow;
                                 _pushbackStartTime = DateTime.MinValue;
                                 OnLog?.Invoke($"🛻 Taxi out (direct) at {groundSpeed:F1} kts", Theme.Taxi);
-
                                 OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                                 PhaseChanged?.Invoke(CurrentPhase);
                             }
@@ -526,7 +518,6 @@ namespace vmsOpenAcars.Core.Flight
                             CurrentPhase = FlightPhase.TaxiOut;
                             _phaseStartTime = DateTime.UtcNow;
                             OnLog?.Invoke($"🛻 Taxi out (after pushback) at {groundSpeed:F1} kts", Theme.Taxi);
-
                             OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                             PhaseChanged?.Invoke(CurrentPhase);
                         }
@@ -534,19 +525,17 @@ namespace vmsOpenAcars.Core.Flight
 
                     case FlightPhase.TaxiOut:
                         // Inicio de la carrera de despegue
-                        if (groundSpeed > 30 && _currentPitch < 1.0 && !_blockOffRecorded)
+                        if (groundSpeed > 30 && _currentPitch < 1.0)
                         {
                             CurrentPhase = FlightPhase.TakeoffRoll;
                             _phaseStartTime = DateTime.UtcNow;
                             OnLog?.Invoke($"🛫 Takeoff roll started at {groundSpeed} kts", Theme.Takeoff);
-
                             OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                             PhaseChanged?.Invoke(CurrentPhase);
                         }
                         break;
 
                     case FlightPhase.TakeoffRoll:
-                        // Rotación durante la carrera
                         if (groundSpeed > 50 && _currentPitch > 2.0)
                         {
                             CurrentPhase = FlightPhase.Takeoff;
@@ -554,17 +543,14 @@ namespace vmsOpenAcars.Core.Flight
                             OnLog?.Invoke($"🛫 ROTATION at {groundSpeed} kts, Pitch: {_currentPitch:F1}°", Theme.Success);
                             OnTakeoffDetected?.Invoke(groundSpeed, altitude, verticalSpeed);
                             Task.Run(() => UpdatePirepStatus("TOF"));
-
                             OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                             PhaseChanged?.Invoke(CurrentPhase);
                         }
-                        // Abortar despegue
                         else if (groundSpeed < 30)
                         {
                             CurrentPhase = FlightPhase.TaxiOut;
                             _phaseStartTime = DateTime.UtcNow;
                             OnLog?.Invoke($"🛑 Takeoff aborted, returning to taxi", Theme.Warning);
-
                             OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                             PhaseChanged?.Invoke(CurrentPhase);
                         }
@@ -575,7 +561,6 @@ namespace vmsOpenAcars.Core.Flight
                         {
                             CurrentPhase = FlightPhase.TaxiIn;
                             _phaseStartTime = DateTime.UtcNow;
-
                             OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                             PhaseChanged?.Invoke(CurrentPhase);
                         }
@@ -595,7 +580,6 @@ namespace vmsOpenAcars.Core.Flight
                                 OnLog?.Invoke($"🅿️ On block", Theme.Success);
                                 OnBlockDetected?.Invoke();
                                 Task.Run(() => UpdateBlockOnTime());
-
                                 OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                                 PhaseChanged?.Invoke(CurrentPhase);
                             }
@@ -614,24 +598,24 @@ namespace vmsOpenAcars.Core.Flight
                 switch (CurrentPhase)
                 {
                     case FlightPhase.Takeoff:
-                        if (isClimbing && canChangePhase)
+                    case FlightPhase.TakeoffRoll:
+                        // Salir de Takeoff cuando está en el aire Y ascendiendo
+                        if (!isOnGround && (isClimbing || verticalSpeed > 0))
                         {
                             CurrentPhase = FlightPhase.Climb;
                             _phaseStartTime = DateTime.UtcNow;
-
                             OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                             PhaseChanged?.Invoke(CurrentPhase);
                         }
                         break;
 
                     case FlightPhase.Climb:
-                        // Si estamos cerca del crucero o lo hemos superado
-                        if (Math.Abs(altitude - cruiseAlt) < 2000 || altitude >= cruiseAlt)
+                        // Si estamos cerca del crucero o lo hemos superado, o la tasa de ascenso es muy baja
+                        if (Math.Abs(altitude - cruiseAlt) < 2000 || altitude >= cruiseAlt || verticalSpeed < 300)
                         {
                             CurrentPhase = FlightPhase.Enroute;
                             _phaseStartTime = DateTime.UtcNow;
                             OnLog?.Invoke($"✈️ Cruise detected at {altitude} ft", Theme.MainText);
-
                             OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                             PhaseChanged?.Invoke(CurrentPhase);
                         }
@@ -640,7 +624,6 @@ namespace vmsOpenAcars.Core.Flight
                             CurrentPhase = FlightPhase.Descent;
                             _phaseStartTime = DateTime.UtcNow;
                             OnLog?.Invoke($"✈️ Early descent at {altitude} ft", Theme.MainText);
-
                             OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                             PhaseChanged?.Invoke(CurrentPhase);
                         }
@@ -652,7 +635,6 @@ namespace vmsOpenAcars.Core.Flight
                             CurrentPhase = FlightPhase.Descent;
                             _phaseStartTime = DateTime.UtcNow;
                             OnLog?.Invoke($"✈️ Descent started from {_maxAltitudeReached} ft", Theme.MainText);
-
                             OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                             PhaseChanged?.Invoke(CurrentPhase);
                         }
@@ -667,7 +649,6 @@ namespace vmsOpenAcars.Core.Flight
                                 CurrentPhase = FlightPhase.Approach;
                                 _phaseStartTime = DateTime.UtcNow;
                                 OnLog?.Invoke($"🛬 Approach started", Theme.Approach);
-
                                 OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                                 PhaseChanged?.Invoke(CurrentPhase);
                             }
@@ -680,7 +661,6 @@ namespace vmsOpenAcars.Core.Flight
                             CurrentPhase = FlightPhase.Climb;
                             _phaseStartTime = DateTime.UtcNow;
                             OnLog?.Invoke($"✈️ Go-around detected!", Theme.Warning);
-
                             OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                             PhaseChanged?.Invoke(CurrentPhase);
                         }
@@ -688,7 +668,7 @@ namespace vmsOpenAcars.Core.Flight
                 }
             }
 
-            // ===== REGISTRAR BLOCK OFF AL ENTRAR A TAXIOUT (solo si no se registró antes) =====
+            // ===== REGISTRAR BLOCK OFF AL ENTRAR A TAXIOUT =====
             if (CurrentPhase == FlightPhase.TaxiOut && !_blockOffRecorded && _isTimerStarted)
             {
                 OnLog?.Invoke($"🛫 Block Off (entering TaxiOut)", Theme.MainText);
@@ -697,16 +677,12 @@ namespace vmsOpenAcars.Core.Flight
 
             _wasOnGround = isOnGround;
 
-            // ===== ACTUALIZAR ESTADO EN EL SERVIDOR =====
+            // ===== ACTUALIZAR ESTADO EN EL SERVIDOR (solo si cambió la fase) =====
             if (previousPhase != CurrentPhase)
             {
-                OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
-                System.Diagnostics.Debug.WriteLine($"[DEBUG] Phase changed: {previousPhase} → {CurrentPhase}");
                 Task.Run(() => UpdatePirepStatus(FlightPhaseHelper.GetStatusCode(CurrentPhase)));
-                PhaseChanged?.Invoke(CurrentPhase);
             }
         }
-
         public void UpdateTelemetry(int altitude, int groundSpeed, int verticalSpeed, bool isOnGround, double fuel,
             double lat, double lon, double indicatedAirspeed = 0, double fuelFlow = 0, int transponder = 1200,
             bool autopilot = false, DateTime simTime = default, double radarAlt = 0, int order = 0,
