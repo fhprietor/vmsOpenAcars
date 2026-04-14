@@ -13,8 +13,11 @@ using vmsOpenAcars.UI;
 using vmsOpenAcars.ViewModels;
 using static vmsOpenAcars.Helpers.L;
 using System.Reflection;
-using System.Diagnostics;
 using vmsOpenAcars.Core.Helpers;
+using System.IO.Compression;
+using System.Net.Http;
+using vmsOpenAcars;
+
 
 namespace vmsOpenAcars.UI.Forms
 {
@@ -89,6 +92,8 @@ namespace vmsOpenAcars.UI.Forms
             InitializeViewModel();
             ConnectViewModelEvents();
             _viewModel?.Start();
+            // Verificar actualizaciones al iniciar (no bloquea la UI)
+            this.Shown += async (s, e) => await CheckForUpdatesAsync();
         }
 
         #region Inicialización
@@ -239,6 +244,7 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeForm()
         {
+
             this.Text = "vmsOpenAcars - ACARS Flight Deck";
             this.Size = new Size(1024, 768);
             this.MinimumSize = new Size(800, 600);
@@ -1023,11 +1029,16 @@ namespace vmsOpenAcars.UI.Forms
                 {
                     Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
 
+
+
                     // Asegurar que las claves existen antes de asignar
+
                     EnsureConfigKey(config, "window_left", this.Location.X.ToString());
                     EnsureConfigKey(config, "window_top", this.Location.Y.ToString());
                     EnsureConfigKey(config, "window_width", this.Size.Width.ToString());
                     EnsureConfigKey(config, "window_height", this.Size.Height.ToString());
+
+
 
                     int screenIndex = GetCurrentScreenIndex();
                     EnsureConfigKey(config, "last_screen", screenIndex.ToString());
@@ -1088,27 +1099,184 @@ namespace vmsOpenAcars.UI.Forms
         {
             Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
 
-            string[] defaultKeys = {
-                "window_left", "window_top",
-                "window_width", "window_height",
-                "last_screen"
-            };
-
-            string[] defaultValues = {
-                "100", "100", "1024", "768", "0"
-            };
-
-            for (int i = 0; i < defaultKeys.Length; i++)
+            var defaults = new Dictionary<string, string>
             {
-                if (config.AppSettings.Settings[defaultKeys[i]] == null)
-                {
-                    config.AppSettings.Settings.Add(defaultKeys[i], defaultValues[i]);
-                }
+                // Ventana
+                { "window_left",   "100" },
+                { "window_top",    "100" },
+                { "window_width",  "1024" },
+                { "window_height", "768" },
+                { "last_screen",   "0" },
+
+                // Conexión
+                { "language",      "es" },
+                { "vms_api_url",   "https://vholar.co/" },
+                { "airline",       "VHOLAR - FLIGHT OPERATIONS DEPARTMENT - FLIGHT DATA ANALYSIS" },
+                { "vms_api_key",   "your_phpvms_apikey" },
+                { "simbrief_user", "your_simbrief_user" },
+
+                // Polling
+                { "polling_interval_ms",    "50" },
+
+                // Intervalos por fase (segundos)
+                { "update_interval_taxi",     "30" },
+                { "update_interval_takeoff",  "5" },
+                { "update_interval_climb",    "15" },
+                { "update_interval_cruise",   "30" },
+                { "update_interval_descent",  "15" },
+                { "update_interval_approach", "5" },
+                { "update_interval_other",    "30" },
+
+                // Eventos
+                { "report_gear_changes",    "true" },
+                { "report_flap_changes",    "true" },
+                { "report_spoiler_changes", "true" },
+                { "report_light_changes",   "true" },
+                { "report_engine_changes",  "true" },
+
+                // Combustible
+                { "fuel_tolerance_percent",  "10" },
+                { "fuel_tolerance_absolute", "50" },
+
+                // Cliente
+                { "ClientSettingsProvider.ServiceUri", "" }
+            };
+
+            foreach (var kvp in defaults)
+            {
+                if (config.AppSettings.Settings[kvp.Key] == null)
+                    config.AppSettings.Settings.Add(kvp.Key, kvp.Value);
             }
 
             config.Save(ConfigurationSaveMode.Modified);
             ConfigurationManager.RefreshSection("appSettings");
         }
 
+        #region Actualización automática
+
+        private async Task CheckForUpdatesAsync()
+        {
+            try
+            {
+                var info = await UpdateChecker.CheckGitHub();
+
+                if (UpdateChecker.IsNewer(info))
+                {
+                    string currentVersion = UpdateChecker.GetLocalVersion().ToString(3);
+                    string newVersion = info.Version.ToString(3);
+                    string notes = string.IsNullOrWhiteSpace(info.ReleaseNotes)
+                                            ? "(sin notas de versión)"
+                                            : info.ReleaseNotes;
+
+                    var result = MessageBox.Show(
+                        $"Nueva versión disponible: {newVersion}\n" +
+                        $"Versión actual: {currentVersion}\n\n" +
+                        $"Novedades:\n{notes}\n\n" +
+                        "¿Deseas actualizar ahora?",
+                        "Actualización disponible",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Information
+                    );
+
+                    if (result == DialogResult.Yes)
+                        await DownloadAndUpdate(info.DownloadUrl);
+                }
+            }
+            catch
+            {
+                // Sin internet o falla la API → la app continúa normal
+            }
+        }
+
+        private async Task DownloadAndUpdate(string downloadUrl)
+        {
+            string tempZip = Path.Combine(Path.GetTempPath(), "vmsOpenAcars_update.zip");
+            string tempFolder = Path.Combine(Path.GetTempPath(), "vmsOpenAcars_update");
+            string appFolder = AppDomain.CurrentDomain.BaseDirectory;
+
+            var progressForm = new ProgressForm();
+            progressForm.Show();
+
+            try
+            {
+                // 1. Descargar ZIP
+                using (var client = new HttpClient())
+                {
+                    client.DefaultRequestHeaders.Add("User-Agent", "vmsOpenAcars-Updater");
+
+                    var response = await client.GetAsync(downloadUrl,
+                                       HttpCompletionOption.ResponseHeadersRead);
+
+                    if (!response.IsSuccessStatusCode)
+                        throw new Exception($"Error al descargar: {response.StatusCode}");
+
+                    long? totalBytes = response.Content.Headers.ContentLength;
+                    long downloaded = 0;
+
+                    using (var fs = new FileStream(tempZip, FileMode.Create))
+                    using (var stream = await response.Content.ReadAsStreamAsync())
+                    {
+                        byte[] buffer = new byte[8192];
+                        int read;
+                        while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        {
+                            await fs.WriteAsync(buffer, 0, read);
+                            downloaded += read;
+                            if (totalBytes.HasValue)
+                                progressForm.SetProgress(
+                                    (int)(downloaded * 100 / totalBytes.Value));
+                        }
+                    }
+                }
+
+                progressForm.Close();
+
+                // 2. Extraer ZIP en carpeta temporal
+                if (Directory.Exists(tempFolder))
+                    Directory.Delete(tempFolder, true);
+                ZipFile.ExtractToDirectory(tempZip, tempFolder);
+
+                // 3. Copiar Updater.exe a la carpeta temporal
+                string updaterSource = Path.Combine(appFolder, "Updater.exe");
+                string updaterDest = Path.Combine(tempFolder, "Updater.exe");
+                File.Copy(updaterSource, updaterDest, overwrite: true);
+
+                // 4. Lanzar Updater y cerrar la app
+                string args = string.Format("\"{0}\" \"{1}\" \"{2}\"",
+                    tempFolder.TrimEnd('\\'),
+                    appFolder.TrimEnd('\\'),
+                    Application.ExecutablePath);
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = updaterDest,
+                    Arguments = args,
+                    UseShellExecute = true,   // ← clave: abre en su propia ventana
+                    CreateNoWindow = false,  // ← fuerza ventana visible
+                    WindowStyle = ProcessWindowStyle.Normal
+                };
+
+                Process.Start(psi);
+
+                Application.Exit();
+            }
+            catch (Exception ex)
+            {
+                progressForm.Close();
+                MessageBox.Show(
+                    $"Error durante la actualización:\n{ex.Message}\n\n" +
+                    "Puedes actualizar manualmente desde:\n" +
+                    "https://github.com/fhprietor/vmsOpenAcars/releases/latest",
+                    "Error de actualización",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning
+                );
+            }
+        }
+
+        #endregion
+
     }
+
+
 }

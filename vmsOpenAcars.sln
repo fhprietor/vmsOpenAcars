@@ -5,6 +5,8 @@ VisualStudioVersion = 15.0.28307.136
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "vmsOpenAcars", "vmsOpenAcars\vmsOpenAcars.csproj", "{736C6469-9933-4021-84C0-DBB054DC8CB8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Updater", "Updater\Updater.csproj", "{18FC14F5-E803-4762-BE3D-F317A4503767}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{736C6469-9933-4021-84C0-DBB054DC8CB8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{736C6469-9933-4021-84C0-DBB054DC8CB8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{736C6469-9933-4021-84C0-DBB054DC8CB8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{18FC14F5-E803-4762-BE3D-F317A4503767}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{18FC14F5-E803-4762-BE3D-F317A4503767}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{18FC14F5-E803-4762-BE3D-F317A4503767}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{18FC14F5-E803-4762-BE3D-F317A4503767}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
