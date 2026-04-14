@@ -93,7 +93,7 @@ namespace vmsOpenAcars.Services
 
                 var logRecord = new AcarsPosition
                 {
-                    type = 1,                                    // LOG
+                    type = 2,                                    // LOG
                     status = "SCH",                              // SCHEDULED
                     log = message,                               // El texto del mensaje
                     lat = lat,                                   // Latitud actual

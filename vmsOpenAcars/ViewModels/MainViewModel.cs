@@ -464,14 +464,6 @@ namespace vmsOpenAcars.ViewModels
         {
             string status = engaged ? "SET" : "RELEASED";
             OnLog?.Invoke($"🅿️ Parking Brake: {status}", Theme.MainText);
-
-            // Si se suelta el parking brake y hay un vuelo activo en boarding, registrar block off
-            if (!engaged && _flightManager.CurrentPhase == FlightPhase.Boarding &&
-                !_flightManager.IsBlockOffRecorded && _flightManager.IsTimerStarted)
-            {
-                OnLog?.Invoke($"🛫 Block Off (parking brake released)", Theme.MainText);
-                Task.Run(async () => await _flightManager.RecordBlockOff());
-            }
         }
 
         private void OnEnginesChanged(bool running)
