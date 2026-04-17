@@ -304,17 +304,6 @@ namespace vmsOpenAcars.Services
             }
         }
 
-        public void UpdateFlightInfo(string info)
-        {
-            if (_form._lblFlightNo.InvokeRequired)
-            {
-                _form._lblFlightNo.Invoke(new Action(() => SetFlightInfo(info)));
-            }
-            else
-            {
-                SetFlightInfo(info);
-            }
-        }
 
         private void SetFlightInfo(string info)
         {
@@ -370,6 +359,20 @@ namespace vmsOpenAcars.Services
             else
             {
                 _form.lblCurrentAirport.Text = $"APT: {airport}";
+            }
+        }
+
+        public void UpdateFlightInfo(string unused = null)
+        {
+            if (_form == null || _form.IsDisposed) return;
+
+            if (_form.InvokeRequired)
+            {
+                _form.Invoke(new Action(() => _form.UpdateFlightInfoPanel()));
+            }
+            else
+            {
+                _form.UpdateFlightInfoPanel();
             }
         }
     }

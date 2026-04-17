@@ -58,7 +58,7 @@ namespace vmsOpenAcars.UI.Forms
         public Label lblPos;
         public Label lblComm;
         public Label lblUplink;
-        public Label lblProgress;
+        public Label _lblProgress;
         public Label lblValidationStatus;
         public Label lblCurrentAirport;
         public Label lblSimName;
@@ -74,6 +74,51 @@ namespace vmsOpenAcars.UI.Forms
         private NotifyIcon _notifyIcon;
         private bool _isFlightActive = false;
 
+        // Controles del Flight Information Panel - PROGRESO
+        private Label _lblRestante;
+        private Label _lblEta;
+        private Label _lblTiempoAire;
+
+        // AERODINÁMICA
+        private Label _lblIas;
+        private Label _lblGs;
+        private Label _lblVs;
+        private Label _lblMach;
+
+        // FUEL
+        private Label _lblFuelInit;
+        private Label _lblFuelCurrent;
+        private Label _lblFuelUsed;
+        private Label _lblFuelFlow;
+
+        // ALTITUD
+        private Label _lblAltitudeVal;
+        private Label _lblCruiseVal;
+        private Label _lblAglVal;
+        private Label _lblQnhVal;
+
+        // CLIMA
+        private Label _lblWind;
+        private Label _lblOat;
+        private Label _lblTat;
+        private Label _lblTr;
+
+        // SISTEMAS
+        private Label _lblGear;
+        private Label _lblFlaps;
+        private Label _lblSpoilers;
+        private Label _lblAutobrake;
+
+        // LUCES
+        private Label _lblNavLight;
+        private Label _lblBeaconLight;
+        private Label _lblLandingLight;
+        private Label _lblTaxiLight;
+        private Label _lblStrobeLight;
+
+        // MOTORES
+        private Controls.EngineMonitorPanel _engineMonitorPanel;
+
 
         // ========== VIEWMODEL Y SERVICIOS ==========
         private MainViewModel _viewModel;
@@ -81,6 +126,11 @@ namespace vmsOpenAcars.UI.Forms
 
         public MainForm()
         {
+            this.SetStyle(ControlStyles.AllPaintingInWmPaint |
+                          ControlStyles.UserPaint |
+                          ControlStyles.DoubleBuffer |
+                          ControlStyles.ResizeRedraw, true);
+            this.UpdateStyles();
             EnsureAllConfigKeys();
             InitializeForm();
             InitializeLayout();
@@ -164,7 +214,7 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel.OnAltitudeChanged += _uiService.UpdateAltitude;
             _viewModel.OnSpeedChanged += _uiService.UpdateSpeed;
             _viewModel.OnValidationStatusChanged += _uiService.UpdateValidationUI;
-            _viewModel.OnFlightInfoChanged += _uiService.UpdateFlightInfo;
+            _viewModel.OnFlightInfoChanged += () => _uiService.UpdateFlightInfo();
             _viewModel.OnSimulatorNameChanged += _uiService.UpdateSimulatorName;
             _viewModel.OnAcarsStatusChanged += _uiService.UpdateAcarsStatus;
             _viewModel.OnAirportChanged += _uiService.UpdateCurrentAirport;
@@ -336,11 +386,11 @@ namespace vmsOpenAcars.UI.Forms
             };
 
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));  // Header
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 20));   // Message (datos)
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 60));   // Message (datos)
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));  // FMA
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 40));   // Incoming Msg
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 40));   // Status
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));  // Buttons
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 20));   // Incoming Msg
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 35));   // Status
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));  // Buttons
 
             this.Controls.Add(mainLayout);
         }
@@ -527,63 +577,122 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeMessageSection()
         {
-            // ===== FILA 1: FLIGHT INFORMATION =====
+            // ===== PANEL FLIGHT INFORMATION =====
             pnlMessageInfo = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(15, 15, 25),
-                Padding = new Padding(10),
+                Padding = new Padding(3),
                 BorderStyle = BorderStyle.FixedSingle
             };
 
-            var tlp = new TableLayoutPanel
+            var lblTitle = new Label
+            {
+                Text = "FLIGHT INFORMATION",
+                Font = new Font("Consolas", 10, FontStyle.Bold),
+                ForeColor = Color.Yellow,
+                Dock = DockStyle.Top,
+                Height = 20,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            pnlMessageInfo.Controls.Add(lblTitle);
+
+            // Layout principal de 2 columnas
+            var mainGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 4,
-                RowCount = 2,
+                ColumnCount = 2,
+                RowCount = 1,
+                Padding = new Padding(2),
                 BackColor = Color.Transparent
             };
 
-            for (int i = 0; i < 4; i++)
-                tlp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+            mainGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));  // Columna izquierda (datos)
+            mainGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));  // Columna derecha (motores)
 
-            tlp.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            tlp.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            _lblFlightNo = CreateInfoLabel("FLT NO: ----", FontStyle.Bold);
-            _lblDepArr = CreateInfoLabel("DEP/ARR: ----/----", FontStyle.Bold);
-            _lblAlternate = CreateInfoLabel("ALTN: ----", FontStyle.Bold);
-            _lblRoute = CreateInfoLabel("ROUTE: ----", FontStyle.Bold);
-            _lblAircraft = CreateInfoLabel("ACFT: ----", FontStyle.Bold);
-            _lblFuel = CreateInfoLabel("FUEL: ----   ", FontStyle.Bold);
-            _lblType = CreateInfoLabel("TYPE: ----", FontStyle.Bold);
-            _lblRegistration = CreateInfoLabel("REG: ----", FontStyle.Bold);
-
-            tlp.Controls.Add(_lblFlightNo, 0, 0);
-            tlp.Controls.Add(_lblDepArr, 1, 0);
-            tlp.Controls.Add(_lblAlternate, 2, 0);
-            tlp.Controls.Add(_lblRoute, 3, 0);
-            tlp.Controls.Add(_lblAircraft, 0, 1);
-            tlp.Controls.Add(_lblFuel, 1, 1);
-            tlp.Controls.Add(_lblType, 2, 1);
-            tlp.Controls.Add(_lblRegistration, 3, 1);
-
-            pnlMessageInfo.Controls.Add(tlp);
-
-            var lblFlightInfoTitle = new Label
+            // ===== COLUMNA IZQUIERDA: Grid interno de 2 filas =====
+            var leftGrid = new TableLayoutPanel
             {
-                Text = "FLIGHT INFORMATION",
-                Font = new Font("Consolas", 14, FontStyle.Bold),
-                ForeColor = Color.Yellow,
-                Dock = DockStyle.Top,
-                Height = 30,
-                TextAlign = ContentAlignment.MiddleLeft
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                Padding = new Padding(20),
+                BackColor = Color.Transparent
             };
-            pnlMessageInfo.Controls.Add(lblFlightInfoTitle);
 
+            leftGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 40));  // Fila 1: Progreso/Aero/Fuel
+            leftGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 60));  // Fila 2: Altitud/Sistemas+Luces
+
+            // ===== FILA 1 IZQUIERDA: Progreso, Aerodinámica, Fuel (3 columnas horizontales) =====
+            var topGrid = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 3,
+                RowCount = 1,
+                Padding = new Padding(1),
+                BackColor = Color.Transparent
+            };
+            topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+            topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+            topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+
+            // PROGRESO
+            var progressPanel = CreateCompactInfoCard("📊 PROGRESO", out _lblProgress, out _lblRestante, out _lblTiempoAire);
+            _lblProgress.Text = "DIST: 0/0 NM";
+            _lblRestante.Text = "REST: 0 NM / ETA: --:--";
+            _lblTiempoAire.Text = "⏱️ T/A: 00:00:00";
+            topGrid.Controls.Add(progressPanel, 0, 0);
+
+            // AERODINÁMICA
+            var aeroPanel = CreateCompactInfoCard("✈️ AERODINÁMICA", out _lblIas, out _lblGs, out _lblVs);
+            _lblIas.Text = "IAS: --- kt";
+            _lblGs.Text = "GS: --- kt / MACH: ----";
+            _lblVs.Text = "VS: ---- fpm";
+            topGrid.Controls.Add(aeroPanel, 1, 0);
+
+            // FUEL
+            var fuelPanel = CreateCompactInfoCard("⛽ FUEL", out _lblFuelInit, out _lblFuelCurrent, out _lblFuelUsed);
+            _lblFuelInit.Text = "INI: 0 kg";
+            _lblFuelCurrent.Text = "ACT: 0 kg";
+            _lblFuelUsed.Text = "USO: 0 kg / FLOW: 0 kg/h";
+            topGrid.Controls.Add(fuelPanel, 2, 0);
+
+            leftGrid.Controls.Add(topGrid, 0, 0);
+
+            // ===== FILA 2 IZQUIERDA: Altitud, Sistemas+Luces (2 columnas horizontales) =====
+            var bottomGrid = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                Padding = new Padding(1),
+                BackColor = Color.Transparent
+            };
+            bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
+            bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
+
+            // ALTITUD
+            var altPanel = CreateCompactInfoCard("📈 ALTITUD", out _lblAltitudeVal, out _lblAglVal, out _lblCruiseVal);
+            _lblAltitudeVal.Text = "ALT: 0 ft";
+            _lblAglVal.Text = "AGL: 0 ft";
+            _lblCruiseVal.Text = "CRZ: FL0 / VS: 0 fpm";
+            bottomGrid.Controls.Add(altPanel, 0, 0);
+
+            // SISTEMAS + LUCES
+            var systemsPanel = CreateSystemsAndLightsPanelCompact();
+            bottomGrid.Controls.Add(systemsPanel, 1, 0);
+
+            leftGrid.Controls.Add(bottomGrid, 0, 1);
+
+            // ===== COLUMNA DERECHA: MOTORES =====
+            var enginePanel = CreateEnginePanelCompact();
+            mainGrid.Controls.Add(leftGrid, 0, 0);
+            mainGrid.Controls.Add(enginePanel, 1, 0);
+
+            pnlMessageInfo.Controls.Add(mainGrid);
             mainLayout.Controls.Add(pnlMessageInfo, 0, 1);
 
-            // ===== FILA 2: INCOMING MSG =====
+            // ===== PANEL DE MENSAJES ENTRANTES (INCOMING MSG) =====
             pnlIncoming = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -610,16 +719,254 @@ namespace vmsOpenAcars.UI.Forms
             var lblIncomingTitle = new Label
             {
                 Text = "INCOMING MSG",
-                Font = new Font("Consolas", 14, FontStyle.Bold),
+                Font = new Font("Consolas", 12, FontStyle.Bold),
                 ForeColor = Color.Yellow,
                 Dock = DockStyle.Top,
-                Height = 30,
+                Height = 25,
                 TextAlign = ContentAlignment.MiddleLeft
             };
             pnlIncoming.Controls.Add(lblIncomingTitle);
 
             mainLayout.Controls.Add(pnlIncoming, 0, 2);
         }
+
+        private Panel CreateCompactInfoCard(string title, out Label label1, out Label label2, out Label label3)
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(20, 25, 35),
+                Padding = new Padding(3),
+                Margin = new Padding(1)
+            };
+
+            var lblTitle = new Label
+            {
+                Text = title,
+                Font = new Font("Consolas", 8, FontStyle.Bold),
+                ForeColor = Color.Gold,
+                Dock = DockStyle.Top,
+                Height = 16,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            panel.Controls.Add(lblTitle);
+
+            int y = 18;
+            int lineHeight = 18;
+
+            label1 = new Label { Text = "", Font = new Font("Consolas", 8), ForeColor = Color.LightGreen, Location = new Point(3, y), AutoSize = true };
+            label2 = new Label { Text = "", Font = new Font("Consolas", 8), ForeColor = Color.LightGreen, Location = new Point(3, y + lineHeight), AutoSize = true };
+            label3 = new Label { Text = "", Font = new Font("Consolas", 8), ForeColor = Color.LightGreen, Location = new Point(3, y + lineHeight * 2), AutoSize = true };
+
+            panel.Controls.AddRange(new Control[] { label1, label2, label3 });
+            return panel;
+        }
+        private Panel CreateSystemsAndLightsPanelCompact()
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(20, 25, 35),
+                Padding = new Padding(3),
+                Margin = new Padding(1)
+            };
+
+            var lblTitle = new Label
+            {
+                Text = "🛠️ SISTEMAS & 💡 LUCES",
+                Font = new Font("Consolas", 8, FontStyle.Bold),
+                ForeColor = Color.Gold,
+                Dock = DockStyle.Top,
+                Height = 16,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            panel.Controls.Add(lblTitle);
+
+            // Layout horizontal de 2 columnas
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                BackColor = Color.Transparent,
+                Padding = new Padding(2)
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+
+            // Columna izquierda: Controles de vuelo
+            var flightPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+            _lblGear = new Label { Text = "GEAR: ---", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(3, 18), AutoSize = true };
+            _lblFlaps = new Label { Text = "FLAPS: --%", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(3, 36), AutoSize = true };
+            _lblSpoilers = new Label { Text = "SPOIL: ---", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(3, 54), AutoSize = true };
+            _lblAutobrake = new Label { Text = "A/BRK: ---", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(3, 72), AutoSize = true };
+            flightPanel.Controls.AddRange(new Control[] { _lblGear, _lblFlaps, _lblSpoilers, _lblAutobrake });
+
+            // Columna derecha: Luces
+            var lightsPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+            _lblNavLight = new Label { Text = "🟡 NAV: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 18), AutoSize = true };
+            _lblBeaconLight = new Label { Text = "🔴 BCN: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 36), AutoSize = true };
+            _lblLandingLight = new Label { Text = "⚪ LAND: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 54), AutoSize = true };
+            _lblTaxiLight = new Label { Text = "🔵 TAXI: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 72), AutoSize = true };
+            _lblStrobeLight = new Label { Text = "🟢 STROBE: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 90), AutoSize = true };
+            lightsPanel.Controls.AddRange(new Control[] { _lblNavLight, _lblBeaconLight, _lblLandingLight, _lblTaxiLight, _lblStrobeLight });
+
+            layout.Controls.Add(flightPanel, 0, 0);
+            layout.Controls.Add(lightsPanel, 1, 0);
+            panel.Controls.Add(layout);
+
+            return panel;
+        }
+        private Panel CreateEnginePanelCompact()
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(20, 25, 35),
+                Padding = new Padding(0),
+                Margin = new Padding(0)
+            };
+            // Habilitar DoubleBuffering
+            panel.GetType().GetProperty("DoubleBuffered",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(pnlMessageInfo, true, null);
+
+            // Usar TableLayoutPanel para controlar el layout vertical
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0),
+                Margin = new Padding(0)
+            };
+
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 15));  // Espaciador superior
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));  // Título
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // Motores
+
+            // Espaciador
+            var topSpacer = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.Transparent
+            };
+            layout.Controls.Add(topSpacer, 0, 0);
+
+            // Título
+            var lblTitle = new Label
+            {
+                Text = "🚀 MOTORES",
+                Font = new Font("Consolas", 8, FontStyle.Bold),
+                ForeColor = Color.Gold,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(3, 0, 0, 0)
+            };
+            layout.Controls.Add(lblTitle, 0, 1);
+
+            // Panel de motores
+            _engineMonitorPanel = new Controls.EngineMonitorPanel
+            {
+                Dock = DockStyle.Fill,
+                EngineCount = 2,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            layout.Controls.Add(_engineMonitorPanel, 0, 2);
+
+            panel.Controls.Add(layout);
+            return panel;
+        }
+        private Panel CreateInfoCard(string title, out Label label1, out Label label2, out Label label3, out Label label4)
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(20, 25, 35),
+                Padding = new Padding(5),
+                Margin = new Padding(2)
+            };
+
+            var lblTitle = new Label
+            {
+                Text = title,
+                Font = new Font("Consolas", 9, FontStyle.Bold),
+                ForeColor = Color.Gold,
+                Dock = DockStyle.Top,
+                Height = 18,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            panel.Controls.Add(lblTitle);
+
+            int y = 20;
+            int lineHeight = 20;
+
+            label1 = new Label { Text = "", Font = new Font("Consolas", 9), ForeColor = Color.LightGreen, Location = new Point(5, y), AutoSize = true };
+            label2 = new Label { Text = "", Font = new Font("Consolas", 9), ForeColor = Color.LightGreen, Location = new Point(5, y + lineHeight), AutoSize = true };
+            label3 = new Label { Text = "", Font = new Font("Consolas", 9), ForeColor = Color.LightGreen, Location = new Point(5, y + lineHeight * 2), AutoSize = true };
+            label4 = new Label { Text = "", Font = new Font("Consolas", 9), ForeColor = Color.LightGreen, Location = new Point(5, y + lineHeight * 3), AutoSize = true };
+
+            panel.Controls.AddRange(new Control[] { label1, label2, label3, label4 });
+            return panel;
+        }
+        private Panel CreateSystemsAndLightsPanel()
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(20, 25, 35),
+                Padding = new Padding(5),
+                Margin = new Padding(2)
+            };
+
+            var lblTitle = new Label
+            {
+                Text = "🛠️ SISTEMAS & 💡 LUCES",
+                Font = new Font("Consolas", 9, FontStyle.Bold),
+                ForeColor = Color.Gold,
+                Dock = DockStyle.Top,
+                Height = 18,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            panel.Controls.Add(lblTitle);
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                BackColor = Color.Transparent,
+                Padding = new Padding(2)
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
+
+            // Columna izquierda: Controles de vuelo
+            var flightPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+            _lblGear = new Label { Text = "GEAR: ---", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(5, 20), AutoSize = true };
+            _lblFlaps = new Label { Text = "FLAPS: --%", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(5, 42), AutoSize = true };
+            _lblSpoilers = new Label { Text = "SPOIL: ---", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(5, 64), AutoSize = true };
+            _lblAutobrake = new Label { Text = "A/BRK: ---", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(5, 86), AutoSize = true };
+            flightPanel.Controls.AddRange(new Control[] { _lblGear, _lblFlaps, _lblSpoilers, _lblAutobrake });
+
+            // Columna derecha: Luces
+            var lightsPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+            _lblNavLight = new Label { Text = "🟡 NAV: OFF", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(5, 20), AutoSize = true };
+            _lblBeaconLight = new Label { Text = "🔴 BCN: OFF", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(5, 42), AutoSize = true };
+            _lblLandingLight = new Label { Text = "⚪ LAND: OFF", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(5, 64), AutoSize = true };
+            _lblTaxiLight = new Label { Text = "🔵 TAXI: OFF", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(5, 86), AutoSize = true };
+            _lblStrobeLight = new Label { Text = "🟢 STROBE: OFF", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(5, 108), AutoSize = true };
+            lightsPanel.Controls.AddRange(new Control[] { _lblNavLight, _lblBeaconLight, _lblLandingLight, _lblTaxiLight, _lblStrobeLight });
+
+            layout.Controls.Add(flightPanel, 0, 0);
+            layout.Controls.Add(lightsPanel, 1, 0);
+            panel.Controls.Add(layout);
+
+            return panel;
+        }
+
 
         private void InitializeFmaPanel()
         {
@@ -657,6 +1004,8 @@ namespace vmsOpenAcars.UI.Forms
             layout.Controls.Add(lblRoute, 4, 0);
             mainLayout.Controls.Add(pnlFma, 0, 2);
         }
+
+
 
         private Label CreateFmaLabel(string title, string value)
         {
@@ -710,7 +1059,7 @@ namespace vmsOpenAcars.UI.Forms
                 AutoSize = true
             };
 
-            lblProgress = new Label
+            _lblProgress = new Label
             {
                 Text = "COMM DATA RETRIEVAL IN PROGRESS",
                 Font = new Font("Consolas", 11, FontStyle.Italic),
@@ -739,7 +1088,7 @@ namespace vmsOpenAcars.UI.Forms
 
             pnlStatus.Controls.AddRange(new Control[] {
                 lblStatusTitle, lblAcarsStatus, lblEtd, lblPos, lblComm,
-                lblUplink, lblValidationStatus, lblProgress, lblCurrentAirport, lblSimName
+                lblUplink, lblValidationStatus, _lblProgress, lblCurrentAirport, lblSimName
             });
 
             mainLayout.Controls.Add(pnlStatus, 0, 4);
@@ -849,36 +1198,208 @@ namespace vmsOpenAcars.UI.Forms
 
         #endregion
 
-        /// <summary>
-        /// Actualiza los labels del panel FLIGHT INFORMATION con los datos del plan activo
-        /// </summary>
         public void UpdateFlightInfoPanel()
         {
-            if (_viewModel?.FlightManager?.ActivePlan == null)
+            try
             {
-                // Si no hay plan activo, mostrar valores por defecto
-                _lblFlightNo.Text = "FLT NO: ----";
-                _lblDepArr.Text = "DEP/ARR: ----/----";
-                _lblAlternate.Text = "ALTN: ----";
-                _lblRoute.Text = "ROUTE: ----";
-                _lblAircraft.Text = "ACFT: ----";
-                _lblFuel.Text = "FUEL: ---- kg";
-                _lblType.Text = "TYPE: ----";
-                _lblRegistration.Text = "REG: ----";
-                return;
+                if (_viewModel?.FlightManager == null) return;
+
+                var fm = _viewModel.FlightManager;
+                var plan = fm.ActivePlan;
+
+                // ===== CABECERA - Verificar que los controles existan =====
+                if (_lblFlightNo != null)
+                    _lblFlightNo.Text = (plan != null) ? $"FLT: {plan.Airline}{plan.FlightNumber}" : "FLT: ----";
+
+                if (_lblDepArr != null)
+                    _lblDepArr.Text = (plan != null) ? $"{plan.Origin} → {plan.Destination}" : "--- → ---";
+
+                if (_lblAircraft != null)
+                    _lblAircraft.Text = (plan != null) ? (plan.AircraftIcao ?? "----") : (fm.HasSimulatorData ? "CONNECTED" : "DISCONNECTED");
+
+                if (_lblCruiseVal != null)
+                    _lblCruiseVal.Text = (plan != null) ? $"CRZ: FL{plan.CruiseAltitude / 100}" : "CRZ: ----";
+
+                // ===== FASE =====
+                if (lblPhase != null)
+                {
+                    if (!string.IsNullOrEmpty(fm.ActivePirepId))
+                    {
+                        string phaseIcon = GetPhaseIcon(fm.CurrentPhase);
+                        lblPhase.Text = $"{phaseIcon} {fm.CurrentPhase}";
+                        lblPhase.ForeColor = GetPhaseColor(fm.CurrentPhase);
+                    }
+                    else
+                    {
+                        if (fm.HasSimulatorData)
+                        {
+                            lblPhase.Text = "🟢 SIM READY";
+                            lblPhase.ForeColor = Color.Lime;
+                        }
+                        else
+                        {
+                            lblPhase.Text = "🔴 NO SIM";
+                            lblPhase.ForeColor = Color.Red;
+                        }
+                    }
+                }
+
+                // ===== PROGRESO =====
+                if (!string.IsNullOrEmpty(fm.ActivePirepId) && plan != null)
+                {
+                    double totalDistanceNm = plan.Distance;
+                    double flownDistanceNm = fm.TotalDistanceKm * 0.539957;
+                    double remainingNm = Math.Max(0, totalDistanceNm - flownDistanceNm);
+
+                    if (_lblProgress != null) _lblProgress.Text = $"DIST: {flownDistanceNm:F0}/{totalDistanceNm:F0} NM";
+                    if (_lblRestante != null) _lblRestante.Text = $"REST: {remainingNm:F0} NM / ETA: {GetEtaString(fm, remainingNm)}";
+                    if (_lblTiempoAire != null) _lblTiempoAire.Text = $"⏱️ T/A: {fm.CurrentTimerDisplay}";
+                }
+                else
+                {
+                    if (_lblProgress != null) _lblProgress.Text = "DIST: --/-- NM";
+                    if (_lblRestante != null) _lblRestante.Text = "REST: -- NM / ETA: --:--";
+                    if (_lblTiempoAire != null) _lblTiempoAire.Text = "⏱️ T/A: 00:00:00";
+                }
+
+                // ===== AERODINÁMICA =====
+                if (_lblIas != null) _lblIas.Text = $"IAS: {fm.CurrentIndicatedAirspeed} kt";
+                if (_lblGs != null) _lblGs.Text = $"GS: {fm.CurrentGroundSpeed} kt / MACH: {GetMachString(fm)}";
+
+                string vsSign = fm.CurrentVerticalSpeed >= 0 ? "+" : "";
+                if (_lblVs != null)
+                {
+                    _lblVs.Text = $"VS: {vsSign}{fm.CurrentVerticalSpeed} fpm";
+                    if (fm.CurrentVerticalSpeed > 500)
+                        _lblVs.ForeColor = Color.Lime;
+                    else if (fm.CurrentVerticalSpeed < -500)
+                        _lblVs.ForeColor = Color.Orange;
+                    else
+                        _lblVs.ForeColor = Color.LightGreen;
+                }
+
+                // ===== FUEL =====
+                double fuelUsed = Math.Max(0, fm.InitialFuel - fm.CurrentFuel);
+                if (_lblFuelInit != null) _lblFuelInit.Text = $"INI: {fm.InitialFuel:F0} kg";
+                if (_lblFuelCurrent != null)
+                {
+                    _lblFuelCurrent.Text = $"ACT: {fm.CurrentFuel:F0} kg";
+                    if (fm.CurrentFuel < 500)
+                        _lblFuelCurrent.ForeColor = Color.Red;
+                    else if (fm.CurrentFuel < 1000)
+                        _lblFuelCurrent.ForeColor = Color.Orange;
+                    else
+                        _lblFuelCurrent.ForeColor = Color.LightGreen;
+                }
+                if (_lblFuelUsed != null) _lblFuelUsed.Text = $"USO: {fuelUsed:F0} kg / FLOW: {fm.CurrentFuelFlow:F0} kg/h";
+
+                // ===== ALTITUD =====
+                if (_lblAltitudeVal != null) _lblAltitudeVal.Text = $"ALT: {fm.CurrentAltitude} ft";
+                if (_lblAglVal != null) _lblAglVal.Text = $"AGL: {fm.RadarAltitude:F0} ft";
+
+                // ===== SISTEMAS =====
+                if (_lblGear != null)
+                {
+                    _lblGear.Text = fm.IsGearDown ? "GEAR: DOWN" : "GEAR: UP";
+                    _lblGear.ForeColor = fm.IsGearDown ? Color.Lime : Color.Orange;
+                }
+                if (_lblFlaps != null)
+                {
+                    _lblFlaps.Text = $"FLAPS: {fm.FlapsLabel}";
+                    _lblFlaps.ForeColor = (fm.FlapsLabel != "UP" && fm.FlapsLabel != "0") ? Color.Yellow : Color.LightGreen;
+                }
+                if (_lblSpoilers != null)
+                {
+                    _lblSpoilers.Text = fm.AreSpoilersDeployed ? "SPOIL: DEP" : "SPOIL: RET";
+                    _lblSpoilers.ForeColor = fm.AreSpoilersDeployed ? Color.Orange : Color.LightGreen;
+                }
+                if (_lblAutobrake != null) _lblAutobrake.Text = $"A/BRK: {fm.AutobrakeSetting}";
+
+                // ===== LUCES =====
+                if (_lblNavLight != null)
+                {
+                    _lblNavLight.Text = fm.IsNavLightOn ? "🟡 NAV: ON" : "🟡 NAV: OFF";
+                    _lblNavLight.ForeColor = fm.IsNavLightOn ? Color.Gold : Color.Gray;
+                }
+                if (_lblBeaconLight != null)
+                {
+                    _lblBeaconLight.Text = fm.IsBeaconLightOn ? "🔴 BCN: ON" : "🔴 BCN: OFF";
+                    _lblBeaconLight.ForeColor = fm.IsBeaconLightOn ? Color.Red : Color.Gray;
+                }
+                if (_lblLandingLight != null)
+                {
+                    _lblLandingLight.Text = fm.IsLandingLightOn ? "⚪ LAND: ON" : "⚪ LAND: OFF";
+                    _lblLandingLight.ForeColor = fm.IsLandingLightOn ? Color.White : Color.Gray;
+                }
+                if (_lblTaxiLight != null)
+                {
+                    _lblTaxiLight.Text = fm.IsTaxiLightOn ? "🔵 TAXI: ON" : "🔵 TAXI: OFF";
+                    _lblTaxiLight.ForeColor = fm.IsTaxiLightOn ? Color.Cyan : Color.Gray;
+                }
+                if (_lblStrobeLight != null)
+                {
+                    _lblStrobeLight.Text = fm.IsStrobeLightOn ? "🟢 STROBE: ON" : "🟢 STROBE: OFF";
+                    _lblStrobeLight.ForeColor = fm.IsStrobeLightOn ? Color.Lime : Color.Gray;
+                }
+
+                // ===== MOTORES =====
+                if (_engineMonitorPanel != null)
+                {
+                    _engineMonitorPanel.SetEngineParameters(0, fm.N1_1, fm.N2_1, fm.EGT_1, fm.FuelFlow_1);
+                    _engineMonitorPanel.SetEngineParameters(1, fm.N1_2, fm.N2_2, fm.EGT_2, fm.FuelFlow_2);
+                }
             }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error en UpdateFlightInfoPanel: {ex.Message}");
+            }
+        }
 
-            var plan = _viewModel.FlightManager.ActivePlan;
+        // Métodos auxiliares
+        private string GetPhaseIcon(FlightPhase phase)
+        {
+            switch (phase)
+            {
+                case FlightPhase.Boarding: return "🚪";
+                case FlightPhase.Pushback: return "🔄";
+                case FlightPhase.TaxiOut: return "🛻";
+                case FlightPhase.TakeoffRoll: return "🏁";
+                case FlightPhase.Takeoff: return "🛫";
+                case FlightPhase.Climb: return "⬆️";
+                case FlightPhase.Enroute: return "✈️";
+                case FlightPhase.Descent: return "⬇️";
+                case FlightPhase.Approach: return "🛬";
+                case FlightPhase.AfterLanding: return "🛬";
+                case FlightPhase.TaxiIn: return "🛻";
+                case FlightPhase.OnBlock: return "🅿️";
+                default: return "●●●";
+            }
+        }
 
-            // Actualizar los labels con los datos del plan
-            _lblFlightNo.Text = $"FLT NO: {plan.Airline}{plan.FlightNumber}";
-            _lblDepArr.Text = $"DEP/ARR: {plan.Origin}/{plan.Destination}";
-            _lblAlternate.Text = $"ALTN: {plan.Alternate ?? "N/A"}";
-            _lblRoute.Text = $"ROUTE: {plan.Route}";
-            _lblAircraft.Text = $"ACFT: {plan.AircraftIcao}";
-            _lblFuel.Text = $"FUEL: {plan.BlockFuel:F0} {plan.Units ?? "kg"}";
-            _lblType.Text = $"TYPE: {plan.Aircraft}";
-            _lblRegistration.Text = $"REG: {plan.Registration}";
+        private Color GetPhaseColor(FlightPhase phase)
+        {
+            if (phase == FlightPhase.Enroute) return Color.Lime;
+            if (phase == FlightPhase.Takeoff || phase == FlightPhase.Climb) return Color.Yellow;
+            if (phase == FlightPhase.Descent || phase == FlightPhase.Approach) return Color.Orange;
+            return Color.Cyan;
+        }
+
+        private string GetMachString(FlightManager fm)
+        {
+            if (fm.CurrentAltitude > 25000 && fm.CurrentIndicatedAirspeed > 0)
+                return $"{fm.CurrentIndicatedAirspeed / 661.5:F2}";
+            return "----";
+        }
+
+        private string GetEtaString(FlightManager fm, double remainingNm)
+        {
+            if (fm.CurrentGroundSpeed > 50 && remainingNm > 0)
+            {
+                double hoursRemaining = remainingNm / fm.CurrentGroundSpeed;
+                DateTime eta = DateTime.UtcNow.AddHours(hoursRemaining);
+                return $"{eta:HH:mm} UTC";
+            }
+            return "--:-- UTC";
         }
 
         #region Eventos de Botones
@@ -1151,6 +1672,8 @@ namespace vmsOpenAcars.UI.Forms
             config.Save(ConfigurationSaveMode.Modified);
             ConfigurationManager.RefreshSection("appSettings");
         }
+
+
 
         #region Actualización automática
 

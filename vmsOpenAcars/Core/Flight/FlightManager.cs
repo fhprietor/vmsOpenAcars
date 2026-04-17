@@ -103,6 +103,32 @@ namespace vmsOpenAcars.Core.Flight
         public bool IsTimerStarted => _isTimerStarted;
         public bool IsParkingBrakeSet => _isParkingBrakeSet;
         public bool AreEnginesOn => _areEnginesOn;
+
+        public bool HasSimulatorData { get; private set; }
+
+        // Sistemas y luces
+        public bool IsGearDown { get; private set; }
+        public double CurrentFlapsPosition { get; private set; }
+        public string FlapsLabel { get; private set; } = "UP";
+        public bool AreSpoilersDeployed { get; private set; }
+        public string AutobrakeSetting { get; private set; } = "RTO";
+
+        // Luces
+        public bool IsNavLightOn { get; private set; }
+        public bool IsBeaconLightOn { get; private set; }
+        public bool IsLandingLightOn { get; private set; }
+        public bool IsTaxiLightOn { get; private set; }
+        public bool IsStrobeLightOn { get; private set; }
+
+        // Parámetros de motor (Jet)
+        public float N1_1 { get; private set; }
+        public float N1_2 { get; private set; }
+        public float N2_1 { get; private set; }
+        public float N2_2 { get; private set; }
+        public float EGT_1 { get; private set; }
+        public float EGT_2 { get; private set; }
+        public float FuelFlow_1 { get; private set; }
+        public float FuelFlow_2 { get; private set; }
         #endregion
 
         #region Events
@@ -749,9 +775,18 @@ namespace vmsOpenAcars.Core.Flight
             double lat, double lon, double indicatedAirspeed = 0, double fuelFlow = 0, int transponder = 1200,
             bool autopilot = false, DateTime simTime = default, double radarAlt = 0, int order = 0,
             double pitch = 0, double bank = 0,
-            bool parkingBrakeSet = false, bool enginesOn = false)
+            bool parkingBrakeSet = false, bool enginesOn = false,
+            // NUEVOS PARÁMETROS - Sistemas
+            bool isGearDown = false, double flapsPosition = 0, bool spoilersDeployed = false, string autobrake = "RTO",
+            // NUEVOS PARÁMETROS - Luces
+            bool navLight = false, bool beaconLight = false, bool landingLight = false, bool taxiLight = false, bool strobeLight = false,
+            // NUEVOS PARÁMETROS - Motores (Jet)
+            float n1_1 = 0, float n1_2 = 0, float n2_1 = 0, float n2_2 = 0,
+            float egt_1 = 0, float egt_2 = 0, float fuelFlow_1 = 0, float fuelFlow_2 = 0, string flapsLabel = "UP")
         {
-            if (string.IsNullOrEmpty(ActivePirepId)) return;
+
+            HasSimulatorData = true;
+            // Datos básicos de vuelo
 
             CurrentAltitude = altitude;
             CurrentGroundSpeed = groundSpeed;
@@ -772,16 +807,45 @@ namespace vmsOpenAcars.Core.Flight
             _isParkingBrakeSet = parkingBrakeSet;
             _areEnginesOn = enginesOn;
 
-            if (_lastPosition.HasValue && _lastPositionTime.HasValue)
-            {
-                double distKm = CalculateDistanceKm(_lastPosition.Value.lat, _lastPosition.Value.lon, lat, lon);
-                if (distKm > 0 && distKm < 10) _totalDistanceKm += distKm;
-            }
-            _lastPosition = (lat, lon);
-            _lastPositionTime = DateTime.UtcNow;
-            if (!isOnGround && !_lastAirborneTime.HasValue) _lastAirborneTime = DateTime.UtcNow;
+            // Sistemas
+            IsGearDown = isGearDown;
+            CurrentFlapsPosition = flapsPosition;  // ← flapsPosition es double
+            FlapsLabel = flapsLabel;  // ← flapsLabel es string
+            AreSpoilersDeployed = spoilersDeployed;
+            AutobrakeSetting = autobrake;
 
-            UpdatePhase(altitude, groundSpeed, isOnGround, verticalSpeed);
+            // Luces
+            IsNavLightOn = navLight;
+            IsBeaconLightOn = beaconLight;
+            IsLandingLightOn = landingLight;
+            IsTaxiLightOn = taxiLight;
+            IsStrobeLightOn = strobeLight;
+
+            // Motores
+            N1_1 = n1_1;
+            N1_2 = n1_2;
+            N2_1 = n2_1;
+            N2_2 = n2_2;
+            EGT_1 = egt_1;
+            EGT_2 = egt_2;
+            FuelFlow_1 = fuelFlow_1;
+            FuelFlow_2 = fuelFlow_2;
+
+            // Cálculo de distancia (solo si hay vuelo activo)
+            if (!string.IsNullOrEmpty(ActivePirepId))
+            {
+                if (_lastPosition.HasValue && _lastPositionTime.HasValue)
+                {
+                    double distKm = CalculateDistanceKm(_lastPosition.Value.lat, _lastPosition.Value.lon, lat, lon);
+                    if (distKm > 0 && distKm < 10) _totalDistanceKm += distKm;
+                }
+
+                _lastPosition = (lat, lon);
+                _lastPositionTime = DateTime.UtcNow;
+                if (!isOnGround && !_lastAirborneTime.HasValue) _lastAirborneTime = DateTime.UtcNow;
+
+                UpdatePhase(altitude, groundSpeed, isOnGround, verticalSpeed);
+            }
         }
 
         public async Task<bool> AbortFlight()

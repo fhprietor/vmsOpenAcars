@@ -26,6 +26,33 @@ using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using FSUIPC;
 
+// =============================================================================
+// Enums y Decoder para Autobrake
+// =============================================================================
+
+public enum AutobrakeMode
+{
+    Unknown = -1,
+    Off = 0,
+    RTO = 1,   // Boeing
+    Low = 2,
+    Med = 3,
+    High = 4,  // Boeing 777/787
+    Max = 5    // Airbus / Boeing 737
+}
+
+public enum AircraftFamily
+{
+    Unknown,
+    Airbus,        // A318, A319, A320, A321, A330, A340, A350, A380
+    Boeing737,     // 737 NG, 737 MAX, iFly, PMDG
+    Boeing747,     // 747, 757, 767
+    Boeing777,     // 777, 787
+    Embraer,       // E170, E175, E190, E195
+    Cessna,        // C172, C182, C208
+    Piston         // Otros aviones pequeños
+}
+
 namespace vmsOpenAcars.Services
 {
     public class FsuipcService : IDisposable
@@ -71,6 +98,18 @@ namespace vmsOpenAcars.Services
         /// <summary>0x217C · FLOAT64 · reversor motor 2 (0.0–1.0)</summary>
         private readonly Offset<double> _eng2ReverserOffset = new Offset<double>(0x217C);
 
+        // ---- Motores (N2 y Fuel Flow específicos) ----
+        /// <summary>0x08A8 · INT16 · N2 motor 1 (0-16384 = 0-100%)</summary>
+        private readonly Offset<short> _eng1N2Offset = new Offset<short>(0x08A8);
+        /// <summary>0x0940 · INT16 · N2 motor 2 (0-16384 = 0-100%)</summary>
+        private readonly Offset<short> _eng2N2Offset = new Offset<short>(0x0940);
+
+        // ---- Fuel Flow específico por motor ----
+        /// <summary>0x0898 · INT32 · Fuel Flow motor 1 (lb/hr)</summary>
+        private readonly Offset<int> _eng1FuelFlowOffset = new Offset<int>(0x0898);
+        /// <summary>0x0930 · INT32 · Fuel Flow motor 2 (lb/hr)</summary>
+        private readonly Offset<int> _eng2FuelFlowOffset = new Offset<int>(0x0930);
+
         // ---- Motores INT16 (pistón / turboprop, fallback) ----
         /// <summary>0x0898 · INT16 · N1/RPM motor 1 (0–16384 = 0–100%)</summary>
         private readonly Offset<short> _eng1N1Int = new Offset<short>(0x0898);
@@ -85,6 +124,12 @@ namespace vmsOpenAcars.Services
         private readonly Offset<short> _spoilersOffset = new Offset<short>(0x0BD8);
         private readonly Offset<short> _spoilersArmedOffset = new Offset<short>(0x0BCC);
 
+        // ---- Flaps ----
+        private readonly Offset<byte> _flapsHandleIndex = new Offset<byte>(0x0BFC);     // Notch actual (0,1,2,3...)
+        private readonly Offset<int> _flapsHandlePercent = new Offset<int>(0x0BDC);    // Posición del handle 0-16383
+        private readonly Offset<int> _flapsActualLeft = new Offset<int>(0x0BE0);       // Posición física real izquierda
+        private readonly Offset<int> _flapsActualRight = new Offset<int>(0x0BE4);      // Posición física real derecha
+
         // ---- Autopiloto / Nav ----
         private readonly Offset<short> _autopilotOffset = new Offset<short>(0x07BC);
         private readonly Offset<short> _navModeOffset = new Offset<short>(0x07CC);
@@ -94,7 +139,12 @@ namespace vmsOpenAcars.Services
         private readonly Offset<short> _parkingBrakeOffset = new Offset<short>(0x0BC8);
         private readonly Offset<short> _brakeLeftOffset = new Offset<short>(0x0BC4);
         private readonly Offset<short> _brakeRightOffset = new Offset<short>(0x0BC6);
-        private readonly Offset<byte> _autobrakeOffset = new Offset<byte>(0x2F80);
+        //private readonly Offset<byte> _autobrakeOffset = new Offset<byte>(0x2F80);
+
+        // ---- Autobrake ----
+        private readonly Offset<string> _aircraftTitleOffset = new Offset<string>(0x3D00, 256);
+        private readonly Offset<short> _abAirbusOffset = new Offset<short>(0x0260);
+        private readonly Offset<byte> _abGenericOffset = new Offset<byte>(0x0C46);
 
         // ---- Meteorología ----
         /// <summary>
@@ -161,6 +211,12 @@ namespace vmsOpenAcars.Services
         private DateTime _lastFlapsChangeTime = DateTime.MinValue;
         private const double FLAPS_DEBOUNCE_MS = 500;
         private const double FLAPS_HYSTERESIS = 1.0;
+            
+        // -- Motores específicos --
+        private double _eng1N2Percent;
+        private double _eng2N2Percent;
+        private int _eng1FuelFlowLbsHr;
+        private int _eng2FuelFlowLbsHr;
 
         // -- Debounce liftoff / touchdown --
         private int _groundConsecutiveCounter;
@@ -219,6 +275,12 @@ namespace vmsOpenAcars.Services
         public int CurrentGearPosition { get; private set; }
         public double CurrentFlapsPercent { get; private set; }
         public bool CurrentSpoilersDeployed { get; private set; }
+        public string FlapsLabel { get; private set; } = "UP";
+        public int FlapsHandleRaw { get; private set; }
+        public int FlapsActualRaw { get; private set; }
+        public byte FlapsIndex { get; private set; }
+        public bool FlapsInTransit { get; private set; }
+        public double FlapsPercent { get; private set; }
 
         // ---- Entorno ----
         public double CurrentGForce { get; private set; }
@@ -231,6 +293,10 @@ namespace vmsOpenAcars.Services
         public double CurrentWindDirDeg { get; private set; }
         /// <summary>OAT en grados Celsius.</summary>
         public double CurrentOatCelsius { get; private set; }
+
+        // ---- Autobrake ----
+        public string AutobrakeLabel { get; private set; } = "---";
+        public AutobrakeMode AutobrakeMode { get; private set; } = AutobrakeMode.Unknown;
 
         // ---- Motores ----
         public double CurrentN1 => _eng1N1Offset.Value;
@@ -373,8 +439,42 @@ namespace vmsOpenAcars.Services
 
         private void EmitRawData()
         {
+            // Decodificar luces desde _lightsOffset (0x0D0C)
+            short lights = _lightsOffset.Value;
+            bool navLightOn = (lights & 0x01) != 0;      // Bit 0: NAV
+            bool beaconLightOn = (lights & 0x02) != 0;   // Bit 1: BEACON
+            bool landingLightOn = (lights & 0x04) != 0;  // Bit 2: LANDING
+            bool taxiLightOn = (lights & 0x08) != 0;     // Bit 3: TAXI
+            bool strobeLightOn = (lights & 0x10) != 0;   // Bit 4: STROBE
+
+            // Decodificar autobrake
+            string autobrakeSetting = AutobrakeLabel;
+
+            // Decodificar parking brake
+            bool parkingBrakeOn = _parkingBrakeOffset.Value != 0;
+
+            // Decodificar si motores están funcionando
+            bool enginesRunning = (Engine1Power.Value > 5 || Engine2Power.Value > 5);
+
+            // Calcular N1 (ya existente)
+            float n1_1 = (float)(_eng1N1Offset.Value * 100.0);
+            float n1_2 = (float)(_eng2N1Offset.Value * 100.0);
+
+            // N2 desde los nuevos offsets
+            float n2_1 = (float)_eng1N2Percent;
+            float n2_2 = (float)_eng2N2Percent;
+
+            // EGT (si no tienes offset, usar simulación)
+            float egt_1 = (float)(400 + (n1_1 * 5));
+            float egt_2 = (float)(400 + (n1_2 * 5));
+
+            // Fuel Flow por motor (convertir de lb/hr a kg/hr)
+            float ff_1 = _eng1FuelFlowLbsHr / 2.20462f;
+            float ff_2 = _eng2FuelFlowLbsHr / 2.20462f;
+
             RawDataUpdated?.Invoke(this, new RawTelemetryData
             {
+                // Datos básicos existentes
                 Latitude = CurrentLatitude,
                 Longitude = CurrentLongitude,
                 AltitudeFeet = CurrentAltitudeFeet,
@@ -391,9 +491,33 @@ namespace vmsOpenAcars.Services
                 PitchDeg = CurrentPitch,
                 BankDeg = CurrentBank,
                 SpoilersDeployed = CurrentSpoilersDeployed,
-                FlapsPercent = CurrentFlapsPercent,
+                FlapsPercent = FlapsPercent,           // Porcentaje simple
+                FlapsLabel = this.FlapsLabel,               // Label decodificado (ej. "1+F", "15", "30°")
+                FlapsInTransit = FlapsInTransit,
                 GearDown = CurrentGearPosition == 1,
-                Order = _positionOrder
+                Order = _positionOrder,
+
+                // NUEVOS DATOS
+                ParkingBrakeOn = parkingBrakeOn,
+                EnginesRunning = enginesRunning,
+                AutobrakeSetting = autobrakeSetting,
+
+                // Luces
+                NavLightOn = navLightOn,
+                BeaconLightOn = beaconLightOn,
+                LandingLightOn = landingLightOn,
+                TaxiLightOn = taxiLightOn,
+                StrobeLightOn = strobeLightOn,
+
+                // Motores
+                N1_1 = n1_1,
+                N1_2 = n1_2,
+                N2_1 = n2_1,
+                N2_2 = n2_2,
+                EGT_1 = egt_1,
+                EGT_2 = egt_2,
+                FuelFlow_1 = ff_1,
+                FuelFlow_2 = ff_2
             });
         }
 
@@ -449,7 +573,25 @@ namespace vmsOpenAcars.Services
             // ---- Motores ----
             Engine1Power = DecodeEnginePower(_eng1N1Int.Value, (short)(_engRpmOffset.Value & 0xFFFF));
             Engine2Power = DecodeEnginePower(_eng2N1Int.Value, 0);
+            // Fuel Flow por motor
+            int ff1_raw = _eng1FuelFlowOffset.Value;
+            int ff2_raw = _eng2FuelFlowOffset.Value;
+            // ---- N2 y Fuel Flow específicos ----
+            // N2 (leer los nuevos offsets)
+            short n2_1_raw = _eng1N2Offset.Value;
+            short n2_2_raw = _eng2N2Offset.Value;
+            double n2_1 = n2_1_raw * 100.0 / 16384.0;
+            double n2_2 = n2_2_raw * 100.0 / 16384.0;
+            // Guardar en propiedades (necesitas agregarlas primero)
+            _eng1N2Percent = n2_1;
+            _eng2N2Percent = n2_2;
+            _eng1FuelFlowLbsHr = ff1_raw;
+            _eng2FuelFlowLbsHr = ff2_raw;
 
+            // ---- Autobrake ----
+            ReadAutobrake();
+            // ---- Flaps ----
+            ReadFlaps();
             // ---- Tracking para touchdown ----
             // Guardar VS del último frame aéreo: este es el valor correcto para
             // reportar en el landing (no el de cuando ya estamos frenando en tierra)
@@ -469,6 +611,237 @@ namespace vmsOpenAcars.Services
         #region Decodificadores
         // =====================================================================
 
+        private void ReadFlaps()
+        {
+            // Leer valores raw
+            FlapsIndex = _flapsHandleIndex.Value;
+            FlapsHandleRaw = _flapsHandlePercent.Value;
+            FlapsActualRaw = _flapsActualLeft.Value;
+
+            // Detectar si los flaps están en tránsito (diferencia entre handle y posición real)
+            FlapsInTransit = Math.Abs(FlapsHandleRaw - FlapsActualRaw) > 200;
+
+            // Calcular porcentaje simple (0-100%)
+            FlapsPercent = (FlapsHandleRaw / 16383.0) * 100.0;
+
+            // Decodificar el label según la familia del avión
+            var family = DetectFlapsFamily();
+            FlapsLabel = DecodeFlapsByFamily(FlapsHandleRaw, family);
+        }
+
+        private AircraftFamily DetectFlapsFamily()
+        {
+            string title = _aircraftTitleOffset.Value;
+            if (string.IsNullOrEmpty(title)) return AircraftFamily.Unknown;
+
+            var t = title.ToUpperInvariant();
+
+            // ===== AIRBUS =====
+            if (t.Contains("A318") || t.Contains("A319") || t.Contains("A320") ||
+                t.Contains("A321") || t.Contains("A330") || t.Contains("A340") ||
+                t.Contains("A350") || t.Contains("A380") ||
+                t.Contains("FENIX") || t.Contains("TOLISS") || t.Contains("FLYBYWIRE") ||
+                t.Contains("FBW"))
+                return AircraftFamily.Airbus;
+
+            // ===== BOEING 737 =====
+            if ((t.Contains("737") || t.Contains("IFLY")) &&
+                (t.Contains("PMDG") || t.Contains("IFLY") || t.Contains("B737") || t.Contains("737-800")))
+                return AircraftFamily.Boeing737;
+
+            // ===== BOEING 747 =====
+            if (t.Contains("747") || t.Contains("757") || t.Contains("767"))
+                return AircraftFamily.Boeing747;
+
+            // ===== BOEING 777 / 787 =====
+            if (t.Contains("777") || t.Contains("787"))
+                return AircraftFamily.Boeing777;
+
+            // ===== EMBRAER =====
+            if (t.Contains("E170") || t.Contains("E175") || t.Contains("E190") || t.Contains("E195") ||
+                t.Contains("EMBRAER"))
+                return AircraftFamily.Embraer;
+
+            // ===== CESSNA =====
+            if (t.Contains("C172") || t.Contains("C182") || t.Contains("C208") ||
+                t.Contains("CESSNA"))
+                return AircraftFamily.Cessna;
+
+            return AircraftFamily.Unknown;
+        }
+
+        private string DecodeFlapsByFamily(int raw, AircraftFamily family)
+        {
+            // Airbus A318/319/320/321/330/350
+            // Detents: 0 | 1+F | 2 | 3 | FULL (5 posiciones)
+            if (family == AircraftFamily.Airbus)
+            {
+                if (raw < 400) return "0";
+                if (raw < 4500) return "1+F";
+                if (raw < 8600) return "2";
+                if (raw < 12700) return "3";
+                return "FULL";
+            }
+
+            // Boeing 737 (-700/-800/-900/MAX)
+            // Detents: 0 | 1 | 2 | 5 | 10 | 15 | 25 | 30 | 40 (9 posiciones)
+            if (family == AircraftFamily.Boeing737)
+            {
+                if (raw < 200) return "0";
+                if (raw < 2248) return "1";
+                if (raw < 4296) return "2";
+                if (raw < 6344) return "5";
+                if (raw < 8392) return "10";
+                if (raw < 10240) return "15";
+                if (raw < 12288) return "25";
+                if (raw < 14336) return "30";
+                return "40";
+            }
+
+            // Boeing 747
+            // Detents: 0 | 1 | 5 | 10 | 20 | 25 | 30 (7 posiciones)
+            if (family == AircraftFamily.Boeing747)
+            {
+                if (raw < 300) return "0";
+                if (raw < 2730) return "1";
+                if (raw < 5460) return "5";
+                if (raw < 8190) return "10";
+                if (raw < 10920) return "20";
+                if (raw < 13650) return "25";
+                return "30";
+            }
+
+            // Boeing 777/787
+            // Detents: 0 | 1 | 5 | 15 | 20 | 25 | 30 (7 posiciones, similar a 747)
+            if (family == AircraftFamily.Boeing777)
+            {
+                if (raw < 300) return "0";
+                if (raw < 2730) return "1";
+                if (raw < 5460) return "5";
+                if (raw < 8190) return "15";
+                if (raw < 10920) return "20";
+                if (raw < 13650) return "25";
+                return "30";
+            }
+
+            // Embraer E-Jets
+            // Detents: 0 | 1 | 2 | 3 | 4 | 5 | 6 | FULL (aproximado)
+            if (family == AircraftFamily.Embraer)
+            {
+                if (raw < 300) return "0";
+                if (raw < 2048) return "1";
+                if (raw < 4096) return "2";
+                if (raw < 6144) return "3";
+                if (raw < 8192) return "4";
+                if (raw < 10240) return "5";
+                if (raw < 12288) return "6";
+                return "FULL";
+            }
+
+            // Cessna (C172, etc.)
+            // Notches: UP | 10° | 20° | 30° | 40°
+            if (family == AircraftFamily.Cessna)
+            {
+                if (raw < 300) return "UP";
+                if (raw < 4000) return "10°";
+                if (raw < 8000) return "20°";
+                if (raw < 12000) return "30°";
+                return "40°";
+            }
+
+            // Fallback: porcentaje simple
+            return $"{FlapsPercent:F0}%";
+        }
+
+        
+
+        private void ReadAutobrake()
+        {
+            var family = DetectAircraftFamily();
+            AutobrakeMode mode;
+            string label;
+
+            switch (family)
+            {
+                case AircraftFamily.Airbus:
+                    (mode, label) = DecodeAirbusAutobrake(_abAirbusOffset.Value);
+                    break;
+                case AircraftFamily.Boeing737:
+                    (mode, label) = DecodeBoeingAutobrake(_abGenericOffset.Value);
+                    break;
+                default:
+                    mode = AutobrakeMode.Unknown;
+                    label = "N/A";
+                    break;
+            }
+
+            AutobrakeMode = mode;
+            AutobrakeLabel = label;
+        }
+
+        private AircraftFamily DetectAircraftFamily()
+        {
+            string title = _aircraftTitleOffset.Value;
+            if (string.IsNullOrEmpty(title)) return AircraftFamily.Unknown;
+
+            var t = title.ToUpperInvariant();
+
+            // Airbus
+            if (t.Contains("A318") || t.Contains("A319") || t.Contains("A320") ||
+                t.Contains("A321") || t.Contains("A330") || t.Contains("A340") ||
+                t.Contains("A350") || t.Contains("A380") || t.Contains("FENIX") ||
+                t.Contains("TOLISS") || t.Contains("FLYBYWIRE") || t.Contains("FBW"))
+                return AircraftFamily.Airbus;
+
+            // Boeing
+            if (t.Contains("737") || t.Contains("747") || t.Contains("757") ||
+                t.Contains("767") || t.Contains("777") || t.Contains("787") ||
+                t.Contains("PMDG") || t.Contains("TFDI") || t.Contains("INIBUILDS"))
+                return AircraftFamily.Boeing737;
+
+            return AircraftFamily.Unknown;
+        }
+
+        private (AutobrakeMode Mode, string Label) DecodeAirbusAutobrake(short val)
+        {
+            switch (val)
+            {
+                case 0: return (AutobrakeMode.Off, "OFF");
+                case 1: return (AutobrakeMode.Low, "LO");
+                case 2: return (AutobrakeMode.Med, "MED");
+                case 3: return (AutobrakeMode.Max, "MAX");
+                default: return (AutobrakeMode.Unknown, $"RAW={val}");
+            }
+        }
+
+        private (AutobrakeMode Mode, string Label) DecodeBoeingAutobrake(byte val)
+        {
+            switch (val)
+            {
+                case 0: return (AutobrakeMode.Off, "OFF");
+                case 1: return (AutobrakeMode.RTO, "RTO");
+                case 2: return (AutobrakeMode.Low, "1");
+                case 3: return (AutobrakeMode.Med, "2");
+                case 4: return (AutobrakeMode.High, "3");
+                case 5: return (AutobrakeMode.Max, "MAX");
+                default: return (AutobrakeMode.Unknown, $"RAW={val}");
+            }
+        }
+
+
+        private static string GetAutobrakeName(byte setting)
+        {
+            switch (setting)
+            {
+                case 0: return "RTO";
+                case 1: return "OFF";
+                case 2: return "1";
+                case 3: return "2";
+                case 4: return "3";
+                case 5: return "MAX";
+                default: return setting.ToString();
+            }
+        }
         private static EnginePower DecodeEnginePower(short n1Raw, short rpmRaw)
         {
             double n1 = n1Raw * 100.0 / 16384.0;
@@ -568,8 +941,8 @@ namespace vmsOpenAcars.Services
         {
             double p = raw / 16383.0;
             if (p < 0.02) return 0;
-            if (p < 0.08) return 1;
-            if (p < 0.14) return 2;
+            if (p < 0.13) return 1;
+            if (p < 0.26) return 2;
             if (p < 0.22) return 5;
             if (p < 0.32) return 10;
             if (p < 0.45) return 15;
@@ -765,10 +1138,10 @@ namespace vmsOpenAcars.Services
 
                 BrakeLeft = _brakeLeftOffset.Value / 32767.0,
                 BrakeRight = _brakeRightOffset.Value / 32767.0,
-                AutobrakeSetting = _autobrakeOffset.Value,
 
-                // Meteorología convertida
-                OatCelsius = CurrentOatCelsius,
+
+            // Meteorología convertida
+            OatCelsius = CurrentOatCelsius,
                 WindSpeedKt = CurrentWindSpeedKt,
                 WindDirDeg = CurrentWindDirDeg  // ← grados reales
             });
@@ -1064,6 +1437,7 @@ namespace vmsOpenAcars.Services
 
     public class RawTelemetryData : EventArgs
     {
+        // Propiedades existentes
         public double Latitude { get; set; }
         public double Longitude { get; set; }
         public double AltitudeFeet { get; set; }
@@ -1081,8 +1455,34 @@ namespace vmsOpenAcars.Services
         public double BankDeg { get; set; }
         public bool SpoilersDeployed { get; set; }
         public double FlapsPercent { get; set; }
+        public string FlapsLabel { get; set; } = "UP";
+        public bool FlapsInTransit { get; set; }
         public bool GearDown { get; set; }
         public int Order { get; set; }
+
+        // ===== NUEVAS PROPIEDADES =====
+
+        // Frenos y motores
+        public bool ParkingBrakeOn { get; set; }
+        public bool EnginesRunning { get; set; }
+        public string AutobrakeSetting { get; set; } = "RTO";
+
+        // Luces
+        public bool NavLightOn { get; set; }
+        public bool BeaconLightOn { get; set; }
+        public bool LandingLightOn { get; set; }
+        public bool TaxiLightOn { get; set; }
+        public bool StrobeLightOn { get; set; }
+
+        // Motores Jet (N1, N2, EGT, FF)
+        public float N1_1 { get; set; }
+        public float N1_2 { get; set; }
+        public float N2_1 { get; set; }
+        public float N2_2 { get; set; }
+        public float EGT_1 { get; set; }
+        public float EGT_2 { get; set; }
+        public float FuelFlow_1 { get; set; }
+        public float FuelFlow_2 { get; set; }
     }
 
     public enum ConnectionState { Disconnected, Connected }

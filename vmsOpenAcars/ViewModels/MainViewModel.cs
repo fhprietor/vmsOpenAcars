@@ -44,7 +44,7 @@ namespace vmsOpenAcars.ViewModels
         public event Action<int> OnAltitudeChanged;
         public event Action<int> OnSpeedChanged;
         public event Action<ValidationStatus> OnValidationStatusChanged;
-        public event Action<string> OnFlightInfoChanged;
+        public event Action OnFlightInfoChanged;
         public event Action<string> OnSimulatorNameChanged;
         public event Action<bool> OnAcarsStatusChanged;
         public event Action<string> OnAirportChanged;
@@ -146,11 +146,26 @@ namespace vmsOpenAcars.ViewModels
                 e.RadarAltitudeFeet,
                 e.Order,
                 e.PitchDeg,
-                e.BankDeg
+                e.BankDeg,
+                e.ParkingBrakeOn,      // parkingBrakeSet
+                e.EnginesRunning,      // enginesOn
+                e.GearDown,            // isGearDown
+                e.FlapsPercent,       // flapsPosition
+                e.SpoilersDeployed,    // spoilersDeployed
+                e.AutobrakeSetting,    // autobrake
+                e.NavLightOn,          // navLight
+                e.BeaconLightOn,       // beaconLight
+                e.LandingLightOn,      // landingLight
+                e.TaxiLightOn,         // taxiLight
+                e.StrobeLightOn,       // strobeLight
+                e.N1_1, e.N1_2,        // n1_1, n1_2
+                e.N2_1, e.N2_2,        // n2_1, n2_2
+                e.EGT_1, e.EGT_2,      // egt_1, egt_2
+                e.FuelFlow_1, e.FuelFlow_2,  // fuelFlow_1, fuelFlow_2
+                e.FlapsLabel
             );
 
-            // Actualizar UI (solo algunas veces para no saturar)
-            // Esto ya lo hace OnTelemetryUpdated para la UI
+            OnFlightInfoChanged?.Invoke();
         }
         private void OnAircraftInfoReady()
         {
@@ -526,6 +541,8 @@ namespace vmsOpenAcars.ViewModels
         private async void OnTimerTick()
         {
             UpdateFlightInfo();
+
+            OnFlightInfoChanged?.Invoke();   // Esto llamará a UpdateFlightInfoPanel()
 
             if (!string.IsNullOrEmpty(_flightManager?.ActivePirepId) && _lastTelemetry != null)
             {
