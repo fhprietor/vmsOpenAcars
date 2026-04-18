@@ -127,45 +127,31 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.OnAircraftInfoReady += OnAircraftInfoReady;
 
         }
+        private int _lastUiAltitude;
+        private int _lastUiSpeed;
+        private string _lastUiPhase = string.Empty;
+        private string _lastUiPosition = string.Empty;
+
         private void OnRawDataUpdated(object sender, RawTelemetryData e)
         {
-            // ACTUALIZAR FlightManager EN CADA POLLING (50ms)
-            _flightManager?.UpdateTelemetry(
-                (int)e.AltitudeFeet,
-                (int)e.GroundSpeedKt,
-                (int)e.VerticalSpeedFpm,
-                e.IsOnGround,
-                e.FuelLbs,
-                e.Latitude,
-                e.Longitude,
-                e.IndicatedAirspeedKt,
-                e.FuelFlow,
-                e.Transponder,
-                e.AutopilotEngaged,
-                DateTime.UtcNow,
-                e.RadarAltitudeFeet,
-                e.Order,
-                e.PitchDeg,
-                e.BankDeg,
-                e.ParkingBrakeOn,      // parkingBrakeSet
-                e.EnginesRunning,      // enginesOn
-                e.GearDown,            // isGearDown
-                e.FlapsPercent,       // flapsPosition
-                e.SpoilersDeployed,    // spoilersDeployed
-                e.AutobrakeSetting,    // autobrake
-                e.NavLightOn,          // navLight
-                e.BeaconLightOn,       // beaconLight
-                e.LandingLightOn,      // landingLight
-                e.TaxiLightOn,         // taxiLight
-                e.StrobeLightOn,       // strobeLight
-                e.N1_1, e.N1_2,        // n1_1, n1_2
-                e.N2_1, e.N2_2,        // n2_1, n2_2
-                e.EGT_1, e.EGT_2,      // egt_1, egt_2
-                e.FuelFlow_1, e.FuelFlow_2,  // fuelFlow_1, fuelFlow_2
-                e.FlapsLabel
-            );
+            _flightManager?.UpdateTelemetry(e);   // ← ver C1, pasa el objeto completo
 
-            OnFlightInfoChanged?.Invoke();
+            // Solo notificar UI si hay cambio real (threshold para evitar micro-fluctuaciones)
+            bool altChanged = Math.Abs((int)e.AltitudeFeet - _lastUiAltitude) > 10;
+            bool speedChanged = Math.Abs((int)e.GroundSpeedKt - _lastUiSpeed) > 1;
+            string posStr = $"{e.Latitude:F4}/{e.Longitude:F4}";
+            bool posChanged = posStr != _lastUiPosition;
+            string phaseStr = _flightManager?.CurrentPhase.ToString() ?? string.Empty;
+            bool phaseChanged = phaseStr != _lastUiPhase;
+
+            if (altChanged || speedChanged || posChanged || phaseChanged)
+            {
+                _lastUiAltitude = (int)e.AltitudeFeet;
+                _lastUiSpeed = (int)e.GroundSpeedKt;
+                _lastUiPosition = posStr;
+                _lastUiPhase = phaseStr;
+                OnFlightInfoChanged?.Invoke();
+            }
         }
         private void OnAircraftInfoReady()
         {
@@ -796,12 +782,25 @@ namespace vmsOpenAcars.ViewModels
                 return true; // En caso de error, permitir continuar
             }
         }
-        public async void Login()
+        /// <summary>
+        /// Autentica al piloto contra phpVMS usando la API Key configurada.
+        /// Carga los datos del piloto, establece el aeropuerto asignado y
+        /// actualiza el estado de validación de posición si el simulador está conectado.
+        /// </summary>
+        /// <returns>
+        /// <c>true</c> si el login fue exitoso; <c>false</c> en caso contrario.
+        /// </returns>
+        /// <remarks>
+        /// Este método es <c>async Task</c> (no <c>async void</c>) para que el caller
+        /// pueda awaitar y capturar excepciones correctamente.
+        /// </remarks>
+        public async Task<bool> Login()
         {
             try
             {
                 OnLog?.Invoke(L._("LoggingIn"), Theme.MainText);
                 var result = await _apiService.GetPilotData();
+
                 if (result.Data != null)
                 {
                     Pilot pilot = result.Data;
@@ -810,23 +809,27 @@ namespace vmsOpenAcars.ViewModels
                     OnLog?.Invoke($"{L._("AirportAssigned")}: {pilot.CurrentAirport}", Theme.MainText);
                     OnAirportChanged?.Invoke(pilot.CurrentAirport);
                     OnAcarsStatusChanged?.Invoke(true);
+
                     if (_fsuipc.IsConnected)
                     {
-                        _flightManager.UpdatePositionValidation(_fsuipc.CurrentLatitude, _fsuipc.CurrentLongitude);
+                        _flightManager.UpdatePositionValidation(
+                            _fsuipc.CurrentLatitude, _fsuipc.CurrentLongitude);
                         OnLog?.Invoke($"📏 Altitude: {_fsuipc.CurrentAltitudeFeet:F0} ft", Theme.MainText);
                         OnValidationStatusChanged?.Invoke(_flightManager.PositionValidationStatus);
                     }
+
+                    return true;
                 }
-                else
-                {
-                    OnLog?.Invoke($"❌ Error de login: {result.Error}", Theme.Danger);
-                    OnAcarsStatusChanged?.Invoke(false);
-                }
+
+                OnLog?.Invoke($"❌ Error de login: {result.Error}", Theme.Danger);
+                OnAcarsStatusChanged?.Invoke(false);
+                return false;
             }
             catch (Exception ex)
             {
                 OnLog?.Invoke($"❌ Excepción en login: {ex.Message}", Theme.Danger);
                 OnAcarsStatusChanged?.Invoke(false);
+                return false;
             }
         }
 

@@ -21,6 +21,17 @@ using vmsOpenAcars;
 
 namespace vmsOpenAcars.UI.Forms
 {
+    /// <summary>
+    /// Panel con double-buffering activado para eliminar parpadeo en actualizaciones frecuentes.
+    /// </summary>
+    public sealed class BufferedPanel : Panel
+    {
+        public BufferedPanel()
+        {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.ResizeRedraw | ControlStyles.OptimizedDoubleBuffer, true);
+        }
+    }
     public partial class MainForm : Form
     {
         private bool _dragging = false;
@@ -28,13 +39,13 @@ namespace vmsOpenAcars.UI.Forms
 
         // ========== CONTROLES ==========
         private TableLayoutPanel mainLayout;
-        private Panel pnlHeader;
-        private Panel pnlMessage;
-        private Panel pnlFma;
-        private Panel pnlStatus;
-        private Panel pnlButtons;
-        private Panel pnlMessageInfo;
-        private Panel pnlIncoming;
+        private BufferedPanel pnlHeader;
+        private BufferedPanel pnlMessage;
+        private BufferedPanel pnlFma;
+        private BufferedPanel pnlStatus;
+        private BufferedPanel pnlButtons;
+        private BufferedPanel pnlMessageInfo;
+        private BufferedPanel pnlIncoming;
         public Label lblTitle;
         public Label lblSubTitle;
         public Label _lblFlightNo;
@@ -126,11 +137,12 @@ namespace vmsOpenAcars.UI.Forms
 
         public MainForm()
         {
-            this.SetStyle(ControlStyles.AllPaintingInWmPaint |
-                          ControlStyles.UserPaint |
-                          ControlStyles.DoubleBuffer |
-                          ControlStyles.ResizeRedraw, true);
-            this.UpdateStyles();
+            SetStyle(
+                ControlStyles.DoubleBuffer |
+                ControlStyles.UserPaint |
+                ControlStyles.AllPaintingInWmPaint,
+                true);
+            UpdateStyles();
             EnsureAllConfigKeys();
             InitializeForm();
             InitializeLayout();
@@ -419,7 +431,7 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeHeader()
         {
-            pnlHeader = new Panel
+            pnlHeader = new BufferedPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(20, 30, 40),
@@ -578,7 +590,7 @@ namespace vmsOpenAcars.UI.Forms
         private void InitializeMessageSection()
         {
             // ===== PANEL FLIGHT INFORMATION =====
-            pnlMessageInfo = new Panel
+            pnlMessageInfo = new BufferedPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(15, 15, 25),
@@ -693,7 +705,7 @@ namespace vmsOpenAcars.UI.Forms
             mainLayout.Controls.Add(pnlMessageInfo, 0, 1);
 
             // ===== PANEL DE MENSAJES ENTRANTES (INCOMING MSG) =====
-            pnlIncoming = new Panel
+            pnlIncoming = new BufferedPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(15, 15, 25),
@@ -970,7 +982,7 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeFmaPanel()
         {
-            pnlFma = new Panel
+            pnlFma = new BufferedPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(15, 15, 25),
@@ -1022,7 +1034,7 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeStatusSection()
         {
-            pnlStatus = new Panel
+            pnlStatus = new BufferedPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(15, 15, 25),
@@ -1111,7 +1123,7 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeButtons()
         {
-            pnlButtons = new Panel
+            pnlButtons = new BufferedPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(30, 40, 50),
@@ -1404,9 +1416,17 @@ namespace vmsOpenAcars.UI.Forms
 
         #region Eventos de Botones
 
-        private void BtnLogin_Click(object sender, EventArgs e)
+        private async void BtnLogin_Click(object sender, EventArgs e)
         {
-            _viewModel?.Login();
+            btnLogin.Enabled = false;
+            try
+            {
+                await _viewModel.Login();
+            }
+            finally
+            {
+                btnLogin.Enabled = true;
+            }
         }
 
         // En UI/Forms/MainForm.cs

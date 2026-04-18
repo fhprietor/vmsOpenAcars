@@ -771,83 +771,84 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
-        public void UpdateTelemetry(int altitude, int groundSpeed, int verticalSpeed, bool isOnGround, double fuel,
-            double lat, double lon, double indicatedAirspeed = 0, double fuelFlow = 0, int transponder = 1200,
-            bool autopilot = false, DateTime simTime = default, double radarAlt = 0, int order = 0,
-            double pitch = 0, double bank = 0,
-            bool parkingBrakeSet = false, bool enginesOn = false,
-            // NUEVOS PARÁMETROS - Sistemas
-            bool isGearDown = false, double flapsPosition = 0, bool spoilersDeployed = false, string autobrake = "RTO",
-            // NUEVOS PARÁMETROS - Luces
-            bool navLight = false, bool beaconLight = false, bool landingLight = false, bool taxiLight = false, bool strobeLight = false,
-            // NUEVOS PARÁMETROS - Motores (Jet)
-            float n1_1 = 0, float n1_2 = 0, float n2_1 = 0, float n2_2 = 0,
-            float egt_1 = 0, float egt_2 = 0, float fuelFlow_1 = 0, float fuelFlow_2 = 0, string flapsLabel = "UP")
+        // 
+        /// <summary>
+        /// Actualiza el estado del gestor de vuelo con los datos crudos del simulador.
+        /// Calcula la distancia acumulada, actualiza la fase de vuelo y registra el estado
+        /// de todos los sistemas de la aeronave.
+        /// </summary>
+        /// <param name="data">
+        /// Datos telémétricos crudos leídos directamente desde FSUIPC en el ciclo de polling.
+        /// </param>
+        public void UpdateTelemetry(RawTelemetryData data)
         {
+            if (data == null) return;
 
             HasSimulatorData = true;
-            // Datos básicos de vuelo
 
-            CurrentAltitude = altitude;
-            CurrentGroundSpeed = groundSpeed;
-            CurrentVerticalSpeed = verticalSpeed;
-            CurrentFuel = fuel;
-            IsOnGround = isOnGround;
-            CurrentLat = lat;
-            CurrentLon = lon;
-            _currentPitch = pitch;
-            _currentBank = bank;
-            CurrentIndicatedAirspeed = indicatedAirspeed > 0 ? (int)indicatedAirspeed : groundSpeed;
-            CurrentFuelFlow = fuelFlow;
-            CurrentTransponder = transponder;
-            AutopilotEngaged = autopilot;
-            SimTime = simTime == default ? DateTime.UtcNow : simTime;
-            RadarAltitude = radarAlt;
-            PositionOrder = order;
-            _isParkingBrakeSet = parkingBrakeSet;
-            _areEnginesOn = enginesOn;
+            CurrentAltitude = (int)data.AltitudeFeet;
+            CurrentGroundSpeed = (int)data.GroundSpeedKt;
+            CurrentVerticalSpeed = (int)data.VerticalSpeedFpm;
+            CurrentFuel = data.FuelLbs;
+            IsOnGround = data.IsOnGround;
+            CurrentLat = data.Latitude;
+            CurrentLon = data.Longitude;
+            _currentPitch = data.PitchDeg;
+            _currentBank = data.BankDeg;
+            CurrentIndicatedAirspeed = data.IndicatedAirspeedKt > 0
+                                           ? (int)data.IndicatedAirspeedKt
+                                           : (int)data.GroundSpeedKt;
+            CurrentFuelFlow = data.FuelFlow;
+            CurrentTransponder = data.Transponder;
+            AutopilotEngaged = data.AutopilotEngaged;
+            SimTime = DateTime.UtcNow;
+            RadarAltitude = data.RadarAltitudeFeet;
+            PositionOrder = data.Order;
+            _isParkingBrakeSet = data.ParkingBrakeOn;
+            _areEnginesOn = data.EnginesRunning;
 
             // Sistemas
-            IsGearDown = isGearDown;
-            CurrentFlapsPosition = flapsPosition;  // ← flapsPosition es double
-            FlapsLabel = flapsLabel;  // ← flapsLabel es string
-            AreSpoilersDeployed = spoilersDeployed;
-            AutobrakeSetting = autobrake;
+            IsGearDown = data.GearDown;
+            CurrentFlapsPosition = data.FlapsPercent;
+            FlapsLabel = data.FlapsLabel;
+            AreSpoilersDeployed = data.SpoilersDeployed;
+            AutobrakeSetting = data.AutobrakeSetting;
 
             // Luces
-            IsNavLightOn = navLight;
-            IsBeaconLightOn = beaconLight;
-            IsLandingLightOn = landingLight;
-            IsTaxiLightOn = taxiLight;
-            IsStrobeLightOn = strobeLight;
+            IsNavLightOn = data.NavLightOn;
+            IsBeaconLightOn = data.BeaconLightOn;
+            IsLandingLightOn = data.LandingLightOn;
+            IsTaxiLightOn = data.TaxiLightOn;
+            IsStrobeLightOn = data.StrobeLightOn;
 
             // Motores
-            N1_1 = n1_1;
-            N1_2 = n1_2;
-            N2_1 = n2_1;
-            N2_2 = n2_2;
-            EGT_1 = egt_1;
-            EGT_2 = egt_2;
-            FuelFlow_1 = fuelFlow_1;
-            FuelFlow_2 = fuelFlow_2;
+            N1_1 = data.N1_1; N1_2 = data.N1_2;
+            N2_1 = data.N2_1; N2_2 = data.N2_2;
+            EGT_1 = data.EGT_1; EGT_2 = data.EGT_2;
+            FuelFlow_1 = data.FuelFlow_1; FuelFlow_2 = data.FuelFlow_2;
 
-            // Cálculo de distancia (solo si hay vuelo activo)
+            // Acumulación de distancia (solo con vuelo activo)
             if (!string.IsNullOrEmpty(ActivePirepId))
             {
-                if (_lastPosition.HasValue && _lastPositionTime.HasValue)
+                if (_lastPosition.HasValue)
                 {
-                    double distKm = CalculateDistanceKm(_lastPosition.Value.lat, _lastPosition.Value.lon, lat, lon);
-                    if (distKm > 0 && distKm < 10) _totalDistanceKm += distKm;
+                    double distKm = CalculateDistanceKm(
+                        _lastPosition.Value.lat, _lastPosition.Value.lon,
+                        data.Latitude, data.Longitude);
+                    if (distKm > 0 && distKm < 10)
+                        _totalDistanceKm += distKm;
                 }
 
-                _lastPosition = (lat, lon);
+                _lastPosition = (data.Latitude, data.Longitude);
                 _lastPositionTime = DateTime.UtcNow;
-                if (!isOnGround && !_lastAirborneTime.HasValue) _lastAirborneTime = DateTime.UtcNow;
 
-                UpdatePhase(altitude, groundSpeed, isOnGround, verticalSpeed);
+                if (!data.IsOnGround && !_lastAirborneTime.HasValue)
+                    _lastAirborneTime = DateTime.UtcNow;
+
+                UpdatePhase(CurrentAltitude, CurrentGroundSpeed,
+                            data.IsOnGround, CurrentVerticalSpeed);
             }
         }
-
         public async Task<bool> AbortFlight()
         {
             if (string.IsNullOrEmpty(ActivePirepId)) return false;
