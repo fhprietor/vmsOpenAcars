@@ -109,8 +109,10 @@
     <Compile Include="Helpers\UnitConverter.cs" />
     <Compile Include="Models\AcarsPosition.cs" />
     <Compile Include="Models\Aircraft.cs" />
+    <Compile Include="Models\Aircraftperformancetable.cs" />
     <Compile Include="Models\Flight.cs" />
     <Compile Include="Models\FlightPhase.cs" />
+    <Compile Include="Models\FlightScoreData.cs" />
     <Compile Include="Models\Pilot.cs" />
     <Compile Include="Models\Pirep.cs" />
     <Compile Include="Models\SimbriefPlan.cs" />
@@ -127,6 +129,7 @@
     <Compile Include="Services\MockSimulator.cs" />
     <Compile Include="Services\PhpVmsFlightService.cs" />
     <Compile Include="Services\PositionValidator.cs" />
+    <Compile Include="Services\ScoringService.cs" />
     <Compile Include="Services\SimbriefEnhancedService.cs" />
     <Compile Include="Services\UIService.cs" />
     <Compile Include="UI\Forms\EcamDialog.cs">
@@ -139,7 +142,7 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="UI\Forms\MainForm.cs">
-      <SubType>Form</SubType>
+      <SubType>Component</SubType>
     </Compile>
     <Compile Include="UI\Forms\SettingsForm.cs">
       <SubType>Form</SubType>
@@ -172,7 +175,9 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="App.config" />
+    <None Include="App.config">
+      <SubType>Designer</SubType>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Folder Include="Core\Enums\" />

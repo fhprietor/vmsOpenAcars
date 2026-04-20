@@ -406,6 +406,50 @@ namespace vmsOpenAcars.Services
         }
 
         /// <summary>
+        /// Obtiene los detalles completos de un PIREP por ID.
+        /// Usado para recuperar datos de vuelo al reanudar tras reconexión.
+        /// </summary>
+        public async Task<Models.Pirep> GetPirepDetail(string pirepId)
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_baseUrl}api/pireps/{pirepId}");
+                if (!response.IsSuccessStatusCode) return null;
+
+                var content = await response.Content.ReadAsStringAsync();
+                var item = JObject.Parse(content)["data"];
+                if (item == null) return null;
+
+                return new Models.Pirep
+                {
+                    Id = item["id"]?.ToString(),
+                    FlightNumber = item["flight_number"]?.ToString(),
+                    Origin = item["dpt_airport_id"]?.ToString(),
+                    Destination = item["arr_airport_id"]?.ToString(),
+                    AircraftId = item["aircraft_id"]?.ToString(),
+                    CreatedAt = item["created_at"]?.ToString(),
+                    SubmittedAt = item["submitted_at"]?.ToString(),
+                    UpdatedAt = item["updated_at"]?.ToString(),
+                    Status = item["status"]?.ToString(),
+                    // Objetos anidados — extraer el campo kg / nmi según corresponda
+                    BlockFuel = item["block_fuel"]?["kg"]?.Value<double>() ?? 0,
+                    FuelUsed = item["fuel_used"]?["kg"]?.Value<double>() ?? 0,
+                    Distance = item["distance"]?["nmi"]?.Value<double>() ?? 0,
+
+                    // Escalar directo
+                    FlightTime = item["flight_time"]?.Value<int>() ?? 0,
+
+                    // AircraftType viene de aircraft.icao (no subfleet.type)
+                    AircraftType = item["aircraft"]?["icao"]?.ToString() ?? "",
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error getting pirep detail: {ex.Message}");
+                return null;
+            }
+        }
+        /// <summary>
         /// Obtiene los PIREPs activos (en progreso) del piloto autenticado
         /// </summary>
         public async Task<List<Models.Pirep>> GetActivePireps()
@@ -437,7 +481,19 @@ namespace vmsOpenAcars.Services
                                     AircraftId = item["aircraft_id"]?.ToString(),
                                     State = state ?? 0,
                                     CreatedAt = item["created_at"]?.ToString(),
-                                    SubmittedAt = item["submitted_at"]?.ToString()
+                                    SubmittedAt = item["submitted_at"]?.ToString(),
+                                    UpdatedAt = item["updated_at"]?.ToString(),
+
+                                    // Objetos anidados — extraer el campo kg / nmi según corresponda
+                                    BlockFuel = item["block_fuel"]?["kg"]?.Value<double>() ?? 0,
+                                    FuelUsed = item["fuel_used"]?["kg"]?.Value<double>() ?? 0,
+                                    Distance = item["distance"]?["nmi"]?.Value<double>() ?? 0,
+
+                                    // Escalar directo
+                                    FlightTime = item["flight_time"]?.Value<int>() ?? 0,
+
+                                    // AircraftType viene de aircraft.icao (no subfleet.type)
+                                    AircraftType = item["aircraft"]?["icao"]?.ToString() ?? ""
                                 });
                             }
                         }

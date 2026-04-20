@@ -77,7 +77,7 @@ namespace vmsOpenAcars.Services
         private readonly Offset<int> _bankOffset = new Offset<int>(0x057C);
 
         // ---- Altimetría ----
-        private readonly Offset<short> _radarAltitudeOffset = new Offset<short>(0x31E4);
+        private readonly Offset<int> _radarAltitudeOffset = new Offset<int>(0x31E4);
         private readonly Offset<int> _groundAltitudeOffset = new Offset<int>(0x0020);
 
         // ---- Estado de vuelo ----
@@ -97,6 +97,24 @@ namespace vmsOpenAcars.Services
         private readonly Offset<double> _eng1ReverserOffset = new Offset<double>(0x207C);
         /// <summary>0x217C · FLOAT64 · reversor motor 2 (0.0–1.0)</summary>
         private readonly Offset<double> _eng2ReverserOffset = new Offset<double>(0x217C);
+
+        // N2
+        /// <summary>0x2030 · FLOAT64 · N2 motor 1 en % </summary>
+        private readonly Offset<double> _eng1N2FloatOffset = new Offset<double>(0x2030);
+        /// <summary>0x2130 · FLOAT64 · N2 motor 2 en % </summary>
+        private readonly Offset<double> _eng2N2FloatOffset = new Offset<double>(0x2130);
+
+        // EGT — nuevos
+        /// <summary>0x2020 · FLOAT64 · EGT motor 1 en °C </summary>
+        private readonly Offset<double> _eng1EgtOffset = new Offset<double>(0x2020);
+        /// <summary>0x2120 · FLOAT64 · EGT motor 2 en °C </summary>
+        private readonly Offset<double> _eng2EgtOffset = new Offset<double>(0x2120);
+
+        // Fuel Flow — nuevos
+        /// <summary>0x2018 · FLOAT64 · Fuel flow motor 1 en lbs/hr </summary>
+        private readonly Offset<double> _eng1FuelFlowFloatOffset = new Offset<double>(0x2018);
+        /// <summary>0x2118 · FLOAT64 · Fuel flow motor 2 en lbs/hr </summary>
+        private readonly Offset<double> _eng2FuelFlowFloatOffset = new Offset<double>(0x2118);
 
         // ---- Motores (N2 y Fuel Flow específicos) ----
         /// <summary>0x08A8 · INT16 · N2 motor 1 (0-16384 = 0-100%)</summary>
@@ -457,20 +475,20 @@ namespace vmsOpenAcars.Services
             bool enginesRunning = (Engine1Power.Value > 5 || Engine2Power.Value > 5);
 
             // Calcular N1 (ya existente)
-            float n1_1 = (float)(_eng1N1Offset.Value * 100.0);
-            float n1_2 = (float)(_eng2N1Offset.Value * 100.0);
+            float n1_1 = (float)(_eng1N1Offset.Value);
+            float n1_2 = (float)(_eng2N1Offset.Value);
 
-            // N2 desde los nuevos offsets
-            float n2_1 = (float)_eng1N2Percent;
-            float n2_2 = (float)_eng2N2Percent;
+            // N2 — desde FLOAT64 real
+            float n2_1 = (float)_eng1N2FloatOffset.Value;
+            float n2_2 = (float)_eng2N2FloatOffset.Value;
 
-            // EGT (si no tienes offset, usar simulación)
-            float egt_1 = (float)(400 + (n1_1 * 5));
-            float egt_2 = (float)(400 + (n1_2 * 5));
+            // EGT — desde FLOAT64 real (°C directos)
+            float egt_1 = (float)_eng1EgtOffset.Value;
+            float egt_2 = (float)_eng2EgtOffset.Value;
 
-            // Fuel Flow por motor (convertir de lb/hr a kg/hr)
-            float ff_1 = _eng1FuelFlowLbsHr / 2.20462f;
-            float ff_2 = _eng2FuelFlowLbsHr / 2.20462f;
+            // Fuel Flow por motor: lbs/hr → kg/hr
+            float ff_1 = (float)(_eng1FuelFlowFloatOffset.Value / 2.20462);
+            float ff_2 = (float)(_eng2FuelFlowFloatOffset.Value / 2.20462);
 
             RawDataUpdated?.Invoke(this, new RawTelemetryData
             {

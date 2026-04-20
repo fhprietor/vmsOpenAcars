@@ -50,6 +50,16 @@ namespace vmsOpenAcars.Core.Flight
         private double _lastFuelUpdate = 0;
         private double _totalFuelUsed = 0;
 
+        // ── Scoring ──────────────────────────────────────────────────────────────────
+        private double _touchdownPitch = 0;
+        private double _touchdownBank = 0;
+        private double _touchdownGForce = 0;
+        private int _overspeedCount = 0;
+        private bool _wasOverspeed = false;
+        private int _lightsViolationCount = 0;
+        private bool _lightsViolationActive = false;
+        private int _vmoKts = 320;
+
         // Control de fases
         private DateTime _phaseStartTime = DateTime.UtcNow;
         private FlightPhase _lastStablePhase;
@@ -153,7 +163,31 @@ namespace vmsOpenAcars.Core.Flight
         }
 
         #region Private Methods
-
+        /// <summary>
+        /// Convierte el código de status de phpVMS al FlightPhase interno más apropiado
+        /// para retomar un vuelo interrumpido.
+        /// </summary>
+        private static FlightPhase PhaseFromPirepStatus(string status)
+        {
+            switch (status?.ToUpperInvariant())
+            {
+                case "INI":
+                case "BST": return FlightPhase.Boarding;
+                case "PBK": return FlightPhase.Pushback;
+                case "TXI": return FlightPhase.TaxiOut;
+                case "TKF": return FlightPhase.Takeoff;
+                case "CLB": return FlightPhase.Climb;
+                case "ENR":
+                case "CRZ": return FlightPhase.Enroute;
+                case "DSC": return FlightPhase.Descent;
+                case "APR":
+                case "FIN": return FlightPhase.Approach;
+                case "LND": return FlightPhase.Landing;
+                case "ONB": return FlightPhase.AfterLanding;
+                case "ARR": return FlightPhase.TaxiIn;
+                default: return FlightPhase.Enroute; // fallback seguro
+            }
+        }
         private double CalculateGForce(int verticalSpeedFpm)
         {
             int vs = Math.Abs(verticalSpeedFpm);
@@ -249,14 +283,45 @@ namespace vmsOpenAcars.Core.Flight
         private void RegisterTouchdown(int verticalSpeed)
         {
             if (_touchdownCaptured) return;
-
             TouchdownFpm = verticalSpeed;
             _touchdownCaptured = true;
             _hasLandedThisFlight = true;
-
             double gforce = CalculateGForce(verticalSpeed);
-            OnLog?.Invoke($"✈️ Touchdown: {verticalSpeed} FPM, {gforce:F2} G", Theme.MainText);
+            // Capturar estado exacto en el momento del toque
+            _touchdownPitch = _currentPitch;
+            _touchdownBank = _currentBank;
+            _touchdownGForce = gforce;
+            OnLog?.Invoke($"✈️ Touchdown: {verticalSpeed} FPM, {gforce:F2} G, Pitch: {_currentPitch:F1}°, Bank: {_currentBank:F1}°", Theme.MainText);
             OnLandingDetected?.Invoke(verticalSpeed, gforce, _currentPitch, _currentBank);
+        }
+        /// <summary>
+        /// Monitors overspeed and lights compliance violations while a PIREP is active.
+        /// Call once per telemetry cycle, airborne only.
+        /// </summary>
+        private void CheckViolations(int ias, int altitudeFt, bool landingLightOn)
+        {
+            bool isNowOverspeed = ias > _vmoKts;
+            if (isNowOverspeed && !_wasOverspeed)
+            {
+                _overspeedCount++;
+                OnLog?.Invoke($"⚠️ OVERSPEED: {ias} kts (limit {_vmoKts} kts)", Theme.Warning);
+            }
+            _wasOverspeed = isNowOverspeed;
+
+            // ── Landing lights por debajo de 10 000 ft ────────────────────────────
+            bool lightsRequired = altitudeFt < 10_000;
+            bool lightsViolating = lightsRequired && !landingLightOn;
+
+            if (lightsViolating && !_lightsViolationActive)
+            {
+                _lightsViolationActive = true;
+                _lightsViolationCount++;
+                OnLog?.Invoke($"⚠️ Landing lights OFF below 10,000 ft ({altitudeFt} ft)", Theme.Warning);
+            }
+            else if (!lightsViolating)
+            {
+                _lightsViolationActive = false;
+            }
         }
 
         private void ResetFlightState()
@@ -282,6 +347,13 @@ namespace vmsOpenAcars.Core.Flight
             _descentStart = DateTime.MinValue;
             _stepClimbStart = DateTime.MinValue;
             _blockOffRecorded = false;
+            _touchdownPitch = 0;
+            _touchdownBank = 0;
+            _touchdownGForce = 0;
+            _overspeedCount = 0;
+            _wasOverspeed = false;
+            _lightsViolationCount = 0;
+            _lightsViolationActive = false;
             OnPhaseChanged?.Invoke(CurrentPhase.ToString());
             PhaseChanged?.Invoke(CurrentPhase);
         }
@@ -426,6 +498,10 @@ namespace vmsOpenAcars.Core.Flight
                 OnLog?.Invoke($"📊 Flight timer started (server time)", Theme.Success);
                 OnLog?.Invoke($"⛽ Initial fuel recorded: {_initialFuel:F0} kg", Theme.Success);
                 _touchdownCaptured = false;
+                // Resolver Vmo según tipo de avión del plan
+                var perf = AircraftPerformanceTable.Get(_activePlan?.AircraftIcao);
+                _vmoKts = perf.VmoKts;
+                OnLog?.Invoke($"⚡ Aircraft type: {_activePlan?.AircraftIcao} → Vmo {_vmoKts} kts ({perf.Category})", Theme.MainText);
                 TouchdownFpm = null;
                 CurrentPhase = FlightPhase.Boarding;
                 _phaseStartTime = DateTime.UtcNow;
@@ -444,6 +520,70 @@ namespace vmsOpenAcars.Core.Flight
             return true;
         }
 
+        /// <summary>
+        /// Restaura el estado interno del FlightManager a partir de un PIREP IN_PROGRESS
+        /// encontrado en el servidor. No hace ninguna llamada de red — solo reconstruye
+        /// el estado local para que el polling y las actualizaciones retomen normalmente.
+        /// </summary>
+        /// <param name="pirep">PIREP activo obtenido del servidor.</param>
+        /// <param name="pilot">Piloto autenticado en esta sesión.</param>
+        public void ResumeFlight(Models.Pirep pirep, Pilot pilot)
+        {
+            _activePilot = pilot;
+
+            // Reconstruir el plan mínimo necesario para FilePirep y CheckViolations
+            _activePlan = new SimbriefPlan
+            {
+                FlightNumber = pirep.FlightNumber,
+                Origin = pirep.Origin,
+                Destination = pirep.Destination,
+                AircraftIcao = pirep.AircraftType,
+                Aircraft = pirep.AircraftType,
+                BlockFuel = pirep.BlockFuel,
+                PlannedBlockFuel = pirep.BlockFuel,
+                Distance = pirep.Distance,
+            };
+
+            // Restaurar estado de vuelo
+            ActivePirepId = pirep.Id;
+            _initialFuel = pirep.BlockFuel;
+            _totalFuelUsed = pirep.FuelUsed;
+            _isTimerStarted = true;
+            _blockOffRecorded = true;  // el block-off ya fue enviado en la sesión anterior
+
+            // Intentar parsear el server created_at para cálculo correcto de flight_time
+            if (DateTime.TryParse(pirep.CreatedAt, null,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var created))
+                _serverCreatedAt = created;
+            else
+                _serverCreatedAt = DateTime.UtcNow.AddMinutes(-pirep.FlightTime);
+
+            CurrentPhase = PhaseFromPirepStatus(pirep.Status);
+            _phaseStartTime = DateTime.UtcNow;
+            FlightStartTime = DateTime.Now;
+
+            // Resolver Vmo para overspeed detection
+            var perf = AircraftPerformanceTable.Get(pirep.AircraftType);
+            _vmoKts = perf.VmoKts;
+
+            // El scoring de esta sesión arranca limpio (no podemos recuperar
+            // los datos de la sesión anterior)
+            _touchdownCaptured = false;
+            TouchdownFpm = null;
+            _touchdownPitch = 0;
+            _touchdownBank = 0;
+            _touchdownGForce = 0;
+            _overspeedCount = 0;
+            _wasOverspeed = false;
+            _lightsViolationCount = 0;
+            _lightsViolationActive = false;
+
+            OnLog?.Invoke($"🔄 Flight resumed: {pirep.FlightNumber} {pirep.Origin}→{pirep.Destination}", Theme.Success);
+            OnLog?.Invoke($"   PIREP ID: {pirep.Id} | Aircraft: {pirep.AircraftType} (Vmo {_vmoKts} kts)", Theme.MainText);
+            OnLog?.Invoke($"   Block fuel: {pirep.BlockFuel:F0} kg | Fuel used so far: {pirep.FuelUsed:F0} kg", Theme.MainText);
+            OnLog?.Invoke($"   Flight time so far: {pirep.FlightTime} min | Distance: {pirep.Distance:F1} NM", Theme.MainText);
+            OnLog?.Invoke($"⚡ Aircraft type: {pirep.AircraftType} → Vmo {_vmoKts} kts ({perf.Category})", Theme.MainText);
+        }
         /// <summary>
         /// Updates the flight phase based on current telemetry using relative thresholds.
         /// </summary>
@@ -847,6 +987,9 @@ namespace vmsOpenAcars.Core.Flight
 
                 UpdatePhase(CurrentAltitude, CurrentGroundSpeed,
                             data.IsOnGround, CurrentVerticalSpeed);
+                // Monitoreo de violaciones para scoring (solo en vuelo)
+                if (!data.IsOnGround)
+                    CheckViolations(CurrentIndicatedAirspeed, CurrentAltitude, data.LandingLightOn);
             }
         }
         public async Task<bool> AbortFlight()
@@ -881,6 +1024,21 @@ namespace vmsOpenAcars.Core.Flight
             OnLog?.Invoke($"📊 Actual Distance: {totalDistanceNm:F1} NM", Theme.MainText);
             OnLog?.Invoke($"📊 Actual Flight Time: {actualFlightTimeMinutes} min", Theme.MainText);
             OnLog?.Invoke($"⛽ Fuel Used: {fuelUsed:F0} {_activePlan?.Units ?? "kg"}", Theme.MainText);
+            // ── Calcular score ────────────────────────────────────────────────────────
+            var scoreData = new FlightScoreData
+            {
+                LandingRate = (int)(TouchdownFpm ?? 0),
+                LandingPitch = _touchdownPitch,
+                LandingBank = _touchdownBank,
+                LandingGForce = _touchdownGForce,
+                OverspeedCount = _overspeedCount,
+                LightsViolations = _lightsViolationCount
+            };
+            var scoring = new ScoringService();
+            ScoringResult scoreResult = scoring.Calculate(scoreData);
+            OnLog?.Invoke($"🏆 Score: {scoreResult.TotalScore}/100 — {scoreResult.LandingRating}", Theme.Success);
+            foreach (var ded in scoreResult.Deductions)
+                OnLog?.Invoke($"   −{ded.PointsDeducted} pts: {ded.Criterion} ({ded.Reason})", Theme.Warning);
 
             var finalData = new
             {
@@ -893,6 +1051,7 @@ namespace vmsOpenAcars.Core.Flight
                 block_fuel = Math.Round(blockFuel, 0),
                 fuel_used = Math.Round(fuelUsed, 0),
                 landing_rate = (int)(TouchdownFpm ?? 0),
+                score = scoreResult.TotalScore,          // ← NUEVO
                 notes = $"vmsOpenAcars Report - Total: {totalFlightTimeMinutes} min, Flight: {actualFlightTimeMinutes} min, Dist: {totalDistanceNm:F1} NM"
             };
 

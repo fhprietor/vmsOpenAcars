@@ -783,6 +783,77 @@ namespace vmsOpenAcars.ViewModels
             }
         }
         /// <summary>
+        /// Llamado justo después de un login exitoso.
+        /// Busca PIREPs IN_PROGRESS con última actualización dentro de los últimos
+        /// 20 minutos y ofrece al usuario retomar el vuelo.
+        /// </summary>
+        private async Task CheckAndResumeFlight(Pilot pilot)
+        {
+            const int ResumeWindowMinutes = 20;
+
+            try
+            {
+                var activePireps = await _apiService.GetActivePireps();
+                if (!activePireps.Any()) return;
+
+                // Filtrar por ventana de 20 minutos usando updated_at (o created_at como fallback)
+                var resumable = activePireps
+                    .Where(p =>
+                    {
+                        var raw = !string.IsNullOrEmpty(p.UpdatedAt) ? p.UpdatedAt : p.CreatedAt;
+                        if (!DateTime.TryParse(raw, null,
+                            System.Globalization.DateTimeStyles.RoundtripKind, out var dt))
+                            return false;
+                        return (DateTime.UtcNow - dt.ToUniversalTime()).TotalMinutes <= ResumeWindowMinutes;
+                    })
+                    .ToList();
+
+                if (!resumable.Any()) return;
+
+                // Tomar el más reciente
+                var candidate = resumable
+                    .OrderByDescending(p => p.UpdatedAt ?? p.CreatedAt)
+                    .First();
+
+                // Obtener detalle completo del PIREP
+                var detail = await _apiService.GetPirepDetail(candidate.Id);
+                if (detail == null) detail = candidate; // fallback a datos del listado
+
+                var lastUpdate = !string.IsNullOrEmpty(detail.UpdatedAt) ? detail.UpdatedAt : detail.CreatedAt;
+                var minutesAgo = "";
+                if (DateTime.TryParse(lastUpdate, null,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var lastDt))
+                    minutesAgo = $"{(int)(DateTime.UtcNow - lastDt.ToUniversalTime()).TotalMinutes} min ago";
+
+                var message = $"🔄 ACTIVE FLIGHT FOUND\n\n" +
+                              $"Flight:       {detail.FlightNumber}\n" +
+                              $"Route:        {detail.Origin} → {detail.Destination}\n" +
+                              $"Aircraft:     {detail.AircraftType}\n" +
+                              $"Flight time:  {detail.FlightTime} min\n" +
+                              $"Last update:  {minutesAgo}\n\n" +
+                              $"Do you want to resume this flight?";
+
+                if (OnShowConfirmation == null) return;
+
+                var result = await OnShowConfirmation(message, "RESUME FLIGHT?", EcamDialogButtons.YesNo);
+
+                if (result == DialogResult.Yes)
+                {
+                    _flightManager.ResumeFlight(detail, pilot);
+                    UpdateFlightInfo();
+                    OnLog?.Invoke("✅ Flight resumed — polling and updates restarted.", Theme.Success);
+                }
+                else
+                {
+                    OnLog?.Invoke("ℹ️ Resume declined. You can start a new flight normally.", Theme.MainText);
+                }
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke($"⚠️ Could not check for resumable flights: {ex.Message}", Theme.Warning);
+            }
+        }
+        /// <summary>
         /// Autentica al piloto contra phpVMS usando la API Key configurada.
         /// Carga los datos del piloto, establece el aeropuerto asignado y
         /// actualiza el estado de validación de posición si el simulador está conectado.
@@ -817,7 +888,7 @@ namespace vmsOpenAcars.ViewModels
                         OnLog?.Invoke($"📏 Altitude: {_fsuipc.CurrentAltitudeFeet:F0} ft", Theme.MainText);
                         OnValidationStatusChanged?.Invoke(_flightManager.PositionValidationStatus);
                     }
-
+                    await CheckAndResumeFlight(pilot);
                     return true;
                 }
 
