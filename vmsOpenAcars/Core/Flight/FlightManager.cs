@@ -83,7 +83,36 @@ namespace vmsOpenAcars.Core.Flight
             get => _currentAirport;
             private set { _currentAirport = value; OnAirportChanged?.Invoke(value); }
         }
-
+        /// <summary>Distancia planificada en NM. Viene del plan SimBrief o del Flight phpVMS.</summary>
+        public double PlannedDistanceNm =>
+            _activePlan?.Distance > 0
+                ? _activePlan.Distance
+                : (_activePlan?.Distance ?? 0);
+        /// <summary>
+        /// Elevación del aeropuerto de referencia para la fase actual (ft MSL).
+        /// Origen en fases de salida, destino en fases de llegada.
+        /// </summary>
+        public double ReferenceAirportElevation
+        {
+            get
+            {
+                if (_activePlan == null) return 0;
+                switch (CurrentPhase)
+                {
+                    case FlightPhase.Descent:
+                    case FlightPhase.Approach:
+                    case FlightPhase.Landing:
+                    case FlightPhase.AfterLanding:
+                    case FlightPhase.TaxiIn:
+                    case FlightPhase.OnBlock:
+                    case FlightPhase.Arrived:
+                    case FlightPhase.Completed:
+                        return _activePlan.DestinationElevation;
+                    default:
+                        return _activePlan.OriginElevation;
+                }
+            }
+        }
         public double TotalDistanceKm => _totalDistanceKm;
         public double CurrentLat { get; private set; }
         public double CurrentLon { get; private set; }
@@ -96,6 +125,12 @@ namespace vmsOpenAcars.Core.Flight
         public double CurrentFuel { get; private set; }
         public bool IsOnGround { get; private set; }
         public string ActivePirepId { get; private set; } = "";
+        /// <summary>
+        /// Último RawTelemetryData recibido desde FsuipcService.
+        /// Disponible para que la UI pueda acceder a datos de motores
+        /// sin necesidad de suscribirse al evento.
+        /// </summary>
+        public RawTelemetryData LastRawData { get; private set; }
         public DateTime FlightStartTime { get; private set; }
         public Pilot ActivePilot => _activePilot;
         public SimbriefPlan ActivePlan => _activePlan;
@@ -478,7 +513,7 @@ namespace vmsOpenAcars.Core.Flight
             ActivePirepId = result.pirepId;
             if (!string.IsNullOrEmpty(ActivePirepId))
             {
-                _initialFuel = actualFuel;
+                _initialFuel = actualFuel * 0.453592;
                 _totalFuelUsed = 0;
                 _serverCreatedAt = result.serverCreatedAt;
                 _isTimerStarted = true;
@@ -924,12 +959,12 @@ namespace vmsOpenAcars.Core.Flight
         {
             if (data == null) return;
 
+            LastRawData = data;
             HasSimulatorData = true;
 
             CurrentAltitude = (int)data.AltitudeFeet;
             CurrentGroundSpeed = (int)data.GroundSpeedKt;
             CurrentVerticalSpeed = (int)data.VerticalSpeedFpm;
-            CurrentFuel = data.FuelLbs;
             IsOnGround = data.IsOnGround;
             CurrentLat = data.Latitude;
             CurrentLon = data.Longitude;
@@ -938,7 +973,9 @@ namespace vmsOpenAcars.Core.Flight
             CurrentIndicatedAirspeed = data.IndicatedAirspeedKt > 0
                                            ? (int)data.IndicatedAirspeedKt
                                            : (int)data.GroundSpeedKt;
-            CurrentFuelFlow = data.FuelFlow;
+            CurrentFuel = data.FuelLbs * 0.453592; ;
+            double flowFromEngines = data.FuelFlow_1 + data.FuelFlow_2;
+            CurrentFuelFlow = flowFromEngines > 0 ? flowFromEngines : (data.FuelFlow * 0.453592);
             CurrentTransponder = data.Transponder;
             AutopilotEngaged = data.AutopilotEngaged;
             SimTime = DateTime.UtcNow;

@@ -1,6 +1,4 @@
 ﻿// =============================================================================
-// vmsOpenAcars/Services/FsuipcService.cs
-// =============================================================================
 // Propósito : Gestión completa de la conexión FSUIPC con el simulador de vuelo.
 //             Lee offsets en bruto, los decodifica a unidades estándar y emite
 //             eventos a los consumidores (MainViewModel, FlightManager).
@@ -110,11 +108,40 @@ namespace vmsOpenAcars.Services
         /// <summary>0x2120 · FLOAT64 · EGT motor 2 en °C </summary>
         private readonly Offset<double> _eng2EgtOffset = new Offset<double>(0x2120);
 
-        // Fuel Flow — nuevos
+        // Fuel Flow — FLOAT64
         /// <summary>0x2018 · FLOAT64 · Fuel flow motor 1 en lbs/hr </summary>
         private readonly Offset<double> _eng1FuelFlowFloatOffset = new Offset<double>(0x2018);
         /// <summary>0x2118 · FLOAT64 · Fuel flow motor 2 en lbs/hr </summary>
         private readonly Offset<double> _eng2FuelFlowFloatOffset = new Offset<double>(0x2118);
+
+        // ---- Turboprop / Piston — bloque FLOAT64 (FSUIPC7/MSFS) ----
+        /// <summary>0x2008/0x2108 · FLOAT64 · RPM eje motor</summary>
+        private readonly Offset<double> _eng1RpmF64 = new Offset<double>(0x2008);
+        private readonly Offset<double> _eng2RpmF64 = new Offset<double>(0x2108);
+        /// <summary>0x2028/0x2128 · FLOAT64 · Throttle lever % (0–100)</summary>
+        private readonly Offset<double> _eng1ThrottleF64 = new Offset<double>(0x2028);
+        private readonly Offset<double> _eng2ThrottleF64 = new Offset<double>(0x2128);
+        /// <summary>0x2038/0x2138 · FLOAT64 · Torque ft·lb absoluto</summary>
+        private readonly Offset<double> _eng1TorqueF64 = new Offset<double>(0x2038);
+        private readonly Offset<double> _eng2TorqueF64 = new Offset<double>(0x2138);
+        /// <summary>0x2040/0x2140 · FLOAT64 · Prop RPM (hélice)</summary>
+        private readonly Offset<double> _eng1PropRpmF64 = new Offset<double>(0x2040);
+        private readonly Offset<double> _eng2PropRpmF64 = new Offset<double>(0x2140);
+        /// <summary>0x2068/0x2168 · FLOAT64 · Torque % (0–100)</summary>
+        private readonly Offset<double> _eng1TorquePctF64 = new Offset<double>(0x2068);
+        private readonly Offset<double> _eng2TorquePctF64 = new Offset<double>(0x2168);
+        /// <summary>0x2048/0x2148 · FLOAT64 · Manifold Absolute Pressure (inHg)</summary>
+        private readonly Offset<double> _eng1MapF64 = new Offset<double>(0x2048);
+        private readonly Offset<double> _eng2MapF64 = new Offset<double>(0x2148);
+        /// <summary>0x2060/0x2160 · FLOAT64 · Cylinder Head Temp (°C)</summary>
+        private readonly Offset<double> _eng1ChtF64 = new Offset<double>(0x2060);
+        private readonly Offset<double> _eng2ChtF64 = new Offset<double>(0x2160);
+        /// <summary>0x2050/0x2150 · FLOAT64 · Oil Temperature (°C)</summary>
+        private readonly Offset<double> _eng1OilTempF64 = new Offset<double>(0x2050);
+        private readonly Offset<double> _eng2OilTempF64 = new Offset<double>(0x2150);
+        /// <summary>0x2058/0x2158 · FLOAT64 · Oil Pressure (PSI)</summary>
+        private readonly Offset<double> _eng1OilPressF64 = new Offset<double>(0x2058);
+        private readonly Offset<double> _eng2OilPressF64 = new Offset<double>(0x2158);
 
         // ---- Motores (N2 y Fuel Flow específicos) ----
         /// <summary>0x08A8 · INT16 · N2 motor 1 (0-16384 = 0-100%)</summary>
@@ -229,12 +256,15 @@ namespace vmsOpenAcars.Services
         private DateTime _lastFlapsChangeTime = DateTime.MinValue;
         private const double FLAPS_DEBOUNCE_MS = 500;
         private const double FLAPS_HYSTERESIS = 1.0;
-            
+
         // -- Motores específicos --
         private double _eng1N2Percent;
         private double _eng2N2Percent;
         private int _eng1FuelFlowLbsHr;
         private int _eng2FuelFlowLbsHr;
+
+        // -- Categoría de planta motriz (detectada por título del avión) --
+        private AircraftCategory _currentEngineCategory = AircraftCategory.Unknown;
 
         // -- Debounce liftoff / touchdown --
         private int _groundConsecutiveCounter;
@@ -321,6 +351,7 @@ namespace vmsOpenAcars.Services
         public int CurrentEngineRpm => _engRpmOffset.Value;
         public EnginePower Engine1Power { get; private set; }
         public EnginePower Engine2Power { get; private set; }
+        public AircraftCategory EngineCategory => _currentEngineCategory;
 
         // ---- Aeronave ----
         public string AircraftTitle { get; private set; } = "Unknown";
@@ -459,11 +490,12 @@ namespace vmsOpenAcars.Services
         {
             // Decodificar luces desde _lightsOffset (0x0D0C)
             short lights = _lightsOffset.Value;
-            bool navLightOn = (lights & 0x01) != 0;      // Bit 0: NAV
-            bool beaconLightOn = (lights & 0x02) != 0;   // Bit 1: BEACON
-            bool landingLightOn = (lights & 0x04) != 0;  // Bit 2: LANDING
-            bool taxiLightOn = (lights & 0x08) != 0;     // Bit 3: TAXI
-            bool strobeLightOn = (lights & 0x10) != 0;   // Bit 4: STROBE
+            bool navLightOn = (lights & 0x01) != 0;
+            bool beaconLightOn = (lights & 0x02) != 0;
+            bool landingLightOn = (lights & 0x04) != 0;
+            bool taxiLightOn = (lights & 0x08) != 0;
+            bool strobeRaw = (lights & 0x10) != 0;
+            bool strobeLightOn = strobeRaw && (beaconLightOn || navLightOn);
 
             // Decodificar autobrake
             string autobrakeSetting = AutobrakeLabel;
@@ -471,24 +503,71 @@ namespace vmsOpenAcars.Services
             // Decodificar parking brake
             bool parkingBrakeOn = _parkingBrakeOffset.Value != 0;
 
-            // Decodificar si motores están funcionando
-            bool enginesRunning = (Engine1Power.Value > 5 || Engine2Power.Value > 5);
+            // ── Actualizar categoría de planta motriz por título ──────────────
+            var detectedCat = DetectEngineCategoryFromTitle();
+            if (detectedCat != AircraftCategory.Unknown)
+                _currentEngineCategory = detectedCat;
 
-            // Calcular N1 (ya existente)
-            float n1_1 = (float)(_eng1N1Offset.Value);
-            float n1_2 = (float)(_eng2N1Offset.Value);
-
-            // N2 — desde FLOAT64 real
+            // ── Leer valores crudos FLOAT64 ───────────────────────────────────
+            float n1_1 = (float)_eng1N1Offset.Value;
+            float n1_2 = (float)_eng2N1Offset.Value;
             float n2_1 = (float)_eng1N2FloatOffset.Value;
             float n2_2 = (float)_eng2N2FloatOffset.Value;
-
-            // EGT — desde FLOAT64 real (°C directos)
             float egt_1 = (float)_eng1EgtOffset.Value;
             float egt_2 = (float)_eng2EgtOffset.Value;
-
-            // Fuel Flow por motor: lbs/hr → kg/hr
             float ff_1 = (float)(_eng1FuelFlowFloatOffset.Value / 2.20462);
             float ff_2 = (float)(_eng2FuelFlowFloatOffset.Value / 2.20462);
+
+            float rpm_1 = (float)_eng1RpmF64.Value;
+            float rpm_2 = (float)_eng2RpmF64.Value;
+            float torqPct_1 = (float)_eng1TorquePctF64.Value;
+            float torqPct_2 = (float)_eng2TorquePctF64.Value;
+            float propRpm_1 = (float)_eng1PropRpmF64.Value;
+            float propRpm_2 = (float)_eng2PropRpmF64.Value;
+            float map_1 = (float)_eng1MapF64.Value;
+            float map_2 = (float)_eng2MapF64.Value;
+            float cht_1 = (float)_eng1ChtF64.Value;
+            float cht_2 = (float)_eng2ChtF64.Value;
+            float oilT_1 = (float)_eng1OilTempF64.Value;
+            float oilT_2 = (float)_eng2OilTempF64.Value;
+            float oilP_1 = (float)_eng1OilPressF64.Value;
+            float oilP_2 = (float)_eng2OilPressF64.Value;
+            float throt_1 = (float)_eng1ThrottleF64.Value;
+            float throt_2 = (float)_eng2ThrottleF64.Value;
+
+            // ── ¿Motores encendidos? — umbral por categoría ───────────────────
+            bool eng1Running, eng2Running;
+            switch (_currentEngineCategory)
+            {
+                case AircraftCategory.Piston:
+                    eng1Running = rpm_1 > 400;
+                    eng2Running = rpm_2 > 400;
+                    break;
+                case AircraftCategory.Turboprop:
+                    eng1Running = n1_1 > 10 || torqPct_1 > 5;
+                    eng2Running = n1_2 > 10 || torqPct_2 > 5;
+                    break;
+                default: // Jet / Unknown
+                    eng1Running = n1_1 > 15;
+                    eng2Running = n1_2 > 15;
+                    break;
+            }
+            bool enginesRunning = eng1Running || eng2Running;
+
+            // ── Potencia de despegue aplicada ─────────────────────────────────
+            bool takeoffPowerSet;
+            switch (_currentEngineCategory)
+            {
+                case AircraftCategory.Piston:
+                    takeoffPowerSet = throt_1 > 80 || throt_2 > 80;
+                    break;
+                case AircraftCategory.Turboprop:
+                    takeoffPowerSet = torqPct_1 > 60 || torqPct_2 > 60;
+                    break;
+                default: // Jet
+                    takeoffPowerSet = n1_1 > 70 || n1_2 > 70;
+                    break;
+            }
 
             RawDataUpdated?.Invoke(this, new RawTelemetryData
             {
@@ -509,13 +588,13 @@ namespace vmsOpenAcars.Services
                 PitchDeg = CurrentPitch,
                 BankDeg = CurrentBank,
                 SpoilersDeployed = CurrentSpoilersDeployed,
-                FlapsPercent = FlapsPercent,           // Porcentaje simple
-                FlapsLabel = this.FlapsLabel,               // Label decodificado (ej. "1+F", "15", "30°")
+                FlapsPercent = FlapsPercent,
+                FlapsLabel = this.FlapsLabel,
                 FlapsInTransit = FlapsInTransit,
                 GearDown = CurrentGearPosition == 1,
                 Order = _positionOrder,
 
-                // NUEVOS DATOS
+                // Frenos, motores, autobrake
                 ParkingBrakeOn = parkingBrakeOn,
                 EnginesRunning = enginesRunning,
                 AutobrakeSetting = autobrakeSetting,
@@ -527,7 +606,13 @@ namespace vmsOpenAcars.Services
                 TaxiLightOn = taxiLightOn,
                 StrobeLightOn = strobeLightOn,
 
-                // Motores
+                // Categoría y estado de motores
+                EngineCategory = _currentEngineCategory,
+                Eng1Running = eng1Running,
+                Eng2Running = eng2Running,
+                TakeoffPowerSet = takeoffPowerSet,
+
+                // Jet (N1, N2, EGT, FF)
                 N1_1 = n1_1,
                 N1_2 = n1_2,
                 N2_1 = n2_1,
@@ -535,7 +620,27 @@ namespace vmsOpenAcars.Services
                 EGT_1 = egt_1,
                 EGT_2 = egt_2,
                 FuelFlow_1 = ff_1,
-                FuelFlow_2 = ff_2
+                FuelFlow_2 = ff_2,
+
+                // Turboprop
+                TorquePct_1 = torqPct_1,
+                TorquePct_2 = torqPct_2,
+                PropRpm_1 = propRpm_1,
+                PropRpm_2 = propRpm_2,
+
+                // Piston
+                Rpm_1 = rpm_1,
+                Rpm_2 = rpm_2,
+                Map_1 = map_1,
+                Map_2 = map_2,
+                Cht_1 = cht_1,
+                Cht_2 = cht_2,
+                OilTemp_1 = oilT_1,
+                OilTemp_2 = oilT_2,
+                OilPress_1 = oilP_1,
+                OilPress_2 = oilP_2,
+                Throttle_1 = throt_1,
+                Throttle_2 = throt_2,
             });
         }
 
@@ -771,7 +876,7 @@ namespace vmsOpenAcars.Services
             return $"{FlapsPercent:F0}%";
         }
 
-        
+
 
         private void ReadAutobrake()
         {
@@ -1049,9 +1154,20 @@ namespace vmsOpenAcars.Services
 
         private void DetectEnginesChange()
         {
-            double n1 = Math.Max(_eng1N1Offset.Value, _eng2N1Offset.Value);
-            int rpm = _engRpmOffset.Value;
-            bool running = n1 > 0.05 || rpm > 800;
+            bool running;
+            switch (_currentEngineCategory)
+            {
+                case AircraftCategory.Piston:
+                    running = _eng1RpmF64.Value > 400 || _eng2RpmF64.Value > 400;
+                    break;
+                case AircraftCategory.Turboprop:
+                    running = _eng1N1Offset.Value > 10 || _eng1TorquePctF64.Value > 5 ||
+                              _eng2N1Offset.Value > 10 || _eng2TorquePctF64.Value > 5;
+                    break;
+                default: // Jet / Unknown
+                    running = _eng1N1Offset.Value > 15 || _eng2N1Offset.Value > 15;
+                    break;
+            }
             if (running == (_lastEngineRpm > 0)) return;
             EnginesChanged?.Invoke(running);
             _lastEngineRpm = running ? 1 : 0;
@@ -1158,8 +1274,8 @@ namespace vmsOpenAcars.Services
                 BrakeRight = _brakeRightOffset.Value / 32767.0,
 
 
-            // Meteorología convertida
-            OatCelsius = CurrentOatCelsius,
+                // Meteorología convertida
+                OatCelsius = CurrentOatCelsius,
                 WindSpeedKt = CurrentWindSpeedKt,
                 WindDirDeg = CurrentWindDirDeg  // ← grados reales
             });
@@ -1375,6 +1491,52 @@ namespace vmsOpenAcars.Services
 
         public enum AircraftCategory { Unknown, Jet, Turboprop, Piston, Helicopter }
 
+        /// <summary>
+        /// Detecta la categoría de planta motriz por el título del avión en el simulador.
+        /// Se llama en cada ciclo de EmitRawData para actualizar _currentEngineCategory.
+        /// Tiene prioridad sobre GetAircraftCategory() (basado en ICAO) porque el título
+        /// del simulador es más específico para modelos addon.
+        /// </summary>
+        private AircraftCategory DetectEngineCategoryFromTitle()
+        {
+            string title = _aircraftTitleOffset.Value?.ToUpperInvariant() ?? "";
+            if (string.IsNullOrEmpty(title)) return AircraftCategory.Unknown;
+
+            // Pistón
+            if (title.Contains("BARON") || title.Contains("BE58") || title.Contains("BE55") ||
+                title.Contains("BONANZA") || title.Contains("BE36") || title.Contains("BE33") ||
+                title.Contains("CESSNA 172") || title.Contains("C172") ||
+                title.Contains("CESSNA 182") || title.Contains("C182") ||
+                title.Contains("PIPER") || title.Contains("PA28") || title.Contains("PA34") ||
+                title.Contains("CESSNA 206") || title.Contains("C206") ||
+                title.Contains("SEMINOLE") || title.Contains("PA44"))
+                return AircraftCategory.Piston;
+
+            // Turboprop
+            if (title.Contains("ATR") || title.Contains("DASH 8") || title.Contains("DHC") ||
+                title.Contains("KING AIR") || title.Contains("PC-12") || title.Contains("PC12") ||
+                title.Contains("SAAB") || title.Contains("EMB 120") || title.Contains("CARAVAN") ||
+                title.Contains("TWIN OTTER") || title.Contains("C208") ||
+                title.Contains("Q400") || title.Contains("DASH8") || title.Contains("DASH-8") ||
+                title.Contains("SF340") || title.Contains("SAAB 340"))
+                return AircraftCategory.Turboprop;
+
+            // Jet — comercial y GA jet
+            if (title.Contains("737") || title.Contains("747") || title.Contains("757") ||
+                title.Contains("767") || title.Contains("777") || title.Contains("787") ||
+                title.Contains("A318") || title.Contains("A319") || title.Contains("A320") ||
+                title.Contains("A321") || title.Contains("A330") || title.Contains("A340") ||
+                title.Contains("A350") || title.Contains("A380") ||
+                title.Contains("CRJ") || title.Contains("E170") || title.Contains("E175") ||
+                title.Contains("E190") || title.Contains("E195") || title.Contains("ERJ") ||
+                title.Contains("PMDG") || title.Contains("FENIX") || title.Contains("TOLISS") ||
+                title.Contains("FLYBYWIRE") || title.Contains("FBW") || title.Contains("IFLY") ||
+                title.Contains("CITATION") || title.Contains("GULFSTREAM") || title.Contains("LEARJET"))
+                return AircraftCategory.Jet;
+
+            return AircraftCategory.Unknown;
+        }
+
         public AircraftCategory GetAircraftCategory()
         {
             if (string.IsNullOrEmpty(AircraftIcao)) return AircraftCategory.Unknown;
@@ -1501,6 +1663,32 @@ namespace vmsOpenAcars.Services
         public float EGT_2 { get; set; }
         public float FuelFlow_1 { get; set; }
         public float FuelFlow_2 { get; set; }
+
+        // Identificación de planta motriz
+        public FsuipcService.AircraftCategory EngineCategory { get; set; }
+        public bool Eng1Running { get; set; }
+        public bool Eng2Running { get; set; }
+        public bool TakeoffPowerSet { get; set; }
+
+        // Turboprop
+        public float TorquePct_1 { get; set; }
+        public float TorquePct_2 { get; set; }
+        public float PropRpm_1 { get; set; }
+        public float PropRpm_2 { get; set; }
+
+        // Piston
+        public float Rpm_1 { get; set; }
+        public float Rpm_2 { get; set; }
+        public float Map_1 { get; set; }    // Manifold Absolute Pressure (inHg)
+        public float Map_2 { get; set; }
+        public float Cht_1 { get; set; }    // Cylinder Head Temp (°C)
+        public float Cht_2 { get; set; }
+        public float OilTemp_1 { get; set; }
+        public float OilTemp_2 { get; set; }
+        public float OilPress_1 { get; set; }
+        public float OilPress_2 { get; set; }
+        public float Throttle_1 { get; set; }
+        public float Throttle_2 { get; set; }
     }
 
     public enum ConnectionState { Disconnected, Connected }

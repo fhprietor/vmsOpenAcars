@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
+using vmsOpenAcars.Services;
 
 namespace vmsOpenAcars.Controls
 {
@@ -24,18 +25,107 @@ namespace vmsOpenAcars.Controls
             }
         }
 
+        private FsuipcService.AircraftCategory _lastCategory = FsuipcService.AircraftCategory.Unknown;
+
+        /// <summary>
+        /// Actualiza los valores del panel adaptando el layout y las etiquetas
+        /// según la categoría de planta motriz detectada en tiempo de vuelo.
+        /// Llamar en cada ciclo de UI desde MainForm.
+        /// </summary>
+        public void UpdateEngines(RawTelemetryData data)
+        {
+            if (data == null) return;
+
+            // Reconstruir layout si la categoría cambió
+            if (data.EngineCategory != _lastCategory)
+            {
+                _lastCategory = data.EngineCategory;
+                RebuildLayout();
+            }
+
+            for (int i = 0; i < _engineCount; i++)
+            {
+                bool isEng1 = (i == 0);
+                switch (data.EngineCategory)
+                {
+                    case FsuipcService.AircraftCategory.Piston:
+                        SetPistonRow(i,
+                            rpm: isEng1 ? data.Rpm_1 : data.Rpm_2,
+                            map: isEng1 ? data.Map_1 : data.Map_2,
+                            cht: isEng1 ? data.Cht_1 : data.Cht_2,
+                            oilTemp: isEng1 ? data.OilTemp_1 : data.OilTemp_2,
+                            oilPress: isEng1 ? data.OilPress_1 : data.OilPress_2,
+                            ff: isEng1 ? data.FuelFlow_1 : data.FuelFlow_2,
+                            running: isEng1 ? data.Eng1Running : data.Eng2Running);
+                        break;
+
+                    case FsuipcService.AircraftCategory.Turboprop:
+                        SetTurbopropRow(i,
+                            torqPct: isEng1 ? data.TorquePct_1 : data.TorquePct_2,
+                            itt: isEng1 ? data.EGT_1 : data.EGT_2,
+                            propRpm: isEng1 ? data.PropRpm_1 : data.PropRpm_2,
+                            n1: isEng1 ? data.N1_1 : data.N1_2,
+                            ff: isEng1 ? data.FuelFlow_1 : data.FuelFlow_2,
+                            running: isEng1 ? data.Eng1Running : data.Eng2Running);
+                        break;
+
+                    default: // Jet / Unknown
+                        SetJetRow(i,
+                            n1: isEng1 ? data.N1_1 : data.N1_2,
+                            n2: isEng1 ? data.N2_1 : data.N2_2,
+                            egt: isEng1 ? data.EGT_1 : data.EGT_2,
+                            ff: isEng1 ? data.FuelFlow_1 : data.FuelFlow_2,
+                            running: isEng1 ? data.Eng1Running : data.Eng2Running);
+                        break;
+                }
+            }
+        }
+
+        // ── Mantener SetEngineParameters para compatibilidad con código existente ──
+        [Obsolete("Use UpdateEngines(RawTelemetryData) instead.")]
         public void SetEngineParameters(int engine, float n1, float n2, float egt, float fuelFlow)
         {
             if (engine >= _engineCount) return;
+            if (_n1Labels != null && engine < _n1Labels.Length) _n1Labels[engine].Text = $"N1: {n1:F0}%";
+            if (_n2Labels != null && engine < _n2Labels.Length) _n2Labels[engine].Text = $"N2: {n2:F0}%";
+            if (_egtLabels != null && engine < _egtLabels.Length) _egtLabels[engine].Text = $"EGT: {egt:F0}°C";
+            if (_ffLabels != null && engine < _ffLabels.Length) _ffLabels[engine].Text = $"FF: {fuelFlow:F0} kg/h";
+        }
 
-            if (_n1Labels != null && engine < _n1Labels.Length)
-                _n1Labels[engine].Text = $"N1: {n1:F0}%";
-            if (_n2Labels != null && engine < _n2Labels.Length)
-                _n2Labels[engine].Text = $"N2: {n2:F0}%";
-            if (_egtLabels != null && engine < _egtLabels.Length)
-                _egtLabels[engine].Text = $"EGT: {egt:F0}°C";
-            if (_ffLabels != null && engine < _ffLabels.Length)
-                _ffLabels[engine].Text = $"FF: {fuelFlow:F0} kg/h";
+        private void SetJetRow(int eng, float n1, float n2, float egt, float ff, bool running)
+        {
+            var c = running ? Color.LimeGreen : Color.Gray;
+            var ct = running ? Color.Orange : Color.Gray;
+            var cf = running ? Color.Yellow : Color.Gray;
+            if (_n1Labels != null && eng < _n1Labels.Length) { _n1Labels[eng].Text = $"N1:  {n1:F1}%"; _n1Labels[eng].ForeColor = c; }
+            if (_n2Labels != null && eng < _n2Labels.Length) { _n2Labels[eng].Text = $"N2:  {n2:F1}%"; _n2Labels[eng].ForeColor = c; }
+            if (_egtLabels != null && eng < _egtLabels.Length) { _egtLabels[eng].Text = $"EGT: {egt:F0}°C"; _egtLabels[eng].ForeColor = ct; }
+            if (_ffLabels != null && eng < _ffLabels.Length) { _ffLabels[eng].Text = $"FF:  {ff:F0} kg/h"; _ffLabels[eng].ForeColor = cf; }
+            if (_engLabels != null && eng < _engLabels.Length) _engLabels[eng].ForeColor = running ? Color.Cyan : Color.DimGray;
+        }
+
+        private void SetTurbopropRow(int eng, float torqPct, float itt, float propRpm, float n1, float ff, bool running)
+        {
+            var c = running ? Color.Cyan : Color.Gray;
+            var ct = running ? Color.Orange : Color.Gray;
+            var cf = running ? Color.Yellow : Color.Gray;
+            if (_n1Labels != null && eng < _n1Labels.Length) { _n1Labels[eng].Text = $"TRQ: {torqPct:F1}%"; _n1Labels[eng].ForeColor = c; }
+            if (_n2Labels != null && eng < _n2Labels.Length) { _n2Labels[eng].Text = $"N1:  {n1:F1}%"; _n2Labels[eng].ForeColor = c; }
+            if (_egtLabels != null && eng < _egtLabels.Length) { _egtLabels[eng].Text = $"ITT: {itt:F0}°C"; _egtLabels[eng].ForeColor = ct; }
+            if (_ffLabels != null && eng < _ffLabels.Length) { _ffLabels[eng].Text = $"PROP {propRpm:F0} RPM  FF {ff:F0} kg/h"; _ffLabels[eng].ForeColor = cf; }
+            if (_engLabels != null && eng < _engLabels.Length) _engLabels[eng].ForeColor = running ? Color.Cyan : Color.DimGray;
+        }
+
+        private void SetPistonRow(int eng, float rpm, float map, float cht, float oilTemp, float oilPress, float ff, bool running)
+        {
+            var c = running ? Color.Yellow : Color.Gray;
+            var ct = running ? Color.OrangeRed : Color.Gray;
+            var cf = running ? Color.GreenYellow : Color.Gray;
+            if (_n1Labels != null && eng < _n1Labels.Length) { _n1Labels[eng].Text = $"RPM: {rpm:F0}"; _n1Labels[eng].ForeColor = c; }
+            if (_n2Labels != null && eng < _n2Labels.Length) { _n2Labels[eng].Text = $"MAP: {map:F1}\" Hg"; _n2Labels[eng].ForeColor = c; }
+            if (_egtLabels != null && eng < _egtLabels.Length) { _egtLabels[eng].Text = $"CHT: {cht:F0}°C"; _egtLabels[eng].ForeColor = ct; }
+            if (_ffLabels != null && eng < _ffLabels.Length) { _ffLabels[eng].Text = $"OIL {oilTemp:F0}°/{oilPress:F0}psi  FF {ff:F1}"; _ffLabels[eng].ForeColor = cf; }
+            if (_engLabels != null && eng < _engLabels.Length) _engLabels[eng].ForeColor = running ? Color.Yellow : Color.DimGray;
         }
 
         public EngineMonitorPanel()

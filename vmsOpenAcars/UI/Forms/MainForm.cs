@@ -1259,7 +1259,9 @@ namespace vmsOpenAcars.UI.Forms
                 // ===== PROGRESO =====
                 if (!string.IsNullOrEmpty(fm.ActivePirepId) && plan != null)
                 {
-                    double totalDistanceNm = plan.Distance;
+                    double totalDistanceNm = plan.Distance > 0
+                        ? plan.Distance
+                        : (fm.LastRawData != null ? fm.PlannedDistanceNm : 0);
                     double flownDistanceNm = fm.TotalDistanceKm * 0.539957;
                     double remainingNm = Math.Max(0, totalDistanceNm - flownDistanceNm);
 
@@ -1291,23 +1293,44 @@ namespace vmsOpenAcars.UI.Forms
                 }
 
                 // ===== FUEL =====
-                double fuelUsed = Math.Max(0, fm.InitialFuel - fm.CurrentFuel);
-                if (_lblFuelInit != null) _lblFuelInit.Text = $"INI: {fm.InitialFuel:F0} kg";
+                string fuelUnit = fm.ActivePlan?.Units ?? "kg";
+                double convFactor = fuelUnit == "lbs" ? 2.20462 : 1.0;   // CurrentFuel ya en kg
+
+                double fuelInit = fm.InitialFuel * convFactor;
+                double fuelCurrent = fm.CurrentFuel * convFactor;
+                double fuelUsed = Math.Max(0, fuelInit - fuelCurrent);
+                double fuelFlow = fm.CurrentFuelFlow * convFactor;      // CurrentFuelFlow ya en kg/h
+
+                if (_lblFuelInit != null) _lblFuelInit.Text = $"INI: {fuelInit:F0} {fuelUnit}";
                 if (_lblFuelCurrent != null)
                 {
-                    _lblFuelCurrent.Text = $"ACT: {fm.CurrentFuel:F0} kg";
-                    if (fm.CurrentFuel < 500)
-                        _lblFuelCurrent.ForeColor = Color.Red;
-                    else if (fm.CurrentFuel < 1000)
-                        _lblFuelCurrent.ForeColor = Color.Orange;
-                    else
-                        _lblFuelCurrent.ForeColor = Color.LightGreen;
+                    _lblFuelCurrent.Text = $"ACT: {fuelCurrent:F0} {fuelUnit}";
+                    // umbrales en kg internamente
+                    if (fm.CurrentFuel < 500) _lblFuelCurrent.ForeColor = Color.Red;
+                    else if (fm.CurrentFuel < 1000) _lblFuelCurrent.ForeColor = Color.Orange;
+                    else _lblFuelCurrent.ForeColor = Color.LightGreen;
                 }
-                if (_lblFuelUsed != null) _lblFuelUsed.Text = $"USO: {fuelUsed:F0} kg / FLOW: {fm.CurrentFuelFlow:F0} kg/h";
-
+                if (_lblFuelUsed != null)
+                    _lblFuelUsed.Text = $"USO: {fuelUsed:F0} {fuelUnit} / FLOW: {fuelFlow:F0} {fuelUnit}/h";
                 // ===== ALTITUD =====
                 if (_lblAltitudeVal != null) _lblAltitudeVal.Text = $"ALT: {fm.CurrentAltitude} ft";
-                if (_lblAglVal != null) _lblAglVal.Text = $"AGL: {fm.RadarAltitude:F0} ft";
+                if (_lblAglVal != null)
+                {
+                    // Radar altímetro real si está disponible (en vuelo y > 0)
+                    double radarFt = fm.RadarAltitude;
+                    if (!fm.IsOnGround && radarFt > 10 && radarFt < 2500)
+                    {
+                        // En aproximación/aterrizaje: usar radar (preciso)
+                        _lblAglVal.Text = $"AGL: {radarFt:F0} ft ▼";
+                    }
+                    else
+                    {
+                        // Crucero o sin dato radar: MSL − elevación aeropuerto de referencia
+                        double refElev = fm.ReferenceAirportElevation;  // ← nuevo getter
+                        double aglCalc = Math.Max(0, fm.CurrentAltitude - refElev);
+                        _lblAglVal.Text = $"AGL: {aglCalc:F0} ft";
+                    }
+                }
 
                 // ===== SISTEMAS =====
                 if (_lblGear != null)
@@ -1355,10 +1378,9 @@ namespace vmsOpenAcars.UI.Forms
                 }
 
                 // ===== MOTORES =====
-                if (_engineMonitorPanel != null)
+                if (_engineMonitorPanel != null && fm.LastRawData != null)
                 {
-                    _engineMonitorPanel.SetEngineParameters(0, fm.N1_1, fm.N2_1, fm.EGT_1, fm.FuelFlow_1);
-                    _engineMonitorPanel.SetEngineParameters(1, fm.N1_2, fm.N2_2, fm.EGT_2, fm.FuelFlow_2);
+                    _engineMonitorPanel.UpdateEngines(fm.LastRawData);
                 }
             }
             catch (Exception ex)
