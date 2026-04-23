@@ -24,7 +24,8 @@ namespace vmsOpenAcars.Helpers
         public static bool ReportEngineChanges => GetBool("report_engine_changes", true);
 
         // Fuel tolerances
-        public static double FuelTolerancePercent => GetDouble("fuel_tolerance_percent", 0.10);
+        /// <summary>Tolerance as integer percentage 0–100 (e.g. 10 = 10%). App.config key: fuel_tolerance_percent.</summary>
+        public static double FuelTolerancePercent => GetDouble("fuel_tolerance_percent", 10.0);
         public static double FuelToleranceAbsolute => GetDouble("fuel_tolerance_absolute", 50);
 
         private static int GetInt(string key, int defaultValue)
@@ -46,7 +47,10 @@ namespace vmsOpenAcars.Helpers
         private static double GetDouble(string key, double defaultValue)
         {
             string value = ConfigurationManager.AppSettings[key];
-            if (double.TryParse(value, out double result))
+            if (double.TryParse(value,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out double result))
                 return result;
             return defaultValue;
         }

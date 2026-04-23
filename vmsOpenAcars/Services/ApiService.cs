@@ -90,7 +90,7 @@ namespace vmsOpenAcars.Services
                                 if (flightData == null) continue;
 
                                 // Distancia en millas náuticas
-                                int nmDistance = flightData["distance"]?["nmi"]?.Value<int?>() ?? 0;
+                                double nmDistance = flightData["distance"]?["nmi"]?.Value<double?>() ?? 0;
 
                                 // Tipos de aeronave permitidos
                                 var allowedTypes = new List<string>();

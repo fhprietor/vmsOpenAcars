@@ -84,7 +84,6 @@ namespace vmsOpenAcars.Services
 
         // ---- Combustible ----
         private readonly Offset<int> _fuelWeightOffset = new Offset<int>(0x126C);
-        private readonly Offset<int> _fuelFlowOffset = new Offset<int>(0x0B54);
 
         // ---- Motores (FLOAT64, los más precisos para jets/turboprops) ----
         /// <summary>0x2000 · FLOAT64 · N1 motor 1 en % (0.0–100.0)</summary>
@@ -95,24 +94,6 @@ namespace vmsOpenAcars.Services
         private readonly Offset<double> _eng1ReverserOffset = new Offset<double>(0x207C);
         /// <summary>0x217C · FLOAT64 · reversor motor 2 (0.0–1.0)</summary>
         private readonly Offset<double> _eng2ReverserOffset = new Offset<double>(0x217C);
-
-        // N2
-        /// <summary>0x2030 · FLOAT64 · N2 motor 1 en % </summary>
-        private readonly Offset<double> _eng1N2FloatOffset = new Offset<double>(0x2030);
-        /// <summary>0x2130 · FLOAT64 · N2 motor 2 en % </summary>
-        private readonly Offset<double> _eng2N2FloatOffset = new Offset<double>(0x2130);
-
-        // EGT — nuevos
-        /// <summary>0x2020 · FLOAT64 · EGT motor 1 en °C </summary>
-        private readonly Offset<double> _eng1EgtOffset = new Offset<double>(0x2020);
-        /// <summary>0x2120 · FLOAT64 · EGT motor 2 en °C </summary>
-        private readonly Offset<double> _eng2EgtOffset = new Offset<double>(0x2120);
-
-        // Fuel Flow — FLOAT64
-        /// <summary>0x2018 · FLOAT64 · Fuel flow motor 1 en lbs/hr </summary>
-        private readonly Offset<double> _eng1FuelFlowFloatOffset = new Offset<double>(0x2018);
-        /// <summary>0x2118 · FLOAT64 · Fuel flow motor 2 en lbs/hr </summary>
-        private readonly Offset<double> _eng2FuelFlowFloatOffset = new Offset<double>(0x2118);
 
         // ---- Turboprop / Piston — bloque FLOAT64 (FSUIPC7/MSFS) ----
         /// <summary>0x2008/0x2108 · FLOAT64 · RPM eje motor</summary>
@@ -142,18 +123,6 @@ namespace vmsOpenAcars.Services
         /// <summary>0x2058/0x2158 · FLOAT64 · Oil Pressure (PSI)</summary>
         private readonly Offset<double> _eng1OilPressF64 = new Offset<double>(0x2058);
         private readonly Offset<double> _eng2OilPressF64 = new Offset<double>(0x2158);
-
-        // ---- Motores (N2 y Fuel Flow específicos) ----
-        /// <summary>0x08A8 · INT16 · N2 motor 1 (0-16384 = 0-100%)</summary>
-        private readonly Offset<short> _eng1N2Offset = new Offset<short>(0x08A8);
-        /// <summary>0x0940 · INT16 · N2 motor 2 (0-16384 = 0-100%)</summary>
-        private readonly Offset<short> _eng2N2Offset = new Offset<short>(0x0940);
-
-        // ---- Fuel Flow específico por motor ----
-        /// <summary>0x0898 · INT32 · Fuel Flow motor 1 (lb/hr)</summary>
-        private readonly Offset<int> _eng1FuelFlowOffset = new Offset<int>(0x0898);
-        /// <summary>0x0930 · INT32 · Fuel Flow motor 2 (lb/hr)</summary>
-        private readonly Offset<int> _eng2FuelFlowOffset = new Offset<int>(0x0930);
 
         // ---- Motores INT16 (pistón / turboprop, fallback) ----
         /// <summary>0x0898 · INT16 · N1/RPM motor 1 (0–16384 = 0–100%)</summary>
@@ -257,12 +226,6 @@ namespace vmsOpenAcars.Services
         private const double FLAPS_DEBOUNCE_MS = 500;
         private const double FLAPS_HYSTERESIS = 1.0;
 
-        // -- Motores específicos --
-        private double _eng1N2Percent;
-        private double _eng2N2Percent;
-        private int _eng1FuelFlowLbsHr;
-        private int _eng2FuelFlowLbsHr;
-
         // -- Categoría de planta motriz (detectada por título del avión) --
         private AircraftCategory _currentEngineCategory = AircraftCategory.Unknown;
 
@@ -316,8 +279,6 @@ namespace vmsOpenAcars.Services
 
         // ---- Combustible ----
         public double CurrentFuelLbs { get; private set; }
-        public double CurrentFuelKg => CurrentFuelLbs * 0.453592;
-        public double CurrentFuelFlowLbsHr { get; private set; }
 
         // ---- Controles ----
         public int CurrentGearPosition { get; private set; }
@@ -347,8 +308,6 @@ namespace vmsOpenAcars.Services
         public AutobrakeMode AutobrakeMode { get; private set; } = AutobrakeMode.Unknown;
 
         // ---- Motores ----
-        public double CurrentN1 => _eng1N1Offset.Value;
-        public int CurrentEngineRpm => _engRpmOffset.Value;
         public EnginePower Engine1Power { get; private set; }
         public EnginePower Engine2Power { get; private set; }
         public AircraftCategory EngineCategory => _currentEngineCategory;
@@ -486,22 +445,35 @@ namespace vmsOpenAcars.Services
             }
         }
 
+
         private void EmitRawData()
         {
-            // Decodificar luces desde _lightsOffset (0x0D0C)
+            // ── Luces (0x0D0C) ────────────────────────────────────────────────
             short lights = _lightsOffset.Value;
-            bool navLightOn = (lights & 0x01) != 0;
-            bool beaconLightOn = (lights & 0x02) != 0;
-            bool landingLightOn = (lights & 0x04) != 0;
-            bool taxiLightOn = (lights & 0x08) != 0;
-            bool strobeRaw = (lights & 0x10) != 0;
+            bool navLightOn = (lights & 0x01) != 0;  // bit 0: NAV
+            bool beaconLightOn = (lights & 0x02) != 0; // bit 1: BEACON
+            bool landingLightOn = (lights & 0x04) != 0;// bit 2: LANDING
+            bool taxiLightOn = (lights & 0x08) != 0;  // bit 3: TAXI
+            bool strobeRaw = (lights & 0x10) != 0;  // bit 4: STROBE
+            bool seatBeltSign = (lights & 0x20) != 0;  // bit 5: SEAT BELT
+            // B737/B38M: switch NAV+STROBE combinado → strobe real solo si beacon ON
             bool strobeLightOn = strobeRaw && (beaconLightOn || navLightOn);
 
-            // Decodificar autobrake
-            string autobrakeSetting = AutobrakeLabel;
+            // ── Autopilot (0x07BC) — bitfield ─────────────────────────────────
+            short apBits = _autopilotOffset.Value;
+            bool apMaster = (apBits & 0x01) != 0;  // bit 0: master AP
+            bool apLnav = (apBits & 0x04) != 0;  // bit 2: LNAV
+            bool apVnav = (apBits & 0x08) != 0;  // bit 3: VNAV
+            bool apLoc = (apBits & 0x10) != 0;  // bit 4: LOC
+            bool apGs = (apBits & 0x20) != 0;  // bit 5: GS
 
-            // Decodificar parking brake
-            bool parkingBrakeOn = _parkingBrakeOffset.Value != 0;
+            string apNavMode = apGs ? "ILS" : apLoc ? "LOC" : apLnav ? "LNAV" : "HDG";
+            string apVertMode = apGs ? "GS" : apVnav ? "VNAV" : "ALT";
+
+            // ── Autobrake y parking brake ─────────────────────────────────────
+            string autobrakeSetting = AutobrakeLabel;
+            // Umbral 60% (9830/16383) para filtrar ruido analógico de X-Plane
+            bool parkingBrakeOn = _parkingBrakeOffset.Value > ParkingBrakeThreshold;
 
             // ── Actualizar categoría de planta motriz por título ──────────────
             var detectedCat = DetectEngineCategoryFromTitle();
@@ -511,12 +483,6 @@ namespace vmsOpenAcars.Services
             // ── Leer valores crudos FLOAT64 ───────────────────────────────────
             float n1_1 = (float)_eng1N1Offset.Value;
             float n1_2 = (float)_eng2N1Offset.Value;
-            float n2_1 = (float)_eng1N2FloatOffset.Value;
-            float n2_2 = (float)_eng2N2FloatOffset.Value;
-            float egt_1 = (float)_eng1EgtOffset.Value;
-            float egt_2 = (float)_eng2EgtOffset.Value;
-            float ff_1 = (float)(_eng1FuelFlowFloatOffset.Value / 2.20462);
-            float ff_2 = (float)(_eng2FuelFlowFloatOffset.Value / 2.20462);
 
             float rpm_1 = (float)_eng1RpmF64.Value;
             float rpm_2 = (float)_eng2RpmF64.Value;
@@ -571,7 +537,7 @@ namespace vmsOpenAcars.Services
 
             RawDataUpdated?.Invoke(this, new RawTelemetryData
             {
-                // Datos básicos existentes
+                // Datos básicos
                 Latitude = CurrentLatitude,
                 Longitude = CurrentLongitude,
                 AltitudeFeet = CurrentAltitudeFeet,
@@ -581,9 +547,7 @@ namespace vmsOpenAcars.Services
                 IndicatedAirspeedKt = CurrentIndicatedAirspeed,
                 IsOnGround = _lastOnGround,
                 FuelLbs = CurrentFuelLbs,
-                FuelFlow = CurrentFuelFlowLbsHr,
                 Transponder = _transponderOffset.Value,
-                AutopilotEngaged = _autopilotOffset.Value == 1,
                 RadarAltitudeFeet = CurrentRadarAltitudeFeet,
                 PitchDeg = CurrentPitch,
                 BankDeg = CurrentBank,
@@ -605,6 +569,13 @@ namespace vmsOpenAcars.Services
                 LandingLightOn = landingLightOn,
                 TaxiLightOn = taxiLightOn,
                 StrobeLightOn = strobeLightOn,
+                SeatBeltSign = seatBeltSign,
+
+                // Autopilot
+                AutopilotEngaged = apMaster,
+                ApMaster = apMaster,
+                ApNavMode = apNavMode,
+                ApVertMode = apVertMode,
 
                 // Categoría y estado de motores
                 EngineCategory = _currentEngineCategory,
@@ -612,15 +583,9 @@ namespace vmsOpenAcars.Services
                 Eng2Running = eng2Running,
                 TakeoffPowerSet = takeoffPowerSet,
 
-                // Jet (N1, N2, EGT, FF)
+                // Jet (N1)
                 N1_1 = n1_1,
                 N1_2 = n1_2,
-                N2_1 = n2_1,
-                N2_2 = n2_2,
-                EGT_1 = egt_1,
-                EGT_2 = egt_2,
-                FuelFlow_1 = ff_1,
-                FuelFlow_2 = ff_2,
 
                 // Turboprop
                 TorquePct_1 = torqPct_1,
@@ -675,7 +640,6 @@ namespace vmsOpenAcars.Services
 
             // ---- Combustible ----
             CurrentFuelLbs = _fuelWeightOffset.Value;
-            CurrentFuelFlowLbsHr = _fuelFlowOffset.Value / 128.0;
 
             // ---- G-Force ----
             CurrentGForce = _gforceOffset.Value / 625.0;
@@ -696,20 +660,6 @@ namespace vmsOpenAcars.Services
             // ---- Motores ----
             Engine1Power = DecodeEnginePower(_eng1N1Int.Value, (short)(_engRpmOffset.Value & 0xFFFF));
             Engine2Power = DecodeEnginePower(_eng2N1Int.Value, 0);
-            // Fuel Flow por motor
-            int ff1_raw = _eng1FuelFlowOffset.Value;
-            int ff2_raw = _eng2FuelFlowOffset.Value;
-            // ---- N2 y Fuel Flow específicos ----
-            // N2 (leer los nuevos offsets)
-            short n2_1_raw = _eng1N2Offset.Value;
-            short n2_2_raw = _eng2N2Offset.Value;
-            double n2_1 = n2_1_raw * 100.0 / 16384.0;
-            double n2_2 = n2_2_raw * 100.0 / 16384.0;
-            // Guardar en propiedades (necesitas agregarlas primero)
-            _eng1N2Percent = n2_1;
-            _eng2N2Percent = n2_2;
-            _eng1FuelFlowLbsHr = ff1_raw;
-            _eng2FuelFlowLbsHr = ff2_raw;
 
             // ---- Autobrake ----
             ReadAutobrake();
@@ -1089,6 +1039,14 @@ namespace vmsOpenAcars.Services
             DetectParkingBrakeChange();
             DetectEnginesChange();
             DetectBeaconChange();
+
+            int lights = _lightsOffset.Value;
+            bool navOn = (lights & 0x01) != 0;
+            bool beaconOn = (lights & 0x02) != 0;
+            bool strobeOn = (lights & 0x10) != 0 && (beaconOn || navOn);
+
+            DetectNavChange(navOn);
+            DetectStrobeChange(strobeOn);
         }
 
         private void DetectGroundTransition()
@@ -1144,14 +1102,54 @@ namespace vmsOpenAcars.Services
             _lastSpoilersDeployed = CurrentSpoilersDeployed;
         }
 
+        // ── Parking brake ─────────────────────────────────────────────────────────
+        // Umbral al 60% del rango (0–16383) para filtrar vibración de pedales XPlane
+        private const int ParkingBrakeThreshold = 9830;  // 16383 * 0.6
+        private DateTime _lastParkingBrakeChange = DateTime.MinValue;
+        private const double ParkingBrakeDebounceSeconds = 2.0;
+
         private void DetectParkingBrakeChange()
         {
-            int parking = _parkingBrakeOffset.Value != 0 ? 1 : 0;
+            // Debounce: ignorar cambios más rápidos que el umbral
+            if ((DateTime.UtcNow - _lastParkingBrakeChange).TotalSeconds < ParkingBrakeDebounceSeconds)
+                return;
+
+            int raw = _parkingBrakeOffset.Value;
+            int parking = raw > ParkingBrakeThreshold ? 1 : 0;
             if (parking == _lastParkingBrake) return;
+
+            _lastParkingBrakeChange = DateTime.UtcNow;
             ParkingBrakeChanged?.Invoke(parking == 1);
             _lastParkingBrake = parking;
         }
 
+        // ── Nav y Strobe: añadir debounce y eventos ────────────────────────────────
+        private bool _lastNavState;
+        private bool _lastStrobeState;
+        private DateTime _lastNavChange = DateTime.MinValue;
+        private DateTime _lastStrobeChange = DateTime.MinValue;
+        private const double LightDebounceSeconds = 1.5;
+
+        public event Action<bool> NavLightChanged;
+        public event Action<bool> StrobeLightChanged;
+
+        private void DetectNavChange(bool navOn)
+        {
+            if (navOn == _lastNavState) return;
+            if ((DateTime.UtcNow - _lastNavChange).TotalSeconds < LightDebounceSeconds) return;
+            _lastNavChange = DateTime.UtcNow;
+            _lastNavState = navOn;
+            NavLightChanged?.Invoke(navOn);
+        }
+
+        private void DetectStrobeChange(bool strobeOn)
+        {
+            if (strobeOn == _lastStrobeState) return;
+            if ((DateTime.UtcNow - _lastStrobeChange).TotalSeconds < LightDebounceSeconds) return;
+            _lastStrobeChange = DateTime.UtcNow;
+            _lastStrobeState = strobeOn;
+            StrobeLightChanged?.Invoke(strobeOn);
+        }
         private void DetectEnginesChange()
         {
             bool running;
@@ -1310,9 +1308,8 @@ namespace vmsOpenAcars.Services
                 IndicatedAirspeedKt = CurrentIndicatedAirspeed,
                 IsOnGround = _lastOnGround,
                 FuelLbs = CurrentFuelLbs,
-                FuelFlow = CurrentFuelFlowLbsHr,
                 Transponder = _transponderOffset.Value,
-                AutopilotEngaged = _autopilotOffset.Value == 1,
+                AutopilotEngaged = (_autopilotOffset.Value & 0x01) != 0,
                 Order = _positionOrder,
                 PitchDeg = CurrentPitch,
                 BankDeg = CurrentBank,
@@ -1326,7 +1323,7 @@ namespace vmsOpenAcars.Services
 
         private int DetermineNavType()
         {
-            if (_autopilotOffset.Value != 1) return 0;
+            if ((_autopilotOffset.Value & 0x01) == 0) return 0;
             switch (_navModeOffset.Value)
             {
                 case 1: return 1;
@@ -1602,7 +1599,6 @@ namespace vmsOpenAcars.Services
         public double IndicatedAirspeedKt { get; set; }
         public bool IsOnGround { get; set; }
         public double FuelLbs { get; set; }
-        public double FuelFlow { get; set; }
         public double PitchDeg { get; set; }
         public double BankDeg { get; set; }
         public int Transponder { get; set; }
@@ -1627,7 +1623,6 @@ namespace vmsOpenAcars.Services
         public double IndicatedAirspeedKt { get; set; }
         public bool IsOnGround { get; set; }
         public double FuelLbs { get; set; }
-        public double FuelFlow { get; set; }
         public int Transponder { get; set; }
         public bool AutopilotEngaged { get; set; }
         public double RadarAltitudeFeet { get; set; }
@@ -1639,8 +1634,6 @@ namespace vmsOpenAcars.Services
         public bool FlapsInTransit { get; set; }
         public bool GearDown { get; set; }
         public int Order { get; set; }
-
-        // ===== NUEVAS PROPIEDADES =====
 
         // Frenos y motores
         public bool ParkingBrakeOn { get; set; }
@@ -1654,15 +1647,9 @@ namespace vmsOpenAcars.Services
         public bool TaxiLightOn { get; set; }
         public bool StrobeLightOn { get; set; }
 
-        // Motores Jet (N1, N2, EGT, FF)
+        // Motores Jet (N1)
         public float N1_1 { get; set; }
         public float N1_2 { get; set; }
-        public float N2_1 { get; set; }
-        public float N2_2 { get; set; }
-        public float EGT_1 { get; set; }
-        public float EGT_2 { get; set; }
-        public float FuelFlow_1 { get; set; }
-        public float FuelFlow_2 { get; set; }
 
         // Identificación de planta motriz
         public FsuipcService.AircraftCategory EngineCategory { get; set; }
@@ -1689,6 +1676,11 @@ namespace vmsOpenAcars.Services
         public float OilPress_2 { get; set; }
         public float Throttle_1 { get; set; }
         public float Throttle_2 { get; set; }
+        // Seat Belt sign y AP
+        public bool SeatBeltSign { get; set; }
+        public bool ApMaster { get; set; }
+        public string ApNavMode { get; set; } = "HDG";  // ILS / LOC / LNAV / HDG
+        public string ApVertMode { get; set; } = "ALT";  // GS  / VNAV / ALT
     }
 
     public enum ConnectionState { Disconnected, Connected }

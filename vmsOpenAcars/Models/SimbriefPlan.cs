@@ -173,8 +173,8 @@
         #region Distance
 
         /// <summary>
-        /// Gets or sets the planned great circle distance in kilometers.
-        /// Used for PIREP filing and progress calculations.
+        /// Gets or sets the planned route distance in nautical miles (NM).
+        /// Sourced from SimBrief <c>route_distance</c> field or phpVMS flight distance.
         /// </summary>
         public double Distance { get; set; }
 

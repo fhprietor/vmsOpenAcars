@@ -1,6 +1,7 @@
 ﻿// Services/SimbriefEnhancedService.cs
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Models;
@@ -50,8 +51,8 @@ namespace vmsOpenAcars.Services
                 ["destrwy"] = "",
 
                 // Opciones de planificación
-                ["civalue"] = "30",
-                ["units"] = "lbs",
+                ["civalue"] = ConfigurationManager.AppSettings["simbrief_civalue"] ?? "30",
+                ["units"] = ConfigurationManager.AppSettings["simbrief_units"] ?? "lbs",
                 ["pax"] = "",
                 ["cargo"] = "",
 
@@ -62,7 +63,7 @@ namespace vmsOpenAcars.Services
                 // Hora de salida (formato HH y MM)
                 ["deph"] = depTime.ToString("HH"),
                 ["depm"] = depTime.ToString("mm"),
-                ["extrarmk"] = "CS/VHOLAR IVAOVA/VHR OPR/VHR",
+                ["extrarmk"] = ConfigurationManager.AppSettings["simbrief_extrarmk"] ?? "",
                 ["flightrules"] = "",
                 ["flighttype"] = simbriefFlightType
             };

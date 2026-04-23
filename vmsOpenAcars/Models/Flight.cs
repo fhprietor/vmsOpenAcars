@@ -15,7 +15,7 @@ namespace vmsOpenAcars.Models
         public string Arrival { get; set; }
         public string AircraftType { get; set; } 
         public string AircraftId { get; set; }
-        public int Distance { get; set; } // En millas náuticas (NM)
+        public double Distance { get; set; } // En millas náuticas (NM)
         public int FlightTime { get; set; }
         public string Route { get; set; }
         public int RequiredRank { get; set; }

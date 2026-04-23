@@ -63,5 +63,8 @@
   "Language": "Idioma:",
   "Save": "Guardar",
   "Cancel": "Cancelar",
-  "Rank": "RANGO"
+  "Rank": "RANGO",
+  "SimbriefUnits": "Unidades SB",
+  "SimbriefCI": "Cost Index",
+  "SimbriefRmk": "Comentarios SB"
 }

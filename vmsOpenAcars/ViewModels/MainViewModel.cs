@@ -125,6 +125,15 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.ParkingBrakeChanged += OnParkingBrakeChanged;
             _fsuipc.EnginesChanged += OnEnginesChanged;
             _fsuipc.OnAircraftInfoReady += OnAircraftInfoReady;
+            _fsuipc.NavLightChanged += on => OnLog?.Invoke(
+                on ? "💡 NAV lights ON" : "💡 NAV lights OFF", Theme.MainText);
+
+            _fsuipc.StrobeLightChanged += on => OnLog?.Invoke(
+                on ? "💡 STROBE lights ON" : "💡 STROBE lights OFF", Theme.MainText);
+
+            // Beacon ya existente — ampliar para log:
+            _fsuipc.BeaconChanged += on => OnLog?.Invoke(
+                on ? "🔴 BEACON ON" : "🔴 BEACON OFF", Theme.MainText);
 
         }
         private int _lastUiAltitude;
@@ -352,7 +361,6 @@ namespace vmsOpenAcars.ViewModels
 
                 // Combustible en lbs (unidad estándar phpVMS para fuel en posiciones ACARS)
                 fuel = Math.Round(e.FuelLbs, 1),           // Combustible en lbs
-                fuel_flow = Math.Round(e.FuelFlow, 1),     // Flujo de combustible en lbs/hr
                 pitch = e.PitchDeg,                        // Pitch en grados
                 bank = e.BankDeg,                          // Bank en grados
 

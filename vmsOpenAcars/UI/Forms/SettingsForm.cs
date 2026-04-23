@@ -17,11 +17,18 @@ namespace vmsOpenAcars.UI.Forms
         private bool _dragging = false;
         private Point _dragStartPoint;
 
+        // Campos existentes
         private TextBox txtApiUrl;
         private TextBox txtApiKey;
         private TextBox txtSimbriefUser;
         private TextBox txtAirline;
         private ComboBox cmbLanguage;
+
+        // Campos SimBrief dispatch
+        private ComboBox cmbSimbriefUnits;
+        private TextBox txtSimbriefCi;
+        private TextBox txtSimbriefExtraRmk;
+
         private Button btnSave;
         private Button btnCancel;
 
@@ -34,24 +41,24 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeForm()
         {
-            this.Size = new Size(450, 350);
-            this.MinimumSize = new Size(400, 300);
+            // 9 filas de datos + 1 fila de botones = 10 filas × 35px + título 35px + padding
+            this.Size = new Size(500, 445);
+            this.MinimumSize = new Size(460, 400);
             this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.None;
             this.BackColor = Color.FromArgb(20, 30, 40);
-            this.Padding = new Padding(2); // Para el borde
+            this.Padding = new Padding(2);
             this.Font = new Font("Consolas", 10);
 
-            // Dibujar borde
+            // Borde exterior
             this.Paint += (s, e) =>
             {
-                using (Pen pen = new Pen(Color.FromArgb(100, 180, 255), 1))
-                {
-                    e.Graphics.DrawRectangle(pen, 0, 0, this.ClientSize.Width - 1, this.ClientSize.Height - 1);
-                }
+                using (var pen = new Pen(Color.FromArgb(100, 180, 255), 1))
+                    e.Graphics.DrawRectangle(pen, 0, 0,
+                        this.ClientSize.Width - 1, this.ClientSize.Height - 1);
             };
 
-            // Panel de título (barra de arrastre)
+            // ── Barra de título ──────────────────────────────────────────────
             pnlTitleBar = new Panel
             {
                 Dock = DockStyle.Top,
@@ -85,7 +92,7 @@ namespace vmsOpenAcars.UI.Forms
             pnlTitleBar.Controls.Add(lblTitle);
             pnlTitleBar.Controls.Add(btnClose);
 
-            // Arrastre desde la barra de título
+            // Arrastre
             pnlTitleBar.MouseDown += (s, e) =>
             {
                 if (e.Button == MouseButtons.Left)
@@ -98,13 +105,13 @@ namespace vmsOpenAcars.UI.Forms
             {
                 if (_dragging)
                 {
-                    Point p = PointToScreen(e.Location);
+                    var p = PointToScreen(e.Location);
                     this.Location = new Point(p.X - _dragStartPoint.X, p.Y - _dragStartPoint.Y);
                 }
             };
             pnlTitleBar.MouseUp += (s, e) => _dragging = false;
 
-            // Panel de contenido
+            // ── Panel de contenido ────────────────────────────────────────────
             var contentPanel = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -112,37 +119,45 @@ namespace vmsOpenAcars.UI.Forms
                 Padding = new Padding(10)
             };
 
-            // Layout para los controles
+            // ── TableLayoutPanel: 2 columnas, 10 filas ────────────────────────
+            // Filas 0-8: campos de datos (35px cada una)
+            // Fila 9   : botones Guardar/Cancelar (40px)
             var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 6,
+                RowCount = 10,
                 BackColor = Color.Transparent
             };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70F));
-            for (int i = 0; i < 6; i++)
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68F));
 
-            // Etiquetas y campos
+            for (int i = 0; i < 9; i++)
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F)); // fila botones
+
+            // Fila 0 — API URL
             layout.Controls.Add(CreateLabel("ApiUrl"), 0, 0);
             txtApiUrl = CreateTextBox();
             layout.Controls.Add(txtApiUrl, 1, 0);
 
+            // Fila 1 — API Key
             layout.Controls.Add(CreateLabel("ApiKey"), 0, 1);
             txtApiKey = CreateTextBox();
             txtApiKey.UseSystemPasswordChar = true;
             layout.Controls.Add(txtApiKey, 1, 1);
 
+            // Fila 2 — SimBrief User
             layout.Controls.Add(CreateLabel("SimbriefUser"), 0, 2);
             txtSimbriefUser = CreateTextBox();
             layout.Controls.Add(txtSimbriefUser, 1, 2);
 
+            // Fila 3 — Airline
             layout.Controls.Add(CreateLabel("Airline"), 0, 3);
             txtAirline = CreateTextBox();
             layout.Controls.Add(txtAirline, 1, 3);
 
+            // Fila 4 — Language
             layout.Controls.Add(CreateLabel("Language"), 0, 4);
             cmbLanguage = new ComboBox
             {
@@ -154,49 +169,89 @@ namespace vmsOpenAcars.UI.Forms
             };
             layout.Controls.Add(cmbLanguage, 1, 4);
 
-            // Panel de botones
+            // ── Separador visual ──────────────────────────────────────────────
+            var sep = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "── SimBrief Dispatch ──",
+                ForeColor = Color.FromArgb(80, 160, 220),
+                Font = new Font("Consolas", 8, FontStyle.Italic),
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            layout.SetColumnSpan(sep, 2);
+            layout.Controls.Add(sep, 0, 5);
+
+            // Fila 6 — SimBrief Units
+            layout.Controls.Add(CreateLabel("SimbriefUnits"), 0, 6);
+            cmbSimbriefUnits = new ComboBox
+            {
+                Dock = DockStyle.Fill,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Color.FromArgb(50, 50, 60),
+                ForeColor = Color.White,
+                Font = new Font("Consolas", 10)
+            };
+            cmbSimbriefUnits.Items.AddRange(new object[] { "lbs", "kgs" });
+            layout.Controls.Add(cmbSimbriefUnits, 1, 6);
+
+            // Fila 7 — Cost Index
+            layout.Controls.Add(CreateLabel("SimbriefCI"), 0, 7);
+            txtSimbriefCi = CreateTextBox();
+            layout.Controls.Add(txtSimbriefCi, 1, 7);
+
+            // Fila 8 — Extra Remarks
+            layout.Controls.Add(CreateLabel("SimbriefRmk"), 0, 8);
+            txtSimbriefExtraRmk = CreateTextBox();
+            layout.Controls.Add(txtSimbriefExtraRmk, 1, 8);
+
+            // Fila 9 — Botones (ocupa las 2 columnas, alineados a la derecha)
             var btnPanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.RightToLeft,
-                BackColor = Color.Transparent
+                BackColor = Color.Transparent,
+                Padding = new Padding(0, 4, 0, 0)
             };
+
             btnSave = new Button
             {
                 Text = _("Save"),
-                Size = new Size(100, 30),
+                Size = new Size(110, 30),
                 BackColor = Color.FromArgb(0, 100, 0),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
                 Font = new Font("Consolas", 10, FontStyle.Bold)
             };
+            btnSave.FlatAppearance.BorderSize = 0;
             btnSave.Click += BtnSave_Click;
 
             btnCancel = new Button
             {
                 Text = _("Cancel"),
-                Size = new Size(100, 30),
+                Size = new Size(110, 30),
                 BackColor = Color.FromArgb(100, 0, 0),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
                 Font = new Font("Consolas", 10, FontStyle.Bold)
             };
+            btnCancel.FlatAppearance.BorderSize = 0;
             btnCancel.Click += (s, e) => DialogResult = DialogResult.Cancel;
 
             btnPanel.Controls.Add(btnSave);
             btnPanel.Controls.Add(btnCancel);
-            layout.Controls.Add(btnPanel, 1, 5);
+
+            layout.SetColumnSpan(btnPanel, 2);
+            layout.Controls.Add(btnPanel, 0, 9);
 
             contentPanel.Controls.Add(layout);
             this.Controls.Add(contentPanel);
             this.Controls.Add(pnlTitleBar);
 
-            // Ajustar posición del botón cerrar al redimensionar
             this.Resize += (s, e) =>
-            {
                 btnClose.Location = new Point(this.ClientSize.Width - 35, 5);
-            };
         }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
 
         private Label CreateLabel(string key)
         {
@@ -222,12 +277,22 @@ namespace vmsOpenAcars.UI.Forms
             };
         }
 
+        // ── Carga / Guardado ──────────────────────────────────────────────────
+
         private void LoadSettings()
         {
-            txtApiUrl.Text = ConfigurationManager.AppSettings["vms_api_url"];
-            txtApiKey.Text = ConfigurationManager.AppSettings["vms_api_key"];
-            txtSimbriefUser.Text = ConfigurationManager.AppSettings["simbrief_user"];
-            txtAirline.Text = ConfigurationManager.AppSettings["airline"];
+            txtApiUrl.Text = ConfigurationManager.AppSettings["vms_api_url"] ?? "";
+            txtApiKey.Text = ConfigurationManager.AppSettings["vms_api_key"] ?? "";
+            txtSimbriefUser.Text = ConfigurationManager.AppSettings["simbrief_user"] ?? "";
+            txtAirline.Text = ConfigurationManager.AppSettings["airline"] ?? "";
+
+            // SimBrief dispatch
+            string units = ConfigurationManager.AppSettings["simbrief_units"] ?? "lbs";
+            cmbSimbriefUnits.SelectedItem =
+                cmbSimbriefUnits.Items.Contains(units) ? (object)units : "lbs";
+
+            txtSimbriefCi.Text = ConfigurationManager.AppSettings["simbrief_civalue"] ?? "30";
+            txtSimbriefExtraRmk.Text = ConfigurationManager.AppSettings["simbrief_extrarmk"] ?? "";
         }
 
         private void LoadLanguages()
@@ -236,8 +301,8 @@ namespace vmsOpenAcars.UI.Forms
             if (Directory.Exists(langPath))
             {
                 var files = Directory.GetFiles(langPath, "*.json")
-                                      .Select(Path.GetFileNameWithoutExtension)
-                                      .ToArray();
+                                     .Select(Path.GetFileNameWithoutExtension)
+                                     .ToArray();
                 cmbLanguage.Items.AddRange(files);
                 string currentLang = ConfigurationManager.AppSettings["language"] ?? "es";
                 if (cmbLanguage.Items.Contains(currentLang))
@@ -250,27 +315,31 @@ namespace vmsOpenAcars.UI.Forms
             try
             {
                 var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
-                SetValue(config, "vms_api_url", txtApiUrl.Text);
-                SetValue(config, "vms_api_key", txtApiKey.Text);
-                SetValue(config, "simbrief_user", txtSimbriefUser.Text);
-                SetValue(config, "airline", txtAirline.Text);
+
+                SetValue(config, "vms_api_url", txtApiUrl.Text.Trim());
+                SetValue(config, "vms_api_key", txtApiKey.Text.Trim());
+                SetValue(config, "simbrief_user", txtSimbriefUser.Text.Trim());
+                SetValue(config, "airline", txtAirline.Text.Trim());
+
                 if (cmbLanguage.SelectedItem != null)
                     SetValue(config, "language", cmbLanguage.SelectedItem.ToString());
+
+                // SimBrief dispatch params
+                if (cmbSimbriefUnits.SelectedItem != null)
+                    SetValue(config, "simbrief_units", cmbSimbriefUnits.SelectedItem.ToString());
+                SetValue(config, "simbrief_civalue", txtSimbriefCi.Text.Trim());
+                SetValue(config, "simbrief_extrarmk", txtSimbriefExtraRmk.Text.Trim());
 
                 config.Save(ConfigurationSaveMode.Modified);
                 ConfigurationManager.RefreshSection("appSettings");
 
                 // Aplicar idioma inmediatamente
                 if (cmbLanguage.SelectedItem != null)
-                {
                     LocalizationService.Instance.LoadLanguage(cmbLanguage.SelectedItem.ToString());
-                }
 
-                // Informar al usuario usando EcamDialog
-                string message = "Configuración guardada.\n" +
-                                 "• Reinicie la aplicación para que los cambios tengan efecto.";
-
-                using (var dlg = new EcamDialog(message, "INFORMACIÓN",EcamDialogButtons.OK))
+                using (var dlg = new EcamDialog(
+                    "Configuración guardada.\n• Reinicie la aplicación para aplicar los cambios.",
+                    "INFORMACIÓN", EcamDialogButtons.OK))
                 {
                     dlg.ShowDialog(this);
                 }
@@ -280,9 +349,7 @@ namespace vmsOpenAcars.UI.Forms
             catch (Exception ex)
             {
                 using (var dlg = new EcamDialog($"Error: {ex.Message}", "ERROR"))
-                {
                     dlg.ShowDialog(this);
-                }
             }
         }
 

@@ -100,7 +100,6 @@ namespace vmsOpenAcars.UI.Forms
         private Label _lblFuelInit;
         private Label _lblFuelCurrent;
         private Label _lblFuelUsed;
-        private Label _lblFuelFlow;
 
         // ALTITUD
         private Label _lblAltitudeVal;
@@ -119,6 +118,9 @@ namespace vmsOpenAcars.UI.Forms
         private Label _lblFlaps;
         private Label _lblSpoilers;
         private Label _lblAutobrake;
+        private Label _lblSeatBelt;
+        private Label _lblAutopilot;
+        private Label _lblStabilized;
 
         // LUCES
         private Label _lblNavLight;
@@ -666,7 +668,6 @@ namespace vmsOpenAcars.UI.Forms
             var fuelPanel = CreateCompactInfoCard("⛽ FUEL", out _lblFuelInit, out _lblFuelCurrent, out _lblFuelUsed);
             _lblFuelInit.Text = "INI: 0 kg";
             _lblFuelCurrent.Text = "ACT: 0 kg";
-            _lblFuelUsed.Text = "USO: 0 kg / FLOW: 0 kg/h";
             topGrid.Controls.Add(fuelPanel, 2, 0);
 
             leftGrid.Controls.Add(topGrid, 0, 0);
@@ -812,6 +813,10 @@ namespace vmsOpenAcars.UI.Forms
             _lblFlaps = new Label { Text = "FLAPS: --%", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(3, 36), AutoSize = true };
             _lblSpoilers = new Label { Text = "SPOIL: ---", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(3, 54), AutoSize = true };
             _lblAutobrake = new Label { Text = "A/BRK: ---", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(3, 72), AutoSize = true };
+            _lblSeatBelt = new Label { Text = "🔔 SEATBELT: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 90), AutoSize = true };
+            _lblAutopilot = new Label { Text = "A/P: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 108), AutoSize = true };
+            _lblStabilized = new Label { Text = "", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Lime, Location = new Point(3, 126), AutoSize = true };
+            flightPanel.Controls.AddRange(new Control[] { _lblSeatBelt, _lblAutopilot, _lblStabilized });
             flightPanel.Controls.AddRange(new Control[] { _lblGear, _lblFlaps, _lblSpoilers, _lblAutobrake });
 
             // Columna derecha: Luces
@@ -1257,17 +1262,22 @@ namespace vmsOpenAcars.UI.Forms
                 }
 
                 // ===== PROGRESO =====
-                if (!string.IsNullOrEmpty(fm.ActivePirepId) && plan != null)
+                if (plan != null)
                 {
-                    double totalDistanceNm = plan.Distance > 0
-                        ? plan.Distance
-                        : (fm.LastRawData != null ? fm.PlannedDistanceNm : 0);
+                    double totalDistanceNm = plan.Distance;
                     double flownDistanceNm = fm.TotalDistanceKm * 0.539957;
                     double remainingNm = Math.Max(0, totalDistanceNm - flownDistanceNm);
 
-                    if (_lblProgress != null) _lblProgress.Text = $"DIST: {flownDistanceNm:F0}/{totalDistanceNm:F0} NM";
-                    if (_lblRestante != null) _lblRestante.Text = $"REST: {remainingNm:F0} NM / ETA: {GetEtaString(fm, remainingNm)}";
-                    if (_lblTiempoAire != null) _lblTiempoAire.Text = $"⏱️ T/A: {fm.CurrentTimerDisplay}";
+                    if (_lblProgress != null)
+                        _lblProgress.Text = totalDistanceNm > 0
+                            ? $"DIST: {flownDistanceNm:F0}/{totalDistanceNm:F0} NM"
+                            : $"DIST: {flownDistanceNm:F0}/--- NM";
+                    if (_lblRestante != null)
+                        _lblRestante.Text = totalDistanceNm > 0
+                            ? $"REST: {remainingNm:F0} NM / ETA: {GetEtaString(fm, remainingNm)}"
+                            : "REST: --- NM / ETA: --:--";
+                    if (_lblTiempoAire != null)
+                        _lblTiempoAire.Text = $"⏱️ T/A: {fm.CurrentTimerDisplay}";
                 }
                 else
                 {
@@ -1294,39 +1304,43 @@ namespace vmsOpenAcars.UI.Forms
 
                 // ===== FUEL =====
                 string fuelUnit = fm.ActivePlan?.Units ?? "kg";
-                double convFactor = fuelUnit == "lbs" ? 2.20462 : 1.0;   // CurrentFuel ya en kg
+                double convFactor = fuelUnit.Equals("lbs", StringComparison.OrdinalIgnoreCase)
+                    ? 2.20462 : 1.0;
 
-                double fuelInit = fm.InitialFuel * convFactor;
-                double fuelCurrent = fm.CurrentFuel * convFactor;
-                double fuelUsed = Math.Max(0, fuelInit - fuelCurrent);
-                double fuelFlow = fm.CurrentFuelFlow * convFactor;      // CurrentFuelFlow ya en kg/h
+                double fuelIni = fm.InitialFuel * convFactor;
+                double fuelAct = fm.CurrentFuel * convFactor;
+                double fuelUsed = Math.Max(0, fuelIni - fuelAct);
 
-                if (_lblFuelInit != null) _lblFuelInit.Text = $"INI: {fuelInit:F0} {fuelUnit}";
+                if (_lblFuelInit != null)
+                    _lblFuelInit.Text = $"INI: {fuelIni:F0} {fuelUnit}";
+
                 if (_lblFuelCurrent != null)
                 {
-                    _lblFuelCurrent.Text = $"ACT: {fuelCurrent:F0} {fuelUnit}";
-                    // umbrales en kg internamente
-                    if (fm.CurrentFuel < 500) _lblFuelCurrent.ForeColor = Color.Red;
-                    else if (fm.CurrentFuel < 1000) _lblFuelCurrent.ForeColor = Color.Orange;
-                    else _lblFuelCurrent.ForeColor = Color.LightGreen;
+                    _lblFuelCurrent.Text = $"ACT: {fuelAct:F0} {fuelUnit}";
+                    _lblFuelCurrent.ForeColor = fm.CurrentFuel < 500 ? Color.Red
+                                              : fm.CurrentFuel < 1000 ? Color.Orange
+                                              : Color.LightGreen;
                 }
+
                 if (_lblFuelUsed != null)
-                    _lblFuelUsed.Text = $"USO: {fuelUsed:F0} {fuelUnit} / FLOW: {fuelFlow:F0} {fuelUnit}/h";
+                    _lblFuelUsed.Text = $"USO: {fuelUsed:F0} {fuelUnit}";
+
                 // ===== ALTITUD =====
-                if (_lblAltitudeVal != null) _lblAltitudeVal.Text = $"ALT: {fm.CurrentAltitude} ft";
+                if (_lblAltitudeVal != null)
+                    _lblAltitudeVal.Text = $"ALT: {fm.CurrentAltitude} ft";
+
                 if (_lblAglVal != null)
                 {
-                    // Radar altímetro real si está disponible (en vuelo y > 0)
+                    // Radar solo en approach/landing (airborne, <2500 ft, valor válido)
                     double radarFt = fm.RadarAltitude;
-                    if (!fm.IsOnGround && radarFt > 10 && radarFt < 2500)
-                    {
-                        // En aproximación/aterrizaje: usar radar (preciso)
+                    if (!fm.IsOnGround && radarFt > 5 && radarFt < 2500)
                         _lblAglVal.Text = $"AGL: {radarFt:F0} ft ▼";
-                    }
                     else
                     {
-                        // Crucero o sin dato radar: MSL − elevación aeropuerto de referencia
-                        double refElev = fm.ReferenceAirportElevation;  // ← nuevo getter
+                        // MSL − elevación aeropuerto de referencia (origen o destino según fase)
+                        double refElev = fm.ActivePlan != null
+                            ? fm.ReferenceAirportElevation
+                            : 0;
                         double aglCalc = Math.Max(0, fm.CurrentAltitude - refElev);
                         _lblAglVal.Text = $"AGL: {aglCalc:F0} ft";
                     }
@@ -1349,6 +1363,46 @@ namespace vmsOpenAcars.UI.Forms
                     _lblSpoilers.ForeColor = fm.AreSpoilersDeployed ? Color.Orange : Color.LightGreen;
                 }
                 if (_lblAutobrake != null) _lblAutobrake.Text = $"A/BRK: {fm.AutobrakeSetting}";
+
+                // Seat Belt Sign
+                if (_lblSeatBelt != null)
+                {
+                    bool sb = fm.LastRawData?.SeatBeltSign == true;
+                    _lblSeatBelt.Text = sb ? "🔔 SEATBELT: ON" : "🔔 SEATBELT: OFF";
+                    _lblSeatBelt.ForeColor = sb ? Color.Yellow : Color.Gray;
+                }
+
+                // Autopilot
+                if (_lblAutopilot != null)
+                {
+                    if (fm.AutopilotEngaged)
+                    {
+                        _lblAutopilot.Text = $"A/P: {fm.ApNavMode}/{fm.ApVertMode}";
+                        _lblAutopilot.ForeColor = Color.Cyan;
+                    }
+                    else
+                    {
+                        _lblAutopilot.Text = "A/P: OFF";
+                        _lblAutopilot.ForeColor = Color.Gray;
+                    }
+                }
+
+                // Aproximación estabilizada
+                if (_lblStabilized != null)
+                {
+                    bool inApp = fm.CurrentPhase == FlightPhase.Approach ||
+                                 fm.CurrentPhase == FlightPhase.Landing;
+                    if (!inApp)
+                    {
+                        _lblStabilized.Text = "";
+                    }
+                    else
+                    {
+                        _lblStabilized.Text = fm.IsApproachStabilized ? "✅ STABLE" : "⚠️ UNSTABLE";
+                        _lblStabilized.ForeColor = fm.IsApproachStabilized ? Color.Lime : Color.Red;
+                    }
+                }
+
 
                 // ===== LUCES =====
                 if (_lblNavLight != null)

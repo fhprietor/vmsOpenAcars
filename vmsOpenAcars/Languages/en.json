@@ -63,5 +63,8 @@
   "Language": "Language:",
   "Save": "Save",
   "Cancel": "Cancel",
-  "Rank": "RANK"
+  "Rank": "RANK",
+  "SimbriefUnits": "SB Units",
+  "SimbriefCI": "SB CI",
+  "SimbriefRmk": "SB Remarks"
 }

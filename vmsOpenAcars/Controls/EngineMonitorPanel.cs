@@ -9,9 +9,6 @@ namespace vmsOpenAcars.Controls
     {
         private Label[] _engLabels;
         private Label[] _n1Labels;
-        private Label[] _n2Labels;
-        private Label[] _egtLabels;
-        private Label[] _ffLabels;
 
         private int _engineCount = 2;
 
@@ -51,30 +48,18 @@ namespace vmsOpenAcars.Controls
                     case FsuipcService.AircraftCategory.Piston:
                         SetPistonRow(i,
                             rpm: isEng1 ? data.Rpm_1 : data.Rpm_2,
-                            map: isEng1 ? data.Map_1 : data.Map_2,
-                            cht: isEng1 ? data.Cht_1 : data.Cht_2,
-                            oilTemp: isEng1 ? data.OilTemp_1 : data.OilTemp_2,
-                            oilPress: isEng1 ? data.OilPress_1 : data.OilPress_2,
-                            ff: isEng1 ? data.FuelFlow_1 : data.FuelFlow_2,
                             running: isEng1 ? data.Eng1Running : data.Eng2Running);
                         break;
 
                     case FsuipcService.AircraftCategory.Turboprop:
                         SetTurbopropRow(i,
                             torqPct: isEng1 ? data.TorquePct_1 : data.TorquePct_2,
-                            itt: isEng1 ? data.EGT_1 : data.EGT_2,
-                            propRpm: isEng1 ? data.PropRpm_1 : data.PropRpm_2,
-                            n1: isEng1 ? data.N1_1 : data.N1_2,
-                            ff: isEng1 ? data.FuelFlow_1 : data.FuelFlow_2,
                             running: isEng1 ? data.Eng1Running : data.Eng2Running);
                         break;
 
                     default: // Jet / Unknown
                         SetJetRow(i,
                             n1: isEng1 ? data.N1_1 : data.N1_2,
-                            n2: isEng1 ? data.N2_1 : data.N2_2,
-                            egt: isEng1 ? data.EGT_1 : data.EGT_2,
-                            ff: isEng1 ? data.FuelFlow_1 : data.FuelFlow_2,
                             running: isEng1 ? data.Eng1Running : data.Eng2Running);
                         break;
                 }
@@ -83,48 +68,37 @@ namespace vmsOpenAcars.Controls
 
         // ── Mantener SetEngineParameters para compatibilidad con código existente ──
         [Obsolete("Use UpdateEngines(RawTelemetryData) instead.")]
-        public void SetEngineParameters(int engine, float n1, float n2, float egt, float fuelFlow)
+        public void SetEngineParameters(int engine, float n1)
         {
             if (engine >= _engineCount) return;
             if (_n1Labels != null && engine < _n1Labels.Length) _n1Labels[engine].Text = $"N1: {n1:F0}%";
-            if (_n2Labels != null && engine < _n2Labels.Length) _n2Labels[engine].Text = $"N2: {n2:F0}%";
-            if (_egtLabels != null && engine < _egtLabels.Length) _egtLabels[engine].Text = $"EGT: {egt:F0}°C";
-            if (_ffLabels != null && engine < _ffLabels.Length) _ffLabels[engine].Text = $"FF: {fuelFlow:F0} kg/h";
         }
 
-        private void SetJetRow(int eng, float n1, float n2, float egt, float ff, bool running)
+        private void SetJetRow(int eng, float n1, bool running)
         {
             var c = running ? Color.LimeGreen : Color.Gray;
-            var ct = running ? Color.Orange : Color.Gray;
-            var cf = running ? Color.Yellow : Color.Gray;
-            if (_n1Labels != null && eng < _n1Labels.Length) { _n1Labels[eng].Text = $"N1:  {n1:F1}%"; _n1Labels[eng].ForeColor = c; }
-            if (_n2Labels != null && eng < _n2Labels.Length) { _n2Labels[eng].Text = $"N2:  {n2:F1}%"; _n2Labels[eng].ForeColor = c; }
-            if (_egtLabels != null && eng < _egtLabels.Length) { _egtLabels[eng].Text = $"EGT: {egt:F0}°C"; _egtLabels[eng].ForeColor = ct; }
-            if (_ffLabels != null && eng < _ffLabels.Length) { _ffLabels[eng].Text = $"FF:  {ff:F0} kg/h"; _ffLabels[eng].ForeColor = cf; }
-            if (_engLabels != null && eng < _engLabels.Length) _engLabels[eng].ForeColor = running ? Color.Cyan : Color.DimGray;
+            if (_n1Labels != null && eng < _n1Labels.Length)
+                _n1Labels[eng].Text = $"N1: {n1:F1}%";
+            _n1Labels[eng].ForeColor = c;
+            if (_engLabels != null && eng < _engLabels.Length)
+                _engLabels[eng].ForeColor = running ? Color.Cyan : Color.DimGray;
         }
 
-        private void SetTurbopropRow(int eng, float torqPct, float itt, float propRpm, float n1, float ff, bool running)
+        private void SetTurbopropRow(int eng, float torqPct, bool running)
         {
             var c = running ? Color.Cyan : Color.Gray;
             var ct = running ? Color.Orange : Color.Gray;
             var cf = running ? Color.Yellow : Color.Gray;
             if (_n1Labels != null && eng < _n1Labels.Length) { _n1Labels[eng].Text = $"TRQ: {torqPct:F1}%"; _n1Labels[eng].ForeColor = c; }
-            if (_n2Labels != null && eng < _n2Labels.Length) { _n2Labels[eng].Text = $"N1:  {n1:F1}%"; _n2Labels[eng].ForeColor = c; }
-            if (_egtLabels != null && eng < _egtLabels.Length) { _egtLabels[eng].Text = $"ITT: {itt:F0}°C"; _egtLabels[eng].ForeColor = ct; }
-            if (_ffLabels != null && eng < _ffLabels.Length) { _ffLabels[eng].Text = $"PROP {propRpm:F0} RPM  FF {ff:F0} kg/h"; _ffLabels[eng].ForeColor = cf; }
             if (_engLabels != null && eng < _engLabels.Length) _engLabels[eng].ForeColor = running ? Color.Cyan : Color.DimGray;
         }
 
-        private void SetPistonRow(int eng, float rpm, float map, float cht, float oilTemp, float oilPress, float ff, bool running)
+        private void SetPistonRow(int eng, float rpm, bool running)
         {
             var c = running ? Color.Yellow : Color.Gray;
             var ct = running ? Color.OrangeRed : Color.Gray;
             var cf = running ? Color.GreenYellow : Color.Gray;
             if (_n1Labels != null && eng < _n1Labels.Length) { _n1Labels[eng].Text = $"RPM: {rpm:F0}"; _n1Labels[eng].ForeColor = c; }
-            if (_n2Labels != null && eng < _n2Labels.Length) { _n2Labels[eng].Text = $"MAP: {map:F1}\" Hg"; _n2Labels[eng].ForeColor = c; }
-            if (_egtLabels != null && eng < _egtLabels.Length) { _egtLabels[eng].Text = $"CHT: {cht:F0}°C"; _egtLabels[eng].ForeColor = ct; }
-            if (_ffLabels != null && eng < _ffLabels.Length) { _ffLabels[eng].Text = $"OIL {oilTemp:F0}°/{oilPress:F0}psi  FF {ff:F1}"; _ffLabels[eng].ForeColor = cf; }
             if (_engLabels != null && eng < _engLabels.Length) _engLabels[eng].ForeColor = running ? Color.Yellow : Color.DimGray;
         }
 
@@ -155,9 +129,6 @@ namespace vmsOpenAcars.Controls
 
             _engLabels = new Label[_engineCount];
             _n1Labels = new Label[_engineCount];
-            _n2Labels = new Label[_engineCount];
-            _egtLabels = new Label[_engineCount];
-            _ffLabels = new Label[_engineCount];
 
             // Layout horizontal con TableLayoutPanel
             var layout = new TableLayoutPanel
@@ -225,39 +196,6 @@ namespace vmsOpenAcars.Controls
                     TextAlign = ContentAlignment.MiddleLeft
                 };
                 dataPanel.Controls.Add(_n1Labels[i], 0, 0);
-
-                // N2
-                _n2Labels[i] = new Label
-                {
-                    Text = "N2: 0%",
-                    Font = new Font("Consolas", 9, FontStyle.Bold),
-                    ForeColor = Color.LightGreen,
-                    Dock = DockStyle.Fill,
-                    TextAlign = ContentAlignment.MiddleLeft
-                };
-                dataPanel.Controls.Add(_n2Labels[i], 0, 1);
-
-                // EGT
-                _egtLabels[i] = new Label
-                {
-                    Text = "EGT: 0°C",
-                    Font = new Font("Consolas", 9, FontStyle.Bold),
-                    ForeColor = Color.Orange,
-                    Dock = DockStyle.Fill,
-                    TextAlign = ContentAlignment.MiddleLeft
-                };
-                dataPanel.Controls.Add(_egtLabels[i], 0, 2);
-
-                // Fuel Flow
-                _ffLabels[i] = new Label
-                {
-                    Text = "FF: 0 kg/h",
-                    Font = new Font("Consolas", 9, FontStyle.Bold),
-                    ForeColor = Color.Yellow,
-                    Dock = DockStyle.Fill,
-                    TextAlign = ContentAlignment.MiddleLeft
-                };
-                dataPanel.Controls.Add(_ffLabels[i], 0, 3);
 
                 enginePanel.Controls.Add(dataPanel);
                 layout.Controls.Add(enginePanel, i, 0);

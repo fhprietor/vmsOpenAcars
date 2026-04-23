@@ -24,7 +24,6 @@ namespace vmsOpenAcars.Models
         public int? ias { get; set; }
         public int? transponder { get; set; }
         public bool? autopilot { get; set; }
-        public double? fuel_flow { get; set; }
         public double? fuel { get; set; }
         public DateTime? sim_time { get; set; }
         public string source { get; set; }

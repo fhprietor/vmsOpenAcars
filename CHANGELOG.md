@@ -1,5 +1,22 @@
 # Changelog - vmsOpenAcars
 
+## [0.3.1]
+
+### Added
+
+- 
+
+
+### Fixed
+
+- PROGRESO. DIST: 0/0 NM
+- fUEL INI: 2115 KGS (REAL 4843, PARECE CONVIERTE A KG NUEVAMENTE, CREYENDO QUE ESTAN EN LBS)
+- USADO: 0, ff 83KG (REAL 89.7)
+- N2 EN CERO
+- EGT 3493 (723 REAL)
+- FF 41 KG/H (REAL 1.04)
+
+
 ## [0.3.0]
 
 ### Added

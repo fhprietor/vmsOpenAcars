@@ -59,6 +59,11 @@ namespace vmsOpenAcars.Core.Flight
         private int _lightsViolationCount = 0;
         private bool _lightsViolationActive = false;
         private int _vmoKts = 320;
+        private bool _isNavOn;
+        private bool _isStrobeOn;
+        private bool _isTaxiLightOn;
+        private bool _isLandingLightOn;
+        private bool _isBeaconOn;
 
         // Control de fases
         private DateTime _phaseStartTime = DateTime.UtcNow;
@@ -77,6 +82,12 @@ namespace vmsOpenAcars.Core.Flight
         private double _lastDistanceLogged = -1;
 
         #region Properties
+        // Seat Belt Sign
+        public bool IsSeatBeltSignOn { get; private set; }
+
+        // Autopilot modo
+        public string ApNavMode { get; private set; } = "HDG";
+        public string ApVertMode { get; private set; } = "ALT";
 
         public string CurrentAirport
         {
@@ -113,6 +124,32 @@ namespace vmsOpenAcars.Core.Flight
                 }
             }
         }
+        /// <summary>
+        /// Determina si la aproximación está estabilizada según criterios VASI/PANS-OPS:
+        /// válido solo por debajo de 1000 ft AGL en fase Approach.
+        /// </summary>
+        public bool IsApproachStabilized
+        {
+            get
+            {
+                if (CurrentPhase != FlightPhase.Approach &&
+                    CurrentPhase != FlightPhase.Landing) return false;
+
+                double agl = CurrentAltitude - ReferenceAirportElevation;
+                if (agl > 1000) return true;   // por encima del gate — aún no aplica
+
+                bool speedOk = CurrentIndicatedAirspeed >= 100 &&
+                               CurrentIndicatedAirspeed <= 160;
+                bool vsOk = CurrentVerticalSpeed >= -1000 &&
+                            CurrentVerticalSpeed <= -100;
+                bool bankOk = Math.Abs(_currentBank) <= 5.0;
+                bool pitchOk = _currentPitch >= -2.0 && _currentPitch <= 10.0;
+                bool gearOk = IsGearDown;
+                bool configOk = CurrentFlapsPosition >= 50;
+
+                return speedOk && vsOk && bankOk && pitchOk && gearOk && configOk;
+            }
+        }
         public double TotalDistanceKm => _totalDistanceKm;
         public double CurrentLat { get; private set; }
         public double CurrentLon { get; private set; }
@@ -136,7 +173,6 @@ namespace vmsOpenAcars.Core.Flight
         public SimbriefPlan ActivePlan => _activePlan;
         public bool IsSimulatorConnected { get; private set; }
         public ValidationStatus PositionValidationStatus { get; private set; }
-        public double CurrentFuelFlow { get; private set; }
         public int CurrentTransponder { get; private set; }
         public bool AutopilotEngaged { get; private set; }
         public DateTime SimTime { get; private set; }
@@ -168,12 +204,6 @@ namespace vmsOpenAcars.Core.Flight
         // Parámetros de motor (Jet)
         public float N1_1 { get; private set; }
         public float N1_2 { get; private set; }
-        public float N2_1 { get; private set; }
-        public float N2_2 { get; private set; }
-        public float EGT_1 { get; private set; }
-        public float EGT_2 { get; private set; }
-        public float FuelFlow_1 { get; private set; }
-        public float FuelFlow_2 { get; private set; }
         #endregion
 
         #region Events
@@ -198,6 +228,54 @@ namespace vmsOpenAcars.Core.Flight
         }
 
         #region Private Methods
+        /// <summary>
+        /// Verifica compliance de procedimientos al entrar en una nueva fase.
+        /// Penaliza y logea cada violación encontrada.
+        /// Se llama una sola vez por transición de fase.
+        /// </summary>
+        private void CheckProcedureAtPhaseEntry(FlightPhase newPhase)
+        {
+            switch (newPhase)
+            {
+                // ── Pushback iniciado: Nav obligatoria ─────────────────────────────
+                case FlightPhase.Pushback:
+                    if (!_isNavOn)
+                    {
+                        _lightsViolationCount++;
+                        OnLog?.Invoke("⚠️ PENALTY: NAV lights OFF at pushback start (-5 pts)", Theme.Warning);
+                    }
+                    break;
+
+                // ── Taxi out: Nav + Taxi lights obligatorias ───────────────────────
+                case FlightPhase.TaxiOut:
+                    if (!_isNavOn)
+                    {
+                        _lightsViolationCount++;
+                        OnLog?.Invoke("⚠️ PENALTY: NAV lights OFF at taxi start (-5 pts)", Theme.Warning);
+                    }
+                    if (!_isTaxiLightOn)
+                    {
+                        _lightsViolationCount++;
+                        OnLog?.Invoke("⚠️ PENALTY: TAXI lights OFF during taxi (-5 pts)", Theme.Warning);
+                    }
+                    break;
+
+                // ── Takeoff roll: Strobe + Landing lights obligatorias ─────────────
+                case FlightPhase.TakeoffRoll:
+                    if (!_isStrobeOn)
+                    {
+                        _lightsViolationCount++;
+                        OnLog?.Invoke("⚠️ PENALTY: STROBE lights OFF at takeoff roll (-5 pts)", Theme.Warning);
+                    }
+                    if (!_isLandingLightOn)
+                    {
+                        _lightsViolationCount++;
+                        OnLog?.Invoke("⚠️ PENALTY: LANDING lights OFF at takeoff roll (-5 pts)", Theme.Warning);
+                    }
+                    break;
+            }
+        }
+
         /// <summary>
         /// Convierte el código de status de phpVMS al FlightPhase interno más apropiado
         /// para retomar un vuelo interrumpido.
@@ -513,7 +591,7 @@ namespace vmsOpenAcars.Core.Flight
             ActivePirepId = result.pirepId;
             if (!string.IsNullOrEmpty(ActivePirepId))
             {
-                _initialFuel = actualFuel * 0.453592;
+                _initialFuel = actualFuel;   // ya viene en kg desde MainViewModel
                 _totalFuelUsed = 0;
                 _serverCreatedAt = result.serverCreatedAt;
                 _isTimerStarted = true;
@@ -702,6 +780,7 @@ namespace vmsOpenAcars.Core.Flight
                                 CurrentPhase = FlightPhase.Pushback;
                                 _phaseStartTime = DateTime.UtcNow;
                                 _pushbackStartTime = DateTime.MinValue;
+                                CheckProcedureAtPhaseEntry(FlightPhase.Pushback);
                                 OnLog?.Invoke($"🔄 Pushback confirmed at {groundSpeed:F1} kts", Theme.Taxi);
                                 OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                                 PhaseChanged?.Invoke(CurrentPhase);
@@ -713,6 +792,7 @@ namespace vmsOpenAcars.Core.Flight
                                 CurrentPhase = FlightPhase.TaxiOut;
                                 _phaseStartTime = DateTime.UtcNow;
                                 _pushbackStartTime = DateTime.MinValue;
+                                CheckProcedureAtPhaseEntry(FlightPhase.TaxiOut);
                                 OnLog?.Invoke($"🛻 Taxi out (direct) at {groundSpeed:F1} kts", Theme.Taxi);
                                 OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                                 PhaseChanged?.Invoke(CurrentPhase);
@@ -731,6 +811,7 @@ namespace vmsOpenAcars.Core.Flight
                         {
                             CurrentPhase = FlightPhase.TaxiOut;
                             _phaseStartTime = DateTime.UtcNow;
+                            CheckProcedureAtPhaseEntry(FlightPhase.TaxiOut);
                             OnLog?.Invoke($"🛻 Taxi out (after pushback) at {groundSpeed:F1} kts", Theme.Taxi);
                             OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                             PhaseChanged?.Invoke(CurrentPhase);
@@ -742,6 +823,7 @@ namespace vmsOpenAcars.Core.Flight
                         {
                             CurrentPhase = FlightPhase.TakeoffRoll;
                             _phaseStartTime = DateTime.UtcNow;
+                            CheckProcedureAtPhaseEntry(FlightPhase.TakeoffRoll);
                             OnLog?.Invoke($"🛫 Takeoff roll started at {groundSpeed} kts", Theme.Takeoff);
                             OnLog?.Invoke($"✈️ Phase changed: {previousPhase} → {CurrentPhase}", Theme.Takeoff);
                             PhaseChanged?.Invoke(CurrentPhase);
@@ -974,14 +1056,23 @@ namespace vmsOpenAcars.Core.Flight
                                            ? (int)data.IndicatedAirspeedKt
                                            : (int)data.GroundSpeedKt;
             CurrentFuel = data.FuelLbs * 0.453592; ;
-            double flowFromEngines = data.FuelFlow_1 + data.FuelFlow_2;
-            CurrentFuelFlow = flowFromEngines > 0 ? flowFromEngines : (data.FuelFlow * 0.453592);
             CurrentTransponder = data.Transponder;
             AutopilotEngaged = data.AutopilotEngaged;
             SimTime = DateTime.UtcNow;
             RadarAltitude = data.RadarAltitudeFeet;
             PositionOrder = data.Order;
             _isParkingBrakeSet = data.ParkingBrakeOn;
+
+            if (data.EnginesRunning && !_areEnginesOn)
+            {
+                // Motores recién encendidos
+                if (!_isBeaconOn)
+                {
+                    _lightsViolationCount++;
+                    OnLog?.Invoke("⚠️ PENALTY: BEACON OFF at engine start (-5 pts)", Theme.Warning);
+                }
+            }
+
             _areEnginesOn = data.EnginesRunning;
 
             // Sistemas
@@ -997,12 +1088,16 @@ namespace vmsOpenAcars.Core.Flight
             IsLandingLightOn = data.LandingLightOn;
             IsTaxiLightOn = data.TaxiLightOn;
             IsStrobeLightOn = data.StrobeLightOn;
-
+            _isNavOn = data.NavLightOn;
+            _isStrobeOn = data.StrobeLightOn;
+            _isTaxiLightOn = data.TaxiLightOn;
+            _isLandingLightOn = data.LandingLightOn;
+            _isBeaconOn = data.BeaconLightOn;
+            IsSeatBeltSignOn = data.SeatBeltSign;
+            ApNavMode = data.ApNavMode;
+            ApVertMode = data.ApVertMode;
             // Motores
             N1_1 = data.N1_1; N1_2 = data.N1_2;
-            N2_1 = data.N2_1; N2_2 = data.N2_2;
-            EGT_1 = data.EGT_1; EGT_2 = data.EGT_2;
-            FuelFlow_1 = data.FuelFlow_1; FuelFlow_2 = data.FuelFlow_2;
 
             // Acumulación de distancia (solo con vuelo activo)
             if (!string.IsNullOrEmpty(ActivePirepId))
