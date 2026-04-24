@@ -15,6 +15,7 @@ namespace vmsOpenAcars.Core.Flight
     public class FlightManager
     {
         private readonly ApiService _apiService;
+        private readonly WeatherService _weatherService;
         private readonly PositionValidator _positionValidator;
         private bool _wasOnGround = true;
         private bool _touchdownCaptured = false;
@@ -84,6 +85,8 @@ namespace vmsOpenAcars.Core.Flight
         #region Properties
         // Seat Belt Sign
         public bool IsSeatBeltSignOn { get; private set; }
+        /// <summary>QNH seleccionado en el altímetro del avión en hPa. Actualizado cada ciclo.</summary>
+        public double AircraftQnhMb { get; private set; }
 
         // Autopilot modo
         public string ApNavMode { get; private set; } = "HDG";
@@ -219,9 +222,10 @@ namespace vmsOpenAcars.Core.Flight
 
         #endregion
 
-        public FlightManager(ApiService apiService)
+        public FlightManager(ApiService apiService, WeatherService weatherService)
         {
             _apiService = apiService;
+            _weatherService = weatherService;
             _positionValidator = new PositionValidator();
             CurrentPhase = FlightPhase.Idle;
             PositionValidationStatus = new ValidationStatus();
@@ -260,7 +264,7 @@ namespace vmsOpenAcars.Core.Flight
                     }
                     break;
 
-                // ── Takeoff roll: Strobe + Landing lights obligatorias ─────────────
+                // ── Takeoff roll: Strobe + Landing lights obligatorias ─────────
                 case FlightPhase.TakeoffRoll:
                     if (!_isStrobeOn)
                     {
@@ -272,7 +276,48 @@ namespace vmsOpenAcars.Core.Flight
                         _lightsViolationCount++;
                         OnLog?.Invoke("⚠️ PENALTY: LANDING lights OFF at takeoff roll (-5 pts)", Theme.Warning);
                     }
+                    // Verificar QNH antes de despegar
+                    if (!string.IsNullOrEmpty(_activePlan?.Origin))
+                        CheckQnhAsync(_activePlan.Origin, AircraftQnhMb).ConfigureAwait(false);
                     break;
+
+                // ── Approach: verificar QNH de destino ────────────────────────
+                case FlightPhase.Approach:
+                    if (!string.IsNullOrEmpty(_activePlan?.Destination))
+                        CheckQnhAsync(_activePlan.Destination, AircraftQnhMb).ConfigureAwait(false);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Compara el QNH del altímetro del avión con el METAR del aeropuerto indicado.
+        /// Penaliza 5 pts si la diferencia supera 2 hPa. Logea el resultado en cualquier caso.
+        /// </summary>
+        /// <param name="icao">Código ICAO del aeropuerto a consultar (origen o destino).</param>
+        /// <param name="aircraftQnhMb">QNH actual del altímetro en hPa.</param>
+        private async Task CheckQnhAsync(string icao, double aircraftQnhMb)
+        {
+            if (string.IsNullOrWhiteSpace(icao) || aircraftQnhMb <= 0) return;
+
+            double? stationQnh = await _weatherService.GetQnhMbAsync(icao);
+
+            if (stationQnh == null)
+            {
+                OnLog?.Invoke($"⚠️ QNH {icao}: no se pudo obtener METAR", Theme.Warning);
+                return;
+            }
+
+            double diff = Math.Abs(aircraftQnhMb - stationQnh.Value);
+            string label = $"QNH | Avión: {aircraftQnhMb:F1} hPa  {icao}: {stationQnh.Value:F1} hPa  Δ{diff:F1} hPa";
+
+            if (diff <= 2.0)
+            {
+                OnLog?.Invoke($"✅ {label}", Theme.Success);
+            }
+            else
+            {
+                _lightsViolationCount++;
+                OnLog?.Invoke($"⚠️ PENALTY: {label} — QNH incorrecto (-5 pts)", Theme.Warning);
             }
         }
 
@@ -1096,6 +1141,7 @@ namespace vmsOpenAcars.Core.Flight
             IsSeatBeltSignOn = data.SeatBeltSign;
             ApNavMode = data.ApNavMode;
             ApVertMode = data.ApVertMode;
+            AircraftQnhMb = data.AircraftQnhMb;
             // Motores
             N1_1 = data.N1_1; N1_2 = data.N1_2;
 

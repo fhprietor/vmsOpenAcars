@@ -1,15 +1,15 @@
 # Changelog - vmsOpenAcars
 
-## [0.3.1]
+## [0.3.2]
 
 ### Added
 
-- 
+- METAR check on departure and arrival
 
 
 ### Fixed
 
-- PROGRESO. DIST: 0/0 NM
+- Fuel units (from simbrief plan)
 - fUEL INI: 2115 KGS (REAL 4843, PARECE CONVIERTE A KG NUEVAMENTE, CREYENDO QUE ESTAN EN LBS)
 - USADO: 0, ff 83KG (REAL 89.7)
 - N2 EN CERO

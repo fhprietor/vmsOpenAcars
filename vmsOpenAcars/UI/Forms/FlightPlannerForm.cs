@@ -189,7 +189,7 @@ namespace vmsOpenAcars.UI
                 BackColor = Color.Black,
                 ForeColor = Theme.MainText,
                 Font = new Font("Consolas", 10, FontStyle.Regular),
-                WordWrap = false,           
+                WordWrap = false,
                 ReadOnly = true,
                 BorderStyle = BorderStyle.FixedSingle
             };
@@ -299,8 +299,6 @@ namespace vmsOpenAcars.UI
             await Task.WhenAll(LoadAvailableFlightsAsync(), LoadBidsAsync());
         }
 
-        // En FlightPlannerForm.cs - LoadAvailableFlightsAsync
-
         private async Task LoadAvailableFlightsAsync()
         {
             try
@@ -308,32 +306,44 @@ namespace vmsOpenAcars.UI
                 progressBar.Visible = true;
                 lblStatus.Text = "Loading available flights...";
 
+                // Obtener aviones disponibles en el aeropuerto (ya con paginación completa)
                 var availableAircraft = await _flightService.GetAvailableAircraftAtAirport(_currentAirport, null);
                 var availableTypes = availableAircraft.Select(a => a.Type).Distinct().ToList();
 
                 var flights = await _flightService.GetAvailableFlightsFromAirport(_currentAirport, _currentPilot);
 
-                var validFlights = flights.Where(f =>
-                    f.AllowedAircraftTypes.Any(type => availableTypes.Contains(type))
-                ).ToList();
+                List<Flight> validFlights;
+
+                if (!availableTypes.Any())
+                {
+                    // Sin aviones locales — mostrar todos los vuelos sin filtrar por tipo
+                    // (puede ser un hub donde los aviones se asignan dinámicamente)
+                    validFlights = flights;
+                    if (flights.Any())
+                        AppendLog($"ℹ️ No aircraft found at {_currentAirport} — showing all {flights.Count} flights without type filter.", Color.Yellow);
+                }
+                else
+                {
+                    validFlights = flights.Where(f =>
+                        !f.AllowedAircraftTypes.Any() ||              // sin restricción de tipo → siempre mostrar
+                        f.AllowedAircraftTypes.Any(type => availableTypes.Contains(type))
+                    ).ToList();
+
+                    int filtered = flights.Count - validFlights.Count;
+                    if (filtered > 0)
+                        AppendLog($"ℹ️ {filtered} flight(s) hidden — no matching aircraft at {_currentAirport}.", Color.Yellow);
+                }
 
                 lvAvailableFlights.Items.Clear();
                 foreach (var flight in validFlights)
                 {
-                    var item = CreateFlightListViewItem(flight, false);
-                    lvAvailableFlights.Items.Add(item);
+                    lvAvailableFlights.Items.Add(CreateFlightListViewItem(flight, false));
                 }
-
                 lvAvailableFlights.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
 
-                // Mostrar información adicional si hay menos vuelos disponibles
-                if (validFlights.Count < flights.Count)
-                {
-                    int filteredCount = flights.Count - validFlights.Count;
-                    AppendLog($"ℹ️ {filteredCount} flights filtered out due to aircraft type restrictions.", Color.Yellow);
-                }
-
-                lblStatus.Text = $"✅ {validFlights.Count} flights available (from {flights.Count} total).";
+                lblStatus.Text = $"✅ {validFlights.Count} flights available" +
+                                 (availableTypes.Any() ? $" · {availableAircraft.Count} aircraft at {_currentAirport}" : "") +
+                                 $" (total fetched: {flights.Count})";
             }
             catch (Exception ex)
             {
@@ -813,10 +823,8 @@ namespace vmsOpenAcars.UI
 
         private void AddContentLine(StringBuilder sb, string text, int width)
         {
-            // Calcular espacios a la derecha para que la línea tenga exactamente 'width' caracteres
-            int padding = width - 2 - text.Length; // -2 por los bordes "║ " y " ║"
-            if (padding < 0) padding = 0; // Si el texto es más largo, no añadimos espacios
-            var linea = "║ " + text + new string(' ', padding) + " ║";
+            int padding = width - 2 - text.Length;
+            if (padding < 0) padding = 0;
             sb.AppendLine("║ " + text + new string(' ', padding) + " ║");
         }
 

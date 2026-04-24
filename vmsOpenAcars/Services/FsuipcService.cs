@@ -151,6 +151,8 @@ namespace vmsOpenAcars.Services
 
         // ---- Frenos ----
         private readonly Offset<short> _parkingBrakeOffset = new Offset<short>(0x0BC8);
+        /// <summary>0x0330 · INT16 · Altímetro Kohlsman setting. QNH_hPa = value / 16.0</summary>
+        private readonly Offset<short> _kohlsmanOffset = new Offset<short>(0x0330);
         private readonly Offset<short> _brakeLeftOffset = new Offset<short>(0x0BC4);
         private readonly Offset<short> _brakeRightOffset = new Offset<short>(0x0BC6);
         //private readonly Offset<byte> _autobrakeOffset = new Offset<byte>(0x2F80);
@@ -279,6 +281,8 @@ namespace vmsOpenAcars.Services
 
         // ---- Combustible ----
         public double CurrentFuelLbs { get; private set; }
+        /// <summary>QNH seleccionado en el altímetro del avión, en hPa. Calculado desde offset 0x0330.</summary>
+        public double AircraftQnhMb { get; private set; }
 
         // ---- Controles ----
         public int CurrentGearPosition { get; private set; }
@@ -451,8 +455,8 @@ namespace vmsOpenAcars.Services
             // ── Luces (0x0D0C) ────────────────────────────────────────────────
             short lights = _lightsOffset.Value;
             bool navLightOn = (lights & 0x01) != 0;  // bit 0: NAV
-            bool beaconLightOn = (lights & 0x02) != 0; // bit 1: BEACON
-            bool landingLightOn = (lights & 0x04) != 0;// bit 2: LANDING
+            bool beaconLightOn = (lights & 0x02) != 0;  // bit 1: BEACON
+            bool landingLightOn = (lights & 0x04) != 0;  // bit 2: LANDING
             bool taxiLightOn = (lights & 0x08) != 0;  // bit 3: TAXI
             bool strobeRaw = (lights & 0x10) != 0;  // bit 4: STROBE
             bool seatBeltSign = (lights & 0x20) != 0;  // bit 5: SEAT BELT
@@ -466,7 +470,6 @@ namespace vmsOpenAcars.Services
             bool apVnav = (apBits & 0x08) != 0;  // bit 3: VNAV
             bool apLoc = (apBits & 0x10) != 0;  // bit 4: LOC
             bool apGs = (apBits & 0x20) != 0;  // bit 5: GS
-
             string apNavMode = apGs ? "ILS" : apLoc ? "LOC" : apLnav ? "LNAV" : "HDG";
             string apVertMode = apGs ? "GS" : apVnav ? "VNAV" : "ALT";
 
@@ -474,6 +477,9 @@ namespace vmsOpenAcars.Services
             string autobrakeSetting = AutobrakeLabel;
             // Umbral 60% (9830/16383) para filtrar ruido analógico de X-Plane
             bool parkingBrakeOn = _parkingBrakeOffset.Value > ParkingBrakeThreshold;
+
+            // ── QNH del altímetro (Kohlsman 0x0330) ──────────────────────────
+            double aircraftQnhMb = AircraftQnhMb;
 
             // ── Actualizar categoría de planta motriz por título ──────────────
             var detectedCat = DetectEngineCategoryFromTitle();
@@ -537,7 +543,7 @@ namespace vmsOpenAcars.Services
 
             RawDataUpdated?.Invoke(this, new RawTelemetryData
             {
-                // Datos básicos
+                // ── Datos básicos ─────────────────────────────────────────────
                 Latitude = CurrentLatitude,
                 Longitude = CurrentLongitude,
                 AltitudeFeet = CurrentAltitudeFeet,
@@ -558,12 +564,12 @@ namespace vmsOpenAcars.Services
                 GearDown = CurrentGearPosition == 1,
                 Order = _positionOrder,
 
-                // Frenos, motores, autobrake
+                // ── Frenos, motores, autobrake ────────────────────────────────
                 ParkingBrakeOn = parkingBrakeOn,
                 EnginesRunning = enginesRunning,
                 AutobrakeSetting = autobrakeSetting,
 
-                // Luces
+                // ── Luces ─────────────────────────────────────────────────────
                 NavLightOn = navLightOn,
                 BeaconLightOn = beaconLightOn,
                 LandingLightOn = landingLightOn,
@@ -571,13 +577,16 @@ namespace vmsOpenAcars.Services
                 StrobeLightOn = strobeLightOn,
                 SeatBeltSign = seatBeltSign,
 
-                // Autopilot
+                // ── Autopilot ─────────────────────────────────────────────────
                 AutopilotEngaged = apMaster,
                 ApMaster = apMaster,
                 ApNavMode = apNavMode,
                 ApVertMode = apVertMode,
 
-                // Categoría y estado de motores
+                // ── Meteorología ──────────────────────────────────────────────
+                AircraftQnhMb = aircraftQnhMb,
+
+                // ── Categoría y estado de motores ─────────────────────────────
                 EngineCategory = _currentEngineCategory,
                 Eng1Running = eng1Running,
                 Eng2Running = eng2Running,
@@ -640,6 +649,8 @@ namespace vmsOpenAcars.Services
 
             // ---- Combustible ----
             CurrentFuelLbs = _fuelWeightOffset.Value;
+            // Kohlsman: raw INT16 → hPa (raw / 16.0)
+            AircraftQnhMb = _kohlsmanOffset.Value / 16.0;
 
             // ---- G-Force ----
             CurrentGForce = _gforceOffset.Value / 625.0;
@@ -1678,6 +1689,8 @@ namespace vmsOpenAcars.Services
         public float Throttle_2 { get; set; }
         // Seat Belt sign y AP
         public bool SeatBeltSign { get; set; }
+        /// <summary>QNH seleccionado en el altímetro del avión, en hPa. 0 si FSUIPC no conectado.</summary>
+        public double AircraftQnhMb { get; set; }
         public bool ApMaster { get; set; }
         public string ApNavMode { get; set; } = "HDG";  // ILS / LOC / LNAV / HDG
         public string ApVertMode { get; set; } = "ALT";  // GS  / VNAV / ALT

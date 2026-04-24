@@ -129,6 +129,10 @@ namespace vmsOpenAcars.UI.Forms
         private Label _lblTaxiLight;
         private Label _lblStrobeLight;
 
+        // Motores compacto
+        private Label _lblEng1Val;
+        private Label _lblEng2Val;
+
         // MOTORES
         private Controls.EngineMonitorPanel _engineMonitorPanel;
 
@@ -172,7 +176,8 @@ namespace vmsOpenAcars.UI.Forms
                 if (!string.IsNullOrEmpty(apiUrl) && !string.IsNullOrEmpty(apiKey))
                 {
                     var apiService = new ApiService(apiUrl, apiKey);
-                    var flightManager = new FlightManager(apiService);
+                    var weatherService = new WeatherService();
+                    var flightManager = new FlightManager(apiService, weatherService);
                     var fsuipc = new FsuipcService();
                     var phpVmsFlightService = new PhpVmsFlightService(apiService);
                     var simbriefEnhancedService = new SimbriefEnhancedService(apiService);
@@ -611,34 +616,59 @@ namespace vmsOpenAcars.UI.Forms
             };
             pnlMessageInfo.Controls.Add(lblTitle);
 
-            // Layout principal de 2 columnas
+            // Layout principal — una sola columna (motores en topGrid)
             var mainGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 2,
+                ColumnCount = 1,
                 RowCount = 1,
                 Padding = new Padding(2),
                 BackColor = Color.Transparent
             };
+            mainGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
 
-            mainGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));  // Columna izquierda (datos)
-            mainGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));  // Columna derecha (motores)
-
-            // ===== COLUMNA IZQUIERDA: Grid interno de 2 filas =====
             var leftGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 2,
-                Padding = new Padding(20),
+                Padding = new Padding(2),
                 BackColor = Color.Transparent
             };
+            leftGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
+            leftGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
 
-            leftGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 40));  // Fila 1: Progreso/Aero/Fuel
-            leftGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 60));  // Fila 2: Altitud/Sistemas+Luces
-
-            // ===== FILA 1 IZQUIERDA: Progreso, Aerodinámica, Fuel (3 columnas horizontales) =====
+            // ===== FILA 1: PROGRESO · AERODINÁMICA · FUEL · MOTORES =====
             var topGrid = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 4,
+                RowCount = 1,
+                Padding = new Padding(1),
+                BackColor = Color.Transparent
+            };
+            topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
+            topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
+            topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23F));
+            topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23F));
+
+            var progressPanel = CreateCompactInfoCard("📊 PROGRESO", out _lblProgress, out _lblRestante, out _lblTiempoAire);
+            _lblProgress.Text = "DIST: 0/0 NM"; _lblRestante.Text = "REST: 0 NM / ETA: --:--"; _lblTiempoAire.Text = "⏱️ T/A: 00:00:00";
+            topGrid.Controls.Add(progressPanel, 0, 0);
+
+            var aeroPanel = CreateCompactInfoCard("✈️ AERODINÁMICA", out _lblIas, out _lblGs, out _lblVs);
+            _lblIas.Text = "IAS: --- kt"; _lblGs.Text = "GS: --- kt / MACH: ----"; _lblVs.Text = "VS: ---- fpm";
+            topGrid.Controls.Add(aeroPanel, 1, 0);
+
+            var fuelPanel = CreateCompactInfoCard("⛽ FUEL", out _lblFuelInit, out _lblFuelCurrent, out _lblFuelUsed);
+            _lblFuelInit.Text = "INI: 0 kg"; _lblFuelCurrent.Text = "ACT: 0 kg";
+            topGrid.Controls.Add(fuelPanel, 2, 0);
+
+            topGrid.Controls.Add(CreateMotorCompactPanel(), 3, 0);
+            leftGrid.Controls.Add(topGrid, 0, 0);
+
+            // ===== FILA 2: ALTITUD · SISTEMAS · LUCES =====
+            var bottomGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 3,
@@ -646,61 +676,19 @@ namespace vmsOpenAcars.UI.Forms
                 Padding = new Padding(1),
                 BackColor = Color.Transparent
             };
-            topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
-            topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
-            topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+            bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28F));
+            bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36F));
+            bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36F));
 
-            // PROGRESO
-            var progressPanel = CreateCompactInfoCard("📊 PROGRESO", out _lblProgress, out _lblRestante, out _lblTiempoAire);
-            _lblProgress.Text = "DIST: 0/0 NM";
-            _lblRestante.Text = "REST: 0 NM / ETA: --:--";
-            _lblTiempoAire.Text = "⏱️ T/A: 00:00:00";
-            topGrid.Controls.Add(progressPanel, 0, 0);
-
-            // AERODINÁMICA
-            var aeroPanel = CreateCompactInfoCard("✈️ AERODINÁMICA", out _lblIas, out _lblGs, out _lblVs);
-            _lblIas.Text = "IAS: --- kt";
-            _lblGs.Text = "GS: --- kt / MACH: ----";
-            _lblVs.Text = "VS: ---- fpm";
-            topGrid.Controls.Add(aeroPanel, 1, 0);
-
-            // FUEL
-            var fuelPanel = CreateCompactInfoCard("⛽ FUEL", out _lblFuelInit, out _lblFuelCurrent, out _lblFuelUsed);
-            _lblFuelInit.Text = "INI: 0 kg";
-            _lblFuelCurrent.Text = "ACT: 0 kg";
-            topGrid.Controls.Add(fuelPanel, 2, 0);
-
-            leftGrid.Controls.Add(topGrid, 0, 0);
-
-            // ===== FILA 2 IZQUIERDA: Altitud, Sistemas+Luces (2 columnas horizontales) =====
-            var bottomGrid = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 1,
-                Padding = new Padding(1),
-                BackColor = Color.Transparent
-            };
-            bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
-            bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
-
-            // ALTITUD
-            var altPanel = CreateCompactInfoCard("📈 ALTITUD", out _lblAltitudeVal, out _lblAglVal, out _lblCruiseVal);
-            _lblAltitudeVal.Text = "ALT: 0 ft";
-            _lblAglVal.Text = "AGL: 0 ft";
-            _lblCruiseVal.Text = "CRZ: FL0 / VS: 0 fpm";
+            var altPanel = CreateInfoCard("📈 ALTITUD", out _lblAltitudeVal, out _lblAglVal, out _lblCruiseVal, out _lblQnhVal);
+            _lblAltitudeVal.Text = "ALT: 0 ft"; _lblAglVal.Text = "AGL: 0 ft";
+            _lblCruiseVal.Text = "CRZ: ----"; _lblQnhVal.Text = "QNH: --- hPa";
             bottomGrid.Controls.Add(altPanel, 0, 0);
-
-            // SISTEMAS + LUCES
-            var systemsPanel = CreateSystemsAndLightsPanelCompact();
-            bottomGrid.Controls.Add(systemsPanel, 1, 0);
+            bottomGrid.Controls.Add(CreateSistemasPanel(), 1, 0);
+            bottomGrid.Controls.Add(CreateLucesPanel(), 2, 0);
 
             leftGrid.Controls.Add(bottomGrid, 0, 1);
-
-            // ===== COLUMNA DERECHA: MOTORES =====
-            var enginePanel = CreateEnginePanelCompact();
             mainGrid.Controls.Add(leftGrid, 0, 0);
-            mainGrid.Controls.Add(enginePanel, 1, 0);
 
             pnlMessageInfo.Controls.Add(mainGrid);
             mainLayout.Controls.Add(pnlMessageInfo, 0, 1);
@@ -745,95 +733,145 @@ namespace vmsOpenAcars.UI.Forms
 
         private Panel CreateCompactInfoCard(string title, out Label label1, out Label label2, out Label label3)
         {
-            var panel = new Panel
+            var panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(20, 25, 35), Margin = new Padding(1) };
+            var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(20, 25, 35),
-                Padding = new Padding(3),
-                Margin = new Padding(1)
+                ColumnCount = 1,
+                RowCount = 4,
+                BackColor = Color.Transparent,
+                Padding = new Padding(3, 2, 3, 2)
             };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 16)); // título
+            for (int i = 0; i < 3; i++)
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
 
-            var lblTitle = new Label
+            layout.Controls.Add(new Label
             {
                 Text = title,
                 Font = new Font("Consolas", 8, FontStyle.Bold),
                 ForeColor = Color.Gold,
-                Dock = DockStyle.Top,
-                Height = 16,
+                Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft
-            };
-            panel.Controls.Add(lblTitle);
+            }, 0, 0);
 
-            int y = 18;
-            int lineHeight = 18;
+            label1 = MakeSysLabel("");
+            label2 = MakeSysLabel("");
+            label3 = MakeSysLabel("");
 
-            label1 = new Label { Text = "", Font = new Font("Consolas", 8), ForeColor = Color.LightGreen, Location = new Point(3, y), AutoSize = true };
-            label2 = new Label { Text = "", Font = new Font("Consolas", 8), ForeColor = Color.LightGreen, Location = new Point(3, y + lineHeight), AutoSize = true };
-            label3 = new Label { Text = "", Font = new Font("Consolas", 8), ForeColor = Color.LightGreen, Location = new Point(3, y + lineHeight * 2), AutoSize = true };
+            layout.Controls.Add(label1, 0, 1);
+            layout.Controls.Add(label2, 0, 2);
+            layout.Controls.Add(label3, 0, 3);
 
-            panel.Controls.AddRange(new Control[] { label1, label2, label3 });
+            panel.Controls.Add(layout);
             return panel;
         }
-        private Panel CreateSystemsAndLightsPanelCompact()
+        /// <summary>Panel SISTEMAS — título en fila 0 del TLP para evitar que tape la fila 1.</summary>
+        private Panel CreateSistemasPanel()
         {
-            var panel = new Panel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(20, 25, 35),
-                Padding = new Padding(3),
-                Margin = new Padding(1)
-            };
-
-            var lblTitle = new Label
-            {
-                Text = "🛠️ SISTEMAS & 💡 LUCES",
-                Font = new Font("Consolas", 8, FontStyle.Bold),
-                ForeColor = Color.Gold,
-                Dock = DockStyle.Top,
-                Height = 16,
-                TextAlign = ContentAlignment.MiddleLeft
-            };
-            panel.Controls.Add(lblTitle);
-
-            // Layout horizontal de 2 columnas
+            var panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(20, 25, 35), Margin = new Padding(1) };
             var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 1,
+                ColumnCount = 1,
+                RowCount = 8,
                 BackColor = Color.Transparent,
-                Padding = new Padding(2)
+                Padding = new Padding(3, 2, 3, 2)
             };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 16)); // título
+            for (int i = 0; i < 7; i++)
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
 
-            // Columna izquierda: Controles de vuelo
-            var flightPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
-            _lblGear = new Label { Text = "GEAR: ---", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(3, 18), AutoSize = true };
-            _lblFlaps = new Label { Text = "FLAPS: --%", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(3, 36), AutoSize = true };
-            _lblSpoilers = new Label { Text = "SPOIL: ---", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(3, 54), AutoSize = true };
-            _lblAutobrake = new Label { Text = "A/BRK: ---", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(3, 72), AutoSize = true };
-            _lblSeatBelt = new Label { Text = "🔔 SEATBELT: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 90), AutoSize = true };
-            _lblAutopilot = new Label { Text = "A/P: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 108), AutoSize = true };
-            _lblStabilized = new Label { Text = "", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Lime, Location = new Point(3, 126), AutoSize = true };
-            flightPanel.Controls.AddRange(new Control[] { _lblSeatBelt, _lblAutopilot, _lblStabilized });
-            flightPanel.Controls.AddRange(new Control[] { _lblGear, _lblFlaps, _lblSpoilers, _lblAutobrake });
+            layout.Controls.Add(new Label { Text = "🛠️ SISTEMAS", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
 
-            // Columna derecha: Luces
-            var lightsPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
-            _lblNavLight = new Label { Text = "🟡 NAV: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 18), AutoSize = true };
-            _lblBeaconLight = new Label { Text = "🔴 BCN: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 36), AutoSize = true };
-            _lblLandingLight = new Label { Text = "⚪ LAND: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 54), AutoSize = true };
-            _lblTaxiLight = new Label { Text = "🔵 TAXI: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 72), AutoSize = true };
-            _lblStrobeLight = new Label { Text = "🟢 STROBE: OFF", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(3, 90), AutoSize = true };
-            lightsPanel.Controls.AddRange(new Control[] { _lblNavLight, _lblBeaconLight, _lblLandingLight, _lblTaxiLight, _lblStrobeLight });
+            _lblGear = MakeSysLabel("GEAR: ---");
+            _lblFlaps = MakeSysLabel("FLAPS: --");
+            _lblSpoilers = MakeSysLabel("SPOIL: RET");
+            _lblAutobrake = MakeSysLabel("A/BRK: ---");
+            _lblSeatBelt = MakeSysLabel("🔔 SEATBLT: OFF");
+            _lblAutopilot = MakeSysLabel("A/P: OFF");
+            _lblStabilized = MakeSysLabel("");
 
-            layout.Controls.Add(flightPanel, 0, 0);
-            layout.Controls.Add(lightsPanel, 1, 0);
+            layout.Controls.Add(_lblGear, 0, 1);
+            layout.Controls.Add(_lblFlaps, 0, 2);
+            layout.Controls.Add(_lblSpoilers, 0, 3);
+            layout.Controls.Add(_lblAutobrake, 0, 4);
+            layout.Controls.Add(_lblSeatBelt, 0, 5);
+            layout.Controls.Add(_lblAutopilot, 0, 6);
+            layout.Controls.Add(_lblStabilized, 0, 7);
             panel.Controls.Add(layout);
-
             return panel;
         }
+
+        /// <summary>Panel LUCES — título en fila 0 del TLP para evitar que tape la fila 1.</summary>
+        private Panel CreateLucesPanel()
+        {
+            var panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(20, 25, 35), Margin = new Padding(1) };
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 6,
+                BackColor = Color.Transparent,
+                Padding = new Padding(3, 2, 3, 2)
+            };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 16)); // título
+            for (int i = 0; i < 5; i++)
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
+
+            layout.Controls.Add(new Label { Text = "💡 LUCES", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+
+            _lblNavLight = MakeSysLabel("● NAV: OFF");
+            _lblBeaconLight = MakeSysLabel("● BCN: OFF");
+            _lblLandingLight = MakeSysLabel("● LAND: OFF");
+            _lblTaxiLight = MakeSysLabel("● TAXI: OFF");
+            _lblStrobeLight = MakeSysLabel("● STROBE: OFF");
+
+            layout.Controls.Add(_lblNavLight, 0, 1);
+            layout.Controls.Add(_lblBeaconLight, 0, 2);
+            layout.Controls.Add(_lblLandingLight, 0, 3);
+            layout.Controls.Add(_lblTaxiLight, 0, 4);
+            layout.Controls.Add(_lblStrobeLight, 0, 5);
+            panel.Controls.Add(layout);
+            return panel;
+        }
+
+        /// <summary>Panel MOTORES — título en fila 0 del TLP para evitar que tape la fila 1.</summary>
+        private Panel CreateMotorCompactPanel()
+        {
+            var panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(20, 25, 35), Margin = new Padding(1) };
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                BackColor = Color.Transparent,
+                Padding = new Padding(3, 2, 3, 2)
+            };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 16)); // título
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
+
+            layout.Controls.Add(new Label { Text = "🚀 MOTORES", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+
+            _lblEng1Val = MakeSysLabel("ENG1: ---");
+            _lblEng2Val = MakeSysLabel("ENG2: ---");
+            layout.Controls.Add(_lblEng1Val, 0, 1);
+            layout.Controls.Add(_lblEng2Val, 0, 2);
+            panel.Controls.Add(layout);
+            return panel;
+        }
+
+        /// <summary>Label estándar para paneles de sistema.</summary>
+        private static Label MakeSysLabel(string text) => new Label
+        {
+            Text = text,
+            Font = new Font("Consolas", 8, FontStyle.Bold),
+            ForeColor = Color.LightGreen,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(2, 0, 0, 0)
+        };
         private Panel CreateEnginePanelCompact()
         {
             var panel = new Panel
@@ -902,89 +940,43 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(20, 25, 35),
-                Padding = new Padding(5),
-                Margin = new Padding(2)
+                Margin = new Padding(1)
             };
-
-            var lblTitle = new Label
-            {
-                Text = title,
-                Font = new Font("Consolas", 9, FontStyle.Bold),
-                ForeColor = Color.Gold,
-                Dock = DockStyle.Top,
-                Height = 18,
-                TextAlign = ContentAlignment.MiddleLeft
-            };
-            panel.Controls.Add(lblTitle);
-
-            int y = 20;
-            int lineHeight = 20;
-
-            label1 = new Label { Text = "", Font = new Font("Consolas", 9), ForeColor = Color.LightGreen, Location = new Point(5, y), AutoSize = true };
-            label2 = new Label { Text = "", Font = new Font("Consolas", 9), ForeColor = Color.LightGreen, Location = new Point(5, y + lineHeight), AutoSize = true };
-            label3 = new Label { Text = "", Font = new Font("Consolas", 9), ForeColor = Color.LightGreen, Location = new Point(5, y + lineHeight * 2), AutoSize = true };
-            label4 = new Label { Text = "", Font = new Font("Consolas", 9), ForeColor = Color.LightGreen, Location = new Point(5, y + lineHeight * 3), AutoSize = true };
-
-            panel.Controls.AddRange(new Control[] { label1, label2, label3, label4 });
-            return panel;
-        }
-        private Panel CreateSystemsAndLightsPanel()
-        {
-            var panel = new Panel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(20, 25, 35),
-                Padding = new Padding(5),
-                Margin = new Padding(2)
-            };
-
-            var lblTitle = new Label
-            {
-                Text = "🛠️ SISTEMAS & 💡 LUCES",
-                Font = new Font("Consolas", 9, FontStyle.Bold),
-                ForeColor = Color.Gold,
-                Dock = DockStyle.Top,
-                Height = 18,
-                TextAlign = ContentAlignment.MiddleLeft
-            };
-            panel.Controls.Add(lblTitle);
 
             var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 1,
+                ColumnCount = 1,
+                RowCount = 5,
                 BackColor = Color.Transparent,
-                Padding = new Padding(2)
+                Padding = new Padding(3, 2, 3, 2)
             };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 16)); // título
+            for (int i = 0; i < 4; i++)
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
 
-            // Columna izquierda: Controles de vuelo
-            var flightPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
-            _lblGear = new Label { Text = "GEAR: ---", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(5, 20), AutoSize = true };
-            _lblFlaps = new Label { Text = "FLAPS: --%", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(5, 42), AutoSize = true };
-            _lblSpoilers = new Label { Text = "SPOIL: ---", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(5, 64), AutoSize = true };
-            _lblAutobrake = new Label { Text = "A/BRK: ---", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.LightGreen, Location = new Point(5, 86), AutoSize = true };
-            flightPanel.Controls.AddRange(new Control[] { _lblGear, _lblFlaps, _lblSpoilers, _lblAutobrake });
+            layout.Controls.Add(new Label
+            {
+                Text = title,
+                Font = new Font("Consolas", 8, FontStyle.Bold),
+                ForeColor = Color.Gold,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft
+            }, 0, 0);
 
-            // Columna derecha: Luces
-            var lightsPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
-            _lblNavLight = new Label { Text = "🟡 NAV: OFF", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(5, 20), AutoSize = true };
-            _lblBeaconLight = new Label { Text = "🔴 BCN: OFF", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(5, 42), AutoSize = true };
-            _lblLandingLight = new Label { Text = "⚪ LAND: OFF", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(5, 64), AutoSize = true };
-            _lblTaxiLight = new Label { Text = "🔵 TAXI: OFF", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(5, 86), AutoSize = true };
-            _lblStrobeLight = new Label { Text = "🟢 STROBE: OFF", Font = new Font("Consolas", 9, FontStyle.Bold), ForeColor = Color.Gray, Location = new Point(5, 108), AutoSize = true };
-            lightsPanel.Controls.AddRange(new Control[] { _lblNavLight, _lblBeaconLight, _lblLandingLight, _lblTaxiLight, _lblStrobeLight });
+            label1 = MakeSysLabel("");
+            label2 = MakeSysLabel("");
+            label3 = MakeSysLabel("");
+            label4 = MakeSysLabel("");
 
-            layout.Controls.Add(flightPanel, 0, 0);
-            layout.Controls.Add(lightsPanel, 1, 0);
+            layout.Controls.Add(label1, 0, 1);
+            layout.Controls.Add(label2, 0, 2);
+            layout.Controls.Add(label3, 0, 3);
+            layout.Controls.Add(label4, 0, 4);
+
             panel.Controls.Add(layout);
-
             return panel;
         }
-
-
         private void InitializeFmaPanel()
         {
             pnlFma = new BufferedPanel
@@ -1062,17 +1054,15 @@ namespace vmsOpenAcars.UI.Forms
             int lineHeight = 30;
 
             lblAcarsStatus = CreateStatusLabel("ACARS:", "⚠️ Offline", col1X, startY, Color.Orange);
-            lblEtd = CreateStatusLabel("ETD:", "XXXX", col1X, startY + lineHeight);
-            lblPos = CreateStatusLabel("POS: ", $"{_("Waiting")}...", col1X, startY + lineHeight * 2);
+            lblPos = CreateStatusLabel("POS: ", $"{_("Waiting")}...", col1X, startY + lineHeight);
             lblComm = CreateStatusLabel("COMM:", "VHF", col2X, startY);
-            lblUplink = CreateStatusLabel("UPLINK MSG:", "0", col2X, startY + lineHeight);
 
             lblValidationStatus = new Label
             {
                 Text = "VALIDACIÓN: ---",
                 Font = new Font("Consolas", 10, FontStyle.Bold),
                 ForeColor = Color.Gray,
-                Location = new Point(col2X, startY + lineHeight * 2),
+                Location = new Point(col2X, startY + lineHeight),
                 AutoSize = true
             };
 
@@ -1081,7 +1071,7 @@ namespace vmsOpenAcars.UI.Forms
                 Text = "COMM DATA RETRIEVAL IN PROGRESS",
                 Font = new Font("Consolas", 11, FontStyle.Italic),
                 ForeColor = Color.Yellow,
-                Location = new Point(30, startY + lineHeight * 3 + 20),
+                Location = new Point(30, startY + lineHeight * 2 + 20),
                 AutoSize = true
             };
 
@@ -1090,7 +1080,7 @@ namespace vmsOpenAcars.UI.Forms
                 Text = "APT: ---",
                 Font = new Font("Consolas", 10),
                 ForeColor = Color.Cyan,
-                Location = new Point(col2X, startY + lineHeight * 3),
+                Location = new Point(col2X, startY + lineHeight * 2),
                 AutoSize = true
             };
 
@@ -1099,13 +1089,13 @@ namespace vmsOpenAcars.UI.Forms
                 Text = $"SIM: {_("Waiting")}",
                 Font = new Font("Consolas", 10),
                 ForeColor = Color.Cyan,
-                Location = new Point(col1X, startY + lineHeight * 3),
+                Location = new Point(col1X, startY + lineHeight * 2),
                 AutoSize = true
             };
 
             pnlStatus.Controls.AddRange(new Control[] {
-                lblStatusTitle, lblAcarsStatus, lblEtd, lblPos, lblComm,
-                lblUplink, lblValidationStatus, _lblProgress, lblCurrentAirport, lblSimName
+                lblStatusTitle, lblAcarsStatus, lblPos, lblComm,
+                lblValidationStatus, _lblProgress, lblCurrentAirport, lblSimName
             });
 
             mainLayout.Controls.Add(pnlStatus, 0, 4);
@@ -1262,22 +1252,17 @@ namespace vmsOpenAcars.UI.Forms
                 }
 
                 // ===== PROGRESO =====
-                if (plan != null)
+                if (!string.IsNullOrEmpty(fm.ActivePirepId) && plan != null)
                 {
-                    double totalDistanceNm = plan.Distance;
+                    double totalDistanceNm = plan.Distance > 0
+                        ? plan.Distance
+                        : (fm.ActivePlan?.Distance ?? 0);
                     double flownDistanceNm = fm.TotalDistanceKm * 0.539957;
                     double remainingNm = Math.Max(0, totalDistanceNm - flownDistanceNm);
 
-                    if (_lblProgress != null)
-                        _lblProgress.Text = totalDistanceNm > 0
-                            ? $"DIST: {flownDistanceNm:F0}/{totalDistanceNm:F0} NM"
-                            : $"DIST: {flownDistanceNm:F0}/--- NM";
-                    if (_lblRestante != null)
-                        _lblRestante.Text = totalDistanceNm > 0
-                            ? $"REST: {remainingNm:F0} NM / ETA: {GetEtaString(fm, remainingNm)}"
-                            : "REST: --- NM / ETA: --:--";
-                    if (_lblTiempoAire != null)
-                        _lblTiempoAire.Text = $"⏱️ T/A: {fm.CurrentTimerDisplay}";
+                    if (_lblProgress != null) _lblProgress.Text = $"DIST: {flownDistanceNm:F0}/{totalDistanceNm:F0} NM";
+                    if (_lblRestante != null) _lblRestante.Text = $"REST: {remainingNm:F0} NM / ETA: {GetEtaString(fm, remainingNm)}";
+                    if (_lblTiempoAire != null) _lblTiempoAire.Text = $"⏱️ T/A: {fm.CurrentTimerDisplay}";
                 }
                 else
                 {
@@ -1302,8 +1287,9 @@ namespace vmsOpenAcars.UI.Forms
                         _lblVs.ForeColor = Color.LightGreen;
                 }
 
-                // ===== FUEL =====
+                // === FUEL ===
                 string fuelUnit = fm.ActivePlan?.Units ?? "kg";
+                // CurrentFuel e InitialFuel ya están en kg internamente
                 double convFactor = fuelUnit.Equals("lbs", StringComparison.OrdinalIgnoreCase)
                     ? 2.20462 : 1.0;
 
@@ -1317,32 +1303,45 @@ namespace vmsOpenAcars.UI.Forms
                 if (_lblFuelCurrent != null)
                 {
                     _lblFuelCurrent.Text = $"ACT: {fuelAct:F0} {fuelUnit}";
+                    // umbrales en kg internamente
                     _lblFuelCurrent.ForeColor = fm.CurrentFuel < 500 ? Color.Red
-                                              : fm.CurrentFuel < 1000 ? Color.Orange
-                                              : Color.LightGreen;
+                        : fm.CurrentFuel < 1000 ? Color.Orange
+                        : Color.LightGreen;
                 }
 
                 if (_lblFuelUsed != null)
-                    _lblFuelUsed.Text = $"USO: {fuelUsed:F0} {fuelUnit}";
+                    _lblFuelUsed.Text = $"USO: {fuelUsed:F0}";
 
                 // ===== ALTITUD =====
                 if (_lblAltitudeVal != null)
-                    _lblAltitudeVal.Text = $"ALT: {fm.CurrentAltitude} ft";
+                    _lblAltitudeVal.Text = $"ALT: {fm.CurrentAltitude:F0} ft";
 
                 if (_lblAglVal != null)
                 {
-                    // Radar solo en approach/landing (airborne, <2500 ft, valor válido)
                     double radarFt = fm.RadarAltitude;
                     if (!fm.IsOnGround && radarFt > 5 && radarFt < 2500)
                         _lblAglVal.Text = $"AGL: {radarFt:F0} ft ▼";
                     else
                     {
-                        // MSL − elevación aeropuerto de referencia (origen o destino según fase)
-                        double refElev = fm.ActivePlan != null
-                            ? fm.ReferenceAirportElevation
-                            : 0;
+                        double refElev = fm.ActivePlan != null ? fm.ReferenceAirportElevation : 0;
                         double aglCalc = Math.Max(0, fm.CurrentAltitude - refElev);
                         _lblAglVal.Text = $"AGL: {aglCalc:F0} ft";
+                    }
+                }
+
+                if (_lblQnhVal != null)
+                {
+                    double qnh = fm.AircraftQnhMb;
+                    if (qnh > 800 && qnh < 1100)   // rango válido de QNH
+                    {
+                        double qnhInHg = qnh / 33.8639;
+                        _lblQnhVal.Text = $"QNH: {qnh:F1} hPa ({qnhInHg:F2} inHg)";
+                        _lblQnhVal.ForeColor = Color.LightCyan;
+                    }
+                    else
+                    {
+                        _lblQnhVal.Text = "QNH: --- hPa";
+                        _lblQnhVal.ForeColor = Color.DimGray;
                     }
                 }
 

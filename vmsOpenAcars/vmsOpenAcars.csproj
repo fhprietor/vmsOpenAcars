@@ -132,6 +132,7 @@
     <Compile Include="Services\ScoringService.cs" />
     <Compile Include="Services\SimbriefEnhancedService.cs" />
     <Compile Include="Services\UIService.cs" />
+    <Compile Include="Services\Weatherservice.cs" />
     <Compile Include="UI\Forms\EcamDialog.cs">
       <SubType>Form</SubType>
     </Compile>
