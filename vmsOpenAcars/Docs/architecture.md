@@ -241,15 +241,161 @@ Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se
 
 ---
 
-### AircraftPerformanceTable
+### AircraftPerformanceTable y Detección de Overspeed
 
-Tabla estática de Vmo por tipo ICAO. Resolución:
-1. Match exacto (ej. `B738`)
-2. Prefijo 4 chars (ej. `B38M` → familia B737 MAX)
-3. Prefijo 3 chars (ej. `A32` → familia A320)
-4. Default genérico: 320 kts
+#### ¿Qué es Vmo?
 
-Cubre pistones ligeros, turboprops regionales, jets regionales, narrow-body y wide-body. Fuente: FCOM/AFM publicados.
+**Vmo** (Velocity Maximum Operating) es la velocidad máxima operativa publicada en el FCOM/AFM de cada aeronave, expresada en nudos IAS (Indicated Airspeed). Volar por encima de ella puede causar daño estructural, activar advertencias de overspeeed en el cockpit y, en operación real, resulta en un informe de seguridad obligatorio.
+
+En vmsOpenAcars, el Vmo es el único umbral de velocidad usado para penalizar al piloto. No se implementa Mmo (límite de Mach) porque FSUIPC expone IAS directamente y la conversión IAS↔Mach requiere datos de temperatura y presión que varían con la altitud.
+
+#### Resolución del Tipo de Aeronave
+
+Cuando se inicia un vuelo, `FlightManager` consulta `AircraftPerformanceTable.Get(icaoType)` con el código ICAO del tipo procedente del plan SimBrief o del PIREP. La resolución sigue este orden de prioridad:
+
+```
+1. Match exacto (case-insensitive)   "B738"  → Boeing 737-800, Vmo 340 kts
+        ↓ no encontrado
+2. Prefijo de 4 chars                "B38M"  → prefijo "B38" no existe
+        ↓ no encontrado
+3. Prefijo de 3 chars                "B38M"  → prefijo "B3" → familia B737 MAX, Vmo 340 kts
+        ↓ no encontrado
+4. Default genérico                  320 kts, categoría "Generic (unknown type)"
+```
+
+Esta cascada evita que un código de aeronave desconocido (variante de livery, tipo personalizado de la VA) cause una penalización incorrecta por overspeed.
+
+#### Tabla Completa de Vmo por Categoría
+
+**Pistones ligeros y GA**
+
+| Tipo ICAO | Aeronave | Vmo (kts) |
+|---|---|---|
+| C172 | Cessna 172 | 163 |
+| C182 | Cessna 182 | 175 |
+| C208 | Cessna Caravan | 175 |
+| PA28 | Piper PA-28 | 148 |
+| PA44 | Piper Seminole | 169 |
+| BE58 | Beechcraft Baron 58 | 195 |
+| BE20 | King Air 200 | 260 |
+| BE30 | King Air 300/350 | 260 |
+| PC12 | Pilatus PC-12 | 210 |
+
+**Turboprops regionales**
+
+| Tipo ICAO | Aeronave | Vmo (kts) |
+|---|---|---|
+| AT42–AT46 | ATR 42 (todas variantes) | 250 |
+| AT72–AT76 | ATR 72 (todas variantes) | 250 |
+| DH8A / DH8B | Dash 8-100/200 | 220 |
+| DH8C / DH8D | Dash 8-300/400 (Q400) | 260 |
+| SB20 | Saab 2000 | 290 |
+| SF34 | Saab 340 | 250 |
+| E120 | Embraer 120 | 255 |
+
+**Jets regionales**
+
+| Tipo ICAO | Aeronave | Vmo (kts) |
+|---|---|---|
+| CRJ2 | CRJ-200 | 320 |
+| CRJ7 | CRJ-700 | 320 |
+| CRJ9 | CRJ-900 | 320 |
+| CRJX | CRJ-1000 | 320 |
+| E135 / E145 | ERJ-135 / ERJ-145 | 320 |
+| E170 / E175 | Embraer E170 / E175 | 320 |
+| E190 / E195 | Embraer E190 / E195 | 320 |
+
+**Narrow-body jets**
+
+| Tipo ICAO | Aeronave | Vmo (kts) |
+|---|---|---|
+| A318–A321 | Airbus A318/319/320/321 | 350 |
+| A20N / A21N | A320neo / A321neo | 350 |
+| B731–B739 | Boeing 737 Clásico y NG | 340 |
+| B37M–B3XM | Boeing 737 MAX 7/8/9/10 | 340 |
+| MD82 / MD83 | McDonnell Douglas MD-80 | 340 |
+
+**Wide-body jets**
+
+| Tipo ICAO | Aeronave | Vmo (kts) |
+|---|---|---|
+| A332 / A333 / A339 | Airbus A330-200/300/900neo | 330 |
+| A342–A346 | Airbus A340 (todas variantes) | 330 |
+| A359 / A35K | Airbus A350-900/1000 | 330 |
+| A388 | Airbus A380-800 | 330 |
+| B752 / B753 | Boeing 757-200/300 | 350 |
+| B762–B764 | Boeing 767-200/300/400 | 350 |
+| B772–B77W | Boeing 777-200/300/ER/LR | 330 |
+| B779 | Boeing 777X | 330 |
+| B787–B78X | Boeing 787-8/9/10 | 330 |
+| B744 / B748 | Boeing 747-400/8 | 365 |
+| B74F / B74S | Boeing 747-400F / 747SP | 365 |
+
+**Prefijos fallback (3 chars)**
+
+Si el tipo exacto no está en la tabla, se busca el prefijo de 3 caracteres:
+
+| Prefijo | Familia | Vmo (kts) |
+|---|---|---|
+| A32 | A320 family | 350 |
+| A33 | A330 family | 330 |
+| A34 | A340 family | 330 |
+| A35 | A350 family | 330 |
+| A38 | A380 family | 330 |
+| B73 | B737 family | 340 |
+| B3  | B737 MAX | 340 |
+| B74 | B747 family | 365 |
+| B75 | B757 family | 350 |
+| B76 | B767 family | 350 |
+| B77 | B777 family | 330 |
+| B78 | B787 family | 330 |
+| AT4 | ATR 42 family | 250 |
+| AT7 | ATR 72 family | 250 |
+| DH8 | Dash 8 family | 260 |
+| DHC | DHC family | 215 |
+| CRJ | CRJ family | 320 |
+| E17 | E-jet 170 | 320 |
+| E19 | E-jet 190 | 320 |
+| BE2 | King Air | 260 |
+| BE3 | King Air 350 | 260 |
+| C20 | Caravan | 175 |
+
+Si ningún prefijo coincide → **320 kts** (default genérico conservador).
+
+#### Ciclo de Detección de Overspeed
+
+`CheckViolations()` se llama **una vez por ciclo de telemetría** (cada ~50 ms) mientras el avión está airborne y hay un PIREP activo:
+
+```
+Por cada ciclo:
+    IAS actual > Vmo?
+        SÍ y no estaba en overspeed antes → _overspeedCount++ + log
+        NO                                → reset flag _wasOverspeed
+```
+
+El flag `_wasOverspeed` actúa como latch: un evento de overspeed sostenido (ej. 30 segundos a 360 kts) cuenta como **un solo evento**, no como 600 eventos (uno por ciclo). El contador solo incrementa en la **transición** normal→overspeed.
+
+#### Deducción de Score por Overspeed
+
+| Eventos registrados | Deducción |
+|---|---|
+| 0 | 0 pts |
+| 1 | −7 pts |
+| ≥ 2 | −15 pts (máximo) |
+
+La penalización máxima es −15 pts sobre 100. Incluso con múltiples episodios de overspeed el score no puede caer más de 15 pts solo por este criterio; las penalizaciones de luces y aterrizaje acumulan el resto.
+
+#### Ejemplo Práctico
+
+Un piloto vuela un A320 (tipo `A320`, Vmo = **350 kts**) y durante el descenso mantiene 355 kts IAS durante 45 segundos, luego reduce:
+
+```
+Ciclo  1: IAS 355 > 350 → _wasOverspeed=false → _overspeedCount=1, log "⚠️ OVERSPEED: 355 kts"
+Ciclos 2–90: IAS 355 > 350 → _wasOverspeed=true → sin cambio (mismo evento)
+Ciclo 91: IAS 348 < 350 → _wasOverspeed=false
+```
+
+Resultado: 1 evento → **−7 pts** en el score final.
 
 ---
 
