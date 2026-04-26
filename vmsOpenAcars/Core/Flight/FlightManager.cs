@@ -80,6 +80,7 @@ namespace vmsOpenAcars.Core.Flight
         private FlightPhase _lastStablePhase;
         private DateTime _pushbackStartTime = DateTime.MinValue;
         private DateTime _stoppedStartTime = DateTime.MinValue;
+        private DateTime _goAroundStart = DateTime.MinValue;
 
         // Constantes para transiciones
         private const double PUSHBACK_MAX_SPEED = 5.0;
@@ -198,6 +199,30 @@ namespace vmsOpenAcars.Core.Flight
         public bool AreEnginesOn => _areEnginesOn;
 
         public bool HasSimulatorData { get; private set; }
+
+        /// <summary>
+        /// Altura sobre el nivel del suelo en pies, calculada según la fase de vuelo:
+        /// - Despegue / Climb / Tierra  → MSL − elevación aeropuerto de salida
+        /// - Crucero (Enroute)          → radar altímetro (clearance real sobre terreno de tránsito)
+        /// - Descenso / Aproximación    → MSL − elevación aeropuerto de destino
+        /// El radar altímetro no se usa en aproximación porque en terreno montañoso
+        /// (Andes, Alpes, Himalaya) lee la orografía, no la elevación del aeropuerto.
+        /// </summary>
+        public double CurrentAGL
+        {
+            get
+            {
+                if (IsOnGround) return 0;
+                switch (CurrentPhase)
+                {
+                    case FlightPhase.Enroute:
+                        return RadarAltitude > 0 ? RadarAltitude
+                                                 : CurrentAltitude - ReferenceAirportElevation;
+                    default:
+                        return CurrentAltitude - ReferenceAirportElevation;
+                }
+            }
+        }
 
         // Sistemas y luces
         public bool IsGearDown { get; private set; }
@@ -535,6 +560,7 @@ namespace vmsOpenAcars.Core.Flight
             _climbStableStart = DateTime.MinValue;
             _descentStart = DateTime.MinValue;
             _stepClimbStart = DateTime.MinValue;
+            _goAroundStart = DateTime.MinValue;
             _blockOffRecorded = false;
             _touchdownPitch = 0;
             _touchdownBank = 0;
@@ -1023,10 +1049,28 @@ namespace vmsOpenAcars.Core.Flight
                         break;
 
                     case FlightPhase.Approach:
-                        if (isClimbing && altitudeAboveDest < 10000 && altitudeAboveDest > 500 && canChangePhase)
+                        // AGL en aproximación = MSL − elevación aeropuerto destino.
+                        // No usamos radar altímetro aquí: en terrenos montañosos (Andes,
+                        // Alpes, Himalaya) el radar lee la orografía bajo las ruedas, que
+                        // puede estar muy por encima del aeropuerto y daría AGL incorrecto.
+                        bool isGoAroundClimb = verticalSpeed > 600;
+                        bool inGoAroundRange = altitudeAboveDest > 100 && altitudeAboveDest < 3000;
+                        bool enoughTimeInApproach = (DateTime.UtcNow - _phaseStartTime).TotalSeconds >= 30;
+
+                        if (isGoAroundClimb && inGoAroundRange && enoughTimeInApproach)
                         {
-                            OnLog?.Invoke($"✈️ Go-around detected!", Theme.Warning);
-                            TransitionTo(FlightPhase.Climb, previousPhase);
+                            if (_goAroundStart == DateTime.MinValue)
+                                _goAroundStart = DateTime.UtcNow;
+                            else if ((DateTime.UtcNow - _goAroundStart).TotalSeconds >= 8)
+                            {
+                                _goAroundStart = DateTime.MinValue;
+                                OnLog?.Invoke($"✈️ Go-around at {(int)altitudeAboveDest} ft AGL, VS +{verticalSpeed} fpm", Theme.Warning);
+                                TransitionTo(FlightPhase.Climb, previousPhase);
+                            }
+                        }
+                        else
+                        {
+                            _goAroundStart = DateTime.MinValue;
                         }
                         break;
                 }
