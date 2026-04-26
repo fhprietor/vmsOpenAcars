@@ -222,6 +222,11 @@ namespace vmsOpenAcars.Services
         private int _lastParkingBrake;
         private int _lastEngineRpm;
         private bool _lastBeaconState;
+        private bool _lastLandingState;
+        private bool _lastTaxiState;
+        private DateTime _lastBeaconChange = DateTime.MinValue;
+        private DateTime _lastLandingChange = DateTime.MinValue;
+        private DateTime _lastTaxiChange = DateTime.MinValue;
 
         // -- Debounce flaps --
         private DateTime _lastFlapsChangeTime = DateTime.MinValue;
@@ -1054,10 +1059,14 @@ namespace vmsOpenAcars.Services
             int lights = _lightsOffset.Value;
             bool navOn = (lights & 0x01) != 0;
             bool beaconOn = (lights & 0x02) != 0;
+            bool landingOn = (lights & 0x04) != 0;
+            bool taxiOn = (lights & 0x08) != 0;
             bool strobeOn = (lights & 0x10) != 0 && (beaconOn || navOn);
 
             DetectNavChange(navOn);
             DetectStrobeChange(strobeOn);
+            DetectLandingLightChange(landingOn);
+            DetectTaxiLightChange(taxiOn);
         }
 
         private void DetectGroundTransition()
@@ -1143,6 +1152,8 @@ namespace vmsOpenAcars.Services
 
         public event Action<bool> NavLightChanged;
         public event Action<bool> StrobeLightChanged;
+        public event Action<bool> LandingLightChanged;
+        public event Action<bool> TaxiLightChanged;
 
         private void DetectNavChange(bool navOn)
         {
@@ -1185,8 +1196,28 @@ namespace vmsOpenAcars.Services
         private void DetectBeaconChange()
         {
             if (IsBeaconOn == _lastBeaconState) return;
-            BeaconChanged?.Invoke(IsBeaconOn);
+            if ((DateTime.UtcNow - _lastBeaconChange).TotalSeconds < LightDebounceSeconds) return;
+            _lastBeaconChange = DateTime.UtcNow;
             _lastBeaconState = IsBeaconOn;
+            BeaconChanged?.Invoke(IsBeaconOn);
+        }
+
+        private void DetectLandingLightChange(bool landingOn)
+        {
+            if (landingOn == _lastLandingState) return;
+            if ((DateTime.UtcNow - _lastLandingChange).TotalSeconds < LightDebounceSeconds) return;
+            _lastLandingChange = DateTime.UtcNow;
+            _lastLandingState = landingOn;
+            LandingLightChanged?.Invoke(landingOn);
+        }
+
+        private void DetectTaxiLightChange(bool taxiOn)
+        {
+            if (taxiOn == _lastTaxiState) return;
+            if ((DateTime.UtcNow - _lastTaxiChange).TotalSeconds < LightDebounceSeconds) return;
+            _lastTaxiChange = DateTime.UtcNow;
+            _lastTaxiState = taxiOn;
+            TaxiLightChanged?.Invoke(taxiOn);
         }
 
         #endregion

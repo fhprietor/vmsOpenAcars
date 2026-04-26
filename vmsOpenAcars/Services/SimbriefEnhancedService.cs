@@ -134,6 +134,8 @@ namespace vmsOpenAcars.Services
                         TimeGenerated = json["params"]?["time_generated"]?.Value<long>() ?? 0,
                         ScheduledOffTime = json["times"]?["sched_off"]?.Value<long>() ?? 0,
 
+                        // URL del PDF: directory + filename
+                        PdfUrl = BuildPdfUrl(json),
                 };
                 System.Diagnostics.Debug.WriteLine($"SimBrief Distance: {plan.Distance} NM");
                 System.Diagnostics.Debug.WriteLine($"SimBrief EstTimeEnroute: {plan.EstTimeEnroute} seconds ({plan.EstTimeEnroute / 60} minutes)");
@@ -144,6 +146,21 @@ namespace vmsOpenAcars.Services
                 System.Diagnostics.Debug.WriteLine($"Simbrief fetch error: {ex}");
                 return null;
             }
+        }
+
+        private static string BuildPdfUrl(JObject json)
+        {
+            string directory = json["files"]?["directory"]?.ToString() ?? "";
+
+            var pdfToken = json["files"]?["pdf"];
+            string file = pdfToken?.Type == JTokenType.Object
+                ? pdfToken["link"]?.ToString() ?? ""
+                : pdfToken?.ToString() ?? "";
+
+            if (string.IsNullOrEmpty(directory) || string.IsNullOrEmpty(file))
+                return null;
+
+            return directory.TrimEnd('/') + "/" + file.TrimStart('/');
         }
 
         private string BuildQueryString(System.Collections.Generic.Dictionary<string, string> parameters)

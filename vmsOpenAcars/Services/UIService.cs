@@ -204,42 +204,6 @@ namespace vmsOpenAcars.Services
             }
         }
 
-        public void UpdateAltitude(int altitude)
-        {
-            if (_form.lblAltitude.InvokeRequired)
-            {
-                _form.lblAltitude.Invoke(new Action(() => SetAltitude(altitude)));
-            }
-            else
-            {
-                SetAltitude(altitude);
-            }
-        }
-
-        private void SetAltitude(int altitude)
-        {
-            _form.lblAltitude.Text = $"ALT\n{altitude} FT";
-            _form.lblAltitude.ForeColor = _flightManager.CurrentPhase.IsAirborne() ? Theme.Enroute : Color.Gray;
-        }
-
-        public void UpdateSpeed(int speed)
-        {
-            if (_form.lblSpeed.InvokeRequired)
-            {
-                _form.lblSpeed.Invoke(new Action(() => SetSpeed(speed)));
-            }
-            else
-            {
-                SetSpeed(speed);
-            }
-        }
-
-        private void SetSpeed(int speed)
-        {
-            _form.lblSpeed.Text = $"SPD\n{speed} KT";
-            _form.lblSpeed.ForeColor = speed > 3 ? Theme.Enroute : Color.Gray;
-        }
-
         public void UpdateValidationUI(ValidationStatus status)
         {
             if (_form.lblValidationStatus.InvokeRequired)
@@ -277,51 +241,22 @@ namespace vmsOpenAcars.Services
         }
         private void SetValidationText(ValidationStatus status)
         {
-            string gpsIcon = status.GpsValid ? "✅" : (status.DistanceFromAirport > 0 ? "❌" : "⏳");
-            string gpsText = status.DistanceFromAirport > 0 ? $" ({status.DistanceFromAirport:F1}km)" : "";
+            string icaoIcon = status.IcaoMatch ? "✅" : (string.IsNullOrEmpty(status.SimbriefAirport) ? "---" : "❌");
+            string gpsIcon  = status.GpsValid  ? "✅" : (status.DistanceFromAirport > 0 ? $"❌ {status.DistanceFromAirport:F1}NM" : "⏳");
 
-            if (status.IcaoMatch)
-            {
-                if (status.GpsValid)
-                {
-                    _form.lblValidationStatus.Text = $"VALIDACIÓN: ICAO ✅  GPS: ✅{gpsText}";
-                    _form.lblValidationStatus.ForeColor = Color.LightGreen;
-                }
-                else
-                {
-                    _form.lblValidationStatus.Text = $"VALIDACIÓN: ICAO ✅  GPS: {gpsIcon}{gpsText}";
-                    _form.lblValidationStatus.ForeColor = Color.Orange;
-                }
-            }
-            else
-            {
-                if (string.IsNullOrEmpty(status.SimbriefAirport))
-                    _form.lblValidationStatus.Text = $"VALIDACIÓN: Sin plan  GPS: {gpsIcon}{gpsText}";
-                else
-                    _form.lblValidationStatus.Text = $"VALIDACIÓN: ICAO ❌ (phpVMS: {status.PhpVmsAirport} vs SIMBRIEF: {status.SimbriefAirport})  GPS: {gpsIcon}{gpsText}";
-
-                _form.lblValidationStatus.ForeColor = Color.Orange;
-            }
+            _form.lblValidationStatus.Text = $"ICAO {icaoIcon}  GPS {gpsIcon}";
+            _form.lblValidationStatus.ForeColor = (status.IcaoMatch && status.GpsValid)
+                ? Color.LightGreen
+                : Color.Orange;
         }
 
-
-        private void SetFlightInfo(string info)
-        {
-            // Asumiendo que info tiene el formato que construiste en el ViewModel
-            // Puedes parsearla o crear propiedades separadas en el ViewModel
-            // Por simplicidad, actualizamos solo un label
-        }
 
         public void UpdateSimulatorName(string name)
         {
             if (_form.lblSimName.InvokeRequired)
-            {
-                _form.lblSimName.Invoke(new Action(() => _form.lblSimName.Text = $"SIM: {name}"));
-            }
+                _form.lblSimName.Invoke(new Action(() => _form.lblSimName.Text = name));
             else
-            {
-                _form.lblSimName.Text = $"SIM: {name}";
-            }
+                _form.lblSimName.Text = name;
         }
 
         public void UpdateAcarsStatus(bool isOnline)
@@ -338,31 +273,19 @@ namespace vmsOpenAcars.Services
 
         private void SetAcarsStatus(bool isOnline)
         {
-            if (isOnline)
-            {
-                _form.lblAcarsStatus.Text = "ACARS: 📡 Online";
-                _form.lblAcarsStatus.ForeColor = Color.LightGreen;
-            }
-            else
-            {
-                _form.lblAcarsStatus.Text = "ACARS: ⚠️ Offline";
-                _form.lblAcarsStatus.ForeColor = Color.Orange;
-            }
+            _form.lblAcarsStatus.Text = isOnline ? "📡 Online" : "⚠️ Offline";
+            _form.lblAcarsStatus.ForeColor = isOnline ? Color.LightGreen : Color.Orange;
         }
 
         public void UpdateCurrentAirport(string airport)
         {
             if (_form.lblCurrentAirport.InvokeRequired)
-            {
-                _form.lblCurrentAirport.Invoke(new Action(() => _form.lblCurrentAirport.Text = $"APT: {airport}"));
-            }
+                _form.lblCurrentAirport.Invoke(new Action(() => _form.lblCurrentAirport.Text = airport));
             else
-            {
-                _form.lblCurrentAirport.Text = $"APT: {airport}";
-            }
+                _form.lblCurrentAirport.Text = airport;
         }
 
-        public void UpdateFlightInfo(string unused = null)
+        public void UpdateFlightInfo()
         {
             if (_form == null || _form.IsDisposed) return;
 

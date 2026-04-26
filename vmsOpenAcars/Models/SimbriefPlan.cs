@@ -179,5 +179,21 @@
         public double Distance { get; set; }
 
         #endregion
+
+        #region Files
+
+        /// <summary>
+        /// URL directa al PDF del OFP generado por SimBrief.
+        /// Construida como files.directory + files.pdf del JSON de SimBrief.
+        /// </summary>
+        public string PdfUrl { get; set; }
+
+        /// <summary>
+        /// Ruta local al PDF del OFP ya descargado. Null si aún no se ha descargado.
+        /// Se invalida automáticamente cuando OFPViewerForm elimina el archivo al cerrarse.
+        /// </summary>
+        public string LocalPdfPath { get; set; }
+
+        #endregion
     }
 }

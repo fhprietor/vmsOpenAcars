@@ -41,8 +41,6 @@ namespace vmsOpenAcars.ViewModels
         public event Action<string> OnPositionUpdate;
         public event Action<FlightPhase> OnPhaseChanged;
         public event Action<FlightPhase> OnAirStatusChanged;
-        public event Action<int> OnAltitudeChanged;
-        public event Action<int> OnSpeedChanged;
         public event Action<ValidationStatus> OnValidationStatusChanged;
         public event Action OnFlightInfoChanged;
         public event Action<string> OnSimulatorNameChanged;
@@ -273,9 +271,7 @@ namespace vmsOpenAcars.ViewModels
             // La actualización de FlightManager ya la hace OnRawDataUpdated
 
             // Actualizar UI (posición, altitudes, etc.)
-            OnPositionUpdate?.Invoke($"POS: {e.Latitude:F4}° / {e.Longitude:F4}°");
-            OnAltitudeChanged?.Invoke((int)e.AltitudeFeet);
-            OnSpeedChanged?.Invoke((int)e.GroundSpeedKt);
+            OnPositionUpdate?.Invoke($"{e.Latitude:F3}/{e.Longitude:F3}");
             OnPhaseChanged?.Invoke(_flightManager.CurrentPhase);
             OnAirStatusChanged?.Invoke(_flightManager.CurrentPhase);
 
@@ -922,11 +918,50 @@ namespace vmsOpenAcars.ViewModels
 
         public void ShowOFP()
         {
+            // Mantenido como fallback; el flujo principal pasa por DownloadOFPPdfAsync
             var plan = _flightManager?.ActivePlan;
-            if (plan != null)
-                OnShowMessage?.Invoke($"OFP: {plan.Route}\nCombustible: {plan.BlockFuel} {plan.Units}", "Operational Flight Plan");
+            if (plan == null)
+                OnShowMessage?.Invoke("No hay OFP cargado. Usa DISPATCH para generar uno en SimBrief.", "Info");
             else
-                OnShowMessage?.Invoke("No hay OFP cargado.", "Info");
+                OnShowMessage?.Invoke($"OFP: {plan.Route}\nCombustible: {plan.BlockFuel} {plan.Units}", "Operational Flight Plan");
+        }
+
+        public bool HasOFPPdf() => !string.IsNullOrEmpty(_flightManager?.ActivePlan?.PdfUrl);
+
+        public string GetOFPTitle()
+        {
+            var plan = _flightManager?.ActivePlan;
+            return plan != null ? $"{plan.Origin} → {plan.Destination}" : "OFP";
+        }
+
+        public string GetCachedOFPPath()
+        {
+            string path = _flightManager?.ActivePlan?.LocalPdfPath;
+            return (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path)) ? path : null;
+        }
+
+        public async System.Threading.Tasks.Task<string> DownloadOFPPdfAsync()
+        {
+            var plan = _flightManager?.ActivePlan;
+            string url = plan?.PdfUrl;
+            if (string.IsNullOrEmpty(url)) return null;
+
+            // Usar caché si el archivo todavía existe
+            if (!string.IsNullOrEmpty(plan.LocalPdfPath) && System.IO.File.Exists(plan.LocalPdfPath))
+                return plan.LocalPdfPath;
+
+            string tempPath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"vmsOFP_{Guid.NewGuid():N}.pdf");
+
+            var response = await _apiService.HttpClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+
+            using (var fs = new System.IO.FileStream(tempPath, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+                await response.Content.CopyToAsync(fs);
+
+            plan.LocalPdfPath = tempPath;
+            return tempPath;
         }
 
         public void LogButtonPress(string buttonText) => OnLog?.Invoke($"🔘 Botón {buttonText} presionado", Theme.MainText);

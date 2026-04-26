@@ -52,8 +52,6 @@ namespace vmsOpenAcars.UI.Forms
         public Label _lblDepArr;
         public Label _lblDuration;
         public Label lblPhase;
-        public Label lblSpeed;
-        public Label lblAltitude;
         public Label lblAir;
         public Label lblRoute;
         public Label _lblRoute;
@@ -63,12 +61,8 @@ namespace vmsOpenAcars.UI.Forms
         public Label _lblType;
         public Label _lblRegistration;
         public RichTextBox txtIncomingMsg;
-        public Label lblStatusTitle;
         public Label lblAcarsStatus;
-        public Label lblEtd;
         public Label lblPos;
-        public Label lblComm;
-        public Label lblUplink;
         public Label _lblProgress;
         public Label lblValidationStatus;
         public Label lblCurrentAirport;
@@ -230,8 +224,6 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel.OnPositionUpdate += _uiService.UpdatePosition;
             _viewModel.OnPhaseChanged += _uiService.UpdatePhase;
             _viewModel.OnAirStatusChanged += _uiService.UpdateAirStatus;
-            _viewModel.OnAltitudeChanged += _uiService.UpdateAltitude;
-            _viewModel.OnSpeedChanged += _uiService.UpdateSpeed;
             _viewModel.OnValidationStatusChanged += _uiService.UpdateValidationUI;
             _viewModel.OnFlightInfoChanged += () => _uiService.UpdateFlightInfo();
             _viewModel.OnSimulatorNameChanged += _uiService.UpdateSimulatorName;
@@ -404,12 +396,12 @@ namespace vmsOpenAcars.UI.Forms
                 BackColor = Color.Transparent
             };
 
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));  // Header
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 60));   // Message (datos)
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));  // FMA
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 20));   // Incoming Msg
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 35));   // Status
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));  // Buttons
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));   // Row 0: Header
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));   // Row 1: FMA
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 220));  // Row 2: Message (datos)
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Row 3: Incoming Msg
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));   // Row 4: Buttons
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));   // Row 5: Status Bar
 
             this.Controls.Add(mainLayout);
         }
@@ -661,7 +653,7 @@ namespace vmsOpenAcars.UI.Forms
             topGrid.Controls.Add(aeroPanel, 1, 0);
 
             var fuelPanel = CreateCompactInfoCard("⛽ FUEL", out _lblFuelInit, out _lblFuelCurrent, out _lblFuelUsed);
-            _lblFuelInit.Text = "INI: 0 kg"; _lblFuelCurrent.Text = "ACT: 0 kg";
+            _lblFuelInit.Text = "INI: 0 kg"; _lblFuelCurrent.Text = "ACT: 0 kg"; _lblFuelUsed.Text = "USO: 0 kg";
             topGrid.Controls.Add(fuelPanel, 2, 0);
 
             topGrid.Controls.Add(CreateMotorCompactPanel(), 3, 0);
@@ -691,7 +683,7 @@ namespace vmsOpenAcars.UI.Forms
             mainGrid.Controls.Add(leftGrid, 0, 0);
 
             pnlMessageInfo.Controls.Add(mainGrid);
-            mainLayout.Controls.Add(pnlMessageInfo, 0, 1);
+            mainLayout.Controls.Add(pnlMessageInfo, 0, 2);
 
             // ===== PANEL DE MENSAJES ENTRANTES (INCOMING MSG) =====
             pnlIncoming = new BufferedPanel
@@ -728,7 +720,7 @@ namespace vmsOpenAcars.UI.Forms
             };
             pnlIncoming.Controls.Add(lblIncomingTitle);
 
-            mainLayout.Controls.Add(pnlIncoming, 0, 2);
+            mainLayout.Controls.Add(pnlIncoming, 0, 3);
         }
 
         private Panel CreateCompactInfoCard(string title, out Label label1, out Label label2, out Label label3)
@@ -738,13 +730,14 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 4,
+                RowCount = 5,
                 BackColor = Color.Transparent,
-                Padding = new Padding(3, 2, 3, 2)
+                Padding = new Padding(3, 8, 3, 2)
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 16)); // título
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 14)); // título
             for (int i = 0; i < 3; i++)
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // espaciador: absorbe altura sobrante
 
             layout.Controls.Add(new Label
             {
@@ -752,7 +745,8 @@ namespace vmsOpenAcars.UI.Forms
                 Font = new Font("Consolas", 8, FontStyle.Bold),
                 ForeColor = Color.Gold,
                 Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleLeft
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = Padding.Empty
             }, 0, 0);
 
             label1 = MakeSysLabel("");
@@ -774,15 +768,16 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 8,
+                RowCount = 9,
                 BackColor = Color.Transparent,
-                Padding = new Padding(3, 2, 3, 2)
+                Padding = new Padding(3, 8, 3, 2)
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 16)); // título
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 14)); // título
             for (int i = 0; i < 7; i++)
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // espaciador
 
-            layout.Controls.Add(new Label { Text = "🛠️ SISTEMAS", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+            layout.Controls.Add(new Label { Text = "🛠️ SISTEMAS", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
 
             _lblGear = MakeSysLabel("GEAR: ---");
             _lblFlaps = MakeSysLabel("FLAPS: --");
@@ -811,15 +806,16 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 6,
+                RowCount = 7,
                 BackColor = Color.Transparent,
-                Padding = new Padding(3, 2, 3, 2)
+                Padding = new Padding(3, 8, 3, 2)
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 16)); // título
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 14)); // título
             for (int i = 0; i < 5; i++)
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // espaciador
 
-            layout.Controls.Add(new Label { Text = "💡 LUCES", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+            layout.Controls.Add(new Label { Text = "💡 LUCES", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
 
             _lblNavLight = MakeSysLabel("● NAV: OFF");
             _lblBeaconLight = MakeSysLabel("● BCN: OFF");
@@ -844,15 +840,16 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 3,
+                RowCount = 4,
                 BackColor = Color.Transparent,
-                Padding = new Padding(3, 2, 3, 2)
+                Padding = new Padding(3, 8, 3, 2)
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 16)); // título
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 14)); // título
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // espaciador
 
-            layout.Controls.Add(new Label { Text = "🚀 MOTORES", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+            layout.Controls.Add(new Label { Text = "🚀 MOTORES", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
 
             _lblEng1Val = MakeSysLabel("ENG1: ---");
             _lblEng2Val = MakeSysLabel("ENG2: ---");
@@ -870,7 +867,8 @@ namespace vmsOpenAcars.UI.Forms
             ForeColor = Color.LightGreen,
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(2, 0, 0, 0)
+            Padding = new Padding(2, 0, 0, 0),
+            Margin = Padding.Empty
         };
         private Panel CreateEnginePanelCompact()
         {
@@ -947,13 +945,14 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 5,
+                RowCount = 6,
                 BackColor = Color.Transparent,
-                Padding = new Padding(3, 2, 3, 2)
+                Padding = new Padding(3, 8, 3, 2)
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 16)); // título
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 14)); // título
             for (int i = 0; i < 4; i++)
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // espaciador
 
             layout.Controls.Add(new Label
             {
@@ -961,7 +960,8 @@ namespace vmsOpenAcars.UI.Forms
                 Font = new Font("Consolas", 8, FontStyle.Bold),
                 ForeColor = Color.Gold,
                 Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleLeft
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = Padding.Empty
             }, 0, 0);
 
             label1 = MakeSysLabel("");
@@ -990,28 +990,24 @@ namespace vmsOpenAcars.UI.Forms
             var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 5,
+                ColumnCount = 3,
                 RowCount = 1,
                 BackColor = Theme.FMAPanelBackground
             };
 
-            for (int i = 0; i < 5; i++)
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
+            for (int i = 0; i < 3; i++)
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
 
             pnlFma.Controls.Add(layout);
 
             lblPhase = CreateFmaLabel("PHASE", "STANDBY");
-            lblSpeed = CreateFmaLabel("SPD", "--- KT");
-            lblAltitude = CreateFmaLabel("ALT", "---- FT");
             lblAir = CreateFmaLabel("AIR", "GROUND");
             lblRoute = CreateFmaLabel("ROUTE", "----/----");
 
             layout.Controls.Add(lblPhase, 0, 0);
-            layout.Controls.Add(lblSpeed, 1, 0);
-            layout.Controls.Add(lblAltitude, 2, 0);
-            layout.Controls.Add(lblAir, 3, 0);
-            layout.Controls.Add(lblRoute, 4, 0);
-            mainLayout.Controls.Add(pnlFma, 0, 2);
+            layout.Controls.Add(lblAir, 1, 0);
+            layout.Controls.Add(lblRoute, 2, 0);
+            mainLayout.Controls.Add(pnlFma, 0, 1);
         }
 
 
@@ -1034,85 +1030,44 @@ namespace vmsOpenAcars.UI.Forms
             pnlStatus = new BufferedPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(15, 15, 25),
-                Padding = new Padding(10),
-                BorderStyle = BorderStyle.FixedSingle
+                BackColor = Color.FromArgb(10, 12, 20),
+                Padding = new Padding(3, 0, 3, 0)
             };
 
-            lblStatusTitle = new Label
+            var flow = new FlowLayoutPanel
             {
-                Text = "STATUS",
-                Font = new Font("Consolas", 14, FontStyle.Bold),
-                ForeColor = Color.Yellow,
-                Location = new Point(10, 10),
-                AutoSize = true
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0)
             };
 
-            int startY = 45;
-            int col1X = 30;
-            int col2X = 250;
-            int lineHeight = 30;
+            lblSimName        = CreateStatusPill(_("Waiting"), Color.DimGray);
+            lblAcarsStatus    = CreateStatusPill("⚠️ Offline", Color.Orange);
+            lblCurrentAirport = CreateStatusPill("---", Color.DimGray);
+            lblValidationStatus = CreateStatusPill("ICAO --- GPS ---", Color.DimGray);
+            lblPos            = CreateStatusPill("---", Color.DimGray);
 
-            lblAcarsStatus = CreateStatusLabel("ACARS:", "⚠️ Offline", col1X, startY, Color.Orange);
-            lblPos = CreateStatusLabel("POS: ", $"{_("Waiting")}...", col1X, startY + lineHeight);
-            lblComm = CreateStatusLabel("COMM:", "VHF", col2X, startY);
-
-            lblValidationStatus = new Label
-            {
-                Text = "VALIDACIÓN: ---",
-                Font = new Font("Consolas", 10, FontStyle.Bold),
-                ForeColor = Color.Gray,
-                Location = new Point(col2X, startY + lineHeight),
-                AutoSize = true
-            };
-
-            _lblProgress = new Label
-            {
-                Text = "COMM DATA RETRIEVAL IN PROGRESS",
-                Font = new Font("Consolas", 11, FontStyle.Italic),
-                ForeColor = Color.Yellow,
-                Location = new Point(30, startY + lineHeight * 2 + 20),
-                AutoSize = true
-            };
-
-            lblCurrentAirport = new Label
-            {
-                Text = "APT: ---",
-                Font = new Font("Consolas", 10),
-                ForeColor = Color.Cyan,
-                Location = new Point(col2X, startY + lineHeight * 2),
-                AutoSize = true
-            };
-
-            lblSimName = new Label
-            {
-                Text = $"SIM: {_("Waiting")}",
-                Font = new Font("Consolas", 10),
-                ForeColor = Color.Cyan,
-                Location = new Point(col1X, startY + lineHeight * 2),
-                AutoSize = true
-            };
-
-            pnlStatus.Controls.AddRange(new Control[] {
-                lblStatusTitle, lblAcarsStatus, lblPos, lblComm,
-                lblValidationStatus, _lblProgress, lblCurrentAirport, lblSimName
+            flow.Controls.AddRange(new Control[] {
+                lblSimName, lblAcarsStatus, lblCurrentAirport, lblValidationStatus, lblPos
             });
 
-            mainLayout.Controls.Add(pnlStatus, 0, 4);
+            pnlStatus.Controls.Add(flow);
+            mainLayout.Controls.Add(pnlStatus, 0, 5);
         }
 
-        private Label CreateStatusLabel(string label, string value, int x, int y, Color? color = null)
+        private Label CreateStatusPill(string text, Color fore)
         {
-            if (color == null)
-                color = Color.LightGreen;
-
             return new Label
             {
-                Text = $"{label}  {value}",
-                Font = new Font("Consolas", 11),
-                ForeColor = color.Value,
-                Location = new Point(x, y),
-                AutoSize = true
+                Text = text,
+                Font = new Font("Consolas", 9),
+                ForeColor = fore,
+                BackColor = Color.FromArgb(28, 32, 48),
+                AutoSize = true,
+                Padding = new Padding(7, 2, 7, 2),
+                Margin = new Padding(3, 3, 3, 3)
             };
         }
 
@@ -1122,7 +1077,7 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(30, 40, 50),
-                Padding = new Padding(10)
+                Padding = new Padding(4)
             };
 
             string[] buttonNames = { "MENU", "LOGIN", "ATIS", "OFP", "MSG", "WEATHER", "DISPATCH", "START", "CANCEL" };
@@ -1138,17 +1093,17 @@ namespace vmsOpenAcars.UI.Forms
                 Color.FromArgb(150, 0, 0)
             };
 
-            int xPos = 10;
+            int xPos = 6;
             int buttonWidth = 90;
-            int buttonHeight = 40;
-            int spacing = 5;
+            int buttonHeight = 34;
+            int spacing = 4;
 
             for (int i = 0; i < buttonNames.Length; i++)
             {
                 Button btn = new Button
                 {
                     Text = buttonNames[i],
-                    Location = new Point(xPos, 15),
+                    Location = new Point(xPos, 6),
                     Size = new Size(buttonWidth, buttonHeight),
                     BackColor = buttonColors[i],
                     ForeColor = Color.White,
@@ -1188,7 +1143,7 @@ namespace vmsOpenAcars.UI.Forms
                 xPos += buttonWidth + spacing;
             }
 
-            mainLayout.Controls.Add(pnlButtons, 0, 5);
+            mainLayout.Controls.Add(pnlButtons, 0, 4);
         }
 
         private Label CreateInfoLabel(string text, FontStyle style = FontStyle.Regular)
@@ -1220,6 +1175,11 @@ namespace vmsOpenAcars.UI.Forms
 
                 if (_lblDepArr != null)
                     _lblDepArr.Text = (plan != null) ? $"{plan.Origin} → {plan.Destination}" : "--- → ---";
+
+                if (lblRoute != null)
+                    lblRoute.Text = (plan != null)
+                        ? $"ROUTE\n{plan.Origin} → {plan.Destination}"
+                        : "ROUTE\n----/----";
 
                 if (_lblAircraft != null)
                     _lblAircraft.Text = (plan != null) ? (plan.AircraftIcao ?? "----") : (fm.HasSimulatorData ? "CONNECTED" : "DISCONNECTED");
@@ -1543,6 +1503,11 @@ namespace vmsOpenAcars.UI.Forms
                     {
                         _viewModel.SetActivePlan(completePlan);
                         _uiService.AddLog($"✅ Plan loaded: {completePlan.Origin} → {completePlan.Destination}", Theme.Success);
+                        // Pre-descargar el PDF del OFP en background para tenerlo listo al instante
+                        if (_viewModel.HasOFPPdf())
+                        {
+                            var preload = _viewModel.DownloadOFPPdfAsync();
+                        }
                         _viewModel.UpdateFlightInfo();
                         return;
                     }
@@ -1593,9 +1558,46 @@ namespace vmsOpenAcars.UI.Forms
             }
         }
 
-        private void BtnOfp_Click(object sender, EventArgs e)
+        private async void BtnOfp_Click(object sender, EventArgs e)
         {
-            _viewModel?.ShowOFP();
+            if (_viewModel == null) return;
+
+            if (!_viewModel.HasOFPPdf())
+            {
+                _viewModel.ShowOFP();
+                return;
+            }
+
+            // Si el PDF ya fue pre-descargado y el archivo existe, abrirlo sin espera
+            string cached = _viewModel.GetCachedOFPPath();
+            if (cached != null)
+            {
+                new OFPViewerForm(cached, _viewModel.GetOFPTitle()).Show(this);
+                return;
+            }
+
+            btnOfp.Enabled = false;
+            try
+            {
+                string pdfPath = await _viewModel.DownloadOFPPdfAsync();
+                if (string.IsNullOrEmpty(pdfPath))
+                {
+                    MessageBox.Show("No se pudo descargar el OFP.", "OFP",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                new OFPViewerForm(pdfPath, _viewModel.GetOFPTitle()).Show(this);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error descargando el OFP:\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnOfp.Enabled = true;
+            }
         }
 
         private void GenericButton_Click(object sender, EventArgs e)

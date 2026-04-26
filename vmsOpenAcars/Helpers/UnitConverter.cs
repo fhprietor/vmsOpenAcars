@@ -69,6 +69,30 @@ namespace vmsOpenAcars.Helpers
         }
 
         /// <summary>
+        /// Calcula la distancia entre dos coordenadas geográficas usando la fórmula de Haversine.
+        /// </summary>
+        /// <returns>Distancia en kilómetros.</returns>
+        public static double CalculateDistanceKm(double lat1, double lon1, double lat2, double lon2)
+        {
+            const double R = 6371.0;
+            double dLat = (lat2 - lat1) * Math.PI / 180;
+            double dLon = (lon2 - lon1) * Math.PI / 180;
+            double a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                       Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180) *
+                       Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+            return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+        }
+
+        /// <summary>
+        /// Calcula la distancia entre dos coordenadas geográficas usando la fórmula de Haversine.
+        /// </summary>
+        /// <returns>Distancia en millas náuticas (NM).</returns>
+        public static double CalculateDistanceNm(double lat1, double lon1, double lat2, double lon2)
+        {
+            return CalculateDistanceKm(lat1, lon1, lat2, lon2) * KmToNmValue;
+        }
+
+        /// <summary>
         /// Determina la unidad probable basada en el valor (heurística)
         /// </summary>
         public static string GuessUnit(double value)
