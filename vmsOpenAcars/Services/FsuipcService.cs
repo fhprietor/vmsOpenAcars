@@ -184,6 +184,8 @@ namespace vmsOpenAcars.Services
 
         // ---- Luces ----
         private readonly Offset<short> _lightsOffset = new Offset<short>(0x0D0C);
+        /// <summary>0x0EC6 · BYTE · Fasten Seat Belts sign (0 = off, non-zero = on)</summary>
+        private readonly Offset<byte> _seatBeltOffset = new Offset<byte>(0x0EC6);
 
         // ---- Aeronave ----
         private readonly Offset<string> _aircraftTitle = new Offset<string>(0x3D00, 256);
@@ -464,13 +466,13 @@ namespace vmsOpenAcars.Services
             bool landingLightOn = (lights & 0x04) != 0;  // bit 2: LANDING
             bool taxiLightOn = (lights & 0x08) != 0;  // bit 3: TAXI
             bool strobeRaw = (lights & 0x10) != 0;  // bit 4: STROBE
-            bool seatBeltSign = (lights & 0x20) != 0;  // bit 5: SEAT BELT
             // B737/B38M: switch NAV+STROBE combinado → strobe real solo si beacon ON
             bool strobeLightOn = strobeRaw && (beaconLightOn || navLightOn);
+            bool seatBeltSign = _seatBeltOffset.Value != 0;  // 0x0EC6: Fasten Seat Belts sign
 
             // ── Autopilot (0x07BC) — bitfield ─────────────────────────────────
             short apBits = _autopilotOffset.Value;
-            bool apMaster = (apBits & 0x01) != 0;  // bit 0: master AP
+            bool apMaster = apBits != 0;  // AP engaged (any non-zero value)
             bool apLnav = (apBits & 0x04) != 0;  // bit 2: LNAV
             bool apVnav = (apBits & 0x08) != 0;  // bit 3: VNAV
             bool apLoc = (apBits & 0x10) != 0;  // bit 4: LOC

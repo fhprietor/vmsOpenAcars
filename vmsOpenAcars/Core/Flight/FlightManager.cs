@@ -364,7 +364,7 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             double diff = Math.Abs(aircraftQnhMb - stationQnh.Value);
-            string label = $"QNH | Avión: {aircraftQnhMb:F1} hPa  {icao}: {stationQnh.Value:F1} hPa  Δ{diff:F1} hPa";
+            string label = $"QNH | Avión: {aircraftQnhMb:F0} hPa  {icao}: {stationQnh.Value:F0} hPa  Δ{diff:F0} hPa";
 
             if (diff <= 2.0)
             {
@@ -1118,7 +1118,7 @@ namespace vmsOpenAcars.Core.Flight
             PositionOrder = data.Order;
             _isParkingBrakeSet = data.ParkingBrakeOn;
 
-            if (data.EnginesRunning && !_areEnginesOn)
+            if (data.EnginesRunning && !_areEnginesOn && !string.IsNullOrEmpty(ActivePirepId))
             {
                 // Motores recién encendidos
                 if (!_isBeaconOn)

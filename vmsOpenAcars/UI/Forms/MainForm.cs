@@ -1278,14 +1278,17 @@ namespace vmsOpenAcars.UI.Forms
 
                 if (_lblAglVal != null)
                 {
-                    double radarFt = fm.RadarAltitude;
-                    if (!fm.IsOnGround && radarFt > 5 && radarFt < 2500)
-                        _lblAglVal.Text = $"AGL: {radarFt:F0} ft ▼";
+                    if (fm.IsOnGround)
+                    {
+                        _lblAglVal.Text = "AGL: 0 ft";
+                    }
                     else
                     {
-                        double refElev = fm.ActivePlan != null ? fm.ReferenceAirportElevation : 0;
-                        double aglCalc = Math.Max(0, fm.CurrentAltitude - refElev);
-                        _lblAglVal.Text = $"AGL: {aglCalc:F0} ft";
+                        double radarFt = fm.RadarAltitude;
+                        if (radarFt > 5 && radarFt < 2500)
+                            _lblAglVal.Text = $"AGL: {radarFt:F0} ft ▼";
+                        else
+                            _lblAglVal.Text = $"AGL: {Math.Max(0, fm.CurrentAGL):F0} ft";
                     }
                 }
 
@@ -1295,7 +1298,7 @@ namespace vmsOpenAcars.UI.Forms
                     if (qnh > 800 && qnh < 1100)   // rango válido de QNH
                     {
                         double qnhInHg = qnh / 33.8639;
-                        _lblQnhVal.Text = $"QNH: {qnh:F1} hPa ({qnhInHg:F2} inHg)";
+                        _lblQnhVal.Text = $"QNH: {qnh:F0} hPa ({qnhInHg:F2} inHg)";
                         _lblQnhVal.ForeColor = Color.LightCyan;
                     }
                     else
@@ -1394,6 +1397,25 @@ namespace vmsOpenAcars.UI.Forms
                 if (_engineMonitorPanel != null && fm.LastRawData != null)
                 {
                     _engineMonitorPanel.UpdateEngines(fm.LastRawData);
+                }
+                else if (fm.LastRawData != null && _lblEng1Val != null)
+                {
+                    var d = fm.LastRawData;
+                    switch (d.EngineCategory)
+                    {
+                        case Services.FsuipcService.AircraftCategory.Piston:
+                            _lblEng1Val.Text = $"ENG1: {d.Rpm_1:F0} RPM";
+                            _lblEng2Val.Text = $"ENG2: {d.Rpm_2:F0} RPM";
+                            break;
+                        case Services.FsuipcService.AircraftCategory.Turboprop:
+                            _lblEng1Val.Text = $"ENG1: {d.TorquePct_1:F0}% TRQ";
+                            _lblEng2Val.Text = $"ENG2: {d.TorquePct_2:F0}% TRQ";
+                            break;
+                        default:
+                            _lblEng1Val.Text = $"ENG1: {d.N1_1:F0}% N1";
+                            _lblEng2Val.Text = $"ENG2: {d.N1_2:F0}% N1";
+                            break;
+                    }
                 }
             }
             catch (Exception ex)

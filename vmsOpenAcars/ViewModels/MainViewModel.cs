@@ -845,6 +845,7 @@ namespace vmsOpenAcars.ViewModels
                 {
                     _flightManager.ResumeFlight(detail, pilot);
                     UpdateFlightInfo();
+                    OnButtonStateChanged?.Invoke("ABORT", Color.Red, true);
                     OnLog?.Invoke("✅ Flight resumed — polling and updates restarted.", Theme.Success);
                 }
                 else

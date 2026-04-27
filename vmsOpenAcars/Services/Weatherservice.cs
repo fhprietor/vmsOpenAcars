@@ -44,7 +44,7 @@ namespace vmsOpenAcars.Services
                 // Sanidad: QNH válido está entre 850 y 1084 hPa
                 if (altimHpa < 850 || altimHpa > 1084) return null;
 
-                return Math.Round(altimHpa.Value, 1);
+                return Math.Round(altimHpa.Value, 0);
             }
             catch
             {
