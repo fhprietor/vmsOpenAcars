@@ -59,7 +59,13 @@ namespace vmsOpenAcars.Core.Flight
         private bool _wasOverspeed = false;
         private int _lightsViolationCount = 0;
         private bool _lightsViolationActive = false;
+        private int _qnhViolationCount = 0;
         private int _vmoKts = 320;
+
+        // ── Approximation gate (1000 ft AGL) ─────────────────────────────────────
+        private bool _approachGateEvaluated = false;
+        private double _prevApproachAgl = double.MaxValue;
+        private int _stabilizedApproachDeductions = 0;
         private bool _isNavOn;
         private bool _isStrobeOn;
         private bool _isTaxiLightOn;
@@ -83,7 +89,7 @@ namespace vmsOpenAcars.Core.Flight
         private DateTime _goAroundStart = DateTime.MinValue;
 
         // Constantes para transiciones
-        private const double PUSHBACK_MAX_SPEED = 5.0;
+        private const double PUSHBACK_MAX_SPEED = 6.0;
         private const int PUSHBACK_MIN_DURATION = 8;
         private const double TAXIOUT_MIN_SPEED = 5.0;
         private const int TAXIOUT_MIN_DURATION = 2;
@@ -155,8 +161,8 @@ namespace vmsOpenAcars.Core.Flight
                                CurrentIndicatedAirspeed <= 160;
                 bool vsOk = CurrentVerticalSpeed >= -1000 &&
                             CurrentVerticalSpeed <= -100;
-                bool bankOk = Math.Abs(_currentBank) <= 5.0;
-                bool pitchOk = _currentPitch >= -2.0 && _currentPitch <= 10.0;
+                bool bankOk = Math.Abs(_currentBank) <= 7.0;
+                bool pitchOk = _currentPitch >= -2.5 && _currentPitch <= 10.0;
                 bool gearOk = IsGearDown;
                 bool configOk = CurrentFlapsPosition >= 50;
 
@@ -216,8 +222,7 @@ namespace vmsOpenAcars.Core.Flight
                 switch (CurrentPhase)
                 {
                     case FlightPhase.Enroute:
-                        return RadarAltitude > 0 ? RadarAltitude
-                                                 : CurrentAltitude - ReferenceAirportElevation;
+                        return RadarAltitude;
                     default:
                         return CurrentAltitude - ReferenceAirportElevation;
                 }
@@ -282,6 +287,12 @@ namespace vmsOpenAcars.Core.Flight
 
         private void TransitionTo(FlightPhase newPhase, FlightPhase from)
         {
+            // Reset the approach gate so a new evaluation can happen on re-approach after go-around
+            if (from == FlightPhase.Approach && newPhase == FlightPhase.Climb)
+            {
+                _approachGateEvaluated = false;
+                _prevApproachAgl = double.MaxValue;
+            }
             CurrentPhase = newPhase;
             _phaseStartTime = DateTime.UtcNow;
             OnLog?.Invoke($"✈️ Phase changed: {from} → {newPhase}", Theme.Takeoff);
@@ -372,7 +383,7 @@ namespace vmsOpenAcars.Core.Flight
             }
             else
             {
-                _lightsViolationCount++;
+                _qnhViolationCount++;
                 OnLog?.Invoke($"⚠️ PENALTY: {label} — QNH incorrecto (-5 pts)", Theme.Warning);
             }
         }
@@ -538,6 +549,88 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
+        /// <summary>
+        /// Evaluates 6 stabilized approach criteria when the aircraft crosses
+        /// the 1000 ft AGL gate in Approach phase. Fires once per approach segment
+        /// (reset on go-around via TransitionTo).
+        /// Throttle position is intentionally excluded: offset 0x2028 reports the
+        /// physical lever position, which on FBW/autothrottle aircraft (A320, B737NG…)
+        /// can read 0 % even when the FADEC is delivering approach thrust.
+        /// Unstabilized idle-power dives are already caught by the VS and speed checks.
+        /// </summary>
+        private void CheckStabilizedApproachGate(RawTelemetryData data)
+        {
+            if (_approachGateEvaluated) return;
+            if (string.IsNullOrEmpty(ActivePirepId)) return;
+
+            double agl = CurrentAGL;
+
+            // Detect the downward crossing of 1000 ft
+            if (_prevApproachAgl > 1000 && agl <= 1000)
+            {
+                _approachGateEvaluated = true;
+
+                var (vappMin, vappMax) = AircraftPerformanceTable.GetApproachSpeedRange(_activePlan?.AircraftIcao);
+                int deductions = 0;
+
+                // 1. Speed
+                if (CurrentIndicatedAirspeed < vappMin || CurrentIndicatedAirspeed > vappMax)
+                {
+                    deductions += 5;
+                    OnLog?.Invoke($"⚠️ APPROACH GATE: Speed {CurrentIndicatedAirspeed} kts outside [{vappMin}–{vappMax}] kts (−5)", Theme.Warning);
+                }
+
+                // 2. Descent rate: must be between -1000 and -100 fpm
+                if (CurrentVerticalSpeed < -1000)
+                {
+                    deductions += 5;
+                    OnLog?.Invoke($"⚠️ APPROACH GATE: Excessive descent {CurrentVerticalSpeed} fpm (−5)", Theme.Warning);
+                }
+                else if (CurrentVerticalSpeed > -100)
+                {
+                    deductions += 5;
+                    OnLog?.Invoke($"⚠️ APPROACH GATE: Not descending ({CurrentVerticalSpeed} fpm) (−5)", Theme.Warning);
+                }
+
+                // 3. Bank angle
+                if (Math.Abs(_currentBank) > 7.0)
+                {
+                    deductions += 3;
+                    OnLog?.Invoke($"⚠️ APPROACH GATE: Bank {_currentBank:F1}° > 7° (−3)", Theme.Warning);
+                }
+
+                // 4. Pitch attitude
+                if (_currentPitch < -2.5 || _currentPitch > 10.0)
+                {
+                    deductions += 3;
+                    OnLog?.Invoke($"⚠️ APPROACH GATE: Pitch {_currentPitch:F1}° outside [−2.5°, +10°] (−3)", Theme.Warning);
+                }
+
+                // 5. Gear
+                if (!IsGearDown)
+                {
+                    deductions += 5;
+                    OnLog?.Invoke($"⚠️ APPROACH GATE: GEAR NOT DOWN (−5)", Theme.Warning);
+                }
+
+                // 6. Flap configuration (≥ 50 %)
+                if (CurrentFlapsPosition < 50.0)
+                {
+                    deductions += 4;
+                    OnLog?.Invoke($"⚠️ APPROACH GATE: Flaps {CurrentFlapsPosition:F0}% < 50% (−4)", Theme.Warning);
+                }
+
+                _stabilizedApproachDeductions = deductions;
+
+                if (deductions == 0)
+                    OnLog?.Invoke($"✅ APPROACH GATE ({(int)agl} ft AGL): STABILIZED — all criteria met", Theme.Success);
+                else
+                    OnLog?.Invoke($"⚠️ APPROACH GATE ({(int)agl} ft AGL): UNSTABILIZED — {deductions} pts deducted", Theme.Warning);
+            }
+
+            _prevApproachAgl = agl;
+        }
+
         private void ResetFlightState()
         {
             ActivePirepId = "";
@@ -569,6 +662,10 @@ namespace vmsOpenAcars.Core.Flight
             _wasOverspeed = false;
             _lightsViolationCount = 0;
             _lightsViolationActive = false;
+            _qnhViolationCount = 0;
+            _approachGateEvaluated = false;
+            _prevApproachAgl = double.MaxValue;
+            _stabilizedApproachDeductions = 0;
             OnPhaseChanged?.Invoke(CurrentPhase.ToString());
             PhaseChanged?.Invoke(CurrentPhase);
         }
@@ -779,6 +876,10 @@ namespace vmsOpenAcars.Core.Flight
             _wasOverspeed = false;
             _lightsViolationCount = 0;
             _lightsViolationActive = false;
+            _qnhViolationCount = 0;
+            _approachGateEvaluated = false;
+            _prevApproachAgl = double.MaxValue;
+            _stabilizedApproachDeductions = 0;
 
             OnLog?.Invoke($"🔄 Flight resumed: {pirep.FlightNumber} {pirep.Origin}→{pirep.Destination}", Theme.Success);
             OnLog?.Invoke($"   PIREP ID: {pirep.Id} | Aircraft: {pirep.AircraftType} (Vmo {_vmoKts} kts)", Theme.MainText);
@@ -822,7 +923,6 @@ namespace vmsOpenAcars.Core.Flight
                 {
                     OnLog?.Invoke($"🛫 ROTATION DETECTED! Speed: {groundSpeed} kts, Pitch: {_currentPitch:F1}°, VS: {verticalSpeed} fpm", Theme.Success);
                     OnTakeoffDetected?.Invoke(groundSpeed, altitude, verticalSpeed);
-                    Task.Run(() => UpdatePirepStatus("TOF"));
                     TransitionTo(FlightPhase.Takeoff, previousPhase);
                 }
             }
@@ -836,7 +936,7 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             // ===== DETECCIÓN DE TOMACONTACTO (transición aire → suelo) =====
-            if (!_wasOnGround && isOnGround)
+            if (!_wasOnGround && isOnGround && CurrentPhase != FlightPhase.AfterLanding)
             {
                 RegisterTouchdown(verticalSpeed);
                 TransitionTo(FlightPhase.AfterLanding, previousPhase);
@@ -906,7 +1006,6 @@ namespace vmsOpenAcars.Core.Flight
                         {
                             OnLog?.Invoke($"🛫 ROTATION at {groundSpeed} kts, Pitch: {_currentPitch:F1}°", Theme.Success);
                             OnTakeoffDetected?.Invoke(groundSpeed, altitude, verticalSpeed);
-                            Task.Run(() => UpdatePirepStatus("TOF"));
                             TransitionTo(FlightPhase.Takeoff, previousPhase);
                         }
                         else if (groundSpeed < 30)
@@ -1112,7 +1211,18 @@ namespace vmsOpenAcars.Core.Flight
                                            : (int)data.GroundSpeedKt;
             CurrentFuel = data.FuelLbs * 0.453592; ;
             CurrentTransponder = data.Transponder;
-            AutopilotEngaged = data.AutopilotEngaged;
+            if (data.AutopilotEngaged != AutopilotEngaged)
+            {
+                AutopilotEngaged = data.AutopilotEngaged;
+                if (AutopilotEngaged)
+                    OnLog?.Invoke($"🤖 A/P ENGAGED — {data.ApNavMode}/{data.ApVertMode}", Theme.MainText);
+                else
+                    OnLog?.Invoke("🤖 A/P DISENGAGED", Theme.Warning);
+            }
+            else
+            {
+                AutopilotEngaged = data.AutopilotEngaged;
+            }
             SimTime = DateTime.UtcNow;
             RadarAltitude = data.RadarAltitudeFeet;
             PositionOrder = data.Order;
@@ -1177,7 +1287,11 @@ namespace vmsOpenAcars.Core.Flight
                             data.IsOnGround, CurrentVerticalSpeed);
                 // Monitoreo de violaciones para scoring (solo en vuelo)
                 if (!data.IsOnGround)
+                {
                     CheckViolations(CurrentIndicatedAirspeed, CurrentAltitude, data.LandingLightOn);
+                    if (CurrentPhase == FlightPhase.Approach)
+                        CheckStabilizedApproachGate(data);
+                }
             }
         }
         public async Task<bool> AbortFlight()
@@ -1211,7 +1325,7 @@ namespace vmsOpenAcars.Core.Flight
             OnLog?.Invoke($"📊 Planned Flight Time: {plannedFlightTimeMinutes} min", Theme.MainText);
             OnLog?.Invoke($"📊 Actual Distance: {totalDistanceNm:F1} NM", Theme.MainText);
             OnLog?.Invoke($"📊 Actual Flight Time: {actualFlightTimeMinutes} min", Theme.MainText);
-            OnLog?.Invoke($"⛽ Fuel Used: {fuelUsed:F0} {_activePlan?.Units ?? "kg"}", Theme.MainText);
+            OnLog?.Invoke($"⛽ Fuel Used: {fuelUsed:F0} kg", Theme.MainText);
             // ── Calcular score ────────────────────────────────────────────────────────
             var scoreData = new FlightScoreData
             {
@@ -1220,7 +1334,9 @@ namespace vmsOpenAcars.Core.Flight
                 LandingBank = _touchdownBank,
                 LandingGForce = _touchdownGForce,
                 OverspeedCount = _overspeedCount,
-                LightsViolations = _lightsViolationCount
+                LightsViolations = _lightsViolationCount,
+                StabilizedApproachDeductions = _stabilizedApproachDeductions,
+                QnhViolations = _qnhViolationCount
             };
             var scoring = new ScoringService();
             ScoringResult scoreResult = scoring.Calculate(scoreData);

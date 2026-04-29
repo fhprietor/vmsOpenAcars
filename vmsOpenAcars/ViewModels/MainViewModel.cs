@@ -129,6 +129,9 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.StrobeLightChanged += on => OnLog?.Invoke(
                 on ? "💡 STROBE lights ON" : "💡 STROBE lights OFF", Theme.MainText);
 
+            _fsuipc.LandingLightChanged += on => OnLog?.Invoke(
+                on ? "💡 LANDING lights ON" : "💡 LANDING lights OFF", Theme.MainText);
+
             // Beacon ya existente — ampliar para log:
             _fsuipc.BeaconChanged += on => OnLog?.Invoke(
                 on ? "🔴 BEACON ON" : "🔴 BEACON OFF", Theme.MainText);
@@ -709,6 +712,39 @@ namespace vmsOpenAcars.ViewModels
                 _lastPositionUpdate = DateTime.MinValue;
                 OnLog?.Invoke("✅ Vuelo reportado, listo para siguiente vuelo", Theme.Success);
                 OnFlightEnded?.Invoke();
+                // Fire-and-forget: refresh pilot airport once phpVMS processes the PIREP
+                Task.Run(RefreshPilotDataAfterPirep);
+            }
+        }
+
+        /// <summary>
+        /// Waits a few seconds for phpVMS to process the filed PIREP (which updates
+        /// the pilot's current_airport to the destination), then fetches fresh pilot
+        /// data so the departure-airport validation reflects the new location.
+        /// Does NOT call CheckAndResumeFlight to avoid false-positive resume prompts.
+        /// </summary>
+        private async Task RefreshPilotDataAfterPirep()
+        {
+            await Task.Delay(5000);
+            try
+            {
+                var result = await _apiService.GetPilotData();
+                if (result.Data != null)
+                {
+                    _flightManager.SetActivePilot(result.Data);
+                    OnLog?.Invoke($"📍 Base actualizada: {result.Data.CurrentAirport}", Theme.Success);
+                    OnAirportChanged?.Invoke(result.Data.CurrentAirport);
+                    if (_fsuipc.IsConnected)
+                    {
+                        _flightManager.UpdatePositionValidation(
+                            _fsuipc.CurrentLatitude, _fsuipc.CurrentLongitude);
+                        OnValidationStatusChanged?.Invoke(_flightManager.PositionValidationStatus);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke($"⚠️ No se pudo actualizar ubicación del piloto: {ex.Message}", Theme.Warning);
             }
         }
 

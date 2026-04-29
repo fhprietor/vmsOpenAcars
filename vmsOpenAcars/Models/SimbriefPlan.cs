@@ -34,11 +34,20 @@
         /// </summary>
         public string Origin { get; set; }
 
+        /// <summary>IATA code of the departure airport. Example: "MDE", "JFK"</summary>
+        public string OriginIata { get; set; }
+
         /// <summary>
         /// Gets or sets the ICAO code of the destination airport.
         /// Example: "SKRG", "KLAX", "LFPG"
         /// </summary>
         public string Destination { get; set; }
+
+        /// <summary>IATA code of the destination airport. Example: "MDE", "BOG"</summary>
+        public string DestinationIata { get; set; }
+
+        /// <summary>Cost index used in the SimBrief dispatch.</summary>
+        public int CostIndex { get; set; }
 
         /// <summary>
         /// Gets or sets the elevation of the destination airport in feet.
@@ -134,6 +143,18 @@
         /// Gets or sets the number of passengers on board.
         /// </summary>
         public int PaxCount { get; set; }
+
+        /// <summary>Cargo/freight weight in plan units (kg or lbs).</summary>
+        public double CargoWeight { get; set; }
+
+        /// <summary>Average en-route wind direction (degrees magnetic, 0-359).</summary>
+        public int AvgWindDir { get; set; }
+
+        /// <summary>Average en-route wind speed (knots).</summary>
+        public int AvgWindSpd { get; set; }
+
+        /// <summary>Average ISA temperature deviation in degrees C (positive = above ISA).</summary>
+        public int AvgIsaDev { get; set; }
 
         /// <summary>
         /// Gets or sets the fuel on board at departure (may be same as BlockFuel).

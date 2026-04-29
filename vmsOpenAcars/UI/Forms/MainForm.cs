@@ -116,6 +116,12 @@ namespace vmsOpenAcars.UI.Forms
         private Label _lblAutopilot;
         private Label _lblStabilized;
 
+        // FMA PLAN LINES + DEPARTURE COUNTDOWN
+        private Label _lblFmaPlanLine1;
+        private Label _lblFmaPlanLine2;
+        private Label _lblDepartureCdw;
+        private SimbriefPlan _lastRenderedPlan;
+
         // LUCES
         private Label _lblNavLight;
         private Label _lblBeaconLight;
@@ -397,7 +403,7 @@ namespace vmsOpenAcars.UI.Forms
             };
 
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));   // Row 0: Header
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));   // Row 1: FMA
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 118));  // Row 1: FMA
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 220));  // Row 2: Message (datos)
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Row 3: Incoming Msg
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));   // Row 4: Buttons
@@ -983,30 +989,105 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(15, 15, 25),
-                Padding = new Padding(10),
+                Padding = new Padding(10, 0, 10, 4),
                 BorderStyle = BorderStyle.FixedSingle
             };
 
-            var layout = new TableLayoutPanel
+            // Outer: 2 cols (left content / right countdown) × 2 rows (FMA labels / plan lines)
+            // Countdown spans both rows so it centers across the full panel height (~45px from top)
+            var outer = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 2,
+                BackColor = Theme.FMAPanelBackground,
+                Margin = Padding.Empty
+            };
+            outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68));
+            outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32));
+            outer.RowStyles.Add(new RowStyle(SizeType.Absolute, 51));
+            outer.RowStyles.Add(new RowStyle(SizeType.Absolute, 39));
+
+            // [col 0, row 0] FMA indicator labels (PHASE / AIR / ROUTE)
+            var fmaRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 3,
                 RowCount = 1,
-                BackColor = Theme.FMAPanelBackground
+                BackColor = Theme.FMAPanelBackground,
+                Margin = Padding.Empty
             };
-
             for (int i = 0; i < 3; i++)
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
-
-            pnlFma.Controls.Add(layout);
+                fmaRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
 
             lblPhase = CreateFmaLabel("PHASE", "STANDBY");
-            lblAir = CreateFmaLabel("AIR", "GROUND");
-            lblRoute = CreateFmaLabel("ROUTE", "----/----");
+            lblAir   = CreateFmaLabel("AIR",   "GROUND");
+            lblRoute = CreateFmaLabel("ROUTE",  "----/----");
 
-            layout.Controls.Add(lblPhase, 0, 0);
-            layout.Controls.Add(lblAir, 1, 0);
-            layout.Controls.Add(lblRoute, 2, 0);
+            fmaRow.Controls.Add(lblPhase, 0, 0);
+            fmaRow.Controls.Add(lblAir,   1, 0);
+            fmaRow.Controls.Add(lblRoute, 2, 0);
+
+            // [col 0, row 1] Stacked plan lines
+            var planLines = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                BackColor = Theme.FMAPanelBackground,
+                Margin = Padding.Empty
+            };
+            planLines.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            planLines.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
+            planLines.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+
+            var monoFont = new Font("Consolas", 12.25f, FontStyle.Regular, GraphicsUnit.Point);
+            var planFore1 = Color.FromArgb(190, 210, 230);
+            var planFore2 = Color.FromArgb(160, 185, 205);
+
+            _lblFmaPlanLine1 = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = monoFont,
+                ForeColor = planFore1,
+                BackColor = Theme.FMAPanelBackground,
+                Margin = Padding.Empty,
+                TextAlign = ContentAlignment.TopLeft,
+                Text = ""
+            };
+            _lblFmaPlanLine2 = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = monoFont,
+                ForeColor = planFore2,
+                BackColor = Theme.FMAPanelBackground,
+                Margin = new Padding(0, 5, 0, 0),
+                TextAlign = ContentAlignment.TopLeft,
+                Text = ""
+            };
+
+            planLines.Controls.Add(_lblFmaPlanLine1, 0, 0);
+            planLines.Controls.Add(_lblFmaPlanLine2, 0, 1);
+
+            // [col 1, rows 0+1] Departure countdown — spans both rows, centers at ~45px from top
+            _lblDepartureCdw = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = new Font("Consolas", 22f, FontStyle.Bold, GraphicsUnit.Point),
+                ForeColor = Color.Lime,
+                BackColor = Theme.FMAPanelBackground,
+                Margin = Padding.Empty,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Visible = false,
+                Text = ""
+            };
+
+            outer.Controls.Add(fmaRow,            0, 0);
+            outer.Controls.Add(planLines,          0, 1);
+            outer.Controls.Add(_lblDepartureCdw,   1, 0);
+            outer.SetRowSpan(_lblDepartureCdw, 2);
+
+            pnlFma.Controls.Add(outer);
             mainLayout.Controls.Add(pnlFma, 0, 1);
         }
 
@@ -1017,10 +1098,11 @@ namespace vmsOpenAcars.UI.Forms
             return new Label
             {
                 Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleCenter,
+                TextAlign = ContentAlignment.TopCenter,
                 Font = Theme.LargeFont,
                 ForeColor = Theme.MainText,
                 BackColor = Theme.FMAPanelBackground,
+                Margin = Padding.Empty,
                 Text = $"{title}\n{value}"
             };
         }
@@ -1279,17 +1361,9 @@ namespace vmsOpenAcars.UI.Forms
                 if (_lblAglVal != null)
                 {
                     if (fm.IsOnGround)
-                    {
                         _lblAglVal.Text = "AGL: 0 ft";
-                    }
                     else
-                    {
-                        double radarFt = fm.RadarAltitude;
-                        if (radarFt > 5 && radarFt < 2500)
-                            _lblAglVal.Text = $"AGL: {radarFt:F0} ft ▼";
-                        else
-                            _lblAglVal.Text = $"AGL: {Math.Max(0, fm.CurrentAGL):F0} ft";
-                    }
+                        _lblAglVal.Text = $"AGL: {Math.Max(0, fm.CurrentAGL):F0} ft";
                 }
 
                 if (_lblQnhVal != null)
@@ -1393,6 +1467,76 @@ namespace vmsOpenAcars.UI.Forms
                     _lblStrobeLight.ForeColor = fm.IsStrobeLightOn ? Color.Lime : Color.Gray;
                 }
 
+                // ===== FMA PLAN LINES =====
+                if (_lblFmaPlanLine1 != null && plan != _lastRenderedPlan)
+                {
+                    _lastRenderedPlan = plan;
+                    if (plan != null)
+                    {
+                        string originIata = string.IsNullOrEmpty(plan.OriginIata) ? "---" : plan.OriginIata;
+                        string destIata   = string.IsNullOrEmpty(plan.DestinationIata) ? "---" : plan.DestinationIata;
+                        string planDate   = plan.ScheduledOffTime > 0
+                            ? DateTimeOffset.FromUnixTimeSeconds(plan.ScheduledOffTime).UtcDateTime.ToString("ddMMMyyyy").ToUpper()
+                            : DateTimeOffset.UtcNow.ToString("ddMMMyyyy").ToUpper();
+
+                        _lblFmaPlanLine1.Text =
+                            $"{plan.Airline}{plan.FlightNumber}  {plan.Origin}/{originIata}  {plan.Destination}/{destIata}" +
+                            $"  CI {plan.CostIndex}  {planDate}  {plan.Registration} {plan.AircraftIcao}";
+
+                        string isaStr  = plan.AvgIsaDev >= 0
+                            ? $"P{plan.AvgIsaDev:D3}"
+                            : $"M{Math.Abs(plan.AvgIsaDev):D3}";
+                        string windStr = $"{plan.AvgWindDir:D3}/{plan.AvgWindSpd:D3}";
+
+                        string flStr = plan.CruiseAltitude > 0
+                            ? $"FL{plan.CruiseAltitude / 100}"
+                            : "FL---";
+
+                        _lblFmaPlanLine2.Text =
+                            $"PAX {plan.PaxCount}  FUEL {plan.BlockFuel:F0}  CARGO {plan.CargoWeight:F0}  {flStr}" +
+                            $"   AVG WIND {windStr}  AVG ISA {isaStr}";
+                    }
+                    else
+                    {
+                        _lblFmaPlanLine1.Text = "";
+                        _lblFmaPlanLine2.Text = "";
+                    }
+                }
+
+                // ===== DEPARTURE COUNTDOWN =====
+                if (_lblDepartureCdw != null)
+                {
+                    bool showCdw = plan != null &&
+                                   plan.ScheduledOffTime > 0 &&
+                                   (fm.CurrentPhase == FlightPhase.Idle ||
+                                    fm.CurrentPhase == FlightPhase.Boarding);
+                    if (showCdw)
+                    {
+                        long secondsRemaining = plan.ScheduledOffTime -
+                                                DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                        if (secondsRemaining > 0)
+                        {
+                            string timeStr = secondsRemaining >= 3600
+                                ? $"{secondsRemaining / 3600}:{(secondsRemaining % 3600) / 60:D2}"
+                                : $"{secondsRemaining / 60:D2}:{secondsRemaining % 60:D2}";
+                            _lblDepartureCdw.Text     = timeStr;
+                            _lblDepartureCdw.ForeColor = secondsRemaining <= 300
+                                ? Color.Yellow : Color.Lime;
+                        }
+                        else
+                        {
+                            long delay = -secondsRemaining;
+                            _lblDepartureCdw.Text     = $"+{delay / 60:D2}:{delay % 60:D2}";
+                            _lblDepartureCdw.ForeColor = Color.Red;
+                        }
+                        _lblDepartureCdw.Visible = true;
+                    }
+                    else
+                    {
+                        _lblDepartureCdw.Visible = false;
+                    }
+                }
+
                 // ===== MOTORES =====
                 if (_engineMonitorPanel != null && fm.LastRawData != null)
                 {
@@ -1455,9 +1599,14 @@ namespace vmsOpenAcars.UI.Forms
 
         private string GetMachString(FlightManager fm)
         {
-            if (fm.CurrentAltitude > 25000 && fm.CurrentIndicatedAirspeed > 0)
-                return $"{fm.CurrentIndicatedAirspeed / 661.5:F2}";
-            return "----";
+            if (fm.CurrentIndicatedAirspeed <= 0 || fm.CurrentAltitude < 10000) return "----";
+            // ISA standard atmosphere: temperature lapse up to tropopause (36089 ft)
+            double stdTempK = 288.15 - 0.001981 * Math.Min(fm.CurrentAltitude, 36089);
+            double speedOfSoundKt = 661.5 * Math.Sqrt(stdTempK / 288.15);
+            // Density ratio σ = (T/T₀)^4.256 → TAS from IAS
+            double sigma = Math.Pow(stdTempK / 288.15, 4.256);
+            double tasKt = fm.CurrentIndicatedAirspeed / Math.Sqrt(sigma);
+            return $"{tasKt / speedOfSoundKt:F2}";
         }
 
         private string GetEtaString(FlightManager fm, double remainingNm)

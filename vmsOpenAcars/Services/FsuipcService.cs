@@ -75,7 +75,8 @@ namespace vmsOpenAcars.Services
         private readonly Offset<int> _bankOffset = new Offset<int>(0x057C);
 
         // ---- Altimetría ----
-        private readonly Offset<int> _radarAltitudeOffset = new Offset<int>(0x31E4);
+        /// <summary>0x0234 · INT32 · Radio/radar altitude in metres × 65536. Divide by 65536 to get metres.</summary>
+        private readonly Offset<int> _radarAltitudeOffset = new Offset<int>(0x0234);
         private readonly Offset<int> _groundAltitudeOffset = new Offset<int>(0x0020);
 
         // ---- Estado de vuelo ----
@@ -242,6 +243,9 @@ namespace vmsOpenAcars.Services
         private int _groundConsecutiveCounter;
         private DateTime _lastTakeoffTime = DateTime.MinValue;
         private DateTime _lastTouchdownTime = DateTime.MinValue;
+
+        // -- Reentrancy guard: prevents duplicate events if the timer fires before the previous tick completes --
+        private int _isPolling = 0;
 
         // -- VS tracking: capturar el último VS aéreo para touchdown correcto --
         /// <summary>
@@ -418,41 +422,49 @@ namespace vmsOpenAcars.Services
 
         private void OnPollingTick(object state)
         {
-            if (!_isRunning) return;
-
-            if (_connectionState == ConnectionState.Disconnected)
-            {
-                TryConnect();
-                return;
-            }
-
+            if (Interlocked.CompareExchange(ref _isPolling, 1, 0) != 0) return;
             try
             {
-                FSUIPCConnection.Process();
+                if (!_isRunning) return;
 
-                if (!_aircraftInfoRead)
+                if (_connectionState == ConnectionState.Disconnected)
                 {
-                    ReadAircraftInfo();
-                    _aircraftInfoRead = true;
-                    ReadAllOffsets();
-                    OnAircraftInfoReady?.Invoke();
+                    TryConnect();
+                    return;
                 }
 
-                _connectionRetryCount = 0;
-                _currentBackoffMs = 1000;
-                _isReconnecting = false;
+                try
+                {
+                    FSUIPCConnection.Process();
 
-                ReadAllOffsets();
-                DetectEvents();
-                EmitRawData();
-                SendTelemetry();
+                    if (!_aircraftInfoRead)
+                    {
+                        ReadAircraftInfo();
+                        _aircraftInfoRead = true;
+                        ReadAllOffsets();
+                        OnAircraftInfoReady?.Invoke();
+                    }
+
+                    _connectionRetryCount = 0;
+                    _currentBackoffMs = 1000;
+                    _isReconnecting = false;
+
+                    ReadAllOffsets();
+                    DetectEvents();
+                    EmitRawData();
+                    SendTelemetry();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"FsuipcService: Process error — {ex.Message}");
+                    _connectionState = ConnectionState.Disconnected;
+                    SimulatorName = "Desconocido";
+                    Disconnected?.Invoke(this, EventArgs.Empty);
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                Debug.WriteLine($"FsuipcService: Process error — {ex.Message}");
-                _connectionState = ConnectionState.Disconnected;
-                SimulatorName = "Desconocido";
-                Disconnected?.Invoke(this, EventArgs.Empty);
+                _isPolling = 0;
             }
         }
 
@@ -470,13 +482,25 @@ namespace vmsOpenAcars.Services
             bool strobeLightOn = strobeRaw && (beaconLightOn || navLightOn);
             bool seatBeltSign = _seatBeltOffset.Value != 0;  // 0x0EC6: Fasten Seat Belts sign
 
-            // ── Autopilot (0x07BC) — bitfield ─────────────────────────────────
+            // ── Autopilot (0x07BC + 0x07CC fallback for MSFS) ─────────────────
+            // In MSFS/FSUIPC7, 0x07BC is master-only (0 or 1); mode bits 2-5 are
+            // FSX/P3D only and are never set. Many MSFS add-ons (PMDG, FBW) don't
+            // update AUTOPILOT MASTER via SimConnect → 0x07BC is always 0.
+            // Use navModeOffset (0x07CC) as fallback engagement indicator.
             short apBits = _autopilotOffset.Value;
-            bool apMaster = apBits != 0;  // AP engaged (any non-zero value)
-            bool apLnav = (apBits & 0x04) != 0;  // bit 2: LNAV
-            bool apVnav = (apBits & 0x08) != 0;  // bit 3: VNAV
-            bool apLoc = (apBits & 0x10) != 0;  // bit 4: LOC
-            bool apGs = (apBits & 0x20) != 0;  // bit 5: GS
+            short navModeBits = _navModeOffset.Value;
+            bool apMaster = apBits != 0;
+            bool apLnav = (apBits & 0x04) != 0;  // bit 2: LNAV (FSX/P3D only)
+            bool apVnav = (apBits & 0x08) != 0;  // bit 3: VNAV (FSX/P3D only)
+            bool apLoc = (apBits & 0x10) != 0;   // bit 4: LOC (FSX/P3D only)
+            bool apGs = (apBits & 0x20) != 0;    // bit 5: GS  (FSX/P3D only)
+            // MSFS: derive lateral/vertical mode from navModeOffset when FSX/P3D bits absent
+            if (!apLnav && !apLoc && !apGs && navModeBits != 0)
+            {
+                apLoc  = navModeBits == 1 || navModeBits == 3;
+                apGs   = navModeBits == 2;
+                apLnav = navModeBits == 3;
+            }
             string apNavMode = apGs ? "ILS" : apLoc ? "LOC" : apLnav ? "LNAV" : "HDG";
             string apVertMode = apGs ? "GS" : apVnav ? "VNAV" : "ALT";
 
@@ -641,9 +665,9 @@ namespace vmsOpenAcars.Services
             CurrentAltitudeFeet = DecodeAltitude(_altOffset.Value);
             CurrentHeading = DecodeHeading(_headingOffset.Value);
 
-            // Radar altímetro: metros → feet
-            double radarMeters = _radarAltitudeOffset.Value;
-            CurrentRadarAltitudeFeet = radarMeters > 0 ? radarMeters * 3.28084 : 0.0;
+            // 0x0234: radio altitude in metres × 65536 → divide by 65536 first, then metres → feet
+            int radarRaw = _radarAltitudeOffset.Value;
+            CurrentRadarAltitudeFeet = radarRaw > 0 ? (radarRaw / 65536.0) * 3.28084 : 0.0;
 
             // ---- Velocidades ----
             CurrentGroundSpeedKt = DecodeGroundSpeed(_groundSpeedOffset.Value);
@@ -1235,6 +1259,7 @@ namespace vmsOpenAcars.Services
         private void HandleTakeoff()
         {
             if ((DateTime.UtcNow - _lastTakeoffTime).TotalSeconds < EVENT_DEBOUNCE_SECONDS) return;
+            if ((DateTime.UtcNow - _lastTouchdownTime).TotalSeconds < 30) return;
             if (CurrentGroundSpeedKt < TAKEOFF_MIN_SPEED_KT) return;
 
             _lastTakeoffTime = DateTime.UtcNow;
@@ -1353,7 +1378,7 @@ namespace vmsOpenAcars.Services
                 IsOnGround = _lastOnGround,
                 FuelLbs = CurrentFuelLbs,
                 Transponder = _transponderOffset.Value,
-                AutopilotEngaged = (_autopilotOffset.Value & 0x01) != 0,
+                AutopilotEngaged = _autopilotOffset.Value != 0,
                 Order = _positionOrder,
                 PitchDeg = CurrentPitch,
                 BankDeg = CurrentBank,
@@ -1367,7 +1392,7 @@ namespace vmsOpenAcars.Services
 
         private int DetermineNavType()
         {
-            if ((_autopilotOffset.Value & 0x01) == 0) return 0;
+            if (_autopilotOffset.Value == 0) return 0;
             switch (_navModeOffset.Value)
             {
                 case 1: return 1;

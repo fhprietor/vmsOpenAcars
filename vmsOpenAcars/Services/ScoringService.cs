@@ -43,8 +43,8 @@ namespace vmsOpenAcars.Services
     ///
     /// <para>
     /// The score starts at 100 and deductions are applied per criterion.
-    /// Maximum deductions per criterion are tuned so the total possible
-    /// deduction equals exactly 100 points:
+    /// Maximum raw deductions sum to 120 pts — the final score is capped at 0
+    /// (Math.Max(0, 100 − totalDeduction)):
     /// </para>
     /// <list type="table">
     ///   <listheader><term>Criterion</term><description>Max deduction</description></listheader>
@@ -54,6 +54,8 @@ namespace vmsOpenAcars.Services
     ///   <item><term>Pitch angle at touchdown</term><description>10 pts</description></item>
     ///   <item><term>Overspeed events</term><description>15 pts</description></item>
     ///   <item><term>Lights compliance</term><description>10 pts</description></item>
+    ///   <item><term>Stabilized approach (1000 ft gate)</term><description>15 pts</description></item>
+    ///   <item><term>QNH compliance</term><description>5 pts</description></item>
     /// </list>
     ///
     /// <para>
@@ -63,13 +65,15 @@ namespace vmsOpenAcars.Services
     /// </summary>
     public class ScoringService
     {
-        // ─── Max deduction per criterion (must sum to 100) ────────────────────────
+        // ─── Max deduction per criterion (raw sum = 120, final score capped at 0) ─
         private const int MaxLandingRateDeduction = 40;
         private const int MaxGForceDeduction = 15;
         private const int MaxBankDeduction = 10;
         private const int MaxPitchDeduction = 10;
         private const int MaxOverspeedDeduction = 15;
         private const int MaxLightsDeduction = 10;
+        private const int MaxStabilizedApproachDeduction = 15;
+        private const int MaxQnhDeduction = 5;
 
         // ─── Public API ───────────────────────────────────────────────────────────
 
@@ -175,6 +179,32 @@ namespace vmsOpenAcars.Services
                 totalDeduction += lightsDeduction;
             }
 
+            // ── Stabilized Approach (1000 ft gate) ──────────────────────────────
+            int saDeduction = Math.Min(data.StabilizedApproachDeductions, MaxStabilizedApproachDeduction);
+            if (saDeduction > 0)
+            {
+                result.Deductions.Add(new ScoringDeduction
+                {
+                    Criterion = "Stabilized Approach",
+                    Reason = "unstabilized at 1000 ft AGL gate",
+                    PointsDeducted = saDeduction
+                });
+                totalDeduction += saDeduction;
+            }
+
+            // ── QNH Compliance ───────────────────────────────────────────────────
+            int qnhDeduction = CalcQnhDeduction(data.QnhViolations);
+            if (qnhDeduction > 0)
+            {
+                result.Deductions.Add(new ScoringDeduction
+                {
+                    Criterion = "QNH Compliance",
+                    Reason = $"{data.QnhViolations} violation(s)",
+                    PointsDeducted = qnhDeduction
+                });
+                totalDeduction += qnhDeduction;
+            }
+
             result.TotalScore = Math.Max(0, 100 - totalDeduction);
             return result;
         }
@@ -252,6 +282,13 @@ namespace vmsOpenAcars.Services
         {
             if (violations == 0) return 0;
             return Math.Min(violations * 5, MaxLightsDeduction);
+        }
+
+        /// <summary>Each QNH violation deducts 5 pts, capped at MaxQnhDeduction.</summary>
+        private static int CalcQnhDeduction(int violations)
+        {
+            if (violations == 0) return 0;
+            return Math.Min(violations * 5, MaxQnhDeduction);
         }
 
         // ─── Rating label ─────────────────────────────────────────────────────────

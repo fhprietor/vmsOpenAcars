@@ -53,11 +53,22 @@ namespace vmsOpenAcars.Models
         /// Number of lights compliance violations detected during the flight.
         /// Typical violations tracked:
         ///   - Landing lights off below 10,000 ft AGL during flight
-        ///   - Strobes on while at the gate (optional)
         ///   - Beacon off during taxi/engine running
         /// Increment this counter in your lights monitoring logic.
         /// </summary>
         public int LightsViolations { get; set; }
+
+        /// <summary>
+        /// Total raw penalty points accrued at the 1000 ft AGL stabilized approach gate.
+        /// Capped at MaxStabilizedApproachDeduction (15 pts) in ScoringService.
+        /// </summary>
+        public int StabilizedApproachDeductions { get; set; }
+
+        /// <summary>
+        /// Number of QNH compliance violations (incorrect altimeter setting at departure or arrival).
+        /// Each violation = 5 pts, capped at MaxQnhDeduction (5 pts) in ScoringService.
+        /// </summary>
+        public int QnhViolations { get; set; }
 
         /// <summary>
         /// Resets all fields to their default (zero) values.
@@ -71,6 +82,8 @@ namespace vmsOpenAcars.Models
             LandingGForce = 0.0;
             OverspeedCount = 0;
             LightsViolations = 0;
+            StabilizedApproachDeductions = 0;
+            QnhViolations = 0;
         }
     }
 }

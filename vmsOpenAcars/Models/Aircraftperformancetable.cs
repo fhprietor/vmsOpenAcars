@@ -72,7 +72,7 @@ namespace vmsOpenAcars.Models
             { "DH8A",  new AircraftPerformance { VmoKts = 220,  Category = "Regional turboprop (Dash 8-100)" } },
             { "DH8B",  new AircraftPerformance { VmoKts = 220,  Category = "Regional turboprop (Dash 8-200)" } },
             { "DH8C",  new AircraftPerformance { VmoKts = 260,  Category = "Regional turboprop (Dash 8-300)" } },
-            { "DH8D",  new AircraftPerformance { VmoKts = 260,  Category = "Regional turboprop (Dash 8-400/Q400)" } },
+            { "DH8D",  new AircraftPerformance { VmoKts = 285,  Category = "Regional turboprop (Dash 8-400/Q400)" } },
             { "SB20",  new AircraftPerformance { VmoKts = 290,  Category = "Regional turboprop (Saab 2000)" } },
             { "SF34",  new AircraftPerformance { VmoKts = 250,  Category = "Regional turboprop (Saab 340)" } },
             { "E120",  new AircraftPerformance { VmoKts = 255,  Category = "Regional turboprop (Embraer 120)" } },
@@ -212,6 +212,28 @@ namespace vmsOpenAcars.Models
 
             // 3. Generic default
             return _defaultJet;
+        }
+
+        /// <summary>
+        /// Returns the Vapp speed window [VappMin, VappMax] in knots for the 1000 ft approach gate.
+        /// Derived from ICAO approach categories (PANS-OPS / TERPS):
+        ///   Cat A (&lt; 91 kts Vref): Light piston/GA           → [65,  100]
+        ///   Cat B (91–120 kts):     Regional turboprops        → [90,  135]
+        ///   Cat C (121–140 kts):    Regional/narrow-body jets  → [120, 165]
+        ///   Cat D (141–165 kts):    Wide-body jets (default)   → [140, 185]
+        /// </summary>
+        public static (int VappMin, int VappMax) GetApproachSpeedRange(string icaoType)
+        {
+            var perf = Get(icaoType);
+            string cat = perf.Category?.ToLowerInvariant() ?? "";
+
+            if (cat.Contains("light piston") || cat.Contains("light twin"))
+                return (65, 100);   // ICAO Cat A
+            if (cat.Contains("turboprop"))
+                return (90, 135);   // ICAO Cat B
+            if (cat.Contains("regional jet") || cat.Contains("narrow-body") || cat.Contains("narrow-to-wide"))
+                return (120, 165);  // ICAO Cat C
+            return (140, 185);      // ICAO Cat D (wide-body / generic)
         }
     }
 }

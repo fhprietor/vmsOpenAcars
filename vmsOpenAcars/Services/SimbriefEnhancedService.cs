@@ -95,13 +95,16 @@ namespace vmsOpenAcars.Services
 
                         // Origen y destino
                         Origin = json["origin"]?["icao_code"]?.ToString() ?? "ZZZZ",
+                        OriginIata = json["origin"]?["iata_code"]?.ToString() ?? "---",
                         Destination = json["destination"]?["icao_code"]?.ToString() ?? "ZZZZ",
+                        DestinationIata = json["destination"]?["iata_code"]?.ToString() ?? "---",
                         DestinationElevation = json["destination"]?["elevation"]?.Value<int>() ?? 0,
                         Alternate = json["alternate"]?["icao_code"]?.ToString(),
 
                         // Ruta
                         Route = json["general"]?["route"]?.ToString() ?? "DIRECT",
                         CruiseAltitude = json["general"]?["initial_altitude"]?.Value<int>() ?? 0,
+                        CostIndex = json["general"]?["costindex"]?.Value<int>() ?? 0,
 
                         // Distancia
                         Distance = json["general"]?["route_distance"]?.Value<double>()
@@ -121,6 +124,13 @@ namespace vmsOpenAcars.Services
                         PayLoad = json["weights"]?["payload"]?.Value<double>() ?? 0,
                         ZeroFuelWeight = json["weights"]?["est_zfw"]?.Value<double>() ?? 0,
                         PaxCount = json["weights"]?["pax_count"]?.Value<int>() ?? 0,
+                        CargoWeight = json["weights"]?["cargo"]?.Value<double>()
+                                   ?? json["weights"]?["freight_added"]?.Value<double>() ?? 0,
+
+                        // Viento e ISA promedio en ruta
+                        AvgWindDir = json["general"]?["avg_wind_dir"]?.Value<int>() ?? 0,
+                        AvgWindSpd = json["general"]?["avg_wind_spd"]?.Value<int>() ?? 0,
+                        AvgIsaDev  = ParseIsaDev(json["general"]?["avg_temp_dev"]?.ToString()),
 
                         // Tiempos - CORREGIDO: usar times.est_time_enroute
                         EstTimeEnroute = json["times"]?["est_time_enroute"]?.Value<int>() ?? 0,
@@ -174,6 +184,21 @@ namespace vmsOpenAcars.Services
                 }
             }
             return query.TrimEnd('&');
+        }
+
+        /// <summary>
+        /// Parses SimBrief avg_temp_dev which can be "+17", "-3", "P17", "M03", or a raw integer string.
+        /// Returns the signed integer value (positive = above ISA).
+        /// </summary>
+        private static int ParseIsaDev(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return 0;
+            raw = raw.Trim();
+            if (raw.StartsWith("P", StringComparison.OrdinalIgnoreCase))
+                return int.TryParse(raw.Substring(1), out int v) ? v : 0;
+            if (raw.StartsWith("M", StringComparison.OrdinalIgnoreCase))
+                return int.TryParse(raw.Substring(1), out int v2) ? -v2 : 0;
+            return int.TryParse(raw, out int v3) ? v3 : 0;
         }
 
         private string GetSimbriefAircraftCode(string phpvmsType)
