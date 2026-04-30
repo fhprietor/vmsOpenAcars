@@ -242,7 +242,8 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel.OnAcarsStatusChanged += _uiService.UpdateAcarsStatus;
             _viewModel.OnAirportChanged += _uiService.UpdateCurrentAirport;
             _viewModel.OnButtonStateChanged += UpdateButtonState;
-            _viewModel.OnMetarUpdated += UpdateMetarPanel;
+            _viewModel.OnMetarUpdated      += UpdateMetarPanel;
+            _viewModel.OnMetarStateChanged += UpdateMetarPanelState;
             _viewModel.OnShowMessage += (message, title) =>
             {
                 MessageBox.Show(message, title);
@@ -1907,8 +1908,21 @@ namespace vmsOpenAcars.UI.Forms
                 _metarDataArray[i] = metars?[i];
                 if (_metarLabels[i] == null) continue;
                 _metarLabels[i].Text      = _metarDataArray[i]?.Raw ?? "---";
+                _metarLabels[i].ForeColor = Color.FromArgb(160, 175, 195);
                 _metarConditionColors[i]  = ConditionToColor(_metarDataArray[i]?.Condition ?? MetarCondition.Unknown);
                 _metarPanels[i]?.Invalidate();
+            }
+        }
+
+        private void UpdateMetarPanelState(MetarFetchState state)
+        {
+            if (InvokeRequired) { Invoke(new Action<MetarFetchState>(UpdateMetarPanelState), state); return; }
+            if (state != MetarFetchState.Fetching) return;
+            for (int i = 0; i < 4; i++)
+            {
+                if (_metarLabels[i] == null || _metarDataArray[i] != null) continue;
+                _metarLabels[i].Text      = "fetching...";
+                _metarLabels[i].ForeColor = Color.FromArgb(100, 120, 140);
             }
         }
 

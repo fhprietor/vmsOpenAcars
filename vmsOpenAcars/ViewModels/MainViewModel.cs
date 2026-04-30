@@ -62,7 +62,8 @@ namespace vmsOpenAcars.ViewModels
         public event Func<string, string, EcamDialogButtons, Task<DialogResult>> OnShowConfirmation;
         public event Action OnFlightStarted;
         public event Action OnFlightEnded;
-        public event Action<MetarData[]> OnMetarUpdated;
+        public event Action<MetarData[]>     OnMetarUpdated;
+        public event Action<MetarFetchState> OnMetarStateChanged;
 
         public MainViewModel(
             FlightManager flightManager,
@@ -139,7 +140,8 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.BeaconChanged += on => OnLog?.Invoke(
                 on ? "🔴 BEACON ON" : "🔴 BEACON OFF", Theme.MainText);
 
-            _metarService.OnMetarUpdated += metars => OnMetarUpdated?.Invoke(metars);
+            _metarService.OnMetarUpdated  += metars => OnMetarUpdated?.Invoke(metars);
+            _metarService.OnStateChanged  += state  => OnMetarStateChanged?.Invoke(state);
         }
         private int _lastUiAltitude;
         private int _lastUiSpeed;

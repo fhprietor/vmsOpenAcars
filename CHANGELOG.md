@@ -1,4 +1,10 @@
 # Changelog - vmsOpenAcars
+## [0.3.12]
+
+### Fixed
+
+- METAR retrieval process indicator while awaiting server response
+-  Touch-and-go detection. So a second landing after liftoff from AfterLanding captures fresh touchdown data for scoringTouch-and-go detection and storage of the PIREP with the second landing
 
 ## [0.3.12]
 

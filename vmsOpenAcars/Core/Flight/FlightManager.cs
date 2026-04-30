@@ -1178,6 +1178,19 @@ namespace vmsOpenAcars.Core.Flight
                             _goAroundStart = DateTime.MinValue;
                         }
                         break;
+
+                    case FlightPhase.AfterLanding:
+                        // Touch and go: el avión volvió al aire sin completar el taxi.
+                        // Con GS > 60 kt en el aire es inequívoco que hay un nuevo despegue.
+                        if (groundSpeed > 60)
+                        {
+                            OnLog?.Invoke($"✈️ Touch and go detected (GS {groundSpeed} kt) — resetting for new approach", Theme.Warning);
+                            _touchdownCaptured = false;
+                            _approachGateEvaluated = false;
+                            _prevApproachAgl = double.MaxValue;
+                            TransitionTo(FlightPhase.Climb, previousPhase);
+                        }
+                        break;
                 }
             }
 
