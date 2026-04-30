@@ -122,6 +122,12 @@ namespace vmsOpenAcars.UI.Forms
         private Label _lblDepartureCdw;
         private SimbriefPlan _lastRenderedPlan;
 
+        // METAR PANEL
+        private Label[]         _metarLabels         = new Label[4];
+        private BufferedPanel[] _metarPanels         = new BufferedPanel[4];
+        private MetarData[]     _metarDataArray      = new MetarData[4];
+        private Color[]         _metarConditionColors = new[] { Color.DimGray, Color.DimGray, Color.DimGray, Color.DimGray };
+
         // LUCES
         private Label _lblNavLight;
         private Label _lblBeaconLight;
@@ -236,6 +242,7 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel.OnAcarsStatusChanged += _uiService.UpdateAcarsStatus;
             _viewModel.OnAirportChanged += _uiService.UpdateCurrentAirport;
             _viewModel.OnButtonStateChanged += UpdateButtonState;
+            _viewModel.OnMetarUpdated += UpdateMetarPanel;
             _viewModel.OnShowMessage += (message, title) =>
             {
                 MessageBox.Show(message, title);
@@ -726,7 +733,21 @@ namespace vmsOpenAcars.UI.Forms
             };
             pnlIncoming.Controls.Add(lblIncomingTitle);
 
-            mainLayout.Controls.Add(pnlIncoming, 0, 3);
+            var pnlMetar = InitializeMetarPanel();
+            var row3Split = new TableLayoutPanel
+            {
+                Dock        = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount    = 1,
+                Padding     = Padding.Empty,
+                Margin      = Padding.Empty,
+                BackColor   = Color.Transparent
+            };
+            row3Split.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            row3Split.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            row3Split.Controls.Add(pnlIncoming, 0, 0);
+            row3Split.Controls.Add(pnlMetar,    1, 0);
+            mainLayout.Controls.Add(row3Split, 0, 3);
         }
 
         private Panel CreateCompactInfoCard(string title, out Label label1, out Label label2, out Label label3)
@@ -1216,6 +1237,10 @@ namespace vmsOpenAcars.UI.Forms
                         btnOfp = btn;
                         btn.Click += BtnOfp_Click;
                         break;
+                    case "WEATHER":
+                        btnWeather = btn;
+                        btn.Click += BtnWeather_Click;
+                        break;
                     default:
                         btn.Click += GenericButton_Click;
                         break;
@@ -1674,6 +1699,7 @@ namespace vmsOpenAcars.UI.Forms
                     {
                         _viewModel.SetActivePlan(completePlan);
                         _uiService.AddLog($"✅ Plan loaded: {completePlan.Origin} → {completePlan.Destination}", Theme.Success);
+                        await _viewModel.TriggerMetarFetchAsync();
                         // Pre-descargar el PDF del OFP en background para tenerlo listo al instante
                         if (_viewModel.HasOFPPdf())
                         {
@@ -1775,6 +1801,133 @@ namespace vmsOpenAcars.UI.Forms
         {
             var btn = sender as Button;
             _viewModel?.LogButtonPress(btn?.Text);
+        }
+
+        private async void BtnWeather_Click(object sender, EventArgs e)
+        {
+            if (_viewModel != null)
+                await _viewModel.TriggerMetarFetchAsync();
+        }
+
+        private Panel InitializeMetarPanel()
+        {
+            var pnl = new BufferedPanel
+            {
+                Dock        = DockStyle.Fill,
+                BackColor   = Color.FromArgb(12, 15, 22),
+                Padding     = new Padding(2),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+
+            var grid = new TableLayoutPanel
+            {
+                Dock        = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount    = 4,
+                Padding     = Padding.Empty,
+                BackColor   = Color.Transparent
+            };
+            for (int i = 0; i < 4; i++)
+                grid.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
+
+            string[] stationLabels = { "ORIG", "DEST", "ALT", "ENRT" };
+            var monoFont = new Font("Consolas", 12.25f, FontStyle.Regular, GraphicsUnit.Point);
+
+            for (int i = 0; i < 4; i++)
+            {
+                int idx = i;
+                var cell = new BufferedPanel
+                {
+                    Dock      = DockStyle.Fill,
+                    BackColor = Color.FromArgb(10, 14, 22),
+                    Margin    = new Padding(0, 0, 0, 1),
+                    Cursor    = Cursors.Hand
+                };
+
+                var inner = new TableLayoutPanel
+                {
+                    Dock        = DockStyle.Fill,
+                    ColumnCount = 2,
+                    RowCount    = 1,
+                    Padding     = new Padding(10, 2, 4, 2),
+                    BackColor   = Color.Transparent
+                };
+                inner.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 38));
+                inner.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+                inner.Controls.Add(new Label
+                {
+                    Text      = stationLabels[i],
+                    Font      = new Font("Consolas", 8, FontStyle.Bold),
+                    ForeColor = Color.Gold,
+                    Dock      = DockStyle.Fill,
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Margin    = Padding.Empty
+                }, 0, 0);
+
+                _metarLabels[idx] = new Label
+                {
+                    Text         = "---",
+                    Font         = monoFont,
+                    ForeColor    = Color.FromArgb(160, 175, 195),
+                    Dock         = DockStyle.Fill,
+                    TextAlign    = ContentAlignment.MiddleLeft,
+                    AutoEllipsis = true,
+                    Margin       = Padding.Empty
+                };
+                inner.Controls.Add(_metarLabels[idx], 1, 0);
+                cell.Controls.Add(inner);
+
+                cell.Paint += (s, ev) =>
+                {
+                    using (var br = new SolidBrush(_metarConditionColors[idx]))
+                        ev.Graphics.FillRectangle(br, 0, 0, 4, ((Panel)s).Height);
+                };
+
+                cell.Click                += (s, ev) => ShowMetarDecode(idx);
+                _metarLabels[idx].Click   += (s, ev) => ShowMetarDecode(idx);
+
+                _metarPanels[idx] = cell;
+                grid.Controls.Add(cell, 0, i);
+            }
+
+            pnl.Controls.Add(grid);
+            return pnl;
+        }
+
+        private void UpdateMetarPanel(MetarData[] metars)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action<MetarData[]>(UpdateMetarPanel), metars);
+                return;
+            }
+            for (int i = 0; i < 4; i++)
+            {
+                _metarDataArray[i] = metars?[i];
+                if (_metarLabels[i] == null) continue;
+                _metarLabels[i].Text      = _metarDataArray[i]?.Raw ?? "---";
+                _metarConditionColors[i]  = ConditionToColor(_metarDataArray[i]?.Condition ?? MetarCondition.Unknown);
+                _metarPanels[i]?.Invalidate();
+            }
+        }
+
+        private static Color ConditionToColor(MetarCondition c)
+        {
+            switch (c)
+            {
+                case MetarCondition.VMC:  return Color.Lime;
+                case MetarCondition.MVMC: return Color.Yellow;
+                case MetarCondition.IMC:  return Color.Red;
+                default:                  return Color.DimGray;
+            }
+        }
+
+        private void ShowMetarDecode(int idx)
+        {
+            var data = _metarDataArray[idx];
+            if (data == null) return;
+            new MetarDecodeForm(data).Show(this);
         }
 
         #endregion

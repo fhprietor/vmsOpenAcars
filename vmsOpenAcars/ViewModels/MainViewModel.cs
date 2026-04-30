@@ -28,6 +28,8 @@ namespace vmsOpenAcars.ViewModels
         private readonly ApiService _apiService;
         private readonly PhpVmsFlightService _phpVmsFlightService;
         private readonly SimbriefEnhancedService _simbriefEnhancedService;
+        private readonly MetarService _metarService = new MetarService();
+        private readonly IvaoService  _ivaoService  = new IvaoService();
         private DateTime _lastPositionUpdate = DateTime.MinValue;
         private AcarsPosition _lastSentPosition = null;
         private readonly TimeSpan _positionUpdateInterval = TimeSpan.FromSeconds(5);
@@ -60,6 +62,7 @@ namespace vmsOpenAcars.ViewModels
         public event Func<string, string, EcamDialogButtons, Task<DialogResult>> OnShowConfirmation;
         public event Action OnFlightStarted;
         public event Action OnFlightEnded;
+        public event Action<MetarData[]> OnMetarUpdated;
 
         public MainViewModel(
             FlightManager flightManager,
@@ -136,15 +139,18 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.BeaconChanged += on => OnLog?.Invoke(
                 on ? "🔴 BEACON ON" : "🔴 BEACON OFF", Theme.MainText);
 
+            _metarService.OnMetarUpdated += metars => OnMetarUpdated?.Invoke(metars);
         }
         private int _lastUiAltitude;
         private int _lastUiSpeed;
         private string _lastUiPhase = string.Empty;
         private string _lastUiPosition = string.Empty;
+        private FlightPhase _prevPhase = FlightPhase.Idle;
 
         private void OnRawDataUpdated(object sender, RawTelemetryData e)
         {
             _flightManager?.UpdateTelemetry(e);   // ← ver C1, pasa el objeto completo
+            _metarService?.UpdatePosition(e.Latitude, e.Longitude);
 
             // Solo notificar UI si hay cambio real (threshold para evitar micro-fluctuaciones)
             bool altChanged = Math.Abs((int)e.AltitudeFeet - _lastUiAltitude) > 10;
@@ -201,11 +207,40 @@ namespace vmsOpenAcars.ViewModels
 
         // ========== EVENTOS DE FLIGHTMANAGER (sin cambios) ==========
         private void OnFlightManagerLog(string msg, Color color) => OnLog?.Invoke(msg, color);
-        private void OnFlightPhaseChanged(FlightPhase phase)
+        private async void OnFlightPhaseChanged(FlightPhase phase)
         {
+            // Verificar IVAO al salir de Boarding (blocks-off real)
+            if (_prevPhase == FlightPhase.Boarding &&
+                (phase == FlightPhase.Pushback || phase == FlightPhase.TaxiOut))
+            {
+                await CheckIvaoAtBlocksOffAsync();
+            }
+            _prevPhase = phase;
+
             OnPhaseChanged?.Invoke(phase);
             if (phase == FlightPhase.OnBlock || phase == FlightPhase.Completed)
                 OnButtonStateChanged?.Invoke("SEND PIREP", Color.Green, true);
+        }
+
+        private async Task CheckIvaoAtBlocksOffAsync()
+        {
+            var pilot = _flightManager.ActivePilot;
+            if (pilot?.IvaoId <= 0) return;
+
+            bool? isOnline = await _ivaoService.IsOnlineAsync(pilot.IvaoId);
+            if (isOnline == true)
+            {
+                OnLog?.Invoke($"✅ Conectado en IVAO (VID {pilot.IvaoId})", Theme.Success);
+            }
+            else if (isOnline == false)
+            {
+                OnLog?.Invoke($"⚠️ VID {pilot.IvaoId} no detectado en IVAO — −5 pts aplicados", Theme.Warning);
+                _flightManager.MarkOfflineFlight();
+            }
+            else
+            {
+                OnLog?.Invoke("⚠️ No se pudo verificar presencia en IVAO (feed no disponible)", Theme.Warning);
+            }
         }
         private void OnPositionValidated(ValidationStatus status) => OnValidationStatusChanged?.Invoke(status);
         private void OnTakeoffDetected(int speed, int altitude, int verticalSpeed)
@@ -520,6 +555,8 @@ namespace vmsOpenAcars.ViewModels
         public void Stop()
         {
             _fsuipc?.Stop();
+            _metarService?.Dispose();
+            _ivaoService?.Dispose();
         }
 
         private async void StartTimers()
@@ -562,11 +599,14 @@ namespace vmsOpenAcars.ViewModels
             OnSimulatorNameChanged?.Invoke(_fsuipc?.IsConnected == true ? _fsuipc.SimulatorName : "AWAITING SIM");
         }
 
+        public async Task TriggerMetarFetchAsync() => await _metarService.FetchNowAsync();
+
         public void SetActivePlan(SimbriefPlan plan)
         {
             if (plan == null) return;
             _flightManager.SetActivePlan(plan);
             UpdateFlightInfo();
+            _metarService.SetStations(plan.Origin, plan.Destination, plan.Alternate);
             if (_fsuipc.IsConnected)
             {
                 _flightManager.UpdatePositionValidation(_fsuipc.CurrentLatitude, _fsuipc.CurrentLongitude);
@@ -660,7 +700,32 @@ namespace vmsOpenAcars.ViewModels
             OnLog?.Invoke($"📋 Planned fuel: {plannedFuel:F0} {plan.Units} ({plannedFuelKg:F0} kg)", Theme.MainText);
             OnLog?.Invoke($"⛽ Simulator fuel: {actualFuelLbs:F0} lbs ({actualFuelKg:F0} kg)", Theme.MainText);
 
-            // ===== 5. INICIAR VUELO =====
+            // ===== 5. VERIFICAR PRESENCIA IVAO (advertencia, sin penalización) =====
+            var activePilot = _flightManager.ActivePilot;
+            if (activePilot?.IvaoId > 0)
+            {
+                bool? isOnline = await _ivaoService.IsOnlineAsync(activePilot.IvaoId);
+                if (isOnline == false)
+                {
+                    OnLog?.Invoke($"⚠️ VID {activePilot.IvaoId} no detectado en IVAO", Theme.Warning);
+                    if (OnShowConfirmation != null)
+                    {
+                        var confirmed = await OnShowConfirmation(
+                            $"El piloto (VID {activePilot.IvaoId}) no está conectado a IVAO.\n\n" +
+                            "Puedes conectarte antes del pushback/taxi para evitar penalización.\n\n" +
+                            "¿Deseas iniciar el vuelo de todas formas?",
+                            "⚠️ IVAO OFFLINE",
+                            EcamDialogButtons.YesNo);
+                        if (confirmed != DialogResult.Yes) return;
+                    }
+                }
+                else if (isOnline == true)
+                {
+                    OnLog?.Invoke($"✅ Conectado en IVAO (VID {activePilot.IvaoId})", Theme.Success);
+                }
+            }
+
+            // ===== 6. INICIAR VUELO =====
             bool started = await _flightManager.StartFlight(plan, _flightManager.ActivePilot, actualFuelKg);
             if (started)
             {

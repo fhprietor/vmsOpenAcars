@@ -74,6 +74,7 @@ namespace vmsOpenAcars.Services
         private const int MaxLightsDeduction = 10;
         private const int MaxStabilizedApproachDeduction = 15;
         private const int MaxQnhDeduction = 5;
+        private const int OfflineFlightDeduction = 5;
 
         // ─── Public API ───────────────────────────────────────────────────────────
 
@@ -203,6 +204,18 @@ namespace vmsOpenAcars.Services
                     PointsDeducted = qnhDeduction
                 });
                 totalDeduction += qnhDeduction;
+            }
+
+            // ── IVAO Offline ─────────────────────────────────────────────────────
+            if (data.WasOfflineFlight)
+            {
+                result.Deductions.Add(new ScoringDeduction
+                {
+                    Criterion = "IVAO Presence",
+                    Reason    = "flight started without IVAO connection",
+                    PointsDeducted = OfflineFlightDeduction
+                });
+                totalDeduction += OfflineFlightDeduction;
             }
 
             result.TotalScore = Math.Max(0, 100 - totalDeduction);

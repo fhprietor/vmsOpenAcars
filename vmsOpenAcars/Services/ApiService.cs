@@ -613,7 +613,8 @@ namespace vmsOpenAcars.Services
                         Name = data["name"]?.ToString(),
                         AirlineId = (int)(data["airline_id"] ?? 1),
                         Rank = data["rank"]?["name"]?.ToString(),
-                        CurrentAirport = data["curr_airport"]?.ToString()
+                        CurrentAirport = data["curr_airport"]?.ToString(),
+                        IvaoId = data["ivao_id"]?.Value<int>() ?? 0
                     };
 
                     // Load airport coordinates if available

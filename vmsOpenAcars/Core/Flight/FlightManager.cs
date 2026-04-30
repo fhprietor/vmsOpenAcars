@@ -60,6 +60,7 @@ namespace vmsOpenAcars.Core.Flight
         private int _lightsViolationCount = 0;
         private bool _lightsViolationActive = false;
         private int _qnhViolationCount = 0;
+        private bool _isOfflineFlight = false;
         private int _vmoKts = 320;
 
         // ── Approximation gate (1000 ft AGL) ─────────────────────────────────────
@@ -663,6 +664,7 @@ namespace vmsOpenAcars.Core.Flight
             _lightsViolationCount = 0;
             _lightsViolationActive = false;
             _qnhViolationCount = 0;
+            _isOfflineFlight = false;
             _approachGateEvaluated = false;
             _prevApproachAgl = double.MaxValue;
             _stabilizedApproachDeductions = 0;
@@ -805,11 +807,14 @@ namespace vmsOpenAcars.Core.Flight
                 CurrentPhase = FlightPhase.Boarding;
                 _phaseStartTime = DateTime.UtcNow;
                 FlightStartTime = DateTime.Now;
+                PhaseChanged?.Invoke(FlightPhase.Boarding);
                 return true;
             }
             OnLog?.Invoke("ERROR: Server did not return a PIREP ID.", Theme.Danger);
             return false;
         }
+
+        public void MarkOfflineFlight() => _isOfflineFlight = true;
 
         public bool CanStartFlight()
         {
@@ -877,6 +882,7 @@ namespace vmsOpenAcars.Core.Flight
             _lightsViolationCount = 0;
             _lightsViolationActive = false;
             _qnhViolationCount = 0;
+            _isOfflineFlight = false;
             _approachGateEvaluated = false;
             _prevApproachAgl = double.MaxValue;
             _stabilizedApproachDeductions = 0;
@@ -1336,7 +1342,8 @@ namespace vmsOpenAcars.Core.Flight
                 OverspeedCount = _overspeedCount,
                 LightsViolations = _lightsViolationCount,
                 StabilizedApproachDeductions = _stabilizedApproachDeductions,
-                QnhViolations = _qnhViolationCount
+                QnhViolations = _qnhViolationCount,
+                WasOfflineFlight = _isOfflineFlight
             };
             var scoring = new ScoringService();
             ScoringResult scoreResult = scoring.Calculate(scoreData);

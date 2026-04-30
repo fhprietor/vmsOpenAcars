@@ -1,5 +1,12 @@
 # Changelog - vmsOpenAcars
 
+## [0.3.12]
+
+### Added
+
+- METAR feature fully implemented. Added MetarService state machine,4 panels (ORIG/DEST/ALT/ENRT), MetarDecodeForm decode popup, and 4-station
+- IVAO online verification with score penalty
+
 ## [0.3.11]
 
 ### Added

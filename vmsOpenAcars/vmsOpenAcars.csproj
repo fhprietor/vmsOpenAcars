@@ -123,6 +123,7 @@
     <Compile Include="Models\FlightScoreData.cs" />
     <Compile Include="Models\Pilot.cs" />
     <Compile Include="Models\Pirep.cs" />
+    <Compile Include="Models\MetarData.cs" />
     <Compile Include="Models\SimbriefPlan.cs" />
     <Compile Include="Models\TakeoffData.cs" />
     <Compile Include="Models\TouchdownData.cs" />
@@ -139,6 +140,8 @@
     <Compile Include="Services\PositionValidator.cs" />
     <Compile Include="Services\ScoringService.cs" />
     <Compile Include="Services\SimbriefEnhancedService.cs" />
+    <Compile Include="Services\IvaoService.cs" />
+    <Compile Include="Services\MetarService.cs" />
     <Compile Include="Services\UIService.cs" />
     <Compile Include="Services\Weatherservice.cs" />
     <Compile Include="UI\Forms\EcamDialog.cs">
@@ -152,6 +155,9 @@
     </Compile>
     <Compile Include="UI\Forms\MainForm.cs">
       <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="UI\Forms\MetarDecodeForm.cs">
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="UI\Forms\OFPViewerForm.cs">
       <SubType>Form</SubType>
@@ -194,6 +200,7 @@
   <ItemGroup>
     <Folder Include="Core\Enums\" />
     <Folder Include="Core\Interfaces\" />
+    <Folder Include="Db\" />
     <Folder Include="UI\Controls\" />
     <Folder Include="UI\Helpers\" />
   </ItemGroup>

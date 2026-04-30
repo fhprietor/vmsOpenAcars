@@ -71,6 +71,12 @@ namespace vmsOpenAcars.Models
         public int QnhViolations { get; set; }
 
         /// <summary>
+        /// True if the pilot was not connected to IVAO when the flight was started.
+        /// Results in a fixed -5 pt deduction.
+        /// </summary>
+        public bool WasOfflineFlight { get; set; }
+
+        /// <summary>
         /// Resets all fields to their default (zero) values.
         /// Call this when a new flight begins (e.g., on prefile).
         /// </summary>
@@ -84,6 +90,7 @@ namespace vmsOpenAcars.Models
             LightsViolations = 0;
             StabilizedApproachDeductions = 0;
             QnhViolations = 0;
+            WasOfflineFlight = false;
         }
     }
 }

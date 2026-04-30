@@ -71,5 +71,11 @@
         /// Used together with <see cref="CurrentAirportLat"/> to validate GPS position.
         /// </summary>
         public double? CurrentAirportLon { get; set; }
+
+        /// <summary>
+        /// IVAO VID (numeric). Zero means not configured in phpVMS.
+        /// Field source: users.ivao_id via phpVMS API.
+        /// </summary>
+        public int IvaoId { get; set; }
     }
 }
