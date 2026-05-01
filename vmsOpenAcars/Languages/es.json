@@ -169,6 +169,11 @@
   "Lnm_TakeoffRunwayNotFound": "⚠️ NavMap: pista de despegue no encontrada en {0} (rumbo {1}°)",
   "Lnm_RunwayVacated": "🛬 PISTA DESOCUPADA por CALLE {0}",
   "Lnm_RunwayVacatedNoTwy": "🛬 PISTA DESOCUPADA",
+  "Lnm_DepartureParking": "🅿️ SALIENDO DESDE {0}",
+  "Lnm_ArrivalParking": "🅿️ ESTACIONADO EN {0}",
+  "Lnm_TaxiwayChange": "↳ CALLE {0}",
+  "Lnm_HoldingShort": "✋ ESPERA ANTES DE PISTA {0} en {1}",
+  "Lnm_HoldingShortNoTwy": "✋ ESPERA ANTES DE PISTA {0}",
 
   "Score_Result": "🏆 Puntuación: {0}/100 — {1}",
   "Score_Deduction": "   −{0} pts: {1} ({2})",

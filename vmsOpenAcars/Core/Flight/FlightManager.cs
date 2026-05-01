@@ -270,7 +270,8 @@ namespace vmsOpenAcars.Core.Flight
         public event Action<int, double, double, double> OnLandingDetected;
         public event Action OnBlockDetected;
         public event Action<int, int, int> OnTakeoffDetected;
-        public event Action<double, double, double, string> OnTaxiPositionUpdate;
+        // lat, lon, heading, airport, isTaxiIn
+        public event Action<double, double, double, string, bool> OnTaxiPositionUpdate;
 
         #endregion
 
@@ -788,6 +789,19 @@ namespace vmsOpenAcars.Core.Flight
             if (_apiService == null) { OnLog?.Invoke("ERROR: ApiService not configured.", Theme.Warning); return false; }
             if (actualFuel <= 0) { OnLog?.Invoke("ERROR: No fuel data from simulator.", Theme.Warning); return false; }
 
+            // Reset all scoring state before the API call so stale data from a
+            // previous flight never survives into a new one, even if prefileing fails.
+            _touchdownCaptured = false;
+            TouchdownFpm = null;
+            _touchdownPitch = 0; _touchdownBank = 0; _touchdownGForce = 0;
+            _touchdownLatSaved = 0; _touchdownLonSaved = 0; _touchdownHeadingDeg = 0;
+            _touchdownDistanceFt = 0; _touchdownCenterlineDeviationFt = 0; _touchdownRunwayName = null;
+            _overspeedCount = 0; _wasOverspeed = false;
+            _lightsViolationCount = 0; _lightsViolationActive = false;
+            _qnhViolationCount = 0; _isOfflineFlight = false;
+            _approachGateEvaluated = false; _prevApproachAgl = double.MaxValue;
+            _stabilizedApproachDeductions = 0; _hasLandedThisFlight = false;
+
             _activePlan = plan;
             _activePilot = pilot;
             OnLog?.Invoke($"{_("SendingPrefile")}...", Theme.MainText);
@@ -819,16 +833,6 @@ namespace vmsOpenAcars.Core.Flight
                 OnLog?.Invoke($"⏱️ PIREP created at: {_serverCreatedAt:HH:mm:ss} UTC", Theme.MainText);
                 OnLog?.Invoke($"📊 Flight timer started (server time)", Theme.Success);
                 OnLog?.Invoke($"⛽ Initial fuel recorded: {_initialFuel:F0} kg", Theme.Success);
-                _touchdownCaptured = false;
-                TouchdownFpm = null;
-                _touchdownPitch = 0; _touchdownBank = 0; _touchdownGForce = 0;
-                _touchdownLatSaved = 0; _touchdownLonSaved = 0; _touchdownHeadingDeg = 0;
-                _touchdownDistanceFt = 0; _touchdownCenterlineDeviationFt = 0; _touchdownRunwayName = null;
-                _overspeedCount = 0; _wasOverspeed = false;
-                _lightsViolationCount = 0; _lightsViolationActive = false;
-                _qnhViolationCount = 0; _isOfflineFlight = false;
-                _approachGateEvaluated = false; _prevApproachAgl = double.MaxValue;
-                _stabilizedApproachDeductions = 0; _hasLandedThisFlight = false;
                 // Resolver Vmo según tipo de avión del plan
                 var perf = AircraftPerformanceTable.Get(_activePlan?.AircraftIcao);
                 _vmoKts = perf.VmoKts;
@@ -1046,7 +1050,7 @@ namespace vmsOpenAcars.Core.Flight
                         {
                             _lastTaxiPositionEvent = DateTime.UtcNow;
                             OnTaxiPositionUpdate?.Invoke(CurrentLat, CurrentLon, CurrentHeading,
-                                _activePlan?.Origin ?? _currentAirport);
+                                _activePlan?.Origin ?? _currentAirport, false);
                         }
                         if (groundSpeed > 30 && _currentPitch < 1.0)
                         {
@@ -1076,6 +1080,12 @@ namespace vmsOpenAcars.Core.Flight
                         break;
 
                     case FlightPhase.TaxiIn:
+                        if ((DateTime.UtcNow - _lastTaxiPositionEvent).TotalSeconds >= 2.0)
+                        {
+                            _lastTaxiPositionEvent = DateTime.UtcNow;
+                            OnTaxiPositionUpdate?.Invoke(CurrentLat, CurrentLon, CurrentHeading,
+                                _activePlan?.Destination ?? _currentAirport, true);
+                        }
                         if (groundSpeed < 1)
                         {
                             if (_stoppedStartTime == DateTime.MinValue)

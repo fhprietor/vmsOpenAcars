@@ -152,7 +152,9 @@ namespace vmsOpenAcars.ViewModels
         private string _lastUiPhase = string.Empty;
         private string _lastUiPosition = string.Empty;
         private FlightPhase _prevPhase = FlightPhase.Idle;
-        private bool _wasOnRunwayForEntry = false;
+        private bool   _wasOnRunwayForEntry  = false;
+        private string _lastLoggedTaxiway    = null;
+        private string _lastHoldingShortRwy  = null;
 
         private void OnRawDataUpdated(object sender, RawTelemetryData e)
         {
@@ -223,9 +225,20 @@ namespace vmsOpenAcars.ViewModels
                 await CheckIvaoAtBlocksOffAsync();
             }
 
+            if (phase == FlightPhase.Boarding && _runwayService.IsAvailable)
+            {
+                // Gate captured NOW — aircraft hasn't moved yet (pilot just pressed START)
+                double dLat  = _flightManager.CurrentLat;
+                double dLon  = _flightManager.CurrentLon;
+                string depAp = _flightManager.ActivePlan?.Origin ?? _flightManager.CurrentAirport;
+                Task.Run(() => LookupDepartureParking(depAp, dLat, dLon));
+            }
+
             if (phase == FlightPhase.TakeoffRoll)
             {
-                _wasOnRunwayForEntry = false;   // reset for next flight
+                _wasOnRunwayForEntry = false;
+                _lastLoggedTaxiway   = null;
+                _lastHoldingShortRwy = null;
                 if (_runwayService.IsAvailable)
                 {
                     double lat = _flightManager.CurrentLat;
@@ -235,17 +248,27 @@ namespace vmsOpenAcars.ViewModels
                     Task.Run(() => LookupTakeoffRunwayData(dep, lat, lon, hdg));
                 }
             }
-            else if (phase == FlightPhase.TaxiIn && _prevPhase == FlightPhase.AfterLanding
-                     && _runwayService.IsAvailable)
+            else if (phase == FlightPhase.TaxiIn && _prevPhase == FlightPhase.AfterLanding)
             {
-                string dest = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
-                Task.Run(async () =>
+                _lastLoggedTaxiway = null;
+                if (_runwayService.IsAvailable)
                 {
-                    await System.Threading.Tasks.Task.Delay(5000);
-                    double lat = _flightManager.CurrentLat;
-                    double lon = _flightManager.CurrentLon;
-                    LookupRunwayVacated(dest, lat, lon);
-                });
+                    string dest = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
+                    Task.Run(async () =>
+                    {
+                        await System.Threading.Tasks.Task.Delay(5000);
+                        double lat = _flightManager.CurrentLat;
+                        double lon = _flightManager.CurrentLon;
+                        LookupRunwayVacated(dest, lat, lon);
+                    });
+                }
+            }
+            else if (phase == FlightPhase.OnBlock && _runwayService.IsAvailable)
+            {
+                double aLat  = _flightManager.CurrentLat;
+                double aLon  = _flightManager.CurrentLon;
+                string arrAp = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
+                Task.Run(() => LookupArrivalParking(arrAp, aLat, aLon));
             }
 
             _prevPhase = phase;
@@ -536,23 +559,61 @@ namespace vmsOpenAcars.ViewModels
                 Theme.Success);
         }
 
-        private void HandleTaxiPositionUpdate(double lat, double lon, double heading, string airport)
+        private void HandleTaxiPositionUpdate(
+            double lat, double lon, double heading, string airport, bool isTaxiIn)
         {
             if (!_runwayService.IsAvailable || string.IsNullOrEmpty(airport)) return;
 
             Task.Run(() =>
             {
-                var entry = _runwayService.FindRunwayEntry(airport, lat, lon, heading);
-                bool onRunway = entry != null;
+                bool onRunway = false;
 
-                if (onRunway && !_wasOnRunwayForEntry)
+                if (!isTaxiIn)
                 {
-                    if (!string.IsNullOrEmpty(entry.TaxiwayName))
-                        OnLog?.Invoke(string.Format(_("Lnm_RunwayEntered"), entry.RunwayName, entry.TaxiwayName), Theme.Takeoff);
-                    else
-                        OnLog?.Invoke(string.Format(_("Lnm_RunwayEnteredNoTwy"), entry.RunwayName), Theme.Takeoff);
+                    // ── Runway entry detection (TaxiOut only) ────────────────────
+                    var entry = _runwayService.FindRunwayEntry(airport, lat, lon, heading);
+                    onRunway  = entry != null;
+
+                    if (onRunway && !_wasOnRunwayForEntry)
+                    {
+                        _lastLoggedTaxiway   = null;
+                        _lastHoldingShortRwy = null;
+                        if (!string.IsNullOrEmpty(entry.TaxiwayName))
+                            OnLog?.Invoke(string.Format(_("Lnm_RunwayEntered"), entry.RunwayName, entry.TaxiwayName), Theme.Takeoff);
+                        else
+                            OnLog?.Invoke(string.Format(_("Lnm_RunwayEnteredNoTwy"), entry.RunwayName), Theme.Takeoff);
+                    }
+                    _wasOnRunwayForEntry = onRunway;
                 }
-                _wasOnRunwayForEntry = onRunway;
+
+                if (!onRunway)
+                {
+                    // ── Nearest taxiway — log on change ─────────────────────────
+                    string twy = _runwayService.FindNearestTaxiway(airport, lat, lon);
+                    if (!string.IsNullOrEmpty(twy) && twy != _lastLoggedTaxiway)
+                    {
+                        _lastLoggedTaxiway = twy;
+                        OnLog?.Invoke(string.Format(_("Lnm_TaxiwayChange"), twy), Theme.Taxi);
+                    }
+
+                    if (!isTaxiIn)
+                    {
+                        // ── Holding short detection ──────────────────────────────
+                        var hp = _runwayService.FindHoldingPoint(airport, lat, lon, heading);
+                        if (hp != null && hp.RunwayName != _lastHoldingShortRwy)
+                        {
+                            _lastHoldingShortRwy = hp.RunwayName;
+                            if (!string.IsNullOrEmpty(hp.TaxiwayName))
+                                OnLog?.Invoke(string.Format(_("Lnm_HoldingShort"), hp.RunwayName, hp.TaxiwayName), Theme.Taxi);
+                            else
+                                OnLog?.Invoke(string.Format(_("Lnm_HoldingShortNoTwy"), hp.RunwayName), Theme.Taxi);
+                        }
+                        else if (hp == null && _lastHoldingShortRwy != null)
+                        {
+                            _lastHoldingShortRwy = null;
+                        }
+                    }
+                }
             });
         }
 
@@ -573,6 +634,20 @@ namespace vmsOpenAcars.ViewModels
                     (int)result.ThresholdDistanceFt,
                     (int)result.CenterlineDeviationFt),
                 Theme.Success);
+        }
+
+        private void LookupDepartureParking(string airport, double lat, double lon)
+        {
+            var spot = _runwayService.FindNearestParking(airport, lat, lon);
+            if (spot != null)
+                OnLog?.Invoke(string.Format(_("Lnm_DepartureParking"), spot.DisplayName), Theme.Taxi);
+        }
+
+        private void LookupArrivalParking(string airport, double lat, double lon)
+        {
+            var spot = _runwayService.FindNearestParking(airport, lat, lon);
+            if (spot != null)
+                OnLog?.Invoke(string.Format(_("Lnm_ArrivalParking"), spot.DisplayName), Theme.Success);
         }
 
         private void LookupRunwayVacated(string airport, double lat, double lon)
