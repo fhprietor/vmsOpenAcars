@@ -75,6 +75,8 @@ namespace vmsOpenAcars.Services
         private const int MaxStabilizedApproachDeduction = 15;
         private const int MaxQnhDeduction = 5;
         private const int OfflineFlightDeduction = 5;
+        private const int MaxTouchdownZoneDeduction = 7;
+        private const int MaxCenterlineDeduction = 7;
 
         // ─── Public API ───────────────────────────────────────────────────────────
 
@@ -206,6 +208,41 @@ namespace vmsOpenAcars.Services
                 totalDeduction += qnhDeduction;
             }
 
+            // ── Touchdown Zone ───────────────────────────────────────────────────
+            // Only scored when NavMap DB data is available (distance > 0).
+            if (data.TouchdownDistanceFt > 0)
+            {
+                int tdDeduction = CalcTouchdownDistanceDeduction(data.TouchdownDistanceFt);
+                if (tdDeduction > 0)
+                {
+                    string rwySuffix = !string.IsNullOrEmpty(data.RunwayName)
+                        ? $" (RWY {data.RunwayName})" : "";
+                    result.Deductions.Add(new ScoringDeduction
+                    {
+                        Criterion      = "Touchdown Zone",
+                        Reason         = $"{data.TouchdownDistanceFt:F0} ft from threshold{rwySuffix}",
+                        PointsDeducted = tdDeduction
+                    });
+                    totalDeduction += tdDeduction;
+                }
+            }
+
+            // ── Centreline Deviation ─────────────────────────────────────────────
+            if (data.CenterlineDeviationFt > 0)
+            {
+                int clDeduction = CalcCenterlineDeduction(data.CenterlineDeviationFt);
+                if (clDeduction > 0)
+                {
+                    result.Deductions.Add(new ScoringDeduction
+                    {
+                        Criterion      = "Centreline",
+                        Reason         = $"{data.CenterlineDeviationFt:F0} ft from centreline",
+                        PointsDeducted = clDeduction
+                    });
+                    totalDeduction += clDeduction;
+                }
+            }
+
             // ── IVAO Offline ─────────────────────────────────────────────────────
             if (data.WasOfflineFlight)
             {
@@ -302,6 +339,20 @@ namespace vmsOpenAcars.Services
         {
             if (violations == 0) return 0;
             return Math.Min(violations * 5, MaxQnhDeduction);
+        }
+
+        private static int CalcTouchdownDistanceDeduction(double distFt)
+        {
+            if (distFt <= 1500) return 0;
+            if (distFt <= 2500) return 3;
+            return MaxTouchdownZoneDeduction;
+        }
+
+        private static int CalcCenterlineDeduction(double deviationFt)
+        {
+            if (deviationFt <= 10) return 0;
+            if (deviationFt <= 30) return 3;
+            return MaxCenterlineDeduction;
         }
 
         // ─── Rating label ─────────────────────────────────────────────────────────

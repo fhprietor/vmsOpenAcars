@@ -1,10 +1,35 @@
 # Changelog - vmsOpenAcars
-## [0.3.12]
+## [0.3.14]
+
+### Added
+
+- LittleNavMap SQLite runway scoring
+  (touchdown zone and centerline deviation), touch-and-go detection, and LNM DB availability checks
 
 ### Fixed
 
 - METAR retrieval process indicator while awaiting server response
 -  Touch-and-go detection. So a second landing after liftoff from AfterLanding captures fresh touchdown data for scoringTouch-and-go detection and storage of the PIREP with the second landing
+
+Resumen de todo lo implementado:
+
+  Db/RunwayService.cs — consulta LNM SQLite: encuentra el aeropuerto por ICAO, itera los runway ends, elige el que esté
+  dentro de ±45° del heading del avión, y proyecta el punto de touchdown sobre el eje de pista con geometría flat-earth
+  para calcular distancia al umbral y desviación de centreline.
+
+  FlightManager — captura CurrentHeading cada ciclo de telemetría; en RegisterTouchdown guarda lat/lon/heading del
+  momento exacto; SetRunwayTouchdownData() permite al ViewModel inyectar los resultados; todo se resetea en
+  ResetFlightState y al detectar touch-and-go.
+
+  MainViewModel — al recibir TouchdownDetected (que ya incluye lat/lon/heading precisos de FSUIPC), lanza Task.Run →
+  LookupRunwayData → log de resultados → SetRunwayTouchdownData en FlightManager.
+
+  ScoringService — dos criterios nuevos:
+  - Touchdown Zone: 0 pts ≤1500 ft · −3 pts 1500-2500 ft · −7 pts >2500 ft
+  - Centreline: 0 pts ≤10 ft · −3 pts 10-30 ft · −7 pts >30 ft
+
+  SettingsForm — nueva sección "NavMap Database" con campo de texto + botón "..." para seleccionar el archivo, guardado
+  en la clave lnm_db_path.
 
 ## [0.3.12]
 

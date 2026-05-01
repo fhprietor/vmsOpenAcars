@@ -11,6 +11,7 @@ using static vmsOpenAcars.Helpers.L;
 using vmsOpenAcars.UI.Forms;
 using System.Linq;
 using vmsOpenAcars.Helpers;
+using vmsOpenAcars.Db;
 
 namespace vmsOpenAcars.ViewModels
 {
@@ -30,6 +31,7 @@ namespace vmsOpenAcars.ViewModels
         private readonly SimbriefEnhancedService _simbriefEnhancedService;
         private readonly MetarService _metarService = new MetarService();
         private readonly IvaoService  _ivaoService  = new IvaoService();
+        private readonly RunwayService _runwayService = new RunwayService(AppConfig.LnmDbPath);
         private DateTime _lastPositionUpdate = DateTime.MinValue;
         private AcarsPosition _lastSentPosition = null;
         private readonly TimeSpan _positionUpdateInterval = TimeSpan.FromSeconds(5);
@@ -91,6 +93,7 @@ namespace vmsOpenAcars.ViewModels
             _flightManager.OnLandingDetected -= OnLandingDetected;
             _flightManager.OnBlockDetected -= OnBlockDetected;
             _flightManager.OnTakeoffDetected -= OnTakeoffDetected;
+            _flightManager.OnTaxiPositionUpdate -= HandleTaxiPositionUpdate;
 
             // Desuscribir eventos de FsuipcService (nuevos)
             _fsuipc.TelemetryUpdated -= OnTelemetryUpdated;
@@ -113,6 +116,7 @@ namespace vmsOpenAcars.ViewModels
             _flightManager.OnLandingDetected += OnLandingDetected;
             _flightManager.OnBlockDetected += OnBlockDetected;
             _flightManager.OnTakeoffDetected += OnTakeoffDetected;
+            _flightManager.OnTaxiPositionUpdate += HandleTaxiPositionUpdate;
 
             // Suscribir eventos de FsuipcService
             _fsuipc.TelemetryUpdated += OnTelemetryUpdated;
@@ -148,6 +152,7 @@ namespace vmsOpenAcars.ViewModels
         private string _lastUiPhase = string.Empty;
         private string _lastUiPosition = string.Empty;
         private FlightPhase _prevPhase = FlightPhase.Idle;
+        private bool _wasOnRunwayForEntry = false;
 
         private void OnRawDataUpdated(object sender, RawTelemetryData e)
         {
@@ -217,6 +222,32 @@ namespace vmsOpenAcars.ViewModels
             {
                 await CheckIvaoAtBlocksOffAsync();
             }
+
+            if (phase == FlightPhase.TakeoffRoll)
+            {
+                _wasOnRunwayForEntry = false;   // reset for next flight
+                if (_runwayService.IsAvailable)
+                {
+                    double lat = _flightManager.CurrentLat;
+                    double lon = _flightManager.CurrentLon;
+                    double hdg = _flightManager.CurrentHeading;
+                    string dep = _flightManager.ActivePlan?.Origin ?? _flightManager.CurrentAirport;
+                    Task.Run(() => LookupTakeoffRunwayData(dep, lat, lon, hdg));
+                }
+            }
+            else if (phase == FlightPhase.TaxiIn && _prevPhase == FlightPhase.AfterLanding
+                     && _runwayService.IsAvailable)
+            {
+                string dest = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
+                Task.Run(async () =>
+                {
+                    await System.Threading.Tasks.Task.Delay(5000);
+                    double lat = _flightManager.CurrentLat;
+                    double lon = _flightManager.CurrentLon;
+                    LookupRunwayVacated(dest, lat, lon);
+                });
+            }
+
             _prevPhase = phase;
 
             OnPhaseChanged?.Invoke(phase);
@@ -473,6 +504,84 @@ namespace vmsOpenAcars.ViewModels
             OnLog?.Invoke($"   Reversers: {data.Eng1ReverserPct:F0}% / {data.Eng2ReverserPct:F0}%", Theme.MainText);
             OnLog?.Invoke($"   Brakes: L={data.BrakeLeft * 100:F0}% R={data.BrakeRight * 100:F0}% | Autobrake: {GetAutobrakeName(data.AutobrakeSetting)}", Theme.MainText);
             OnLog?.Invoke($"   OAT: {data.OatCelsius:F0}°C | Wind: {data.WindSpeedKt:F0}@{data.WindDirDeg:F0}°", Theme.MainText);
+
+            if (_runwayService.IsAvailable)
+                Task.Run(() => LookupRunwayData(data));
+        }
+
+        private void LookupRunwayData(TouchdownData data)
+        {
+            string airport = _flightManager.ActivePlan?.Destination;
+            if (string.IsNullOrEmpty(airport)) return;
+
+            var result = _runwayService.FindTouchdownRunway(
+                airport, data.LatitudeDeg, data.LongitudeDeg, data.HeadingDeg);
+
+            if (result == null)
+            {
+                OnLog?.Invoke(string.Format(_("Lnm_RunwayNotFound"), airport, (int)data.HeadingDeg), Theme.Warning);
+                return;
+            }
+
+            _flightManager.SetRunwayTouchdownData(
+                result.ThresholdDistanceFt,
+                result.CenterlineDeviationFt,
+                result.RunwayName);
+
+            OnLog?.Invoke(
+                string.Format(_("Lnm_TouchdownInfo"),
+                    result.RunwayName,
+                    (int)result.ThresholdDistanceFt,
+                    (int)result.CenterlineDeviationFt),
+                Theme.Success);
+        }
+
+        private void HandleTaxiPositionUpdate(double lat, double lon, double heading, string airport)
+        {
+            if (!_runwayService.IsAvailable || string.IsNullOrEmpty(airport)) return;
+
+            Task.Run(() =>
+            {
+                var entry = _runwayService.FindRunwayEntry(airport, lat, lon, heading);
+                bool onRunway = entry != null;
+
+                if (onRunway && !_wasOnRunwayForEntry)
+                {
+                    if (!string.IsNullOrEmpty(entry.TaxiwayName))
+                        OnLog?.Invoke(string.Format(_("Lnm_RunwayEntered"), entry.RunwayName, entry.TaxiwayName), Theme.Takeoff);
+                    else
+                        OnLog?.Invoke(string.Format(_("Lnm_RunwayEnteredNoTwy"), entry.RunwayName), Theme.Takeoff);
+                }
+                _wasOnRunwayForEntry = onRunway;
+            });
+        }
+
+        private void LookupTakeoffRunwayData(string airport, double lat, double lon, double heading)
+        {
+            if (string.IsNullOrEmpty(airport)) return;
+
+            var result = _runwayService.FindTakeoffRunway(airport, lat, lon, heading);
+            if (result == null)
+            {
+                OnLog?.Invoke(string.Format(_("Lnm_TakeoffRunwayNotFound"), airport, (int)heading), Theme.Warning);
+                return;
+            }
+
+            OnLog?.Invoke(
+                string.Format(_("Lnm_TakeoffInfo"),
+                    result.RunwayName,
+                    (int)result.ThresholdDistanceFt,
+                    (int)result.CenterlineDeviationFt),
+                Theme.Success);
+        }
+
+        private void LookupRunwayVacated(string airport, double lat, double lon)
+        {
+            string twy = _runwayService.FindNearestTaxiway(airport, lat, lon);
+            if (!string.IsNullOrEmpty(twy))
+                OnLog?.Invoke(string.Format(_("Lnm_RunwayVacated"), twy), Theme.Success);
+            else
+                OnLog?.Invoke(_("Lnm_RunwayVacatedNoTwy"), Theme.Success);
         }
 
         private string GetAutobrakeName(int setting)
@@ -552,6 +661,24 @@ namespace vmsOpenAcars.ViewModels
         {
             _fsuipc?.Start();
             StartTimers();
+            LogLnmDatabaseStatus();
+        }
+
+        private void LogLnmDatabaseStatus()
+        {
+            string path = AppConfig.LnmDbPath;
+            if (_runwayService.IsAvailable)
+                OnLog?.Invoke(
+                    $"🗺️ NavMap DB: {System.IO.Path.GetFileName(path)} — runway scoring enabled",
+                    Theme.Success);
+            else if (string.IsNullOrEmpty(path))
+                OnLog?.Invoke(
+                    "🗺️ NavMap DB: not configured — runway scoring disabled",
+                    Theme.Warning);
+            else
+                OnLog?.Invoke(
+                    $"🗺️ NavMap DB: file not found at configured path — runway scoring disabled",
+                    Theme.Warning);
         }
 
         public void Stop()

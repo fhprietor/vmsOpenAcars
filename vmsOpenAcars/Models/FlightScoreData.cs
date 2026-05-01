@@ -76,6 +76,23 @@ namespace vmsOpenAcars.Models
         /// </summary>
         public bool WasOfflineFlight { get; set; }
 
+        // ─── NavMap runway data (optional — populated when LNM DB is configured) ──
+
+        /// <summary>
+        /// Distance from the runway threshold to the touchdown point, in feet.
+        /// Positive = past threshold (normal). 0 = data not available.
+        /// </summary>
+        public double TouchdownDistanceFt { get; set; }
+
+        /// <summary>
+        /// Perpendicular deviation from the runway centreline at touchdown, in feet.
+        /// Always non-negative. 0 = data not available or perfect centreline.
+        /// </summary>
+        public double CenterlineDeviationFt { get; set; }
+
+        /// <summary>Runway designator used at landing (e.g. "13L"). Null if not available.</summary>
+        public string RunwayName { get; set; }
+
         /// <summary>
         /// Resets all fields to their default (zero) values.
         /// Call this when a new flight begins (e.g., on prefile).
@@ -91,6 +108,9 @@ namespace vmsOpenAcars.Models
             StabilizedApproachDeductions = 0;
             QnhViolations = 0;
             WasOfflineFlight = false;
+            TouchdownDistanceFt = 0;
+            CenterlineDeviationFt = 0;
+            RunwayName = null;
         }
     }
 }

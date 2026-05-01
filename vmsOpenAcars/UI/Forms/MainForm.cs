@@ -218,12 +218,12 @@ namespace vmsOpenAcars.UI.Forms
 
             if (_isFlightActive)
             {
-                btnCancel.Text = "CANCEL";
+                btnCancel.Text = _("BtnCancel");
                 btnCancel.BackColor = Color.FromArgb(150, 0, 0);
             }
             else
             {
-                btnCancel.Text = "EXIT";
+                btnCancel.Text = _("BtnExit");
                 btnCancel.BackColor = Color.FromArgb(100, 0, 0);
             }
         }
@@ -658,15 +658,15 @@ namespace vmsOpenAcars.UI.Forms
             topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23F));
             topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23F));
 
-            var progressPanel = CreateCompactInfoCard("📊 PROGRESO", out _lblProgress, out _lblRestante, out _lblTiempoAire);
+            var progressPanel = CreateCompactInfoCard(_("Panel_Progress"), out _lblProgress, out _lblRestante, out _lblTiempoAire);
             _lblProgress.Text = "DIST: 0/0 NM"; _lblRestante.Text = "REST: 0 NM / ETA: --:--"; _lblTiempoAire.Text = "⏱️ T/A: 00:00:00";
             topGrid.Controls.Add(progressPanel, 0, 0);
 
-            var aeroPanel = CreateCompactInfoCard("✈️ AERODINÁMICA", out _lblIas, out _lblGs, out _lblVs);
+            var aeroPanel = CreateCompactInfoCard(_("Panel_Aero"), out _lblIas, out _lblGs, out _lblVs);
             _lblIas.Text = "IAS: --- kt"; _lblGs.Text = "GS: --- kt / MACH: ----"; _lblVs.Text = "VS: ---- fpm";
             topGrid.Controls.Add(aeroPanel, 1, 0);
 
-            var fuelPanel = CreateCompactInfoCard("⛽ FUEL", out _lblFuelInit, out _lblFuelCurrent, out _lblFuelUsed);
+            var fuelPanel = CreateCompactInfoCard(_("Panel_Fuel"), out _lblFuelInit, out _lblFuelCurrent, out _lblFuelUsed);
             _lblFuelInit.Text = "INI: 0 kg"; _lblFuelCurrent.Text = "ACT: 0 kg"; _lblFuelUsed.Text = "USO: 0 kg";
             topGrid.Controls.Add(fuelPanel, 2, 0);
 
@@ -686,7 +686,7 @@ namespace vmsOpenAcars.UI.Forms
             bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36F));
             bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36F));
 
-            var altPanel = CreateInfoCard("📈 ALTITUD", out _lblAltitudeVal, out _lblAglVal, out _lblCruiseVal, out _lblQnhVal);
+            var altPanel = CreateInfoCard(_("Panel_Altitude"), out _lblAltitudeVal, out _lblAglVal, out _lblCruiseVal, out _lblQnhVal);
             _lblAltitudeVal.Text = "ALT: 0 ft"; _lblAglVal.Text = "AGL: 0 ft";
             _lblCruiseVal.Text = "CRZ: ----"; _lblQnhVal.Text = "QNH: --- hPa";
             bottomGrid.Controls.Add(altPanel, 0, 0);
@@ -805,7 +805,7 @@ namespace vmsOpenAcars.UI.Forms
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // espaciador
 
-            layout.Controls.Add(new Label { Text = "🛠️ SISTEMAS", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
+            layout.Controls.Add(new Label { Text = _("Panel_Systems"), Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
 
             _lblGear = MakeSysLabel("GEAR: ---");
             _lblFlaps = MakeSysLabel("FLAPS: --");
@@ -843,7 +843,7 @@ namespace vmsOpenAcars.UI.Forms
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // espaciador
 
-            layout.Controls.Add(new Label { Text = "💡 LUCES", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
+            layout.Controls.Add(new Label { Text = _("Panel_Lights"), Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
 
             _lblNavLight = MakeSysLabel("● NAV: OFF");
             _lblBeaconLight = MakeSysLabel("● BCN: OFF");
@@ -877,7 +877,7 @@ namespace vmsOpenAcars.UI.Forms
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // espaciador
 
-            layout.Controls.Add(new Label { Text = "🚀 MOTORES", Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
+            layout.Controls.Add(new Label { Text = _("Panel_Engines"), Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
 
             _lblEng1Val = MakeSysLabel("ENG1: ---");
             _lblEng2Val = MakeSysLabel("ENG2: ---");
@@ -938,7 +938,7 @@ namespace vmsOpenAcars.UI.Forms
             // Título
             var lblTitle = new Label
             {
-                Text = "🚀 MOTORES",
+                Text = _("Panel_Engines"),
                 Font = new Font("Consolas", 8, FontStyle.Bold),
                 ForeColor = Color.Gold,
                 Dock = DockStyle.Fill,
@@ -1232,7 +1232,7 @@ namespace vmsOpenAcars.UI.Forms
                     case "CANCEL":
                         btnCancel = btn;
                         btn.Click += BtnCancel_Click;
-                        btnCancel.Text = "EXIT";
+                        btnCancel.Text = _("BtnExit");
                         break;
                     case "OFP":
                         btnOfp = btn;
@@ -1732,8 +1732,8 @@ namespace vmsOpenAcars.UI.Forms
             {
                 // Hay vuelo activo -> cancelar vuelo
                 var result = EcamDialog.Show(this,
-                    "There is an active flight.\n\nDo you want to cancel it?",
-                    "CANCEL FLIGHT",
+                    _("ConfirmCancelFlight"),
+                    _("CancelTitle"),
                     EcamDialogButtons.YesNo);
 
                 if (result == DialogResult.Yes)
@@ -1745,8 +1745,8 @@ namespace vmsOpenAcars.UI.Forms
             {
                 // No hay vuelo activo -> salir de la aplicación
                 var result = EcamDialog.Show(this,
-                    "¿Salir de la aplicación?",
-                    "SALIR",
+                    _("ConfirmExit"),
+                    _("ExitTitle"),
                     EcamDialogButtons.YesNo);
 
                 if (result == DialogResult.Yes)
@@ -1953,8 +1953,8 @@ namespace vmsOpenAcars.UI.Forms
             if (_isFlightActive)
             {
                 var result = EcamDialog.Show(this,
-                    "There is an active flight.\n\nIf you close the application, the flight will be lost.\n\nDo you want to cancel the flight and exit?",
-                    "ACTIVE FLIGHT DETECTED",
+                    _("Dlg_ActiveFlightExitMsg"),
+                    _("Dlg_ActiveFlightExitTitle"),
                     EcamDialogButtons.YesNo);
 
                 if (result == DialogResult.Yes)

@@ -55,6 +55,12 @@ namespace vmsOpenAcars.Core.Flight
         private double _touchdownPitch = 0;
         private double _touchdownBank = 0;
         private double _touchdownGForce = 0;
+        private double _touchdownLatSaved = 0;
+        private double _touchdownLonSaved = 0;
+        private double _touchdownHeadingDeg = 0;
+        private double _touchdownDistanceFt = 0;
+        private double _touchdownCenterlineDeviationFt = 0;
+        private string _touchdownRunwayName = null;
         private int _overspeedCount = 0;
         private bool _wasOverspeed = false;
         private int _lightsViolationCount = 0;
@@ -84,6 +90,7 @@ namespace vmsOpenAcars.Core.Flight
 
         // Control de fases
         private DateTime _phaseStartTime = DateTime.UtcNow;
+        private DateTime _lastTaxiPositionEvent = DateTime.MinValue;
         private FlightPhase _lastStablePhase;
         private DateTime _pushbackStartTime = DateTime.MinValue;
         private DateTime _stoppedStartTime = DateTime.MinValue;
@@ -173,6 +180,10 @@ namespace vmsOpenAcars.Core.Flight
         public double TotalDistanceKm => _totalDistanceKm;
         public double CurrentLat { get; private set; }
         public double CurrentLon { get; private set; }
+        public double CurrentHeading { get; private set; }
+        public double TouchdownLat => _touchdownLatSaved;
+        public double TouchdownLon => _touchdownLonSaved;
+        public double TouchdownHeadingDeg => _touchdownHeadingDeg;
         public int CurrentIndicatedAirspeed { get; private set; }
         public int CurrentAltitude { get; private set; }
         public int CurrentVerticalSpeed { get; private set; }
@@ -259,6 +270,7 @@ namespace vmsOpenAcars.Core.Flight
         public event Action<int, double, double, double> OnLandingDetected;
         public event Action OnBlockDetected;
         public event Action<int, int, int> OnTakeoffDetected;
+        public event Action<double, double, double, string> OnTaxiPositionUpdate;
 
         #endregion
 
@@ -513,10 +525,12 @@ namespace vmsOpenAcars.Core.Flight
             _touchdownCaptured = true;
             _hasLandedThisFlight = true;
             double gforce = CalculateGForce(verticalSpeed);
-            // Capturar estado exacto en el momento del toque
             _touchdownPitch = _currentPitch;
             _touchdownBank = _currentBank;
             _touchdownGForce = gforce;
+            _touchdownLatSaved = CurrentLat;
+            _touchdownLonSaved = CurrentLon;
+            _touchdownHeadingDeg = CurrentHeading;
             OnLog?.Invoke($"✈️ Touchdown: {verticalSpeed} FPM, {gforce:F2} G, Pitch: {_currentPitch:F1}°, Bank: {_currentBank:F1}°", Theme.MainText);
             OnLandingDetected?.Invoke(verticalSpeed, gforce, _currentPitch, _currentBank);
         }
@@ -655,10 +669,17 @@ namespace vmsOpenAcars.Core.Flight
             _descentStart = DateTime.MinValue;
             _stepClimbStart = DateTime.MinValue;
             _goAroundStart = DateTime.MinValue;
+            _lastTaxiPositionEvent = DateTime.MinValue;
             _blockOffRecorded = false;
             _touchdownPitch = 0;
             _touchdownBank = 0;
             _touchdownGForce = 0;
+            _touchdownLatSaved = 0;
+            _touchdownLonSaved = 0;
+            _touchdownHeadingDeg = 0;
+            _touchdownDistanceFt = 0;
+            _touchdownCenterlineDeviationFt = 0;
+            _touchdownRunwayName = null;
             _overspeedCount = 0;
             _wasOverspeed = false;
             _lightsViolationCount = 0;
@@ -799,11 +820,19 @@ namespace vmsOpenAcars.Core.Flight
                 OnLog?.Invoke($"📊 Flight timer started (server time)", Theme.Success);
                 OnLog?.Invoke($"⛽ Initial fuel recorded: {_initialFuel:F0} kg", Theme.Success);
                 _touchdownCaptured = false;
+                TouchdownFpm = null;
+                _touchdownPitch = 0; _touchdownBank = 0; _touchdownGForce = 0;
+                _touchdownLatSaved = 0; _touchdownLonSaved = 0; _touchdownHeadingDeg = 0;
+                _touchdownDistanceFt = 0; _touchdownCenterlineDeviationFt = 0; _touchdownRunwayName = null;
+                _overspeedCount = 0; _wasOverspeed = false;
+                _lightsViolationCount = 0; _lightsViolationActive = false;
+                _qnhViolationCount = 0; _isOfflineFlight = false;
+                _approachGateEvaluated = false; _prevApproachAgl = double.MaxValue;
+                _stabilizedApproachDeductions = 0; _hasLandedThisFlight = false;
                 // Resolver Vmo según tipo de avión del plan
                 var perf = AircraftPerformanceTable.Get(_activePlan?.AircraftIcao);
                 _vmoKts = perf.VmoKts;
                 OnLog?.Invoke($"⚡ Aircraft type: {_activePlan?.AircraftIcao} → Vmo {_vmoKts} kts ({perf.Category})", Theme.MainText);
-                TouchdownFpm = null;
                 CurrentPhase = FlightPhase.Boarding;
                 _phaseStartTime = DateTime.UtcNow;
                 FlightStartTime = DateTime.Now;
@@ -815,6 +844,13 @@ namespace vmsOpenAcars.Core.Flight
         }
 
         public void MarkOfflineFlight() => _isOfflineFlight = true;
+
+        public void SetRunwayTouchdownData(double thresholdDistFt, double centerlineDeviationFt, string runwayName)
+        {
+            _touchdownDistanceFt = thresholdDistFt;
+            _touchdownCenterlineDeviationFt = centerlineDeviationFt;
+            _touchdownRunwayName = runwayName;
+        }
 
         public bool CanStartFlight()
         {
@@ -877,6 +913,12 @@ namespace vmsOpenAcars.Core.Flight
             _touchdownPitch = 0;
             _touchdownBank = 0;
             _touchdownGForce = 0;
+            _touchdownLatSaved = 0;
+            _touchdownLonSaved = 0;
+            _touchdownHeadingDeg = 0;
+            _touchdownDistanceFt = 0;
+            _touchdownCenterlineDeviationFt = 0;
+            _touchdownRunwayName = null;
             _overspeedCount = 0;
             _wasOverspeed = false;
             _lightsViolationCount = 0;
@@ -886,6 +928,7 @@ namespace vmsOpenAcars.Core.Flight
             _approachGateEvaluated = false;
             _prevApproachAgl = double.MaxValue;
             _stabilizedApproachDeductions = 0;
+            _hasLandedThisFlight = false;
 
             OnLog?.Invoke($"🔄 Flight resumed: {pirep.FlightNumber} {pirep.Origin}→{pirep.Destination}", Theme.Success);
             OnLog?.Invoke($"   PIREP ID: {pirep.Id} | Aircraft: {pirep.AircraftType} (Vmo {_vmoKts} kts)", Theme.MainText);
@@ -999,6 +1042,12 @@ namespace vmsOpenAcars.Core.Flight
                         break;
 
                     case FlightPhase.TaxiOut:
+                        if ((DateTime.UtcNow - _lastTaxiPositionEvent).TotalSeconds >= 2.0)
+                        {
+                            _lastTaxiPositionEvent = DateTime.UtcNow;
+                            OnTaxiPositionUpdate?.Invoke(CurrentLat, CurrentLon, CurrentHeading,
+                                _activePlan?.Origin ?? _currentAirport);
+                        }
                         if (groundSpeed > 30 && _currentPitch < 1.0)
                         {
                             CheckProcedureAtPhaseEntry(FlightPhase.TakeoffRoll);
@@ -1188,6 +1237,9 @@ namespace vmsOpenAcars.Core.Flight
                             _touchdownCaptured = false;
                             _approachGateEvaluated = false;
                             _prevApproachAgl = double.MaxValue;
+                            _touchdownDistanceFt = 0;
+                            _touchdownCenterlineDeviationFt = 0;
+                            _touchdownRunwayName = null;
                             TransitionTo(FlightPhase.Climb, previousPhase);
                         }
                         break;
@@ -1223,6 +1275,7 @@ namespace vmsOpenAcars.Core.Flight
             IsOnGround = data.IsOnGround;
             CurrentLat = data.Latitude;
             CurrentLon = data.Longitude;
+            CurrentHeading = data.HeadingDeg;
             _currentPitch = data.PitchDeg;
             _currentBank = data.BankDeg;
             CurrentIndicatedAirspeed = data.IndicatedAirspeedKt > 0
@@ -1356,13 +1409,34 @@ namespace vmsOpenAcars.Core.Flight
                 LightsViolations = _lightsViolationCount,
                 StabilizedApproachDeductions = _stabilizedApproachDeductions,
                 QnhViolations = _qnhViolationCount,
-                WasOfflineFlight = _isOfflineFlight
+                WasOfflineFlight = _isOfflineFlight,
+                TouchdownDistanceFt = _touchdownDistanceFt,
+                CenterlineDeviationFt = _touchdownCenterlineDeviationFt,
+                RunwayName = _touchdownRunwayName,
             };
             var scoring = new ScoringService();
             ScoringResult scoreResult = scoring.Calculate(scoreData);
-            OnLog?.Invoke($"🏆 Score: {scoreResult.TotalScore}/100 — {scoreResult.LandingRating}", Theme.Success);
+            string ratingKey = "Score_" + scoreResult.LandingRating.Replace(" ", "");
+            OnLog?.Invoke(string.Format(_("Score_Result"), scoreResult.TotalScore, _(ratingKey)), Theme.Success);
+            var critKeyMap = new System.Collections.Generic.Dictionary<string, string>
+            {
+                { "Landing Rate",        "Score_CritLandingRate"  },
+                { "G-Force",             "Score_CritGForce"       },
+                { "Bank Angle",          "Score_CritBankAngle"    },
+                { "Pitch Angle",         "Score_CritPitchAngle"   },
+                { "Overspeed",           "Score_CritOverspeed"    },
+                { "Lights Compliance",   "Score_CritLights"       },
+                { "Stabilized Approach", "Score_CritStabilized"   },
+                { "QNH Compliance",      "Score_CritQnh"          },
+                { "IVAO Presence",       "Score_CritIvao"         },
+                { "Touchdown Zone",      "Score_CritTdz"          },
+                { "Centreline",          "Score_CritCentreline"   },
+            };
             foreach (var ded in scoreResult.Deductions)
-                OnLog?.Invoke($"   −{ded.PointsDeducted} pts: {ded.Criterion} ({ded.Reason})", Theme.Warning);
+            {
+                string critLabel = critKeyMap.TryGetValue(ded.Criterion, out string ck) ? _(ck) : ded.Criterion;
+                OnLog?.Invoke(string.Format(_("Score_Deduction"), ded.PointsDeducted, critLabel, ded.Reason), Theme.Warning);
+            }
 
             var finalData = new
             {

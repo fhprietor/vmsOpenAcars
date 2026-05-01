@@ -28,6 +28,10 @@ namespace vmsOpenAcars.Helpers
         public static double FuelTolerancePercent => GetDouble("fuel_tolerance_percent", 10.0);
         public static double FuelToleranceAbsolute => GetDouble("fuel_tolerance_absolute", 50);
 
+        // LittleNavMap database
+        /// <summary>Full path to the LittleNavMap SQLite database (e.g. little_navmap_msfs24.sqlite).</summary>
+        public static string LnmDbPath => ConfigurationManager.AppSettings["lnm_db_path"] ?? "";
+
         private static int GetInt(string key, int defaultValue)
         {
             string value = ConfigurationManager.AppSettings[key];

@@ -29,6 +29,9 @@ namespace vmsOpenAcars.UI.Forms
         private TextBox txtSimbriefCi;
         private TextBox txtSimbriefExtraRmk;
 
+        // NavMap database
+        private TextBox txtLnmDbPath;
+
         private Button btnSave;
         private Button btnCancel;
 
@@ -41,8 +44,8 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeForm()
         {
-            // 9 filas de datos + 1 fila de botones = 10 filas × 35px + título 35px + padding
-            this.Size = new Size(500, 445);
+            // 11 filas de datos + 1 fila de botones = 12 filas × 35px + título 35px + padding
+            this.Size = new Size(500, 515);
             this.MinimumSize = new Size(460, 400);
             this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.None;
@@ -126,13 +129,13 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 10,
+                RowCount = 12,
                 BackColor = Color.Transparent
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68F));
 
-            for (int i = 0; i < 9; i++)
+            for (int i = 0; i < 11; i++)
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F)); // fila botones
 
@@ -204,7 +207,68 @@ namespace vmsOpenAcars.UI.Forms
             txtSimbriefExtraRmk = CreateTextBox();
             layout.Controls.Add(txtSimbriefExtraRmk, 1, 8);
 
-            // Fila 9 — Botones (ocupa las 2 columnas, alineados a la derecha)
+            // Fila 9 — Separador NavMap
+            var sepNavMap = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "── NavMap Database ──",
+                ForeColor = Color.FromArgb(80, 160, 220),
+                Font = new Font("Consolas", 8, FontStyle.Italic),
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            layout.SetColumnSpan(sepNavMap, 2);
+            layout.Controls.Add(sepNavMap, 0, 9);
+
+            // Fila 10 — LNM DB path
+            layout.Controls.Add(CreateLabel("LNM DB"), 0, 10);
+            var lnmPanel = new Panel { Dock = DockStyle.Fill };
+            txtLnmDbPath = new TextBox
+            {
+                BackColor = Color.FromArgb(50, 50, 60),
+                ForeColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Consolas", 10),
+                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
+                Left = 0,
+                Height = 22
+            };
+            var btnBrowse = new Button
+            {
+                Text = "...",
+                Width = 28,
+                Height = 22,
+                Anchor = AnchorStyles.Right | AnchorStyles.Top,
+                BackColor = Color.FromArgb(50, 70, 90),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Consolas", 9)
+            };
+            btnBrowse.FlatAppearance.BorderSize = 0;
+            btnBrowse.Click += (s, ev) =>
+            {
+                using (var ofd = new OpenFileDialog
+                {
+                    Title  = "Select LittleNavMap database",
+                    Filter = "SQLite DB (*.sqlite)|*.sqlite|All files (*.*)|*.*",
+                    FileName = txtLnmDbPath.Text
+                })
+                {
+                    if (ofd.ShowDialog() == DialogResult.OK)
+                        txtLnmDbPath.Text = ofd.FileName;
+                }
+            };
+            lnmPanel.Controls.Add(txtLnmDbPath);
+            lnmPanel.Controls.Add(btnBrowse);
+            lnmPanel.Resize += (s, ev) =>
+            {
+                btnBrowse.Left  = lnmPanel.Width - btnBrowse.Width;
+                btnBrowse.Top   = (lnmPanel.Height - btnBrowse.Height) / 2;
+                txtLnmDbPath.Width = lnmPanel.Width - btnBrowse.Width - 2;
+                txtLnmDbPath.Top   = (lnmPanel.Height - txtLnmDbPath.Height) / 2;
+            };
+            layout.Controls.Add(lnmPanel, 1, 10);
+
+            // Fila 11 — Botones (ocupa las 2 columnas, alineados a la derecha)
             var btnPanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -241,7 +305,7 @@ namespace vmsOpenAcars.UI.Forms
             btnPanel.Controls.Add(btnCancel);
 
             layout.SetColumnSpan(btnPanel, 2);
-            layout.Controls.Add(btnPanel, 0, 9);
+            layout.Controls.Add(btnPanel, 0, 11);
 
             contentPanel.Controls.Add(layout);
             this.Controls.Add(contentPanel);
@@ -293,6 +357,7 @@ namespace vmsOpenAcars.UI.Forms
 
             txtSimbriefCi.Text = ConfigurationManager.AppSettings["simbrief_civalue"] ?? "30";
             txtSimbriefExtraRmk.Text = ConfigurationManager.AppSettings["simbrief_extrarmk"] ?? "";
+            txtLnmDbPath.Text = ConfigurationManager.AppSettings["lnm_db_path"] ?? "";
         }
 
         private void LoadLanguages()
@@ -310,41 +375,62 @@ namespace vmsOpenAcars.UI.Forms
             }
         }
 
+        private bool HasChanges()
+        {
+            string Cfg(string key, string def = "") =>
+                ConfigurationManager.AppSettings[key] ?? def;
+
+            return
+                txtApiUrl.Text.Trim()                              != Cfg("vms_api_url")          ||
+                txtApiKey.Text.Trim()                              != Cfg("vms_api_key")           ||
+                txtSimbriefUser.Text.Trim()                        != Cfg("simbrief_user")         ||
+                txtAirline.Text.Trim()                             != Cfg("airline")               ||
+                (cmbLanguage.SelectedItem?.ToString()      ?? "")  != Cfg("language", "es")        ||
+                (cmbSimbriefUnits.SelectedItem?.ToString() ?? "")  != Cfg("simbrief_units", "lbs") ||
+                txtSimbriefCi.Text.Trim()                          != Cfg("simbrief_civalue", "30")||
+                txtSimbriefExtraRmk.Text.Trim()                    != Cfg("simbrief_extrarmk")     ||
+                txtLnmDbPath.Text.Trim()                           != Cfg("lnm_db_path");
+        }
+
         private void BtnSave_Click(object sender, EventArgs e)
         {
+            bool changed = HasChanges();
+
             try
             {
                 var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
 
-                SetValue(config, "vms_api_url", txtApiUrl.Text.Trim());
-                SetValue(config, "vms_api_key", txtApiKey.Text.Trim());
-                SetValue(config, "simbrief_user", txtSimbriefUser.Text.Trim());
-                SetValue(config, "airline", txtAirline.Text.Trim());
+                SetValue(config, "vms_api_url",       txtApiUrl.Text.Trim());
+                SetValue(config, "vms_api_key",       txtApiKey.Text.Trim());
+                SetValue(config, "simbrief_user",     txtSimbriefUser.Text.Trim());
+                SetValue(config, "airline",           txtAirline.Text.Trim());
 
                 if (cmbLanguage.SelectedItem != null)
                     SetValue(config, "language", cmbLanguage.SelectedItem.ToString());
 
-                // SimBrief dispatch params
                 if (cmbSimbriefUnits.SelectedItem != null)
                     SetValue(config, "simbrief_units", cmbSimbriefUnits.SelectedItem.ToString());
-                SetValue(config, "simbrief_civalue", txtSimbriefCi.Text.Trim());
+                SetValue(config, "simbrief_civalue",  txtSimbriefCi.Text.Trim());
                 SetValue(config, "simbrief_extrarmk", txtSimbriefExtraRmk.Text.Trim());
+                SetValue(config, "lnm_db_path",       txtLnmDbPath.Text.Trim());
 
                 config.Save(ConfigurationSaveMode.Modified);
                 ConfigurationManager.RefreshSection("appSettings");
 
-                // Aplicar idioma inmediatamente
-                if (cmbLanguage.SelectedItem != null)
-                    LocalizationService.Instance.LoadLanguage(cmbLanguage.SelectedItem.ToString());
+                if (!changed)
+                {
+                    DialogResult = DialogResult.OK;
+                    return;
+                }
 
                 using (var dlg = new EcamDialog(
-                    "Configuración guardada.\n• Reinicie la aplicación para aplicar los cambios.",
-                    "INFORMACIÓN", EcamDialogButtons.OK))
+                    "Configuración guardada.\nLa aplicación se reiniciará para aplicar los cambios.",
+                    "REINICIANDO", EcamDialogButtons.OK))
                 {
                     dlg.ShowDialog(this);
                 }
 
-                DialogResult = DialogResult.OK;
+                Application.Restart();
             }
             catch (Exception ex)
             {
