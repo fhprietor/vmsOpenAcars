@@ -74,6 +74,7 @@ namespace vmsOpenAcars.UI.Forms
         private Button btnMsg;
         private Button btnWeather;
         private Button btnSimbrief;
+        private Button btnLogbook;
         public Button btnStartStop;
         private Button btnCancel;
         private NotifyIcon _notifyIcon;
@@ -119,6 +120,7 @@ namespace vmsOpenAcars.UI.Forms
         // FMA PLAN LINES + DEPARTURE COUNTDOWN
         private Label _lblFmaPlanLine1;
         private Label _lblFmaPlanLine2;
+        private Label _lblFmaPlanLine3;
         private Label _lblDepartureCdw;
         private SimbriefPlan _lastRenderedPlan;
 
@@ -1015,53 +1017,31 @@ namespace vmsOpenAcars.UI.Forms
                 BorderStyle = BorderStyle.FixedSingle
             };
 
-            // Outer: 2 cols (left content / right countdown) × 2 rows (FMA labels / plan lines)
-            // Countdown spans both rows so it centers across the full panel height (~45px from top)
+            // Outer: 2 cols (izquierda líneas SimBrief / derecha columna de estado)
             var outer = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 2,
-                BackColor = Theme.FMAPanelBackground,
-                Margin = Padding.Empty
-            };
-            outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68));
-            outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32));
-            outer.RowStyles.Add(new RowStyle(SizeType.Absolute, 51));
-            outer.RowStyles.Add(new RowStyle(SizeType.Absolute, 39));
-
-            // [col 0, row 0] FMA indicator labels (PHASE / AIR / ROUTE)
-            var fmaRow = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 3,
                 RowCount = 1,
                 BackColor = Theme.FMAPanelBackground,
                 Margin = Padding.Empty
             };
-            for (int i = 0; i < 3; i++)
-                fmaRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+            outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70));
+            outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
+            outer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-            lblPhase = CreateFmaLabel("PHASE", "STANDBY");
-            lblAir   = CreateFmaLabel("AIR",   "GROUND");
-            lblRoute = CreateFmaLabel("ROUTE",  "----/----");
-
-            fmaRow.Controls.Add(lblPhase, 0, 0);
-            fmaRow.Controls.Add(lblAir,   1, 0);
-            fmaRow.Controls.Add(lblRoute, 2, 0);
-
-            // [col 0, row 1] Stacked plan lines
+            // [col 0] Tres líneas SimBrief apiladas
             var planLines = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 2,
+                RowCount = 3,
                 BackColor = Theme.FMAPanelBackground,
                 Margin = Padding.Empty
             };
             planLines.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            planLines.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
-            planLines.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+            for (int i = 0; i < 3; i++)
+                planLines.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33f));
 
             var monoFont = new Font("Consolas", 12.25f, FontStyle.Regular, GraphicsUnit.Point);
             var planFore1 = Color.FromArgb(190, 210, 230);
@@ -1074,7 +1054,7 @@ namespace vmsOpenAcars.UI.Forms
                 ForeColor = planFore1,
                 BackColor = Theme.FMAPanelBackground,
                 Margin = Padding.Empty,
-                TextAlign = ContentAlignment.TopLeft,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Text = ""
             };
             _lblFmaPlanLine2 = new Label
@@ -1083,19 +1063,45 @@ namespace vmsOpenAcars.UI.Forms
                 Font = monoFont,
                 ForeColor = planFore2,
                 BackColor = Theme.FMAPanelBackground,
-                Margin = new Padding(0, 5, 0, 0),
-                TextAlign = ContentAlignment.TopLeft,
+                Margin = Padding.Empty,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Text = ""
+            };
+            _lblFmaPlanLine3 = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = monoFont,
+                ForeColor = planFore2,
+                BackColor = Theme.FMAPanelBackground,
+                Margin = Padding.Empty,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Text = ""
             };
 
             planLines.Controls.Add(_lblFmaPlanLine1, 0, 0);
             planLines.Controls.Add(_lblFmaPlanLine2, 0, 1);
+            planLines.Controls.Add(_lblFmaPlanLine3, 0, 2);
 
-            // [col 1, rows 0+1] Departure countdown — spans both rows, centers at ~45px from top
+            // [col 1] PHASE / AIR / Countdown apilados verticalmente
+            var rightCol = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                BackColor = Theme.FMAPanelBackground,
+                Margin = Padding.Empty
+            };
+            rightCol.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            for (int i = 0; i < 3; i++)
+                rightCol.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33f));
+
+            lblPhase = CreateFmaLabel("PHASE", "STANDBY");
+            lblAir   = CreateFmaLabel("",   "GROUND");
+
             _lblDepartureCdw = new Label
             {
                 Dock = DockStyle.Fill,
-                Font = new Font("Consolas", 22f, FontStyle.Bold, GraphicsUnit.Point),
+                Font = new Font("Consolas", 20f, FontStyle.Bold, GraphicsUnit.Point),
                 ForeColor = Color.Lime,
                 BackColor = Theme.FMAPanelBackground,
                 Margin = Padding.Empty,
@@ -1104,10 +1110,12 @@ namespace vmsOpenAcars.UI.Forms
                 Text = ""
             };
 
-            outer.Controls.Add(fmaRow,            0, 0);
-            outer.Controls.Add(planLines,          0, 1);
-            outer.Controls.Add(_lblDepartureCdw,   1, 0);
-            outer.SetRowSpan(_lblDepartureCdw, 2);
+            rightCol.Controls.Add(lblPhase,         0, 0);
+            rightCol.Controls.Add(lblAir,           0, 1);
+            rightCol.Controls.Add(_lblDepartureCdw, 0, 2);
+
+            outer.Controls.Add(planLines, 0, 0);
+            outer.Controls.Add(rightCol,  1, 0);
 
             pnlFma.Controls.Add(outer);
             mainLayout.Controls.Add(pnlFma, 0, 1);
@@ -1120,12 +1128,12 @@ namespace vmsOpenAcars.UI.Forms
             return new Label
             {
                 Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.TopCenter,
+                TextAlign = ContentAlignment.MiddleCenter,
                 Font = Theme.LargeFont,
                 ForeColor = Theme.MainText,
                 BackColor = Theme.FMAPanelBackground,
                 Margin = Padding.Empty,
-                Text = $"{title}\n{value}"
+                Text = $"{title} {value}"
             };
         }
 
@@ -1184,7 +1192,7 @@ namespace vmsOpenAcars.UI.Forms
                 Padding = new Padding(4)
             };
 
-            string[] buttonNames = { "MENU", "LOGIN", "ATIS", "OFP", "MSG", "WEATHER", "DISPATCH", "START", "CANCEL" };
+            string[] buttonNames = { "MENU", "LOGIN", "ATIS", "OFP", "MSG", "WEATHER", "DISPATCH", "LOGBOOK", "START", "CANCEL" };
             Color[] buttonColors = {
                 Color.FromArgb(60, 70, 80),
                 Color.FromArgb(0, 120, 200),
@@ -1193,6 +1201,7 @@ namespace vmsOpenAcars.UI.Forms
                 Color.FromArgb(60, 70, 80),
                 Color.FromArgb(60, 70, 80),
                 Color.FromArgb(0, 150, 0),
+                Color.FromArgb(60, 90, 110),
                 Color.FromArgb(200, 100, 0),
                 Color.FromArgb(150, 0, 0)
             };
@@ -1224,6 +1233,10 @@ namespace vmsOpenAcars.UI.Forms
                     case "DISPATCH":
                         btnSimbrief = btn;
                         btn.Click += BtnSimbrief_Click;
+                        break;
+                    case "LOGBOOK":
+                        btnLogbook = btn;
+                        btn.Click += BtnLogbook_Click;
                         break;
                     case "START":
                         btnStartStop = btn;
@@ -1283,11 +1296,6 @@ namespace vmsOpenAcars.UI.Forms
 
                 if (_lblDepArr != null)
                     _lblDepArr.Text = (plan != null) ? $"{plan.Origin} → {plan.Destination}" : "--- → ---";
-
-                if (lblRoute != null)
-                    lblRoute.Text = (plan != null)
-                        ? $"ROUTE\n{plan.Origin} → {plan.Destination}"
-                        : "ROUTE\n----/----";
 
                 if (_lblAircraft != null)
                     _lblAircraft.Text = (plan != null) ? (plan.AircraftIcao ?? "----") : (fm.HasSimulatorData ? "CONNECTED" : "DISCONNECTED");
@@ -1518,14 +1526,16 @@ namespace vmsOpenAcars.UI.Forms
                             ? $"FL{plan.CruiseAltitude / 100}"
                             : "FL---";
 
+                        string tripStr = plan.TripFuel > 0 ? $"  TRIP {plan.TripFuel:F0}" : "";
                         _lblFmaPlanLine2.Text =
-                            $"PAX {plan.PaxCount}  FUEL {plan.BlockFuel:F0}  CARGO {plan.CargoWeight:F0}  {flStr}" +
+                            $"PAX {plan.PaxCount}  FUEL {plan.BlockFuel:F0}{tripStr}  CARGO {plan.CargoWeight:F0}  {flStr}" +
                             $"   AVG WIND {windStr}  AVG ISA {isaStr}";
                     }
                     else
                     {
                         _lblFmaPlanLine1.Text = "";
                         _lblFmaPlanLine2.Text = "";
+                        _lblFmaPlanLine3.Text = "";
                     }
                 }
 
@@ -1802,6 +1812,21 @@ namespace vmsOpenAcars.UI.Forms
         {
             var btn = sender as Button;
             _viewModel?.LogButtonPress(btn?.Text);
+        }
+
+        private void BtnLogbook_Click(object sender, EventArgs e)
+        {
+            var svc = _viewModel?.LandingLogService;
+            if (svc == null || !svc.IsAvailable)
+            {
+                using (var dlg = new EcamDialog(
+                    "Landing log not configured.\nSet the Landing DB path in Settings first.",
+                    "LANDING LOG", EcamDialogButtons.OK))
+                    dlg.ShowDialog(this);
+                return;
+            }
+            using (var form = new FlightHistoryForm(svc))
+                form.ShowDialog(this);
         }
 
         private async void BtnWeather_Click(object sender, EventArgs e)

@@ -32,6 +32,10 @@ namespace vmsOpenAcars.Helpers
         /// <summary>Full path to the LittleNavMap SQLite database (e.g. little_navmap_msfs24.sqlite).</summary>
         public static string LnmDbPath => ConfigurationManager.AppSettings["lnm_db_path"] ?? "";
 
+        // Landing log database
+        /// <summary>Full path to the landing-log SQLite database (e.g. landing_log.sqlite).</summary>
+        public static string LandingLogPath => ConfigurationManager.AppSettings["landing_log_path"] ?? "";
+
         private static int GetInt(string key, int defaultValue)
         {
             string value = ConfigurationManager.AppSettings[key];

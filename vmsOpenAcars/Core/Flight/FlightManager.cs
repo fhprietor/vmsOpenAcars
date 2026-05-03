@@ -188,6 +188,10 @@ namespace vmsOpenAcars.Core.Flight
         public int CurrentAltitude { get; private set; }
         public int CurrentVerticalSpeed { get; private set; }
         public int? TouchdownFpm { get; private set; }
+        public double TouchdownDistanceFt   => _touchdownDistanceFt;
+        public double TouchdownCenterlineFt => _touchdownCenterlineDeviationFt;
+        public string TouchdownRunwayName   => _touchdownRunwayName;
+        public double TouchdownGForce       => _touchdownGForce;
         public FlightPhase CurrentPhase { get; private set; }
         public int CurrentGroundSpeed { get; private set; }
         public double CurrentFuel { get; private set; }

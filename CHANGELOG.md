@@ -1,60 +1,41 @@
-ESTA DETECTANDO BIEN LA PUERTA INICIAL AL INICIAR EL PITEP, PERO NO DETECTA SPOT EN EL PUSHBACK, NI TAXIWAYS EN EL
-  TAXIOUT, TAMPOCO EL SHORTHOLD. 12:29:54 - 📊 PIREP Status: APR
-  12:29:53 - ✈️ Phase changed: Climb → Descent
-  12:29:53 - ✈️ Descent started from 25066 ft (direct from climb)
-  12:25:53 - 💡 LANDING lights OFF
-  12:24:25 - 🛫 Flaps: 15% → 0%
-  12:21:28 - 💡 LANDING lights ON
-  12:21:28 - 💡 STROBE lights ON
-  12:21:28 - 🔴 BEACON ON
-  12:21:27 - ⚠️ Landing lights OFF below 10,000 ft (8627 ft)
-  12:21:27 - 💡 LANDING lights OFF
-  12:21:27 - 💡 STROBE lights OFF
-  12:21:26 - 🔴 BEACON OFF
-  12:20:47 - 🛬 Gear UP
-  12:20:46 - 📊 PIREP Status: ICL
-  12:20:44 - ✈️ Phase changed: Takeoff → Climb
-  12:20:44 - 🛫 LIFTOFF! Speed: 179 kts, VS: 63 fpm
-  12:20:44 -    OAT: 16°C | Wind: 1@360°
-  12:20:44 -    Flaps: 15%
-  12:20:44 -    N1: 83% / 83%
-  12:20:44 -    Heading: 359°
-  12:20:44 -    Pitch: 6.9° | Bank: 0.3°
-  12:20:44 -    Ground Speed: 180 kts
-  12:20:44 -    Rotation Speed: 158 kts
-  12:20:44 - 🛫 ACCURATE TAKEOFF DATA:
-  12:20:42 - 📊 PIREP Status: TOF
-  12:20:41 - ✈️ Phase changed: TakeoffRoll → Takeoff
-  12:20:41 - 🛫 TAKEOFF DETECTED - Speed: 170 kts, Alt: 7021 ft, VS: 140 fpm
-  12:20:41 - 🛫 ROTATION at 170 kts, Pitch: 2.1°
-  12:20:02 - 📊 PIREP Status: INI
-  12:20:01 - ✅ QNH | Avión: 1024 hPa  SKRG: 1024 hPa  Δ0 hPa
-  12:20:01 - 🛫 RWY 01 | LINEUP: 0 ft from threshold | CL: 4 ft deviation
-  12:20:01 - ✈️ Phase changed: TaxiOut → TakeoffRoll
-  12:20:01 - 🛫 Takeoff roll started at 31 kts
-  12:18:58 - 💡 LANDING lights ON
-  12:18:55 - 💡 NAV lights ON
-  12:18:55 - 💡 STROBE lights ON
-  12:18:54 - 💡 NAV lights OFF
-  12:13:19 - 📊 PIREP Status: TXI
-  12:13:17 - ✈️ Phase changed: Pushback → TaxiOut
-  12:13:17 - 🛻 Taxi out (after pushback) at 6.0 kts
-  12:11:20 - 🅿️ Parking Brake: RELEASED
-  12:10:19 - 🛫 Flaps: 1% → 15%
-  12:10:18 - 🛫 Flaps: 0% → 1%
-  12:09:50 - 🅿️ Parking Brake: SET
-  12:09:07 - 🔄 Engines started
-  12:07:55 - 📊 PIREP Status: PBT
-  12:07:55 - ⏱️ Block Off recorded at 12:07:55 UTC
-  12:07:54 - ✅ Conectado en IVAO (VID 194102)
-  12:07:54 - 🛫 Block Off (entering Pushback)
-  12:07:54 - ✈️ Phase changed: Boarding → Pushback
-  12:07:54 - 🔄 Pushback confirmed at 3.0 kts
-  12:04:33 - 🔴 BEACON ON
-  11:59:53 - 💡 NAV lights ON
-  11:57:43 - 🅿️ Parking Brake: RELEASED
-  
 # Changelog - vmsOpenAcars
+
+## [0.3.16]
+
+### Added
+
+- **Landing Analysis** — nuevo sistema de historial de aterrizajes almacenado en una base de datos SQLite local (`landing_log.sqlite`).
+  - Botón **LOGBOOK** en la pantalla principal abre el historial de vuelos.
+  - Cada aterrizaje registra: vertical speed, G-force, distancia al umbral, desviación de centreline, score y METAR.
+  - Durante la fase de aproximación (AGL < 3 000 ft) se captura automáticamente la trayectoria cada 2 segundos.
+- **LandingAnalysisForm** — ventana de análisis con 4 gráficos interactivos:
+  - *Vertical Profile*: AGL vs distancia al umbral, con línea de referencia de planeo 3°.
+  - *Lateral Deviation*: desviación de centreline (±ft) con línea cero.
+  - *IAS*: velocidad indicada con línea de Vref promedio.
+  - *Vertical Speed*: VS en fpm con línea cero.
+  - Suavizado Gaussiano aplicado a Lateral, IAS y VS para mejorar la visualización.
+  - Eje X invertido: 5 NM a la izquierda → umbral a la derecha.
+- **Modo comparación** — selecciona entre 2 y 5 vuelos en el LOGBOOK y pulsa **COMPARE** para superponer sus trayectorias en los 4 gráficos, cada vuelo con un color distinto.
+- **Borrado de registros** — botón **DELETE** en el LOGBOOK con confirmación antes de eliminar (soporta selección múltiple).
+
+### Setup — Landing Log database
+
+> Esta configuración es necesaria la primera vez que se usa el LOGBOOK.
+
+1. Abre **Settings** y ve a la sección **Landing Log**.
+2. Haz clic en el botón **[...]** y selecciona un archivo `.sqlite` existente, o escribe un nombre nuevo (p. ej. `landing_log.sqlite`) para crearlo.
+3. Guarda la configuración. La base de datos se crea automáticamente al registrar el primer aterrizaje.
+
+La base de datos es un archivo SQLite estándar; puedes hacer copias de seguridad simplemente copiando el archivo.
+
+### Fixed
+
+- El selector de archivo de la base de datos de Landing Log usaba `SaveFileDialog` (pedía confirmación de reemplazo); reemplazado por `OpenFileDialog` con `CheckFileExists = false`.
+- Error en runtime al comparar dos vuelos con el mismo callsign: nombre de serie duplicado en `SeriesCollection` — corregido añadiendo índice al nombre de cada serie.
+- Botón **SEED DEMO DATA** ahora solo visible en builds Debug (`#if DEBUG`).
+- Proyecto `Updater` no compilaba por `App.config` faltante.
+
+---
 
 ## [0.3.15]
 

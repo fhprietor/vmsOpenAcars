@@ -119,6 +119,11 @@
         public double BlockFuel { get; set; }
 
         /// <summary>
+        /// Gets or sets the planned trip fuel (en-route burn, excluding reserves) in the specified units.
+        /// </summary>
+        public double TripFuel { get; set; }
+
+        /// <summary>
         /// Gets or sets the actual block fuel from the simulator
         /// </summary>
         public double ActualBlockFuel { get; set; }

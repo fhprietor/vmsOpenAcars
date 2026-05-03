@@ -142,7 +142,7 @@ namespace vmsOpenAcars.Services
 
         private void SetPhaseText(FlightPhase phase)
         {
-            _form.lblPhase.Text = "PHASE\n" + phase.ToString().ToUpper();
+            _form.lblPhase.Text = "PHASE " + phase.ToString().ToUpper();
             _form.lblPhase.ForeColor = GetPhaseColor(phase);
         }
 
@@ -187,19 +187,19 @@ namespace vmsOpenAcars.Services
         {
             if (phase == FlightPhase.Idle)
             {
-                _form.lblAir.Text = "AIR\n---";
+                _form.lblAir.Text = "---";
                 _form.lblAir.ForeColor = Color.Gray;
                 return;
             }
 
             if (phase.IsAirborne())
             {
-                _form.lblAir.Text = "AIR\nAIRBORNE";
+                _form.lblAir.Text = "AIRBORNE";
                 _form.lblAir.ForeColor = Theme.Enroute;
             }
             else
             {
-                _form.lblAir.Text = "AIR\nGROUND";
+                _form.lblAir.Text = "GROUND";
                 _form.lblAir.ForeColor = Theme.Taxi;
             }
         }

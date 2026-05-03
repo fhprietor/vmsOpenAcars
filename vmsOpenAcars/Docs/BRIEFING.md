@@ -1,280 +1,356 @@
-# ✈️ vmsOpenAcars - Guía de Operación para Pilotos
+# vmsOpenAcars — Guía del Usuario
 
-Bienvenido a **vmsOpenAcars**, tu asistente personal de vuelo para aerolíneas virtuales basadas en phpVMS 7. Esta guía te explicará paso a paso cómo utilizar todas las funcionalidades del sistema, desde el inicio de sesión hasta la finalización de tu vuelo.
+**Versión 0.3.16**
 
-## 📋 Índice
-1. [Primeros Pasos](#primeros-pasos)
-2. [Interfaz Principal](#interfaz-principal)
-3. [Selección de Vuelo](#selección-de-vuelo)
-4. [Planificación con SimBrief](#planificación-con-simbrief)
-5. [Inicio del Vuelo](#inicio-del-vuelo)
-6. [Durante el Vuelo](#durante-el-vuelo)
-7. [Finalización del Vuelo](#finalización-del-vuelo)
-8. [Configuración](#configuración)
-9. [Solución de Problemas](#solución-de-problemas)
+vmsOpenAcars es un cliente ACARS de escritorio para Simuladores de vuelo en PC bajo windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu aterrizaje y envía el PIREP al servidor de tu aerolínea.
 
 ---
 
-## 🚀 Primeros Pasos
+## Índice
+
+- [vmsOpenAcars — Guía del Usuario](#vmsopenacars--guía-del-usuario)
+  - [Índice](#índice)
+  - [1. Requisitos](#1-requisitos)
+    - [Simuladores compatibles](#simuladores-compatibles)
+  - [2. Configuración inicial (Settings)](#2-configuración-inicial-settings)
+    - [Sección phpVMS](#sección-phpvms)
+    - [Sección SimBrief](#sección-simbrief)
+    - [Sección NavMap Database](#sección-navmap-database)
+    - [Sección Landing Log](#sección-landing-log)
+  - [3. Interfaz principal](#3-interfaz-principal)
+    - [Panel FMA](#panel-fma)
+  - [4. Flujo de un vuelo típico](#4-flujo-de-un-vuelo-típico)
+    - [4.1 Login](#41-login)
+    - [4.2 Selección de vuelo y aeronave](#42-selección-de-vuelo-y-aeronave)
+    - [4.3 Plan de vuelo con SimBrief](#43-plan-de-vuelo-con-simbrief)
+    - [4.4 Inicio del vuelo](#44-inicio-del-vuelo)
+    - [4.5 Durante el vuelo](#45-durante-el-vuelo)
+      - [Fases detectadas automáticamente](#fases-detectadas-automáticamente)
+      - [Ground operations](#ground-operations)
+      - [Trayectoria de aproximación](#trayectoria-de-aproximación)
+      - [Frecuencia de envío de posición](#frecuencia-de-envío-de-posición)
+    - [4.6 Finalización y envío del PIREP](#46-finalización-y-envío-del-pirep)
+  - [5. Scoring de aterrizaje](#5-scoring-de-aterrizaje)
+    - [Consejos para un score perfecto](#consejos-para-un-score-perfecto)
+  - [6. METAR](#6-metar)
+  - [7. LOGBOOK y Landing Analysis](#7-logbook-y-landing-analysis)
+    - [Abrir el LOGBOOK](#abrir-el-logbook)
+    - [Columnas del historial](#columnas-del-historial)
+    - [Ver análisis de un vuelo](#ver-análisis-de-un-vuelo)
+    - [Comparar aproximaciones](#comparar-aproximaciones)
+    - [Eliminar registros](#eliminar-registros)
+  - [8. Solución de problemas](#8-solución-de-problemas)
+
+---
+S
+## 1. Requisitos
+
+| Requisito | Detalle |
+|---|---|
+| Simulador | Ver tabla de simuladores compatibles abajo |
+| FSUIPC | Instalado y activo (versión gratuita es suficiente) |
+| LittleNavMap | Necesario para scoring de pista (touchdown zone y centreline) |
+| Cuenta phpVMS 7 | API Key generada en tu perfil de la aerolínea virtual |
+| Cuenta SimBrief | Usuario de SimBrief (gratuito) |
+| Conexión a internet | Para comunicarse con phpVMS y SimBrief |
+
+### Simuladores compatibles
+
+vmsOpenAcars se comunica con el simulador a través de **FSUIPC**, por lo que es compatible con todos los simuladores que soporta dicha librería:
+
+| Simulador | Versión de FSUIPC requerida |
+|---|---|
+| Microsoft Flight Simulator 2020 | FSUIPC 7 |
+| Microsoft Flight Simulator 2024 | FSUIPC 7 |
+| Prepar3D v4 | FSUIPC 5 o 6 |
+| Prepar3D v5 / v6 | FSUIPC 6 |
+| Prepar3D v1 / v2 / v3 | FSUIPC 4 |
+| FSX / FSX: Steam Edition | FSUIPC 4 |
+| X-Plane 11 | XUIPC (plugin para X-Plane) |
+| X-Plane 12 | XUIPC (plugin para X-Plane) |
+
+> Instala la versión de FSUIPC que corresponda a tu simulador. La versión gratuita es suficiente para que vmsOpenAcars funcione con todas sus funcionalidades. Para X-Plane, instala el plugin **XUIPC** en lugar de FSUIPC.
+
+---
+
+## 2. Configuración inicial (Settings)
+
+Haz clic en el botón **SETTINGS** (esquina superior derecha) para abrir el diálogo de configuración. Todos los cambios se guardan en `vmsOpenAcars.exe.config`.
+
+### Sección phpVMS
+
+| Campo | Descripción |
+|---|---|
+| API URL | URL base de tu aerolínea virtual, con `/` al final. Ej: `https://miaerolinea.com/` |
+| API Key | Tu clave personal de phpVMS (generada en tu perfil de piloto) |
+
+### Sección SimBrief
+
+| Campo | Descripción |
+|---|---|
+| SimBrief User | Tu nombre de usuario de SimBrief (no el correo, sino el pilot ID o alias) |
+
+### Sección NavMap Database
+
+vmsOpenAcars usa la base de datos de **LittleNavMap** para calcular con precisión la distancia al umbral de pista y la desviación de centreline en el aterrizaje. Sin esta BD el scoring básico sigue funcionando, pero los criterios de Touchdown Zone y Centreline no se evaluarán.
+
+1. Abre LittleNavMap al menos una vez para que genere su base de datos.
+2. En Settings, campo **LNM DB Path**, haz clic en `[...]` y selecciona el archivo `airports.sqlite`. Por defecto se encuentra en:
+   ```
+   C:\Users\<TuUsuario>\AppData\Roaming\ABarthel\little_navmap_db\little_navmap_navigraph.sqlite
+   ```
+   o bien en la ruta que hayas configurado en LittleNavMap.
+
+### Sección Landing Log
+
+El LOGBOOK guarda el historial de tus aterrizajes con trayectoria de aproximación en una base de datos SQLite local.
+
+1. En Settings, sección **Landing Log**, haz clic en `[...]`.
+2. Selecciona un archivo `.sqlite` existente (si ya tienes historial) o escribe un nombre nuevo para crearlo, por ejemplo `landing_log.sqlite`.
+3. La base de datos se crea y migra automáticamente al primer uso.
 
-### Requisitos Previos
-- **Simulador compatible**: FSX, Prepar3D, MSFS 2020/2024, o X‑Plane (con XUIPC)
-- **FSUIPC** instalado y funcionando (la aplicación lo detectará automáticamente)
-- **Conexión a internet** para comunicarse con phpVMS y SimBrief
-- **Credenciales** de tu aerolínea virtual (API Key) y cuenta de SimBrief
+> La base de datos es un archivo SQLite estándar. Puedes hacer copias de seguridad simplemente copiando el archivo.
 
-### Configuración Inicial
-Antes de volar, asegúrate de tener tu archivo `App.config` correctamente configurado (o usa el botón de configuración ⚙️ en la interfaz):
+---
 
-```xml
-<appSettings>
-    <!-- URL de tu phpVMS (con slash al final) -->
-    <add key="vms_api_url" value="https://tu-aerolinea.com/" />
-    <!-- Tu API Key personal (generada en tu perfil phpVMS) -->
-    <add key="vms_api_key" value="tu-api-key-32-caracteres" />
-    <!-- Tu usuario de SimBrief -->
-    <add key="simbrief_user" value="tu-usuario-simbrief" />
-    <!-- Nombre de tu aerolínea (aparece en el encabezado) -->
-    <add key="airline" value="Mi Aerolínea Virtual" />
-    <!-- Idioma por defecto (es, en, etc.) -->
-    <add key="language" value="es" />
-</appSettings>
-🖥️ Interfaz Principal
-La pantalla principal está dividida en varias secciones inspiradas en una cabina ECAM:
+## 3. Interfaz principal
 
-Sección	Descripción
-Header	Logo, título y nombre de la aerolínea. También contiene el botón de configuración (⚙️).
-FLIGHT INFORMATION	Datos del plan de vuelo actual (número, ruta, aeronave, combustible, etc.).
-FMA (Flight Mode Annunciator)	Panel superior con información de fase, velocidad, altitud y estado (AIR/GROUND).
-INCOMING MSG	Registro de eventos y mensajes del sistema (con colores según tipo).
-STATUS	Estado de conexiones ACARS, posición actual, validación y nombre del simulador.
-Botones	Panel inferior con las acciones principales: LOGIN, SIMBRIEF, START/ABORT/SEND PIREP, CANCEL/EXIT.
-🔐 Inicio de Sesión
-Haz clic en el botón LOGIN.
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  [FMA]  Línea 1: Vuelo / ruta / CI / fecha / matrícula / tipo      │
+│         Línea 2: PAX / FUEL / TRIP FUEL / CARGO / FL / WIND / ISA  │
+│                                          PHASE BOARDING │ GROUND   │
+├────────────────────────────────────────────────────────────────────┤
+│  [FLIGHT INFORMATION]  Datos del plan activo                       │
+├────────────────────────────────────────────────────────────────────┤
+│  [GAUGES / ENGINE]  Indicadores de vuelo en tiempo real            │
+├────────────────────────────────────────────────────────────────────┤
+│  [INCOMING MSG]  Log de eventos del vuelo                          │
+├────────────────────────────────────────────────────────────────────┤
+│  [STATUS]  GPS • Conexión sim • ACARS • Aeropuerto actual          │
+├────────────────────────────────────────────────────────────────────┤
+│  LOGIN  SETTINGS  SIMBRIEF  METAR  LOGBOOK  DISPATCH  START        │
+└────────────────────────────────────────────────────────────────────┘
+```
 
-La aplicación se conectará a phpVMS usando tu API Key.
+### Panel FMA
 
-Verás un mensaje de éxito en el panel de logs y tu nombre de piloto aparecerá en el área de STATUS.
+El panel FMA (Flight Mode Annunciator) en la parte superior muestra en tiempo real:
 
-El aeropuerto donde te encuentras asignado se mostrará en APT: XXX.
+- **Línea 1:** identificador del vuelo, par de aeropuertos ICAO/IATA, Cost Index, fecha, matrícula y tipo de aeronave.
+- **Línea 2:** pasajeros, combustible en rampa (FUEL), combustible de vuelo (TRIP), carga, nivel de crucero, viento promedio e ISA.
+- **Columna derecha:** fase actual (`PHASE BOARDING`, `PHASE TAXIOUT`, etc.) y estado `GROUND` / `AIRBORNE`, más una cuenta regresiva hasta la hora de salida planificada cuando el avión está en boarding.
 
-💡 Nota: Si el simulador ya está conectado, se validará automáticamente tu posición contra el aeropuerto asignado.
+---
 
-🗺️ Selección de Vuelo
-Una vez autenticado, haz clic en SIMBRIEF. Se abrirá el Flight Planner, que tiene dos pestañas:
+## 4. Flujo de un vuelo típico
 
-📌 Mis Reservas (My Bids)
-Muestra los vuelos que tienes reservados en phpVMS. Solo aparecerán aquellos que salgan desde tu aeropuerto actual.
+### 4.1 Login
 
-🌍 Vuelos Disponibles (Available Flights)
-Lista todos los vuelos que salen de tu aeropuerto actual, filtrados automáticamente para mostrar solo aquellos que puedan ser operados con los aviones disponibles en dicho aeropuerto.
+1. Inicia el simulador y carga tu aeronave en el aeropuerto de salida.
+2. Abre vmsOpenAcars y haz clic en **LOGIN**.
+3. La aplicación se conecta a phpVMS con tu API Key. Tu nombre de piloto y aeropuerto base aparecerán en el panel STATUS.
 
-Columnas informativas:
+### 4.2 Selección de vuelo y aeronave
 
-Flight: Número de vuelo (ej. VHR1111 o 55CH para vuelos charter)
+1. Haz clic en **SIMBRIEF** para abrir el Flight Planner.
+2. El planner tiene dos pestañas:
+   - **My Bids** — tus vuelos reservados en phpVMS. Solo muestra los que salen de tu aeropuerto actual.
+   - **Available Flights** — todos los vuelos disponibles desde tu aeropuerto actual, filtrados por aeronaves presentes en dicho aeropuerto.
+3. Selecciona un vuelo. La lista de aeronaves disponibles se cargará automáticamente.
+4. Elige la aeronave con la que quieres operar el vuelo.
 
-From → To: Aeropuerto origen y destino
+### 4.3 Plan de vuelo con SimBrief
 
-Aircraft: Tipo(s) de aeronave permitido(s) (ej. BE58/AT46)
+1. Haz clic en **PLAN IN SIMBRIEF**. Se abrirá tu navegador con el dispatch de SimBrief pre-cargado (vuelo, ruta, aeronave, matrícula, piloto, hora UTC+30 min).
+2. Ajusta en SimBrief lo que necesites y genera el OFP.
+3. Vuelve a vmsOpenAcars y haz clic en **FETCH OFP**.
+4. El sistema descarga y valida el plan (origen, destino, tipo de aeronave, matrícula, antigüedad máx. 2 h).
+5. Si la validación pasa, el botón **ACCEPT** se habilitará. Haz clic para cargar el plan.
 
-Distance (NM): Distancia en millas náuticas
+El FMA se actualizará con todos los datos del plan (PAX, combustible, nivel de crucero, viento, ISA, etc.).
 
-Flight Time: Duración estimada
+### 4.4 Inicio del vuelo
 
-Route: Ruta resumida
+El botón **START** se habilita cuando se cumplen todas las condiciones:
 
-Selección de Aeronave
-Selecciona un vuelo de cualquiera de las dos pestañas.
+- ✅ Simulador conectado via FSUIPC
+- ✅ Plan de vuelo cargado y aceptado
+- ✅ Posición GPS válida (estás en el aeropuerto correcto, dentro de ~5 km)
 
-Automáticamente se cargará la lista de aeronaves disponibles en tu aeropuerto que puedan operar ese vuelo.
+Haz clic en **START**. La aplicación enviará un prefile a phpVMS (PIREP en estado BOARDING) y comenzará el seguimiento automático del vuelo.
 
-Elige una aeronave de la lista.
+> Si necesitas cancelar, haz clic en **ABORT** y confirma en el diálogo. El PIREP se eliminará del servidor.
 
-📡 Planificación con SimBrief
-Una vez seleccionado vuelo y aeronave:
+### 4.5 Durante el vuelo
 
-Haz clic en PLAN IN SIMBRIEF. Se abrirá tu navegador con la página de dispatch de SimBrief, con todos los datos pre‑cargados:
+#### Fases detectadas automáticamente
 
-Aerolínea y número de vuelo
+| Fase | Condición de entrada |
+|---|---|
+| Boarding | Plan activo, avión en tierra con freno de estacionamiento |
+| Pushback | Movimiento lento hacia atrás |
+| TaxiOut | Movimiento hacia delante antes del despegue |
+| TakeoffRoll | Velocidad de suelo > 30 kt con freno liberado |
+| Takeoff | Liftoff detectado |
+| Climb | Velocidad vertical positiva sostenida |
+| Enroute | Crucero estabilizado |
+| Descent | Inicio de descenso hacia destino |
+| Approach | Descenso final hacia pista |
+| Landing | Touchdown detectado |
+| AfterLanding | Deceleración tras aterrizaje |
+| TaxiIn | Rodaje hacia puerta tras aterrizar |
+| OnBlock | Freno de estacionamiento puesto con motores apagados |
+| Completed | Vuelo listo para enviar PIREP |
 
-Origen y destino
+#### Ground operations
 
-Tipo de aeronave y matrícula
+Durante el rodaje, el sistema informa en el log:
 
-Ruta (si está disponible)
+- **Pista en uso** al alinearse para el despegue (distancia al umbral y desviación de centreline)
+- **Taxiways** por los que circulas
+- **Holding points** detectados
+- **Puerta/estacionamiento** de llegada
 
-Nombre del piloto
+#### Trayectoria de aproximación
 
-Hora de salida (UTC actual +30 min)
+A partir de **3 000 ft AGL** con la fase en Approach, el sistema captura un punto de trayectoria cada 2 segundos (altitud, velocidad, VS, desviación lateral) que se usará para generar los gráficos del LOGBOOK.
 
-En SimBrief, ajusta los parámetros que desees y genera el plan de vuelo.
+#### Frecuencia de envío de posición
 
-Vuelve a vmsOpenAcars y haz clic en FETCH OFP.
+| Fase | Intervalo |
+|---|---|
+| En tierra (rodaje) | 30 s |
+| Takeoff / Landing | 2 s |
+| Climb / Descent / Approach | 5 s |
+| Crucero | 15 s |
 
-El sistema descargará tu último plan de SimBrief y lo validará contra:
+### 4.6 Finalización y envío del PIREP
 
-Origen y destino seleccionados
+1. Cuando el avión llegue a puerta y los motores estén apagados, la fase cambiará a **Completed**.
+2. El botón cambiará a **SEND PIREP** (verde).
+3. Haz clic. El PIREP se enviará a phpVMS con combustible usado, tasa de aterrizaje, tiempo de vuelo, distancia y score.
+4. Si la base de datos del LOGBOOK está configurada, el aterrizaje se guardará automáticamente con su trayectoria de aproximación.
 
-Tipo de aeronave
+---
 
-Matrícula
+## 5. Scoring de aterrizaje
 
-Fecha de generación (máximo 2 horas de antigüedad)
+El score parte de **100 puntos** y aplica deducciones según 11 criterios. Se envía junto con el PIREP a phpVMS.
 
-Fecha de salida programada (no puede ser anterior a hoy)
+| Criterio | Deducción máx | Referencia |
+|---|---|---|
+| **Landing Rate** | 40 pts | ≤ 100 fpm = perfecto · ≤ 200 = −5 · ≤ 300 = −15 · ≤ 400 = −25 · ≤ 600 = −35 · > 600 = −40 |
+| **G-Force** | 15 pts | ≤ 1.3 g = perfecto · ≤ 1.5 g = −7 · > 1.5 g = −15 |
+| **Bank Angle** | 10 pts | ≤ 2° = perfecto · ≤ 5° = −5 · > 5° = −10 |
+| **Pitch Angle** | 10 pts | 1°–5° = perfecto · fuera de rango = −5 a −10 |
+| **Overspeed** | 15 pts | 0 eventos = perfecto · 1 = −7 · ≥ 2 = −15 |
+| **Lights Compliance** | 10 pts | −5 pts por cada violación de luces (cap 10) |
+| **Stabilized Approach (1000 ft)** | 15 pts | Evalúa velocidad, VS, bank, pitch, gear y flaps a 1000 ft AGL |
+| **QNH Compliance** | 5 pts | −5 si el QNH difiere > 2 hPa del METAR del destino |
+| **IVAO Offline** | 5 pts | −5 si el vuelo se realizó sin conexión a la red IVAO |
+| **Touchdown Zone** | 7 pts | ≤ 1500 ft del umbral = perfecto · ≤ 2500 ft = −3 · > 2500 ft = −7 |
+| **Centreline Deviation** | 7 pts | ≤ 10 ft = perfecto · ≤ 30 ft = −3 · > 30 ft = −7 |
 
-Si todo es correcto, el botón ACCEPT se habilitará. Haz clic para cargar el plan completo en el ACARS.
+> Los criterios **Touchdown Zone** y **Centreline Deviation** requieren la base de datos de LittleNavMap configurada en Settings. Si no está disponible, estos dos criterios no se evalúan.
 
-✅ El panel FLIGHT INFORMATION se actualizará con todos los datos del plan.
+### Consejos para un score perfecto
 
-🛫 Inicio del Vuelo
-Cuando el plan esté cargado y se cumplan todas las condiciones:
+- Mantén la aproximación estabilizada antes de los 1 000 ft: velocidad ≤ Vref+10, VS < 1 000 fpm, bank < 5°, pitch entre 1° y 5°, tren extendido, flaps en configuración de aterrizaje.
+- Aterriza en la zona de touchdown (primeros 1 500 ft de pista).
+- Mantén la alineación con el eje de pista (centreline < 10 ft).
+- Vuela siempre conectado a IVAO.
+- Ajusta el QNH al del aeropuerto de destino antes de aterrizar.
 
-✅ Simulador conectado
+---
 
-✅ Posición GPS válida (estás en el aeropuerto correcto)
+## 6. METAR
 
-✅ ICAO del plan coincide con tu aeropuerto asignado
+El botón **METAR** abre el panel de información meteorológica de los aeropuertos del plan activo.
 
-El botón START se habilitará.
+- Se muestran hasta 4 estaciones: **ORIG** (salida), **DEST** (destino), **ALT** (alternado) y **ENRT** (en ruta).
+- Los METAR se recuperan automáticamente al cargar el plan y se actualizan periódicamente durante el vuelo.
+- Haz clic en cualquier estación para abrir el **METAR Decode** — una ventana que desglosa cada elemento del METAR en lenguaje comprensible (viento, visibilidad, nubes, temperatura, QNH, etc.).
 
-Haz clic en START.
+---
 
-La aplicación enviará un prefile a phpVMS, creando un PIREP en estado BOARDING.
+## 7. LOGBOOK y Landing Analysis
 
-El botón cambiará a ABORT (rojo) por si necesitas cancelar el vuelo.
+El LOGBOOK guarda el historial completo de tus aterrizajes con análisis gráfico de la aproximación.
 
-La fase de vuelo se actualizará automáticamente según tus acciones en el simulador.
+### Abrir el LOGBOOK
 
-✈️ Durante el Vuelo
-Detección Automática de Fases
-El sistema detecta las siguientes fases sin intervención del piloto:
+Haz clic en el botón **LOGBOOK** en la pantalla principal. Se abrirá la ventana de historial con la lista de todos tus vuelos registrados.
 
-Fase	Descripción
-Boarding	Pasajeros embarcando
-Pushback	Retroceso desde puerta
-TaxiOut	Rodaje a pista
-Takeoff	Despegue
-Climb	Ascenso inicial
-Enroute	Crucero
-Descent	Descenso
-Approach	Aproximación
-Landing	Aterrizaje
-AfterLanding	Inmediatamente después del aterrizaje
-TaxiIn	Rodaje a puerta
-OnBlock	Llegada a puerta
-Completed	Vuelo completado
-Telemetría en Tiempo Real
-Posición GPS: Se actualiza constantemente en el panel STATUS.
+### Columnas del historial
 
-Velocidad y altitud: Se reflejan en el FMA.
+| Columna | Descripción |
+|---|---|
+| Date | Fecha y hora local del aterrizaje |
+| Flight | Número de vuelo (callsign) |
+| Route | Par origen → destino |
+| RWY | Pista de aterrizaje |
+| VS (fpm) | Velocidad vertical en el touchdown |
+| G | Factor de carga en el touchdown |
+| Score | Puntuación del aterrizaje (sobre 100) |
 
-Fase actual: Cambia de color según el estado (verde para en ruta, naranja para aproximación, etc.).
+El color del score indica la calidad: verde ≥ 90 · amarillo ≥ 75 · rojo < 75.
 
-Envío de Datos a phpVMS
-Las posiciones se envían al servidor con frecuencia variable según la fase:
+### Ver análisis de un vuelo
 
-En tierra: cada 30 segundos
+Selecciona un vuelo en la lista y haz clic en **VIEW ANALYSIS** (o doble clic en la fila).
 
-Takeoff/Landing: cada 2 segundos
+Se abrirá la ventana de análisis con **4 gráficos** de la aproximación. El eje X representa la distancia al umbral de pista (de 5 NM a la izquierda hasta el umbral a la derecha):
 
-Climb/Descent/Approach: cada 5 segundos
+| Gráfico | Qué muestra | Referencia |
+|---|---|---|
+| **Vertical Profile** | Altitud AGL (ft) vs distancia | Línea verde punteada = planeo 3° ideal |
+| **Lateral Deviation** | Desviación del eje de pista (ft, ± signed) vs distancia | Línea cero = eje de pista |
+| **IAS** | Velocidad indicada (kt) vs distancia | Línea naranja = Vref promedio estimado |
+| **VS** | Velocidad vertical (fpm) vs distancia | Línea cero |
 
-Crucero: cada 15 segundos
+### Comparar aproximaciones
 
-Los eventos importantes (cambios de fase, alertas) se envían instantáneamente.
+1. Selecciona entre 2 y 5 vuelos en la lista (usando **Ctrl+clic** o **Shift+clic**).
+2. Haz clic en **COMPARE**.
+3. Los 4 gráficos mostrarán todas las trayectorias superpuestas, cada una con un color distinto.
+4. El encabezado de la ventana muestra una leyenda por vuelo con callsign, fecha/hora, pista y estadísticas completas del touchdown.
 
-Cancelación del Vuelo
-Si necesitas abortar el vuelo en cualquier momento:
+Esto te permite comparar, por ejemplo, dos aproximaciones a la misma pista en días distintos e identificar qué cambió.
 
-Haz clic en ABORT.
+### Eliminar registros
 
-Confirma en el diálogo ECAM.
+Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmación antes de borrar.
 
-El PIREP se cancelará en el servidor y el sistema volverá al estado inicial.
+---
 
-🏁 Finalización del Vuelo
-Cuando el avión llegue a puerta y la fase cambie a Completed:
+## 8. Solución de problemas
 
-El botón ABORT se transformará en SEND PIREP (verde).
+**El botón START no se habilita**
+- Verifica que el simulador esté activo y FSUIPC esté conectado (el panel STATUS debe mostrar el nombre del simulador).
+- Asegúrate de que el avión esté posicionado en el aeropuerto correcto. La validación GPS requiere estar a menos de ~5 km del aeropuerto del plan.
+- El ICAO del plan debe coincidir con el aeropuerto asignado en phpVMS.
 
-Haz clic en SEND PIREP.
+**FETCH OFP no encuentra el plan**
+- El plan de SimBrief no puede tener más de 2 horas de antigüedad.
+- Verifica que el nombre de usuario de SimBrief en Settings sea correcto.
+- Asegúrate de haber generado el plan en SimBrief antes de hacer FETCH.
 
-La aplicación enviará el informe final a phpVMS con:
+**Touchdown Zone y Centreline siempre muestran 0 / no se evalúan**
+- La base de datos de LittleNavMap no está configurada o la ruta es incorrecta.
+- Ve a Settings → NavMap Database y selecciona el archivo `airports.sqlite` correcto.
 
-Combustible utilizado
+**El LOGBOOK no guarda los vuelos**
+- La ruta de la base de datos de Landing Log no está configurada.
+- Ve a Settings → Landing Log y selecciona o crea el archivo `.sqlite`.
 
-Tasa de aterrizaje
+**Los gráficos del Landing Analysis aparecen vacíos**
+- La trayectoria de aproximación solo se captura cuando la fase es **Approach** con AGL < 3 000 ft. Si el vuelo pasó directamente de Descent a Landing sin activar la fase Approach, no habrá track.
 
-Tiempo de vuelo
+**La ventana de METAR no carga datos**
+- Requiere un plan de vuelo activo con aeropuertos ICAO válidos.
+- Verifica la conexión a internet; el sistema consulta fuentes METAR públicas.
 
-Distancia recorrida
+---
 
-Notas del vuelo
-
-Tras la confirmación del servidor, el sistema se reseteará y el botón volverá a START (deshabilitado hasta que se cargue un nuevo plan).
-
-⚙️ Configuración
-Haz clic en el icono de engranaje (⚙️) en la esquina superior derecha para abrir el diálogo de configuración.
-
-Parámetros editables
-Campo	Descripción
-URL API	Dirección base de tu phpVMS
-API Key	Tu clave personal (se genera en tu perfil)
-Usuario SimBrief	Tu nombre de usuario en SimBrief
-Aerolínea	Nombre que aparecerá en el encabezado
-Idioma	Selecciona entre los idiomas disponibles (es, en, etc.)
-⚠️ Importante: Los cambios en URL, API Key y usuario SimBrief requieren reiniciar la aplicación. El idioma se aplica inmediatamente.
-
-❓ Solución de Problemas
-El botón SIMBRIEF no se habilita después del login
-Verifica que tu API Key sea correcta.
-
-Asegúrate de tener conexión a internet.
-
-Revisa los logs en el panel INCOMING MSG.
-
-El botón START no se habilita aunque tenga plan cargado
-Revisa el panel de validación: debe mostrar ICAO ✅ y GPS ✅.
-
-Asegura que el simulador esté conectado y en el aeropuerto correcto.
-
-La posición GPS debe estar a menos de 5 km del aeropuerto.
-
-SimBrief no pre‑carga todos los datos
-Verifica que el vuelo seleccionado tenga número de aerolínea y ruta.
-
-Comprueba que la aeronave tenga tipo ICAO válido (ej. BE58, B738).
-
-Los logs aparecen duplicados
-Es normal durante la validación inicial; si persiste, reinicia la aplicación.
-
-La ventana no recuerda su posición
-El sistema guarda automáticamente la posición al cerrar. Si no funciona, verifica permisos de escritura en la carpeta de la aplicación.
-
-🎯 Resumen del Flujo de Vuelo
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-📞 Soporte
-Si encuentras algún problema o tienes sugerencias, puedes:
-
-Abrir un issue en el repositorio de GitHub.
-
-Consultar los logs (panel INCOMING MSG) para obtener pistas sobre errores.
-
-Verificar que todos los requisitos estén cumplidos.
-
-¡Gracias por volar con vmsOpenAcars! ✈️ Que tengas un excelente vuelo.
+*vmsOpenAcars v0.3.16 — que tengas buen vuelo.*

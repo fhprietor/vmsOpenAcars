@@ -32,6 +32,9 @@ namespace vmsOpenAcars.UI.Forms
         // NavMap database
         private TextBox txtLnmDbPath;
 
+        // Landing log database
+        private TextBox txtLandingLogPath;
+
         private Button btnSave;
         private Button btnCancel;
 
@@ -44,8 +47,8 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeForm()
         {
-            // 11 filas de datos + 1 fila de botones = 12 filas × 35px + título 35px + padding
-            this.Size = new Size(500, 515);
+            // 13 filas de datos + 1 fila de botones = 14 filas × 35px + título 35px + padding
+            this.Size = new Size(500, 585);
             this.MinimumSize = new Size(460, 400);
             this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.None;
@@ -129,13 +132,13 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 12,
+                RowCount = 14,
                 BackColor = Color.Transparent
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68F));
 
-            for (int i = 0; i < 11; i++)
+            for (int i = 0; i < 13; i++)
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F)); // fila botones
 
@@ -268,7 +271,71 @@ namespace vmsOpenAcars.UI.Forms
             };
             layout.Controls.Add(lnmPanel, 1, 10);
 
-            // Fila 11 — Botones (ocupa las 2 columnas, alineados a la derecha)
+            // Fila 11 — Separador Landing Log
+            var sepLog = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "── Landing Log ──",
+                ForeColor = Color.FromArgb(80, 160, 220),
+                Font = new Font("Consolas", 8, FontStyle.Italic),
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            layout.SetColumnSpan(sepLog, 2);
+            layout.Controls.Add(sepLog, 0, 11);
+
+            // Fila 12 — Landing log DB path
+            layout.Controls.Add(CreateLabel("Landing DB"), 0, 12);
+            var logPanel = new Panel { Dock = DockStyle.Fill };
+            txtLandingLogPath = new TextBox
+            {
+                BackColor = Color.FromArgb(50, 50, 60),
+                ForeColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Consolas", 10),
+                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
+                Left = 0,
+                Height = 22
+            };
+            var btnBrowseLog = new Button
+            {
+                Text = "...",
+                Width = 28,
+                Height = 22,
+                Anchor = AnchorStyles.Right | AnchorStyles.Top,
+                BackColor = Color.FromArgb(50, 70, 90),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Consolas", 9)
+            };
+            btnBrowseLog.FlatAppearance.BorderSize = 0;
+            btnBrowseLog.Click += (s, ev) =>
+            {
+                using (var ofd = new OpenFileDialog
+                {
+                    Title            = "Select landing log database",
+                    Filter           = "SQLite DB (*.sqlite)|*.sqlite|All files (*.*)|*.*",
+                    CheckFileExists  = false,
+                    FileName         = string.IsNullOrEmpty(txtLandingLogPath.Text)
+                                           ? "landing_log.sqlite"
+                                           : txtLandingLogPath.Text
+                })
+                {
+                    if (ofd.ShowDialog() == DialogResult.OK)
+                        txtLandingLogPath.Text = ofd.FileName;
+                }
+            };
+            logPanel.Controls.Add(txtLandingLogPath);
+            logPanel.Controls.Add(btnBrowseLog);
+            logPanel.Resize += (s, ev) =>
+            {
+                btnBrowseLog.Left        = logPanel.Width - btnBrowseLog.Width;
+                btnBrowseLog.Top         = (logPanel.Height - btnBrowseLog.Height) / 2;
+                txtLandingLogPath.Width  = logPanel.Width - btnBrowseLog.Width - 2;
+                txtLandingLogPath.Top    = (logPanel.Height - txtLandingLogPath.Height) / 2;
+            };
+            layout.Controls.Add(logPanel, 1, 12);
+
+            // Fila 13 — Botones (ocupa las 2 columnas, alineados a la derecha)
             var btnPanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -305,7 +372,7 @@ namespace vmsOpenAcars.UI.Forms
             btnPanel.Controls.Add(btnCancel);
 
             layout.SetColumnSpan(btnPanel, 2);
-            layout.Controls.Add(btnPanel, 0, 11);
+            layout.Controls.Add(btnPanel, 0, 13);
 
             contentPanel.Controls.Add(layout);
             this.Controls.Add(contentPanel);
@@ -357,7 +424,8 @@ namespace vmsOpenAcars.UI.Forms
 
             txtSimbriefCi.Text = ConfigurationManager.AppSettings["simbrief_civalue"] ?? "30";
             txtSimbriefExtraRmk.Text = ConfigurationManager.AppSettings["simbrief_extrarmk"] ?? "";
-            txtLnmDbPath.Text = ConfigurationManager.AppSettings["lnm_db_path"] ?? "";
+            txtLnmDbPath.Text      = ConfigurationManager.AppSettings["lnm_db_path"]      ?? "";
+            txtLandingLogPath.Text = ConfigurationManager.AppSettings["landing_log_path"] ?? "";
         }
 
         private void LoadLanguages()
@@ -389,7 +457,8 @@ namespace vmsOpenAcars.UI.Forms
                 (cmbSimbriefUnits.SelectedItem?.ToString() ?? "")  != Cfg("simbrief_units", "lbs") ||
                 txtSimbriefCi.Text.Trim()                          != Cfg("simbrief_civalue", "30")||
                 txtSimbriefExtraRmk.Text.Trim()                    != Cfg("simbrief_extrarmk")     ||
-                txtLnmDbPath.Text.Trim()                           != Cfg("lnm_db_path");
+                txtLnmDbPath.Text.Trim()                           != Cfg("lnm_db_path")      ||
+                txtLandingLogPath.Text.Trim()                      != Cfg("landing_log_path");
         }
 
         private void BtnSave_Click(object sender, EventArgs e)
@@ -413,6 +482,7 @@ namespace vmsOpenAcars.UI.Forms
                 SetValue(config, "simbrief_civalue",  txtSimbriefCi.Text.Trim());
                 SetValue(config, "simbrief_extrarmk", txtSimbriefExtraRmk.Text.Trim());
                 SetValue(config, "lnm_db_path",       txtLnmDbPath.Text.Trim());
+                SetValue(config, "landing_log_path",  txtLandingLogPath.Text.Trim());
 
                 config.Save(ConfigurationSaveMode.Modified);
                 ConfigurationManager.RefreshSection("appSettings");

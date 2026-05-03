@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.3.3  
-> Última actualización: 2026-04-26
+> Versión del documento: 0.3.16  
+> Última actualización: 2026-05-03
 
 ---
 
@@ -17,10 +17,13 @@ Cliente ACARS de escritorio para Windows que conecta un simulador de vuelo con u
 |---|---|
 | Plataforma | .NET Framework 4.8, C# 7.3 |
 | UI | Windows Forms (WinForms) |
-| Sim → App | FSUIPC / FSUIPC7 — FSUIPCClientDLL 3.3.16 |
+| Sim → App | FSUIPC / FSUIPC7 — FSUIPCClientDLL 3.3.16 · XUIPC (X-Plane) |
 | App → VA | phpVMS v7 REST API |
 | Serialización | Newtonsoft.Json 13 |
 | Plan de vuelo | SimBrief API (JSON) |
+| BD de pista | System.Data.SQLite 1.0.119 (LittleNavMap) |
+| BD de historial | System.Data.SQLite 1.0.119 (landing_log.sqlite) |
+| Gráficos | System.Windows.Forms.DataVisualization (incluido en .NET 4.8) |
 | PDF | PdfiumViewer 2.13 + pdfium.dll x64 |
 | Clima / QNH | METAR vía WeatherService |
 | Localización | JSON (en.json / es.json) |
@@ -36,14 +39,20 @@ vmsOpenAcars/
 ├── Core/
 │   ├── Flight/             FlightManager, FlightTimer
 │   └── Helpers/            AppInfo
-├── docs/                   Esta documentación
+├── Db/                     RunwayService (LittleNavMap SQLite)
+├── Docs/                   BRIEFING.md (guía usuario), architecture.md
 ├── Helpers/                AppConfig, Constants, FlightPhaseHelper, L (localización), UnitConverter
 ├── Languages/              en.json, es.json
-├── Models/                 Entidades de dominio (SimbriefPlan, Flight, Pirep, FlightPhase…)
+├── Models/                 Aircraft, Flight, Pirep, SimbriefPlan, FlightPhase,
+│                           FlightScoreData, TouchdownData, TakeoffData,
+│                           FlightRecord, ApproachTrackPoint
 ├── Properties/             AssemblyInfo, Resources, Settings
-├── Services/               Servicios de infraestructura y negocio
+├── Services/               ApiService, FsuipcService, ScoringService, MetarService,
+│                           IvaoService, SimbriefEnhancedService, LandingLogService
 ├── UI/
-│   ├── Forms/              MainForm, FlightPlannerForm, OFPViewerForm, SettingsForm…
+│   ├── Forms/              MainForm, FlightPlannerForm, OFPViewerForm, SettingsForm,
+│   │                       MetarDecodeForm, EcamDialog,
+│   │                       FlightHistoryForm, LandingAnalysisForm
 │   └── Theme.cs            Paleta de colores centralizada
 └── ViewModels/             MainViewModel
 ```
@@ -60,11 +69,12 @@ MainForm.cs  (Vista — WinForms)
     └── MainViewModel.cs  (ViewModel — coordinación, eventos, lógica de botones)
             │
             ├── FlightManager.cs          Máquina de estados del vuelo
-            ├── FsuipcService.cs          Polling del simulador (FSUIPC)
+            ├── FsuipcService.cs          Polling del simulador (FSUIPC/XUIPC)
             ├── ApiService.cs             HTTP client → phpVMS REST API
             ├── PhpVmsFlightService.cs    Vuelos, bids, PIREPs
             ├── SimbriefEnhancedService.cs Plan de vuelo + OFP PDF
-            └── WeatherService.cs         QNH vía METAR
+            ├── WeatherService.cs         QNH vía METAR
+            └── LandingLogService.cs      Historial de aterrizajes (SQLite)
 ```
 
 La comunicación ViewModel → Vista se hace mediante **eventos** (`Action<T>`, `Func<T>`). La Vista nunca llama directamente a servicios de infraestructura.
@@ -185,6 +195,15 @@ Núcleo de la lógica del vuelo. Recibe `RawTelemetryData` cada ciclo y:
 4. Llama a `CheckProcedureAtPhaseEntry()` en cada transición
 5. Llama a `CheckViolations()` cada ciclo mientras el avión está airborne y hay PIREP activo
 
+**Propiedades públicas de touchdown** (expuestas para LandingLogService):
+
+```csharp
+public double TouchdownDistanceFt   => _touchdownDistanceFt;
+public double TouchdownCenterlineFt => _touchdownCenterlineDeviationFt;
+public string TouchdownRunwayName   => _touchdownRunwayName;
+public double TouchdownGForce       => _touchdownGForce;
+```
+
 #### Cálculo de AGL
 
 | Condición | Fuente |
@@ -224,20 +243,159 @@ El umbral de 600 fpm elimina falsos positivos por turbulencia o ajustes de pitch
 
 ---
 
+### RunwayService — `Db/RunwayService.cs`
+
+Consulta la base de datos SQLite de **LittleNavMap** para cálculos precisos de posición en pista. Ruta configurada en `App.config` clave `lnm_db_path`.
+
+**API pública:**
+
+```csharp
+bool IsAvailable
+RunwayTouchdownResult FindTouchdownRunway(airport, lat, lon, heading)  // touchdown zone + centreline
+RunwayTouchdownResult FindTakeoffRunway(airport, lat, lon, heading)    // pista de despegue
+RunwayEntry           FindRunwayEntry(airport, lat, lon, heading)      // entrada a pista
+string                FindNearestTaxiway(airport, lat, lon)            // taxiway más cercano
+HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)     // holding short
+ParkingSpot           FindNearestParking(airport, lat, lon)            // gate / parking
+RunwayTouchdownResult GetRunwayThreshold(airport, heading)             // umbral para captura de aproximación
+(double DistNm, double LateralFt) ComputeApproachMetrics(...)         // proyección flat-earth (static)
+```
+
+`RunwayTouchdownResult` incluye: `ThresholdDistanceFt`, `CenterlineDeviationFt`, `RunwayName`, `ThresholdLat`, `ThresholdLon`, `ThresholdHeading`.
+
+**Esquema de BD LittleNavMap** (verificado en producción):
+
+```
+airport    → airport_id, ident, lonx, laty
+runway     → runway_id, airport_id, primary_end_id, secondary_end_id, width (ft), length (ft)
+runway_end → runway_end_id, name, heading, lonx, laty, offset_threshold
+taxi_path  → taxi_path_id, airport_id, type ('T'=taxiway, 'P'=pavement), name, start_lonx/laty, end_lonx/laty
+parking    → parking_id, airport_id, type, name, number, suffix, radius, lonx, laty
+```
+
+**Geometría flat-earth:**
+
+```
+dN = (lat - thLat) × 111320
+dE = (lon - thLon) × 111320 × cos(thLat_rad)
+along = dE × sin(hdg_rad) + dN × cos(hdg_rad)   → distancia al umbral (m)
+cross = dE × cos(hdg_rad) − dN × sin(hdg_rad)   → desviación centreline (m, signed)
+```
+
+**Radios de búsqueda:**
+
+| Elemento | Radio |
+|---|---|
+| Runway footprint | 1.5× semi-ancho real + 30 m buffer longitudinal |
+| HoldingPoint | 200 m del umbral |
+| Taxiway | 300 m del segmento más cercano |
+| Parking | 200 m |
+
+---
+
 ### ScoringService
 
 Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se aplican deducciones:
 
 | Criterio | Máx. deducción | Escala |
 |---|---|---|
-| Landing rate | −40 pts | ≤100 fpm: 0 / ≤200: −5 / ≤300: −15 / ≤400: −25 / ≤600: −35 / >600: −40 |
+| Landing Rate | −40 pts | ≤100 fpm: 0 / ≤200: −5 / ≤300: −15 / ≤400: −25 / ≤600: −35 / >600: −40 |
 | G-Force touchdown | −15 pts | ≤1.3g: 0 / ≤1.5g: −7 / >1.5g: −15 |
-| Bank angle touchdown | −10 pts | ≤2°: 0 / ≤5°: −5 / >5°: −10 |
-| Pitch angle touchdown | −10 pts | 1°–5°: 0 (ideal) / plano o nariz abajo: −5 / <−2°: −10 |
-| Overspeed (vs Vmo) | −15 pts | 0 eventos: 0 / 1: −7 / ≥2: −15 |
-| Luces/procedimientos | −10 pts | 2 pts × violación, máx −10 |
+| Bank Angle touchdown | −10 pts | ≤2°: 0 / ≤5°: −5 / >5°: −10 |
+| Pitch Angle touchdown | −10 pts | 1°–5°: 0 (ideal) / fuera de rango: −5 a −10 |
+| Overspeed | −15 pts | 0 eventos: 0 / 1: −7 / ≥2: −15 |
+| Lights Compliance | −10 pts | −5 pts por violación, cap −10 |
+| Stabilized Approach (1000 ft) | −15 pts | Evalúa speed, VS, bank, pitch, gear y flaps a 1000 ft AGL |
+| QNH Compliance | −5 pts | −5 si Δ > 2 hPa vs METAR destino |
+| IVAO Offline | −5 pts | −5 si el vuelo se realizó sin conexión IVAO |
+| Touchdown Zone | −7 pts | ≤1500 ft = 0 / ≤2500 ft = −3 / >2500 ft = −7 · requiere LNM DB |
+| Centreline Deviation | −7 pts | ≤10 ft = 0 / ≤30 ft = −3 / >30 ft = −7 · requiere LNM DB |
+
+Los criterios **Touchdown Zone** y **Centreline Deviation** solo se evalúan si `TouchdownDistanceFt > 0` (es decir, si RunwayService pudo consultar la BD de LittleNavMap).
 
 **Landing ratings:** Butter (≤100 fpm) · Smooth · Normal · Hard · Very Hard · Slam (≥600 fpm)
+
+---
+
+### LandingLogService — `Services/LandingLogService.cs`
+
+Gestiona la base de datos SQLite local `landing_log.sqlite`. Ruta configurada en `App.config` clave `landing_log_path`.
+
+**Tablas:**
+
+```sql
+flights (
+    id INTEGER PRIMARY KEY,
+    flight_number, origin, destination, runway_name, metar_raw TEXT,
+    flight_date TEXT,  -- ISO 8601 UTC
+    landing_rate_fpm INTEGER,
+    score INTEGER,
+    g_force REAL,
+    touchdown_dist_ft REAL,
+    centerline_dev_ft REAL
+)
+
+approach_track (
+    id INTEGER PRIMARY KEY,
+    flight_id INTEGER,  -- FK → flights.id
+    seq_no INTEGER,
+    lat REAL, lon REAL,
+    alt_ft REAL, agl_ft REAL,
+    ias_kt REAL, vs_fpm REAL,
+    heading_deg REAL,
+    dist_nm REAL,       -- distancia al umbral (positiva = antes del umbral)
+    lateral_ft REAL     -- desviación centreline (signed: + derecha, - izquierda)
+)
+```
+
+**API pública:**
+
+```csharp
+bool IsAvailable
+int  SaveFlight(FlightRecord record, IList<ApproachTrackPoint> track)
+void DeleteFlight(int id)       // borra en transacción: approach_track primero, luego flights
+List<FlightRecord>        GetFlights()
+List<ApproachTrackPoint>  GetTrackPoints(int flightId)
+bool HasFlights()
+void SeedMockData()             // solo disponible en #if DEBUG — 5 vuelos SKRG RWY 01
+```
+
+**Flujo de captura de aproximación:**
+
+```
+Phase → Approach
+    → RunwayService.GetRunwayThreshold(dest, heading) → _approachThreshold
+    → _approachBuffer.Clear()
+OnRawDataUpdated (cada 50 ms)
+    → si phase=Approach && AGL < 3000 ft && ≥ 2 s desde último punto
+    → ComputeApproachMetrics(threshold, lat, lon) → (distNm, lateralFt)
+    → _approachBuffer.Add(ApproachTrackPoint)
+FilePirep() éxito → SaveLandingRecord()
+    → LandingLogService.SaveFlight(FlightRecord, _approachBuffer)
+    → _approachBuffer.Clear()
+```
+
+---
+
+### LandingAnalysisForm — `UI/Forms/LandingAnalysisForm.cs`
+
+Ventana no-modal que muestra 4 gráficos de la trayectoria de aproximación. Soporta modo individual y modo comparación (2-5 vuelos).
+
+**Constructor:** `LandingAnalysisForm(IList<(FlightRecord Record, List<ApproachTrackPoint> Track)> flights)`
+
+**Gráficos:**
+
+| Gráfico | Y | Referencia |
+|---|---|---|
+| Vertical Profile | AGL (ft) | Línea 3° = dist_nm × 319 ft/NM |
+| Lateral Deviation | Desviación (ft, signed ±) | Línea cero = eje de pista |
+| IAS | Velocidad indicada (kt) | Línea promedio ≈ Vref |
+| VS | Vertical speed (fpm) | Línea cero |
+
+- Eje X invertido: 5 NM izquierda → 0 (umbral) derecha
+- Suavizado Gaussiano (window=7, σ=window/4) aplicado a Lateral, IAS, VS — NO a Vertical Profile
+- En comparación, cada vuelo usa un color de la paleta `TrackColors[]` (azul, naranja, verde, violeta, dorado)
+- Nombres de series: `"{FlightNumber} #{i+1}"` en comparación; `"Actual"` en modo individual
 
 ---
 
@@ -245,27 +403,21 @@ Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se
 
 #### ¿Qué es Vmo?
 
-**Vmo** (Velocity Maximum Operating) es la velocidad máxima operativa publicada en el FCOM/AFM de cada aeronave, expresada en nudos IAS (Indicated Airspeed). Volar por encima de ella puede causar daño estructural, activar advertencias de overspeeed en el cockpit y, en operación real, resulta en un informe de seguridad obligatorio.
-
-En vmsOpenAcars, el Vmo es el único umbral de velocidad usado para penalizar al piloto. No se implementa Mmo (límite de Mach) porque FSUIPC expone IAS directamente y la conversión IAS↔Mach requiere datos de temperatura y presión que varían con la altitud.
+**Vmo** (Velocity Maximum Operating) es la velocidad máxima operativa publicada en el FCOM/AFM de cada aeronave, expresada en nudos IAS. En vmsOpenAcars es el único umbral de velocidad para penalizar al piloto (no se implementa Mmo por requerir datos de temperatura y presión variable con la altitud).
 
 #### Resolución del Tipo de Aeronave
-
-Cuando se inicia un vuelo, `FlightManager` consulta `AircraftPerformanceTable.Get(icaoType)` con el código ICAO del tipo procedente del plan SimBrief o del PIREP. La resolución sigue este orden de prioridad:
 
 ```
 1. Match exacto (case-insensitive)   "B738"  → Boeing 737-800, Vmo 340 kts
         ↓ no encontrado
-2. Prefijo de 4 chars                "B38M"  → prefijo "B38" no existe
+2. Prefijo de 4 chars
         ↓ no encontrado
 3. Prefijo de 3 chars                "B38M"  → prefijo "B3" → familia B737 MAX, Vmo 340 kts
         ↓ no encontrado
-4. Default genérico                  320 kts, categoría "Generic (unknown type)"
+4. Default genérico                  320 kts
 ```
 
-Esta cascada evita que un código de aeronave desconocido (variante de livery, tipo personalizado de la VA) cause una penalización incorrecta por overspeed.
-
-#### Tabla Completa de Vmo por Categoría
+#### Tabla de Vmo por Categoría
 
 **Pistones ligeros y GA**
 
@@ -331,9 +483,7 @@ Esta cascada evita que un código de aeronave desconocido (variante de livery, t
 | B744 / B748 | Boeing 747-400/8 | 365 |
 | B74F / B74S | Boeing 747-400F / 747SP | 365 |
 
-**Prefijos fallback (3 chars)**
-
-Si el tipo exacto no está en la tabla, se busca el prefijo de 3 caracteres:
+**Prefijos fallback (3 chars):**
 
 | Prefijo | Familia | Vmo (kts) |
 |---|---|---|
@@ -364,38 +514,22 @@ Si ningún prefijo coincide → **320 kts** (default genérico conservador).
 
 #### Ciclo de Detección de Overspeed
 
-`CheckViolations()` se llama **una vez por ciclo de telemetría** (cada ~50 ms) mientras el avión está airborne y hay un PIREP activo:
+`CheckViolations()` se llama **una vez por ciclo de telemetría** (~50 ms) mientras airborne con PIREP activo:
 
 ```
 Por cada ciclo:
     IAS actual > Vmo?
-        SÍ y no estaba en overspeed antes → _overspeedCount++ + log
-        NO                                → reset flag _wasOverspeed
+        SÍ y _wasOverspeed=false → _overspeedCount++ + log
+        NO                       → _wasOverspeed=false
 ```
 
-El flag `_wasOverspeed` actúa como latch: un evento de overspeed sostenido (ej. 30 segundos a 360 kts) cuenta como **un solo evento**, no como 600 eventos (uno por ciclo). El contador solo incrementa en la **transición** normal→overspeed.
-
-#### Deducción de Score por Overspeed
+El flag `_wasOverspeed` actúa como latch: un overspeed sostenido cuenta como **un solo evento**.
 
 | Eventos registrados | Deducción |
 |---|---|
 | 0 | 0 pts |
 | 1 | −7 pts |
 | ≥ 2 | −15 pts (máximo) |
-
-La penalización máxima es −15 pts sobre 100. Incluso con múltiples episodios de overspeed el score no puede caer más de 15 pts solo por este criterio; las penalizaciones de luces y aterrizaje acumulan el resto.
-
-#### Ejemplo Práctico
-
-Un piloto vuela un A320 (tipo `A320`, Vmo = **350 kts**) y durante el descenso mantiene 355 kts IAS durante 45 segundos, luego reduce:
-
-```
-Ciclo  1: IAS 355 > 350 → _wasOverspeed=false → _overspeedCount=1, log "⚠️ OVERSPEED: 355 kts"
-Ciclos 2–90: IAS 355 > 350 → _wasOverspeed=true → sin cambio (mismo evento)
-Ciclo 91: IAS 348 < 350 → _wasOverspeed=false
-```
-
-Resultado: 1 evento → **−7 pts** en el score final.
 
 ---
 
@@ -408,6 +542,7 @@ Resultado: 1 evento → **−7 pts** en el score final.
 **`FetchAndParseOFP()`** — Descarga y parsea el JSON de la API de SimBrief:
 - Construye `SimbriefPlan` completo: routing, combustible, pesos, tiempos, elevaciones, URL del PDF
 - Maneja que `files.pdf` puede ser string o objeto `{name, link}`
+- Campos de combustible: `BlockFuel` ← `fuel.plan_ramp` · `TripFuel` ← `fuel.enroute_burn`
 
 ---
 
@@ -431,12 +566,6 @@ BtnOfp_Click
 
 ---
 
-### WeatherService
-
-Obtiene QNH desde METAR para un aeropuerto ICAO dado. Usado en `CheckQnhAsync()` al entrar en TakeoffRoll y en Approach.
-
----
-
 ## Modelos Principales
 
 ### SimbriefPlan
@@ -451,13 +580,32 @@ long TimeGenerated, ScheduledOffTime
 string Aircraft, AircraftIcao, Registration, FlightId, BidId
 
 // Combustible / Pesos
-double BlockFuel, DepartureFuel, PayLoad, ZeroFuelWeight
+double BlockFuel, TripFuel, DepartureFuel, PayLoad, ZeroFuelWeight
 string Units   // "KG" | "LBS"
 int PaxCount
 
 // PDF
-string PdfUrl       // URL SimBrief
-string LocalPdfPath // Caché local (null si no descargado)
+string PdfUrl, LocalPdfPath
+```
+
+### FlightRecord
+
+```csharp
+int    Id, LandingRateFpm, Score
+string FlightNumber, Origin, Destination, RunwayName, MetarRaw
+DateTime FlightDate
+double GForce, TouchdownDistFt, CenterlineDevFt
+// Display helpers:
+string DisplayDate  → "yyyy-MM-dd HH:mm"
+string DisplayRoute → "ORIG → DEST"
+string DisplayScore → "score/100"
+```
+
+### ApproachTrackPoint
+
+```csharp
+int    FlightId, SeqNo
+double Lat, Lon, AltFt, AglFt, IasKt, VsFpm, HeadingDeg, DistNm, LateralFt
 ```
 
 ### FlightPhase (enum)
@@ -489,16 +637,27 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 | `fuel_tolerance_absolute` | 50 | Tolerancia combustible (kg) |
 | `simbrief_civalue` | 30 | Cost Index para SimBrief |
 | `simbrief_units` | lbs | Unidades combustible SimBrief |
+| `lnm_db_path` | _(vacío)_ | Ruta al `airports.sqlite` de LittleNavMap |
+| `landing_log_path` | _(vacío)_ | Ruta al archivo `landing_log.sqlite` |
 
 ---
 
 ## Requisitos de Instalación
 
-1. **Simulador**: MSFS 2020/2024, Prepar3D v4/v5, o X-Plane 11/12
-2. **FSUIPC**: FSUIPC4, FSUIPC6 o FSUIPC7 instalado y activo
-3. **pdfium.dll** (x64): incluido en el build (`PdfiumViewer.Native.x86_64.no_v8-no_xfa`)
-4. **Plataforma destino**: x64 (`Prefer32Bit=false` en el proyecto)
-5. **.NET Framework 4.8** en el sistema
+1. **Simulador**: ver tabla de compatibilidad
+
+| Simulador | Plugin requerido |
+|---|---|
+| MSFS 2020 / 2024 | FSUIPC 7 |
+| Prepar3D v5 / v6 | FSUIPC 6 |
+| Prepar3D v4 | FSUIPC 5 o 6 |
+| Prepar3D v1 / v2 / v3 | FSUIPC 4 |
+| FSX / FSX: Steam Edition | FSUIPC 4 |
+| X-Plane 11 / 12 | XUIPC (plugin para X-Plane) |
+
+2. **pdfium.dll** (x64): incluido en el build (`PdfiumViewer.Native.x86_64.no_v8-no_xfa`)
+3. **Plataforma destino**: x64 (`Prefer32Bit=false` en el proyecto)
+4. **.NET Framework 4.8** en el sistema
 
 ---
 
@@ -507,3 +666,4 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 - Configuración **Release**: copia `App.Release.config` sobre `vmsOpenAcars.exe.config` en post-build
 - `pdfium.dll` se copia siempre al directorio de salida (`CopyToOutputDirectory=Always`)
 - `Languages/*.json` se copian con `PreserveNewest`
+- `SeedMockData()` en `LandingLogService` solo compila en configuración **Debug** (`#if DEBUG`)

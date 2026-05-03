@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dir *)"
+      "Bash(dir *)",
+      "Bash(xargs grep *)",
+      "Read(//c/flightsim/lnm_db/**)",
+      "Bash(sqlite3 airports.sqlite \".tables\")",
+      "Bash(sqlite3 *)"
     ]
   }
 }

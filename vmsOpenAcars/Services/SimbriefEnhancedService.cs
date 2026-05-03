@@ -117,8 +117,9 @@ namespace vmsOpenAcars.Services
                         Registration = json["aircraft"]?["reg"]?.ToString() ?? "N-ACARS",
 
                         // Combustible
-                        BlockFuel = json["fuel"]?["plan_ramp"]?.Value<double>() ?? 0,
-                        DepartureFuel = json["fuel"]?["plan_ramp"]?.Value<double>() ?? 0, // Si lo necesitas
+                        BlockFuel    = json["fuel"]?["plan_ramp"]?.Value<double>() ?? 0,
+                        TripFuel     = json["fuel"]?["enroute_burn"]?.Value<double>() ?? 0,
+                        DepartureFuel = json["fuel"]?["plan_ramp"]?.Value<double>() ?? 0,
 
                         // Pesos
                         PayLoad = json["weights"]?["payload"]?.Value<double>() ?? 0,
