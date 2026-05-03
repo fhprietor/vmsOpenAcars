@@ -139,18 +139,26 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.ParkingBrakeChanged += OnParkingBrakeChanged;
             _fsuipc.EnginesChanged += OnEnginesChanged;
             _fsuipc.OnAircraftInfoReady += OnAircraftInfoReady;
-            _fsuipc.NavLightChanged += on => OnLog?.Invoke(
-                on ? "💡 NAV lights ON" : "💡 NAV lights OFF", Theme.MainText);
-
-            _fsuipc.StrobeLightChanged += on => OnLog?.Invoke(
-                on ? "💡 STROBE lights ON" : "💡 STROBE lights OFF", Theme.MainText);
-
-            _fsuipc.LandingLightChanged += on => OnLog?.Invoke(
-                on ? "💡 LANDING lights ON" : "💡 LANDING lights OFF", Theme.MainText);
-
-            // Beacon ya existente — ampliar para log:
-            _fsuipc.BeaconChanged += on => OnLog?.Invoke(
-                on ? "🔴 BEACON ON" : "🔴 BEACON OFF", Theme.MainText);
+            _fsuipc.NavLightChanged += on =>
+            {
+                string agl = AglSuffix();
+                OnLog?.Invoke(on ? $"💡 NAV lights ON{agl}" : $"💡 NAV lights OFF{agl}", Theme.MainText);
+            };
+            _fsuipc.StrobeLightChanged += on =>
+            {
+                string agl = AglSuffix();
+                OnLog?.Invoke(on ? $"💡 STROBE lights ON{agl}" : $"💡 STROBE lights OFF{agl}", Theme.MainText);
+            };
+            _fsuipc.LandingLightChanged += on =>
+            {
+                string agl = AglSuffix();
+                OnLog?.Invoke(on ? $"💡 LANDING lights ON{agl}" : $"💡 LANDING lights OFF{agl}", Theme.MainText);
+            };
+            _fsuipc.BeaconChanged += on =>
+            {
+                string agl = AglSuffix();
+                OnLog?.Invoke(on ? $"🔴 BEACON ON{agl}" : $"🔴 BEACON OFF{agl}", Theme.MainText);
+            };
 
             _metarService.OnMetarUpdated  += metars => OnMetarUpdated?.Invoke(metars);
             _metarService.OnStateChanged  += state  => OnMetarStateChanged?.Invoke(state);
@@ -727,7 +735,32 @@ namespace vmsOpenAcars.ViewModels
         private void OnGearChanged(int oldPos, int newPos)
         {
             string status = newPos == 1 ? "DOWN" : "UP";
-            OnLog?.Invoke($"🛬 Gear {status}", Theme.MainText);
+            OnLog?.Invoke($"🛬 Gear {status}{AglSuffix()}", Theme.MainText);
+        }
+
+        private string AglSuffix()
+        {
+            int agl = (int)(_flightManager?.CurrentAGL ?? 0);
+            return agl > 50 ? $" ({agl} ft AGL)" : "";
+        }
+
+        private void LogPlanSummary(SimbriefPlan p)
+        {
+            if (p == null) return;
+            string origIata = string.IsNullOrEmpty(p.OriginIata)      ? "---" : p.OriginIata;
+            string destIata = string.IsNullOrEmpty(p.DestinationIata) ? "---" : p.DestinationIata;
+            string date     = p.ScheduledOffTime > 0
+                ? DateTimeOffset.FromUnixTimeSeconds(p.ScheduledOffTime).UtcDateTime.ToString("ddMMMyyyy").ToUpper()
+                : DateTimeOffset.UtcNow.ToString("ddMMMyyyy").ToUpper();
+            string tripStr  = p.TripFuel > 0 ? $"  TRIP {p.TripFuel:F0}" : "";
+
+            OnLog?.Invoke(
+                $"📋 {p.Airline}{p.FlightNumber}  {p.Origin}/{origIata} → {p.Destination}/{destIata}" +
+                $"  {p.AircraftIcao} {p.Registration}  {date}",
+                Theme.Success);
+            OnLog?.Invoke(
+                $"   PAX {p.PaxCount}  FUEL {p.BlockFuel:F0}{tripStr}  CARGO {p.CargoWeight:F0}  FL{p.CruiseAltitude / 100}",
+                Theme.MainText);
         }
 
         private void OnFlapsChanged(double oldPercent, double newPercent)
@@ -985,6 +1018,7 @@ namespace vmsOpenAcars.ViewModels
             if (started)
             {
                 OnButtonStateChanged?.Invoke("ABORT", Color.Red, true);
+                LogPlanSummary(plan);
                 OnLog?.Invoke(_("FlightStarted"), Theme.Success);
                 OnFlightStarted?.Invoke();
             }

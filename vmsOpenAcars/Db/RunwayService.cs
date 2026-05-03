@@ -56,7 +56,7 @@ namespace vmsOpenAcars.Db
         private const double MetersPerDegLat  = 111320.0;
         private const double FtPerMeter       = 3.28084;
         private const double RunwayBufferM    = 30.0;   // tolerance before threshold / past far end
-        private const double RunwayWidthScale = 1.5;    // half-width multiplier for entry detection
+        private const double RunwayWidthScale = 1.0;    // half-width multiplier for entry detection
         private const double HoldingRadiusM   = 200.0;
         private const double TaxiwayRadiusM   = 300.0;
         private const double ParkingRadiusM   = 200.0;
