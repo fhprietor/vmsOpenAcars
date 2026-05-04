@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Net.Http;
 using System.Text;
@@ -61,10 +61,12 @@ namespace vmsOpenAcars.Core.Flight
         private double _touchdownDistanceFt = 0;
         private double _touchdownCenterlineDeviationFt = 0;
         private string _touchdownRunwayName = null;
+        public int LastFlightScore { get; private set; } = 0;
         private int _overspeedCount = 0;
         private bool _wasOverspeed = false;
         private int _lightsViolationCount = 0;
         private bool _lightsViolationActive = false;
+        private bool _beaconViolationActive = false;
         private int _qnhViolationCount = 0;
         private bool _isOfflineFlight = false;
         private int _vmoKts = 320;
@@ -238,7 +240,7 @@ namespace vmsOpenAcars.Core.Flight
                 switch (CurrentPhase)
                 {
                     case FlightPhase.Enroute:
-                        return RadarAltitude;
+                        return CurrentAltitude;
                     default:
                         return CurrentAltitude - ReferenceAirportElevation;
                 }
@@ -543,7 +545,7 @@ namespace vmsOpenAcars.Core.Flight
         /// Monitors overspeed and lights compliance violations while a PIREP is active.
         /// Call once per telemetry cycle, airborne only.
         /// </summary>
-        private void CheckViolations(int ias, int altitudeFt, bool landingLightOn)
+        private void CheckViolations(int ias, int altitudeAgl, bool landingLightOn, bool beaconLightOn)
         {
             bool isNowOverspeed = ias > _vmoKts;
             if (isNowOverspeed && !_wasOverspeed)
@@ -553,19 +555,31 @@ namespace vmsOpenAcars.Core.Flight
             }
             _wasOverspeed = isNowOverspeed;
 
-            // ── Landing lights por debajo de 10 000 ft ────────────────────────────
-            bool lightsRequired = altitudeFt < 10_000;
+            // ── Landing lights por debajo de 10 000 ft AGL ────────────────────────────
+            bool lightsRequired = altitudeAgl < 10_000;
             bool lightsViolating = lightsRequired && !landingLightOn;
 
             if (lightsViolating && !_lightsViolationActive)
             {
                 _lightsViolationActive = true;
                 _lightsViolationCount++;
-                OnLog?.Invoke($"⚠️ Landing lights OFF below 10,000 ft ({altitudeFt} ft)", Theme.Warning);
+                OnLog?.Invoke($"⚠️ Landing lights OFF below 10,000 ft AGL ({altitudeAgl} ft AGL)", Theme.Warning);
             }
             else if (!lightsViolating)
             {
                 _lightsViolationActive = false;
+            }
+
+            // ── Beacon light (siempre debe estar encendida en vuelo) ────────────────────────────
+            if (!beaconLightOn && !_beaconViolationActive)
+            {
+                _beaconViolationActive = true;
+                _lightsViolationCount++;
+                OnLog?.Invoke($"⚠️ BEACON light OFF while airborne", Theme.Warning);
+            }
+            else if (beaconLightOn)
+            {
+                _beaconViolationActive = false;
             }
         }
 
@@ -931,6 +945,7 @@ namespace vmsOpenAcars.Core.Flight
             _wasOverspeed = false;
             _lightsViolationCount = 0;
             _lightsViolationActive = false;
+            _beaconViolationActive = false;
             _qnhViolationCount = 0;
             _isOfflineFlight = false;
             _approachGateEvaluated = false;
@@ -1322,6 +1337,13 @@ namespace vmsOpenAcars.Core.Flight
                     _lightsViolationCount++;
                     OnLog?.Invoke("⚠️ PENALTY: BEACON OFF at engine start (-5 pts)", Theme.Warning);
                 }
+
+                // Blocks Off al encender motores en Boarding (aviones que no necesitan pushback)
+                if (CurrentPhase == FlightPhase.Boarding && !_blockOffRecorded)
+                {
+                    OnLog?.Invoke($"🛫 Block Off (engines started in Boarding)", Theme.MainText);
+                    Task.Run(() => UpdateBlockOffTime());
+                }
             }
 
             _areEnginesOn = data.EnginesRunning;
@@ -1374,7 +1396,7 @@ namespace vmsOpenAcars.Core.Flight
                 // Monitoreo de violaciones para scoring (solo en vuelo)
                 if (!data.IsOnGround)
                 {
-                    CheckViolations(CurrentIndicatedAirspeed, CurrentAltitude, data.LandingLightOn);
+                    CheckViolations(CurrentIndicatedAirspeed, (int)CurrentAGL, data.LandingLightOn, _isBeaconOn);
                     if (CurrentPhase == FlightPhase.Approach)
                         CheckStabilizedApproachGate(data);
                 }
@@ -1430,6 +1452,7 @@ namespace vmsOpenAcars.Core.Flight
             };
             var scoring = new ScoringService();
             ScoringResult scoreResult = scoring.Calculate(scoreData);
+            LastFlightScore = scoreResult.TotalScore;
             string ratingKey = "Score_" + scoreResult.LandingRating.Replace(" ", "");
             OnLog?.Invoke(string.Format(_("Score_Result"), scoreResult.TotalScore, _(ratingKey)), Theme.Success);
             var critKeyMap = new System.Collections.Generic.Dictionary<string, string>

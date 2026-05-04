@@ -1,4 +1,4 @@
-﻿// Services/SimbriefEnhancedService.cs
+// Services/SimbriefEnhancedService.cs
 using System;
 using System.Collections.Generic;
 using System.Configuration;
@@ -99,6 +99,7 @@ namespace vmsOpenAcars.Services
                         Destination = json["destination"]?["icao_code"]?.ToString() ?? "ZZZZ",
                         DestinationIata = json["destination"]?["iata_code"]?.ToString() ?? "---",
                         DestinationElevation = json["destination"]?["elevation"]?.Value<int>() ?? 0,
+                        OriginElevation = json["origin"]?["elevation"]?.Value<int>() ?? 0,
                         Alternate = json["alternate"]?["icao_code"]?.ToString(),
 
                         // Ruta

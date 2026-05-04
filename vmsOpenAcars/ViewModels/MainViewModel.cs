@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Threading.Tasks;
@@ -195,32 +195,41 @@ namespace vmsOpenAcars.ViewModels
             }
 
             // Approach track capture — every 2 s when in approach phase, AGL < 3000 ft
-            if (_flightManager?.CurrentPhase == FlightPhase.Approach
-                && _approachThreshold != null
-                && e.RadarAltitudeFeet < 3000
-                && _landingLogService.IsAvailable
-                && (DateTime.UtcNow - _lastApproachCapture).TotalSeconds >= 2.0)
+            if (_flightManager?.CurrentPhase == FlightPhase.Approach)
             {
-                _lastApproachCapture = DateTime.UtcNow;
-                var (distNm, lateralFt) = RunwayService.ComputeApproachMetrics(
-                    _approachThreshold.ThresholdLat,
-                    _approachThreshold.ThresholdLon,
-                    _approachThreshold.ThresholdHeading,
-                    e.Latitude, e.Longitude);
-
-                _approachBuffer.Add(new ApproachTrackPoint
+                if (_approachThreshold == null && _runwayService.IsAvailable)
                 {
-                    SeqNo      = _approachBuffer.Count,
-                    Lat        = e.Latitude,
-                    Lon        = e.Longitude,
-                    AltFt      = e.AltitudeFeet,
-                    AglFt      = e.RadarAltitudeFeet,
-                    IasKt      = e.IndicatedAirspeedKt,
-                    VsFpm      = e.VerticalSpeedFpm,
-                    HeadingDeg = e.HeadingDeg,
-                    DistNm     = distNm,
-                    LateralFt  = lateralFt
-                });
+                    string dest = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
+                    _approachThreshold = _runwayService.GetRunwayThreshold(dest, e.HeadingDeg);
+                }
+
+                double computedAgl = _flightManager.CurrentAGL;
+                if (_approachThreshold != null
+                    && computedAgl < 3000
+                    && _landingLogService.IsAvailable
+                    && (DateTime.UtcNow - _lastApproachCapture).TotalSeconds >= 2.0)
+                {
+                    _lastApproachCapture = DateTime.UtcNow;
+                    var (distNm, lateralFt) = RunwayService.ComputeApproachMetrics(
+                        _approachThreshold.ThresholdLat,
+                        _approachThreshold.ThresholdLon,
+                        _approachThreshold.ThresholdHeading,
+                        e.Latitude, e.Longitude);
+
+                    _approachBuffer.Add(new ApproachTrackPoint
+                    {
+                        SeqNo      = _approachBuffer.Count,
+                        Lat        = e.Latitude,
+                        Lon        = e.Longitude,
+                        AltFt      = e.AltitudeFeet,
+                        AglFt      = computedAgl,
+                        IasKt      = e.IndicatedAirspeedKt,
+                        VsFpm      = e.VerticalSpeedFpm,
+                        HeadingDeg = e.HeadingDeg,
+                        DistNm     = distNm,
+                        LateralFt  = lateralFt
+                    });
+            }
             }
         }
         private void OnAircraftInfoReady()
@@ -1091,7 +1100,7 @@ namespace vmsOpenAcars.ViewModels
                     GForce          = fm.TouchdownGForce,
                     TouchdownDistFt = fm.TouchdownDistanceFt,
                     CenterlineDevFt = fm.TouchdownCenterlineFt,
-                    Score           = 0   // populated after FilePirep scoring; left as 0 here
+                    Score           = fm.LastFlightScore
                 };
 
                 _landingLogService.SaveFlight(record, _approachBuffer);

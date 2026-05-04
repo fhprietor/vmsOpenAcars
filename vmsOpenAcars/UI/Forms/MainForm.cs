@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
@@ -1530,6 +1530,10 @@ namespace vmsOpenAcars.UI.Forms
                         _lblFmaPlanLine2.Text =
                             $"PAX {plan.PaxCount}  FUEL {plan.BlockFuel:F0}{tripStr}  CARGO {plan.CargoWeight:F0}  {flStr}" +
                             $"   AVG WIND {windStr}  AVG ISA {isaStr}";
+
+                        _lblFmaPlanLine3.Text = !string.IsNullOrEmpty(plan.Route)
+                            ? $"RTE  {plan.Route}"
+                            : "";
                     }
                     else
                     {

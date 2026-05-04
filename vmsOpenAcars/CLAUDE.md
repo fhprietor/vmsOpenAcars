@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.3.16  
+**Versión actual:** v0.3.18  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -101,7 +101,7 @@ outer (TableLayoutPanel 2 cols: 70% izq / 30% der)
 ├── [col 0] planLines (3 filas Percent 33%)
 │   ├── _lblFmaPlanLine1  → "{Airline}{FlightNo}  {Orig}/{OrigIATA}  {Dest}/{DestIATA}  CI {CI}  {Fecha}  {Reg} {Tipo}"
 │   ├── _lblFmaPlanLine2  → "PAX {n}  FUEL {block}  TRIP {trip}  CARGO {cargo}  FL{alt}  AVG WIND {dir}/{spd}  AVG ISA {isa}"
-│   └── _lblFmaPlanLine3  → vacía (reservada)
+│   └── _lblFmaPlanLine3  → "RTE  {Route}"
 └── [col 1] rightCol (3 filas Percent 33%)
     ├── lblPhase          → "PHASE BOARDING" / "PHASE TAXIOUT" / etc.
     ├── lblAir            → "GROUND" / "AIRBORNE" / "---"
@@ -234,6 +234,5 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 
 ## Próximas áreas de desarrollo (sin prioridad definida)
 
-- **Línea 3 del FMA** — actualmente en blanco; candidatos: tiempo estimado restante, distancia al destino, OAT, viento actual
 - **Touch-and-go** — ya detectado en FlightManager; verificar que scoring y approach buffer se resetean correctamente para el segundo aterrizaje
-- **Score en Landing Log** — actualmente se guarda 0; conectar con `ScoringResult.TotalScore` después de `FilePirep`
+- (COMPLETADO) **Score en Landing Log** — la puntuación ya se expone en `FlightManager.LastFlightScore` y se almacena en `landing_log.sqlite` al completar el vuelo.

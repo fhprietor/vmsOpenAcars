@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // Propósito : Gestión completa de la conexión FSUIPC con el simulador de vuelo.
 //             Lee offsets en bruto, los decodifica a unidades estándar y emite
 //             eventos a los consumidores (MainViewModel, FlightManager).
@@ -75,8 +75,8 @@ namespace vmsOpenAcars.Services
         private readonly Offset<int> _bankOffset = new Offset<int>(0x057C);
 
         // ---- Altimetría ----
-        /// <summary>0x0234 · INT32 · Radio/radar altitude in metres × 65536. Divide by 65536 to get metres.</summary>
-        private readonly Offset<int> _radarAltitudeOffset = new Offset<int>(0x0234);
+        /// <summary>0x31E4 · INT32 · Radio/radar altitude in metres × 65536. Divide by 65536 to get metres.</summary>
+        private readonly Offset<int> _radarAltitudeOffset = new Offset<int>(0x31E4);
         private readonly Offset<int> _groundAltitudeOffset = new Offset<int>(0x0020);
 
         // ---- Estado de vuelo ----
