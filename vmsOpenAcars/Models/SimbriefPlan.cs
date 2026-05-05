@@ -77,7 +77,14 @@
         /// </summary>
         public long TimeGenerated { get; set; }
         /// <summary>
-        /// Gets or sets the Schedule Time as provided by SimBrief.
+        /// Gets or sets the scheduled off-block time (sched_out) as provided by SimBrief.
+        /// This is the ETD / blocks-off time (pushback start).
+        /// </summary>
+        public long ScheduledOutTime { get; set; }
+
+        /// <summary>
+        /// Gets or sets the scheduled wheels-off time (sched_off) as provided by SimBrief.
+        /// This is sched_out + taxi_out. Used for date display on FMA.
         /// </summary>
         public long ScheduledOffTime { get; set; }
 

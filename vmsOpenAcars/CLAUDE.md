@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.3.18  
+**Versión actual:** v0.4.1  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -50,7 +50,7 @@ vmsOpenAcars/
 | Bank Angle | 10 pts | ≤2°=0, ≤5°=5, >5°=10 |
 | Pitch Angle | 10 pts | 1°-5°=0 (ideal), fuera de rango deduce 5-10 |
 | Overspeed | 15 pts | 0=0, 1=7, ≥2=15 |
-| Lights Compliance | 10 pts | 5 pts por violación, cap 10 |
+| Lights Compliance | 10 pts | 5 pts por violación, cap 10; Beacon exempto en aeronaves con switch compartido beacon/strobe (ver `BeaconStrobeSharedAircraft`) |
 | Stabilized Approach (1000 ft) | 15 pts | 6 criterios (speed, VS, bank, pitch, gear, flaps) |
 | QNH Compliance | 5 pts | 5 pts si Δ>2 hPa |
 | IVAO Offline | 5 pts | 5 si vuelo sin conexión IVAO |
@@ -115,6 +115,8 @@ outer (TableLayoutPanel 2 cols: 70% izq / 30% der)
 - `BlockFuel` ← `fuel.plan_ramp`
 - `TripFuel`  ← `fuel.enroute_burn`
 - `DepartureFuel` ← `fuel.plan_ramp` (alias)
+- `ScheduledOutTime` ← `times.sched_out` (Unix, blocks-off — countdown ETD en FMA)
+- `ScheduledOffTime` ← `times.sched_off` (Unix, wheels-off = sched_out + taxi_out — fecha en FMA)
 
 ---
 
@@ -212,17 +214,19 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 
 | Archivo | Línea aprox. | Contenido |
 |---|---|---|
-| `Db/RunwayService.cs` | — | RunwayService + GetRunwayThreshold + ComputeApproachMetrics |
+| `Db/RunwayService.cs` | ~267 | `SafeProjectOnRunway()` con `WithinFootprint` para desambiguar pistas paralelas |
+| `Db/RunwayService.cs` | ~175 | `FindNextIntersection()` — próxima intersección de calle de rodaje adelante |
 | `Models/SimbriefPlan.cs` | ~119 | `BlockFuel`, `TripFuel` |
 | `Services/ScoringService.cs` | 213-244 | Touchdown Zone + Centreline deductions |
 | `Models/FlightScoreData.cs` | ~85 | `TouchdownDistanceFt`, `CenterlineDeviationFt`, `RunwayName` |
 | `Core/Flight/FlightManager.cs` | ~61 | Variables privadas touchdown |
 | `Core/Flight/FlightManager.cs` | ~852 | `SetRunwayTouchdownData()` |
-| `Core/Flight/FlightManager.cs` | — | 4 public readonly props TouchdownDistanceFt/CenterlineFt/RunwayName/GForce |
+| `Core/Flight/FlightManager.cs` | ~580 | `CheckViolations()` beacon exemption: `BeaconStrobeSharedAircraft` (DH8D) |
+| `Core/Flight/FlightManager.cs` | ~1022 | Touchdown detection con guardia de fase: solo Descent/Approach/Landing (evita falsos touchdowns en Takeoff/Climb) |
 | `ViewModels/MainViewModel.cs` | 535-560 | `LookupRunwayData()` post-touchdown |
 | `ViewModels/MainViewModel.cs` | 620-637 | `LookupTakeoffRunwayData()` |
-| `ViewModels/MainViewModel.cs` | 562-617 | `HandleTaxiPositionUpdate()` ground ops |
-| `ViewModels/MainViewModel.cs` | — | `_approachBuffer`, `_approachThreshold`, `SaveLandingRecord()` |
+| `ViewModels/MainViewModel.cs` | ~562 | `HandleTaxiPositionUpdate()` ground ops + runway exit detection for AfterLanding |
+| `ViewModels/MainViewModel.cs` | ~210 | Approach capture start log: `Lnm_ApproachCaptureStart` (pista, AGL, distancia) |
 | `UI/Forms/MainForm.cs` | ~1018 | Construcción del panel FMA |
 | `UI/Forms/MainForm.cs` | ~1490 | Update loop FMA plan lines |
 | `UI/Forms/MainForm.cs` | — | Botón LOGBOOK (9.º botón, antes de START) |

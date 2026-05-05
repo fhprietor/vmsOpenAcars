@@ -172,8 +172,10 @@
   "Lnm_DepartureParking": "🅿️ DEPARTING FROM {0}",
   "Lnm_ArrivalParking": "🅿️ PARKED AT {0}",
   "Lnm_TaxiwayChange": "↳ TWY {0}",
+  "Lnm_TaxiPosition": "↳ TWY {0}, Next {1}",
   "Lnm_HoldingShort": "✋ HOLDING SHORT RWY {0} at {1}",
   "Lnm_HoldingShortNoTwy": "✋ HOLDING SHORT RWY {0}",
+  "Lnm_ApproachCaptureStart": "📡 APPROACH CAPTURE: RWY {0} | AGL {1} ft | Dist {2} NM",
 
   "Score_Result": "🏆 Score: {0}/100 — {1}",
   "Score_Deduction": "   −{0} pts: {1} ({2})",

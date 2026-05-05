@@ -1546,13 +1546,16 @@ namespace vmsOpenAcars.UI.Forms
                 // ===== DEPARTURE COUNTDOWN =====
                 if (_lblDepartureCdw != null)
                 {
+                    long cdwTarget = plan != null && plan.ScheduledOutTime > 0
+                        ? plan.ScheduledOutTime
+                        : (plan != null ? plan.ScheduledOffTime : 0);
                     bool showCdw = plan != null &&
-                                   plan.ScheduledOffTime > 0 &&
+                                   cdwTarget > 0 &&
                                    (fm.CurrentPhase == FlightPhase.Idle ||
                                     fm.CurrentPhase == FlightPhase.Boarding);
                     if (showCdw)
                     {
-                        long secondsRemaining = plan.ScheduledOffTime -
+                        long secondsRemaining = cdwTarget -
                                                 DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                         if (secondsRemaining > 0)
                         {

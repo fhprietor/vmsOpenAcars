@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Net.Http;
 using System.Text;
@@ -81,14 +82,23 @@ namespace vmsOpenAcars.Core.Flight
         private bool _isLandingLightOn;
         private bool _isBeaconOn;
 
+        // Aeronaves con switch único beacon/strobe: encender strobes apaga beacon
+        private static readonly HashSet<string> BeaconStrobeSharedAircraft = new HashSet<string>
+        {
+            "DH8D"  // Dash 8-400 / Q400
+        };
+
         // Debounce de luces: evita falsos OFF durante cambios de fuente de energía
         private const double LightDebounceSeconds = 2.0;
-        private bool _pendingNavOn, _pendingBeaconOn, _pendingLandingOn, _pendingTaxiOn, _pendingStrobeOn;
+        private const double SpoilersDebounceSeconds = 1.5;
+        private bool _pendingNavOn, _pendingBeaconOn, _pendingLandingOn, _pendingTaxiOn, _pendingStrobeOn, _pendingSpoilers;
         private DateTime _navPending = DateTime.MinValue;
         private DateTime _beaconPending = DateTime.MinValue;
         private DateTime _landingPending = DateTime.MinValue;
         private DateTime _taxiPending = DateTime.MinValue;
         private DateTime _strobePending = DateTime.MinValue;
+        private DateTime _spoilersPending = DateTime.MinValue;
+        private bool _isSpoilersOn;
 
         // Control de fases
         private DateTime _phaseStartTime = DateTime.UtcNow;
@@ -293,15 +303,14 @@ namespace vmsOpenAcars.Core.Flight
         #region Private Methods
 
         /// <summary>
-        /// Aplica debounce a un estado de luz: solo acepta un cambio de estado
-        /// después de que haya sido estable durante LightDebounceSeconds.
-        /// Evita que parpadeos durante cambio de fuente de energía disparen penalizaciones.
+        /// Aplica debounce a un estado booleano: solo acepta un cambio de estado
+        /// después de que haya sido estable durante el tiempo especificado.
         /// </summary>
-        private static void DebounceLight(bool raw, ref bool stable, ref bool pending, ref DateTime pendingSince)
+        private static void DebounceState(bool raw, ref bool stable, ref bool pending, ref DateTime pendingSince, double debounceSeconds)
         {
             if (raw == stable) { pending = stable; return; }
             if (raw != pending) { pending = raw; pendingSince = DateTime.UtcNow; return; }
-            if ((DateTime.UtcNow - pendingSince).TotalSeconds >= LightDebounceSeconds)
+            if ((DateTime.UtcNow - pendingSince).TotalSeconds >= debounceSeconds)
                 stable = pending;
         }
 
@@ -571,13 +580,16 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             // ── Beacon light (siempre debe estar encendida en vuelo) ────────────────────────────
-            if (!beaconLightOn && !_beaconViolationActive)
+            // Excepción: aeronaves con switch compartido beacon/strobe (ej: Q400),
+            // donde encender strobes apaga automáticamente el beacon
+            bool beaconExempt = BeaconStrobeSharedAircraft.Contains(_activePlan?.AircraftIcao ?? "") && _isStrobeOn;
+            if (!beaconLightOn && !_beaconViolationActive && !beaconExempt)
             {
                 _beaconViolationActive = true;
                 _lightsViolationCount++;
                 OnLog?.Invoke($"⚠️ BEACON light OFF while airborne", Theme.Warning);
             }
-            else if (beaconLightOn)
+            else if (beaconLightOn || beaconExempt)
             {
                 _beaconViolationActive = false;
             }
@@ -1010,11 +1022,19 @@ namespace vmsOpenAcars.Core.Flight
             // ===== DETECCIÓN DE TOMACONTACTO (transición aire → suelo) =====
             if (!_wasOnGround && isOnGround && CurrentPhase != FlightPhase.AfterLanding)
             {
-                RegisterTouchdown(verticalSpeed);
-                TransitionTo(FlightPhase.AfterLanding, previousPhase);
-                Task.Run(() => UpdatePirepStatus("LAN"));
-                _wasOnGround = isOnGround;
-                return;
+                // Solo en fases de aproximación/descenso se considera un aterrizaje real.
+                // En Takeoff/Climb/Enroute el flicker de SimOnGround es un falso positivo
+                // (rebote durante la rotación o glitch del simulador).
+                if (CurrentPhase == FlightPhase.Descent
+                 || CurrentPhase == FlightPhase.Approach
+                 || CurrentPhase == FlightPhase.Landing)
+                {
+                    RegisterTouchdown(verticalSpeed);
+                    TransitionTo(FlightPhase.AfterLanding, previousPhase);
+                    Task.Run(() => UpdatePirepStatus("LAN"));
+                    _wasOnGround = isOnGround;
+                    return;
+                }
             }
 
             // ===== FASES EN TIERRA =====
@@ -1094,6 +1114,12 @@ namespace vmsOpenAcars.Core.Flight
                         break;
 
                     case FlightPhase.AfterLanding:
+                        if ((DateTime.UtcNow - _lastTaxiPositionEvent).TotalSeconds >= 2.0)
+                        {
+                            _lastTaxiPositionEvent = DateTime.UtcNow;
+                            OnTaxiPositionUpdate?.Invoke(CurrentLat, CurrentLon, CurrentHeading,
+                                _activePlan?.Destination ?? _currentAirport, true);
+                        }
                         if (groundSpeed < 40)
                             TransitionTo(FlightPhase.TaxiIn, previousPhase);
                         break;
@@ -1352,15 +1378,19 @@ namespace vmsOpenAcars.Core.Flight
             IsGearDown = data.GearDown;
             CurrentFlapsPosition = data.FlapsPercent;
             FlapsLabel = data.FlapsLabel;
-            AreSpoilersDeployed = data.SpoilersDeployed;
+            
+            // Spoilers con debounce
+            DebounceState(data.SpoilersDeployed, ref _isSpoilersOn, ref _pendingSpoilers, ref _spoilersPending, SpoilersDebounceSeconds);
+            AreSpoilersDeployed = _isSpoilersOn;
+
             AutobrakeSetting = data.AutobrakeSetting;
 
             // Luces (con debounce para filtrar parpadeos por cambio de fuente de energía)
-            DebounceLight(data.NavLightOn,     ref _isNavOn,         ref _pendingNavOn,     ref _navPending);
-            DebounceLight(data.BeaconLightOn,  ref _isBeaconOn,      ref _pendingBeaconOn,  ref _beaconPending);
-            DebounceLight(data.LandingLightOn, ref _isLandingLightOn, ref _pendingLandingOn, ref _landingPending);
-            DebounceLight(data.TaxiLightOn,    ref _isTaxiLightOn,   ref _pendingTaxiOn,    ref _taxiPending);
-            DebounceLight(data.StrobeLightOn,  ref _isStrobeOn,      ref _pendingStrobeOn,  ref _strobePending);
+            DebounceState(data.NavLightOn,     ref _isNavOn,         ref _pendingNavOn,     ref _navPending,     LightDebounceSeconds);
+            DebounceState(data.BeaconLightOn,  ref _isBeaconOn,      ref _pendingBeaconOn,  ref _beaconPending,  LightDebounceSeconds);
+            DebounceState(data.LandingLightOn, ref _isLandingLightOn, ref _pendingLandingOn, ref _landingPending, LightDebounceSeconds);
+            DebounceState(data.TaxiLightOn,    ref _isTaxiLightOn,   ref _pendingTaxiOn,    ref _taxiPending,    LightDebounceSeconds);
+            DebounceState(data.StrobeLightOn,  ref _isStrobeOn,      ref _pendingStrobeOn,  ref _strobePending,  LightDebounceSeconds);
             IsNavLightOn     = _isNavOn;
             IsBeaconLightOn  = _isBeaconOn;
             IsLandingLightOn = _isLandingLightOn;

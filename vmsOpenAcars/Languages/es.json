@@ -172,8 +172,10 @@
   "Lnm_DepartureParking": "🅿️ SALIENDO DESDE {0}",
   "Lnm_ArrivalParking": "🅿️ ESTACIONADO EN {0}",
   "Lnm_TaxiwayChange": "↳ CALLE {0}",
+  "Lnm_TaxiPosition": "↳ CALLE {0}, Próximo a {1}",
   "Lnm_HoldingShort": "✋ ESPERA ANTES DE PISTA {0} en {1}",
   "Lnm_HoldingShortNoTwy": "✋ ESPERA ANTES DE PISTA {0}",
+  "Lnm_ApproachCaptureStart": "📡 INICIO CAPTURA APROX: PISTA {0} | AGL {1} ft | Dist {2} NM",
 
   "Score_Result": "🏆 Puntuación: {0}/100 — {1}",
   "Score_Deduction": "   −{0} pts: {1} ({2})",

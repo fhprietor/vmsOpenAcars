@@ -143,7 +143,8 @@ namespace vmsOpenAcars.Services
                         // Unidades
                         Units = json["params"]?["units"]?.ToString()?.ToUpperInvariant() ?? "KG",
 
-                        TimeGenerated = json["params"]?["time_generated"]?.Value<long>() ?? 0,
+                        TimeGenerated    = json["params"]?["time_generated"]?.Value<long>() ?? 0,
+                        ScheduledOutTime = json["times"]?["sched_out"]?.Value<long>() ?? 0,
                         ScheduledOffTime = json["times"]?["sched_off"]?.Value<long>() ?? 0,
 
                         // URL del PDF: directory + filename

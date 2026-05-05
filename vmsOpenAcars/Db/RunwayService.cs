@@ -165,6 +165,29 @@ namespace vmsOpenAcars.Db
             catch { return null; }
         }
 
+        /// <summary>
+        /// Next intersection ahead of the aircraft's heading (different taxiway name).
+        /// Returns the taxiway name that will be crossed next, or null if none ahead.
+        /// </summary>
+        public string FindNextIntersection(
+            string airport, double lat, double lon, double heading)
+        {
+            try
+            {
+                if (!IsAvailable) return null;
+                using (var conn = OpenConn())
+                {
+                    long apId = GetAirportId(conn, airport);
+                    if (apId < 0) return null;
+
+                    string current = NearestTaxiway(conn, apId, lat, lon);
+                    return string.IsNullOrEmpty(current) ? null
+                         : NextIntersection(conn, apId, lat, lon, heading, current);
+                }
+            }
+            catch { return null; }
+        }
+
         public HoldingPoint FindHoldingPoint(
             string airport, double lat, double lon, double heading)
         {
@@ -252,16 +275,33 @@ namespace vmsOpenAcars.Db
                     long apId = GetAirportId(conn, airport);
                     if (apId < 0) return null;
 
+                    var ends = GetRunwayEnds(conn, apId);
                     RunwayEndInfo best = null;
                     double bestDelta   = double.MaxValue;
 
-                    foreach (var end in GetRunwayEnds(conn, apId))
+                    foreach (var end in ends)
                     {
                         double d = HeadingDelta(end.Heading, heading);
                         if (d < 45.0 && d < bestDelta) { bestDelta = d; best = end; }
                     }
 
                     if (best == null) return null;
+
+                    // Parallel runway disambiguation: if position is not within the
+                    // best-heading runway footprint, prefer a different runway with a
+                    // heading close enough that actually contains the point.
+                    if (!WithinFootprint(lat, lon, best))
+                    {
+                        RunwayEndInfo alt = null;
+                        double altDelta = double.MaxValue;
+                        foreach (var end in ends)
+                        {
+                            double d = HeadingDelta(end.Heading, heading);
+                            if (d < 45.0 && d < altDelta && WithinFootprint(lat, lon, end))
+                            { altDelta = d; alt = end; }
+                        }
+                        if (alt != null) best = alt;
+                    }
 
                     Project(lat, lon, best.Lat, best.Lon, best.Heading,
                             out double along, out double cross);
@@ -348,6 +388,71 @@ namespace vmsOpenAcars.Db
             string n      = number > 0 ? number.ToString() : "";
             string result = (name + n + suffix).Trim();
             return string.IsNullOrEmpty(result) ? "RAMP" : result;
+        }
+
+        // Bearing from (lat1,lon1) to (lat2,lon2) in degrees (0–360).
+        private static double BearingDeg(double lat1, double lon1, double lat2, double lon2)
+        {
+            double cosLat = Math.Cos(lat1 * Math.PI / 180.0);
+            double dE = (lon2 - lon1) * MetersPerDegLat * cosLat;
+            double dN = (lat2 - lat1) * MetersPerDegLat;
+            return (Math.Atan2(dE, dN) * 180.0 / Math.PI + 360.0) % 360.0;
+        }
+
+        // Projection parameter t (0..1) of closest point on segment from (lat,lon).
+        private static double ProjectOnSeg(
+            double lat, double lon, double sLat, double sLon, double eLat, double eLon)
+        {
+            double cosLat = Math.Cos((sLat + eLat) * 0.5 * Math.PI / 180.0);
+            double px = (lon - sLon) * MetersPerDegLat * cosLat;
+            double py = (lat - sLat) * MetersPerDegLat;
+            double dx = (eLon - sLon) * MetersPerDegLat * cosLat;
+            double dy = (eLat - sLat) * MetersPerDegLat;
+            double lenSq = dx * dx + dy * dy;
+            return lenSq < 1e-10 ? 0.0 : Math.Max(0.0, Math.Min(1.0, (px * dx + py * dy) / lenSq));
+        }
+
+        // Nearest taxiway with a DIFFERENT name ahead of (lat,lon) heading <hdg>.
+        private string NextIntersection(
+            SQLiteConnection conn, long airportId, double lat, double lon, double heading,
+            string currentTaxiway)
+        {
+            const string sql = @"
+                SELECT DISTINCT name, start_lonx, start_laty, end_lonx, end_laty
+                FROM   taxi_path
+                WHERE  airport_id = @aid
+                  AND  type = 'T'
+                  AND  name IS NOT NULL AND name != ''
+                  AND  name != @cur";
+
+            string bestName = null;
+            double bestDist = double.MaxValue;
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@aid", airportId);
+                cmd.Parameters.AddWithValue("@cur", currentTaxiway);
+                using (var rdr = cmd.ExecuteReader())
+                {
+                    while (rdr.Read())
+                    {
+                        string name = rdr.GetString(0);
+                        double sLat = rdr.GetDouble(2), sLon = rdr.GetDouble(1);
+                        double eLat = rdr.GetDouble(4), eLon = rdr.GetDouble(3);
+
+                        double t     = ProjectOnSeg(lat, lon, sLat, sLon, eLat, eLon);
+                        double cLat  = sLat + t * (eLat - sLat);
+                        double cLon  = sLon + t * (eLon - sLon);
+                        double dist  = DistM(lat, lon, cLat, cLon);
+
+                        if (dist > 2000.0) continue;
+                        if (HeadingDelta(BearingDeg(lat, lon, cLat, cLon), heading) > 60.0) continue;
+
+                        if (dist < bestDist) { bestDist = dist; bestName = name; }
+                    }
+                }
+            }
+            return bestName;
         }
 
         // ── Database ──────────────────────────────────────────────────────────────
