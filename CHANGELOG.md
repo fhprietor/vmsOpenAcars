@@ -1,5 +1,25 @@
 # Changelog - vmsOpenAcars
 
+## [0.4.4]
+
+### Added
+
+- **ILS detection** — `RunwayService.GetIlsForRunway(airport, runway)` queries the LittleNavMap DB for the ILS serving the landing runway, filtering LOC-only procedures via `gs_pitch > 0.1`. Returns frequency (MHz), localizer course, glideslope pitch, and threshold position.
+- **Approach type identification** — `RunwayService.GetApproachType(airport, runway)` returns the best available approach procedure (ILS > RNAV > other) with an `HasVerticalGuidance` flag. Falls back to `runway_end_id` join when `approach.runway_name` is empty.
+- **Approach fix waypoint sequencing** — `RunwayService.GetApproachFixes(approachId)` loads IF, FAF, and MAP fixes from `approach_leg`. During approach, FlightManager logs each fix as the aircraft passes within 0.5 NM.
+- **NAV1 frequency reading** — FSUIPC offset `0x0350` (BCD-encoded, `Offset<short>`) decoded to MHz. Offset `0x0C4E` reads the OBS / ILS course. Both fields added to `RawTelemetryData`.
+- **ILS tuning check** (at 1000 ft AGL gate) — if an ILS approach was detected, FlightManager verifies that NAV1 is tuned to the correct frequency (±0.05 MHz tolerance). Logs confirmation or warning; non-compliance increments `LocalizerViolations`.
+- **Localizer alignment scoring** — monitors aircraft heading vs ILS course below 500 ft AGL. Deviations > 5° are counted (max 2). `ScoringService` deducts up to **−5 pts** combining ILS-not-tuned (−3) and heading deviations (−1 each, max −2).
+- **Decision altitude (DA) and minimums check** — DA computed as threshold elevation + 200 ft. If the aircraft descends below DA without landing, `BelowMinimums` is flagged → **−5 pts** in scoring.
+- **Approach data loaded in MainViewModel** — `LoadApproachData(airport, runwayName)` runs on `Task.Run` when the Approach phase starts, calling `_flightManager.SetApproachData(ils, approach, fixes)` to wire up all ILS/approach scoring.
+
+### Changed
+
+- `FlightScoreData` gains three new fields: `IlsTunedCorrectly` (bool, default `true`), `LocalizerViolations` (int), `BelowMinimums` (bool). Included in `FilePirep()` score assembly and `Reset()`.
+- `ScoringService` gains two new criteria: **Localizer Alignment** (max −5 pts) and **Minimums Compliance** (−5 pts). Max raw deduction sum now 130 pts; final score still clamped to 0.
+- `FlightManager.CheckStabilizedApproachGate` extended with ILS tuning verification (criterion 7); QNH check renumbered to criterion 9.
+- Touch-and-go reset block extended to clear ILS/approach state for the second circuit.
+
 ## [0.4.3]
 
 ### Fixed

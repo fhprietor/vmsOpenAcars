@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.4.3  
-> Última actualización: 2026-05-06
+> Versión del documento: 0.4.4  
+> Última actualización: 2026-05-07
 
 ---
 
@@ -259,9 +259,18 @@ HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)     // holdin
 ParkingSpot           FindNearestParking(airport, lat, lon)            // gate / parking
 RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading)   // umbral para captura de aproximación — lat/lon desambiguan pistas paralelas
 (double DistNm, double LateralFt) ComputeApproachMetrics(...)         // proyección flat-earth (static)
+// ILS / Approach (v0.4.4)
+IlsData              GetIlsForRunway(airport, runwayName)             // frecuencia MHz, curso ILS, gs_pitch; null si no existe o no es ILS
+ApproachInfo         GetApproachType(airport, runwayName)             // mejor procedimiento (ILS > RNAV > otro)
+IList<ApproachFix>   GetApproachFixes(approachId)                     // fixes IF/FAF/MAP del procedimiento
 ```
 
 `RunwayTouchdownResult` incluye: `ThresholdDistanceFt`, `CenterlineDeviationFt`, `RunwayName`, `ThresholdLat`, `ThresholdLon`, `ThresholdHeading`.
+
+**ILS / Approach result types (v0.4.4):**
+- `IlsData` — `FrequencyMhz`, `Course`, `GlideSlopePitch`, `RunwayName`, `ThresholdLat/Lon/ElevFt`
+- `ApproachInfo` — `ApproachId`, `Type` ("ILS", "RNAV"…), `RunwayName`, `HasVerticalGuidance`
+- `ApproachFix` — `Name`, `FixType` ("IF", "FAF", "MAP"), `Lat`, `Lon`, `AltitudeFt`
 
 **Esquema de BD LittleNavMap** (verificado en producción):
 
@@ -311,8 +320,10 @@ Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se
 | On-Time Departure | −5 pts | −5 si Blocks Off difiere > 10 min del STD (`sched_out`) |
 | Touchdown Zone | −7 pts | ≤1500 ft = 0 / ≤2500 ft = −3 / >2500 ft = −7 · requiere LNM DB |
 | Centreline Deviation | −7 pts | ≤10 ft = 0 / ≤30 ft = −3 / >30 ft = −7 · requiere LNM DB |
+| Localizer Alignment | −5 pts | ILS not tuned −3; heading >5° x2 max −2; cap −5 · requiere LNM DB + ILS approach |
+| Minimums Compliance | −5 pts | −5 si descenso bajo DA (threshold elevation + 200 ft) sin aterrizar |
 
-Los criterios **Touchdown Zone** y **Centreline Deviation** solo se evalúan si `TouchdownDistanceFt > 0` (es decir, si RunwayService pudo consultar la BD de LittleNavMap).
+Los criterios **Touchdown Zone** y **Centreline Deviation** solo se evalúan si `TouchdownDistanceFt > 0` (es decir, si RunwayService pudo consultar la BD de LittleNavMap). Los criterios **Localizer Alignment** y **Minimums Compliance** solo se evalúan si se detectó un procedimiento ILS para la pista de aterrizaje.
 
 **Landing ratings:** Butter (≤100 fpm) · Smooth · Normal · Hard · Very Hard · Slam (≥600 fpm)
 
@@ -366,6 +377,9 @@ void SeedMockData()             // solo disponible en #if DEBUG — 5 vuelos SKR
 ```
 Phase → Approach
     → RunwayService.GetRunwayThreshold(dest, lat, lon, heading) → _approachThreshold
+    → Task.Run(LoadApproachData)                                              // v0.4.4
+        → GetIlsForRunway() + GetApproachType() + GetApproachFixes()
+        → _flightManager.SetApproachData(ils, approach, fixes)
     → _approachBuffer.Clear()
 OnRawDataUpdated (cada 50 ms)
     → si phase=Approach && AGL < 3000 ft && ≥ 2 s desde último punto

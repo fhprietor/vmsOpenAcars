@@ -78,6 +78,8 @@ namespace vmsOpenAcars.Services
         private const int LateDepartureDeduction = 5;
         private const int MaxTouchdownZoneDeduction = 7;
         private const int MaxCenterlineDeduction = 7;
+        private const int MaxLocalizerDeduction = 5;
+        private const int MinimumsBustDeduction = 5;
 
         // ─── Public API ───────────────────────────────────────────────────────────
 
@@ -242,6 +244,42 @@ namespace vmsOpenAcars.Services
                     });
                     totalDeduction += clDeduction;
                 }
+            }
+
+            // ── Localizer Alignment ──────────────────────────────────────────────
+            // Active only when ILS data was available (LocalizerViolations > 0 or
+            // ILS was detected but not tuned). Skip entirely when no ILS was loaded.
+            if (!data.IlsTunedCorrectly || data.LocalizerViolations > 0)
+            {
+                int locDeduction = 0;
+                if (!data.IlsTunedCorrectly) locDeduction += 3;
+                locDeduction += Math.Min(2, data.LocalizerViolations);
+                locDeduction = Math.Min(locDeduction, MaxLocalizerDeduction);
+                if (locDeduction > 0)
+                {
+                    string reason = !data.IlsTunedCorrectly
+                        ? $"ILS not tuned + {data.LocalizerViolations} alignment deviation(s)"
+                        : $"{data.LocalizerViolations} alignment deviation(s) below 500 ft";
+                    result.Deductions.Add(new ScoringDeduction
+                    {
+                        Criterion      = "Localizer Alignment",
+                        Reason         = reason,
+                        PointsDeducted = locDeduction
+                    });
+                    totalDeduction += locDeduction;
+                }
+            }
+
+            // ── Minimums Compliance ──────────────────────────────────────────────
+            if (data.BelowMinimums)
+            {
+                result.Deductions.Add(new ScoringDeduction
+                {
+                    Criterion      = "Minimums Compliance",
+                    Reason         = "descended below DA/DH without landing",
+                    PointsDeducted = MinimumsBustDeduction
+                });
+                totalDeduction += MinimumsBustDeduction;
             }
 
             // ── IVAO Offline ─────────────────────────────────────────────────────

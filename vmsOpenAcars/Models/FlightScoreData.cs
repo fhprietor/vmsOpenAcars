@@ -99,6 +99,29 @@ namespace vmsOpenAcars.Models
         /// <summary>Runway designator used at landing (e.g. "13L"). Null if not available.</summary>
         public string RunwayName { get; set; }
 
+        // ─── ILS / Approach compliance (optional — populated when LNM DB configured) ─
+
+        /// <summary>
+        /// False when an ILS approach was expected but NAV1 was not tuned to the correct
+        /// frequency at the 1000 ft AGL gate. Treated as a localizer violation.
+        /// Defaults to true (no penalty when ILS data is unavailable).
+        /// </summary>
+        public bool IlsTunedCorrectly { get; set; } = true;
+
+        /// <summary>
+        /// Number of localizer heading alignment violations while below 500 ft AGL.
+        /// Only counted when ILS data is available (ILS approach detected).
+        /// </summary>
+        public int LocalizerViolations { get; set; }
+
+        /// <summary>
+        /// True if the aircraft descended below the Decision Altitude (DA = threshold
+        /// elevation + 200 ft) without touching down — indicates a go-around was not
+        /// executed when it should have been.
+        /// Only evaluated when ILS data is available.
+        /// </summary>
+        public bool BelowMinimums { get; set; }
+
         /// <summary>
         /// Resets all fields to their default (zero) values.
         /// Call this when a new flight begins (e.g., on prefile).
@@ -118,6 +141,9 @@ namespace vmsOpenAcars.Models
             TouchdownDistanceFt = 0;
             CenterlineDeviationFt = 0;
             RunwayName = null;
+            IlsTunedCorrectly = true;
+            LocalizerViolations = 0;
+            BelowMinimums = false;
         }
     }
 }

@@ -1,8 +1,8 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.4.3**
+**Versión 0.4.4**
 
-vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 12 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
+vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
 ---
 
@@ -68,7 +68,7 @@ Haz clic en el botón **SETTINGS** para abrir el diálogo de configuración. Tod
 
 ### Sección NavMap Database
 
-vmsOpenAcars usa la base de datos de **LittleNavMap** para calcular con precisión la distancia al umbral de pista y la desviación de centreline. Sin esta BD el scoring básico funciona, pero los criterios **Touchdown Zone** y **Centreline Deviation** no se evaluarán.
+vmsOpenAcars usa la base de datos de **LittleNavMap** para calcular con precisión la distancia al umbral de pista, la desviación de centreline, y detectar el ILS de la pista de aterrizaje. Sin esta BD el scoring básico funciona, pero los criterios **Touchdown Zone**, **Centreline Deviation**, **Localizer Alignment** y **Minimums Compliance** no se evaluarán.
 
 1. Abre LittleNavMap al menos una vez para que genere su base de datos.
 2. En Settings → **LNM DB Path**, haz clic en `[...]` y selecciona el archivo `.sqlite` de LittleNavMap. Por defecto se encuentra en:
@@ -221,8 +221,10 @@ El score parte de **100 puntos** y aplica deducciones según **12 criterios**. E
 | **On-Time Departure** | −5 pts | −5 si el Blocks Off real difiere más de 10 min del STD programado |
 | **Touchdown Zone** | −7 pts | ≤ 1 500 ft del umbral → 0 · ≤ 2 500 ft → −3 · > 2 500 ft → −7 ¹ |
 | **Centreline Deviation** | −7 pts | ≤ 10 ft → 0 · ≤ 30 ft → −3 · > 30 ft → −7 ¹ |
+| **Localizer Alignment** | −5 pts | ILS no sintonizado → −3 · desviación de rumbo > 5° (× 2 máx) → −2 ¹ |
+| **Minimums Compliance** | −5 pts | −5 si el avión descendió bajo la DA sin aterrizar ¹ |
 
-> ¹ Requiere la base de datos de LittleNavMap configurada en Settings. Sin ella estos dos criterios no se evalúan.
+> ¹ Requiere la base de datos de LittleNavMap configurada en Settings. **Localizer Alignment** y **Minimums Compliance** además requieren que la pista tenga un procedimiento ILS en la BD. Sin ello estos criterios no se evalúan.
 
 ---
 

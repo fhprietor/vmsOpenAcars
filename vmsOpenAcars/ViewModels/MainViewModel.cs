@@ -338,6 +338,9 @@ namespace vmsOpenAcars.ViewModels
                 string dest = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
                 double hdg  = _flightManager.CurrentHeading;
                 _approachThreshold = _runwayService.GetRunwayThreshold(dest, _flightManager.CurrentLat, _flightManager.CurrentLon, hdg);
+                // Load ILS and approach procedure data for scoring / waypoint sequencing
+                string rwyName = _approachThreshold?.RunwayName;
+                Task.Run(() => LoadApproachData(dest, rwyName));
             }
             else if (phase != FlightPhase.Approach)
             {
@@ -734,6 +737,17 @@ namespace vmsOpenAcars.ViewModels
                     (int)result.ThresholdDistanceFt,
                     (int)result.CenterlineDeviationFt),
                 Theme.Success);
+        }
+
+        private void LoadApproachData(string airport, string runwayName)
+        {
+            if (!_runwayService.IsAvailable || string.IsNullOrEmpty(airport)) return;
+            var ils      = _runwayService.GetIlsForRunway(airport, runwayName);
+            var approach = _runwayService.GetApproachType(airport, runwayName);
+            var fixes    = approach != null
+                           ? _runwayService.GetApproachFixes(approach.ApproachId)
+                           : null;
+            _flightManager?.SetApproachData(ils, approach, fixes);
         }
 
         private void LookupDepartureParking(string airport, double lat, double lon)

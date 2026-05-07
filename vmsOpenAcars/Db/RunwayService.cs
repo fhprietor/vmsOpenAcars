@@ -35,6 +35,36 @@ namespace vmsOpenAcars.Db
         public string DisplayName { get; set; }
     }
 
+    // ─── ILS / Approach result types ─────────────────────────────────────────────
+
+    public class IlsData
+    {
+        public double FrequencyMhz     { get; set; }
+        public double Course           { get; set; }  // localizer course, magnetic degrees
+        public double GlideSlopePitch  { get; set; }  // degrees (> 0 = full ILS, 0 = LOC-only)
+        public string RunwayName       { get; set; }
+        public double ThresholdLat     { get; set; }
+        public double ThresholdLon     { get; set; }
+        public double ThresholdElevFt  { get; set; }  // airport elevation used for DA calculation
+    }
+
+    public class ApproachInfo
+    {
+        public int    ApproachId          { get; set; }
+        public string Type                { get; set; }  // "ILS", "RNAV", "NDB", "VOR", "GPS", "LOC"…
+        public string RunwayName          { get; set; }
+        public bool   HasVerticalGuidance { get; set; }  // true for ILS / LPV / GLS
+    }
+
+    public class ApproachFix
+    {
+        public string Name       { get; set; }
+        public string FixType    { get; set; }  // "IF", "FAF", "MAP", "" for plain fixes
+        public double Lat        { get; set; }
+        public double Lon        { get; set; }
+        public double AltitudeFt { get; set; }
+    }
+
     // ─── Internal DTO ─────────────────────────────────────────────────────────────
 
     internal class RunwayEndInfo
@@ -494,6 +524,200 @@ namespace vmsOpenAcars.Db
                 object v = cmd.ExecuteScalar();
                 return v == null || v == DBNull.Value ? -1L : Convert.ToInt64(v);
             }
+        }
+
+        // ── ILS / Approach API ────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns ILS data for the named runway at <paramref name="airport"/>.
+        /// Filters ILS from LOC using gs_pitch > 0.1.
+        /// Returns null if not available or DB not configured.
+        /// </summary>
+        public IlsData GetIlsForRunway(string airport, string runwayName)
+        {
+            if (!IsAvailable || string.IsNullOrEmpty(airport)) return null;
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;Read Only=True;"))
+                {
+                    conn.Open();
+                    // Airport elevation for DA calculation
+                    double apElevFt = 0;
+                    const string elevSql = "SELECT altitude FROM airport WHERE ident = @ap LIMIT 1";
+                    using (var cmd = new SQLiteCommand(elevSql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@ap", airport);
+                        object v = cmd.ExecuteScalar();
+                        if (v != null && v != DBNull.Value) apElevFt = Convert.ToDouble(v);
+                    }
+
+                    const string sql = @"
+                        SELECT i.frequency, i.locheading, i.gs_pitch,
+                               re.name, re.laty, re.lonx
+                        FROM   ils i
+                        JOIN   runway_end re ON re.runway_end_id = i.runway_end_id
+                        JOIN   runway rw     ON rw.primary_end_id   = re.runway_end_id
+                                            OR rw.secondary_end_id = re.runway_end_id
+                        JOIN   airport ap    ON ap.airport_id = rw.airport_id
+                        WHERE  ap.ident   = @ap
+                          AND  i.gs_pitch > 0.1
+                          AND  re.name    = @rwy
+                        LIMIT  1";
+                    using (var cmd = new SQLiteCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@ap",  airport);
+                        cmd.Parameters.AddWithValue("@rwy", runwayName ?? "");
+                        using (var rdr = cmd.ExecuteReader())
+                        {
+                            if (rdr.Read())
+                            {
+                                return new IlsData
+                                {
+                                    FrequencyMhz    = rdr.GetInt32(0) / 1000.0,
+                                    Course          = rdr.GetDouble(1),
+                                    GlideSlopePitch = rdr.GetDouble(2),
+                                    RunwayName      = rdr.GetString(3),
+                                    ThresholdLat    = rdr.GetDouble(4),
+                                    ThresholdLon    = rdr.GetDouble(5),
+                                    ThresholdElevFt = apElevFt,
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+            catch { /* DB unavailable or schema mismatch — return null */ }
+            return null;
+        }
+
+        /// <summary>
+        /// Returns the best approach procedure for <paramref name="runwayName"/> at <paramref name="airport"/>.
+        /// Prefers ILS over RNAV over other types.
+        /// Falls back to runway_end join when approach.runway_name is empty.
+        /// Returns null if not found.
+        /// </summary>
+        public ApproachInfo GetApproachType(string airport, string runwayName)
+        {
+            if (!IsAvailable || string.IsNullOrEmpty(airport)) return null;
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;Read Only=True;"))
+                {
+                    conn.Open();
+                    // Primary lookup: match runway_name directly
+                    const string sql = @"
+                        SELECT a.approach_id, a.type, a.runway_name
+                        FROM   approach a
+                        JOIN   airport ap ON ap.airport_id = a.airport_id
+                        WHERE  ap.ident = @ap
+                          AND  a.runway_name = @rwy
+                        ORDER  BY CASE a.type
+                                    WHEN 'ILS'  THEN 1
+                                    WHEN 'RNAV' THEN 2
+                                    ELSE             3
+                                  END
+                        LIMIT  1";
+                    using (var cmd = new SQLiteCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@ap",  airport);
+                        cmd.Parameters.AddWithValue("@rwy", runwayName ?? "");
+                        using (var rdr = cmd.ExecuteReader())
+                        {
+                            if (rdr.Read())
+                                return BuildApproachInfo(rdr);
+                        }
+                    }
+
+                    // Fallback: runway_name is empty — join through runway_end
+                    const string fallbackSql = @"
+                        SELECT a.approach_id, a.type, a.runway_name
+                        FROM   approach a
+                        JOIN   airport   ap ON ap.airport_id = a.airport_id
+                        JOIN   runway_end re ON re.runway_end_id = a.runway_end_id
+                        WHERE  ap.ident = @ap
+                          AND  re.name  = @rwy
+                        ORDER  BY CASE a.type
+                                    WHEN 'ILS'  THEN 1
+                                    WHEN 'RNAV' THEN 2
+                                    ELSE             3
+                                  END
+                        LIMIT  1";
+                    using (var cmd = new SQLiteCommand(fallbackSql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@ap",  airport);
+                        cmd.Parameters.AddWithValue("@rwy", runwayName ?? "");
+                        using (var rdr = cmd.ExecuteReader())
+                        {
+                            if (rdr.Read())
+                                return BuildApproachInfo(rdr);
+                        }
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        private static ApproachInfo BuildApproachInfo(SQLiteDataReader rdr)
+        {
+            string type = rdr.IsDBNull(1) ? "Unknown" : rdr.GetString(1);
+            bool hasVert = type == "ILS" || type == "LPV" || type == "GLS";
+            return new ApproachInfo
+            {
+                ApproachId          = rdr.GetInt32(0),
+                Type                = type,
+                RunwayName          = rdr.IsDBNull(2) ? "" : rdr.GetString(2),
+                HasVerticalGuidance = hasVert,
+            };
+        }
+
+        /// <summary>
+        /// Returns named approach fixes (IF, FAF, MAP) for the given approach procedure,
+        /// ordered by sequence. Skips fixes without coordinates.
+        /// </summary>
+        public IList<ApproachFix> GetApproachFixes(int approachId)
+        {
+            var list = new List<ApproachFix>();
+            if (!IsAvailable || approachId <= 0) return list;
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;Read Only=True;"))
+                {
+                    conn.Open();
+                    const string sql = @"
+                        SELECT al.fix_name, al.approach_fix_type, al.laty, al.lonx, al.altitude1
+                        FROM   approach_leg al
+                        WHERE  al.approach_id = @id
+                          AND  al.approach_fix_type IN ('B','F','M')
+                          AND  al.lonx IS NOT NULL
+                          AND  al.laty IS NOT NULL
+                        ORDER  BY al.approach_leg_id";
+                    using (var cmd = new SQLiteCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@id", approachId);
+                        using (var rdr = cmd.ExecuteReader())
+                        {
+                            while (rdr.Read())
+                            {
+                                string fixTypeCode = rdr.IsDBNull(1) ? "" : rdr.GetString(1);
+                                string fixTypeLabel = fixTypeCode == "B" ? "IF"
+                                                    : fixTypeCode == "F" ? "FAF"
+                                                    : fixTypeCode == "M" ? "MAP" : "";
+                                list.Add(new ApproachFix
+                                {
+                                    Name       = rdr.IsDBNull(0) ? "" : rdr.GetString(0),
+                                    FixType    = fixTypeLabel,
+                                    Lat        = rdr.GetDouble(2),
+                                    Lon        = rdr.GetDouble(3),
+                                    AltitudeFt = rdr.IsDBNull(4) ? 0 : rdr.GetDouble(4),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return list;
         }
 
         // Returns both ends of every runway at the airport.

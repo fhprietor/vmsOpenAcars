@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.4.3  
+**Versión actual:** v0.4.4  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -57,6 +57,8 @@ vmsOpenAcars/
 | On-Time Departure | 5 pts | −5 si Blocks Off difiere >10 min del STD (`sched_out`) |
 | Touchdown Zone | 7 pts | ≤1500 ft=0, ≤2500=3, >2500=7 — activo solo si `TouchdownDistanceFt > 0` (requiere LNM DB) |
 | Centreline Deviation | 7 pts | ≤10 ft=0, ≤30=3, >30=7 — activo solo si `CenterlineDeviationFt > 0` (requiere LNM DB) |
+| Localizer Alignment | 5 pts | activo si ILS detectado. ILS not tuned=−3; heading >5° (x2 max)=−1 each; cap 5 |
+| Minimums Compliance | 5 pts | −5 si `BelowMinimums = true` (descendió bajo DA sin aterrizar) |
 
 ### RunwayService — `Db/RunwayService.cs`
 
@@ -70,6 +72,10 @@ HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)
 ParkingSpot           FindNearestParking(airport, lat, lon)
 RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading) // para captura de aproximación — lat/lon desambiguan pistas paralelas
 (double DistNm, double LateralFt) ComputeApproachMetrics(...)       // public static
+// ILS / Approach (v0.4.4)
+IlsData              GetIlsForRunway(airport, runwayName)   // frecuencia MHz, curso, gs_pitch; null si no existe o no es ILS
+ApproachInfo         GetApproachType(airport, runwayName)   // mejor procedimiento (ILS>RNAV>otro); fallback via runway_end_id
+IList<ApproachFix>   GetApproachFixes(approachId)           // fixes IF/FAF/MAP del procedimiento
 ```
 
 `RunwayTouchdownResult` incluye: `ThresholdDistanceFt`, `CenterlineDeviationFt`, `RunwayName`, `ThresholdLat`, `ThresholdLon`, `ThresholdHeading`.
@@ -201,7 +207,39 @@ public double TouchdownDistanceFt   => _touchdownDistanceFt;
 public double TouchdownCenterlineFt => _touchdownCenterlineDeviationFt;
 public string TouchdownRunwayName   => _touchdownRunwayName;
 public double TouchdownGForce       => _touchdownGForce;
+// ILS / Approach (v0.4.4)
+public void SetApproachData(IlsData ils, ApproachInfo approach, IList<ApproachFix> fixes)
 ```
+
+### ILS / Approach Detection — v0.4.4
+
+**New result types in `Db/RunwayService.cs`:**
+
+| Clase | Propiedades clave |
+|---|---|
+| `IlsData` | `FrequencyMhz`, `Course`, `GlideSlopePitch`, `RunwayName`, `ThresholdLat/Lon/ElevFt` |
+| `ApproachInfo` | `ApproachId`, `Type`, `RunwayName`, `HasVerticalGuidance` |
+| `ApproachFix` | `Name`, `FixType` (IF/FAF/MAP), `Lat`, `Lon`, `AltitudeFt` |
+
+**Flujo de carga de datos de aproximación:**
+```
+OnFlightPhaseChanged(Approach)
+    → GetRunwayThreshold() → _approachThreshold (ya existente)
+    → Task.Run(() => LoadApproachData(dest, rwyName))
+        → GetIlsForRunway()  → ils
+        → GetApproachType()  → approach
+        → GetApproachFixes() → fixes
+        → _flightManager.SetApproachData(ils, approach, fixes)
+```
+
+**Lógica de scoring ILS en FlightManager:**
+- Al cruzar 1000 ft AGL (`CheckStabilizedApproachGate`): compara `data.Nav1FrequencyMhz` con `_expectedIls.FrequencyMhz` (tolerancia ±0.05 MHz). Si no coincide: `_ilsTunedCorrectly = false`, `_localizerViolations++`.
+- Por debajo de 500 ft AGL (`CheckApproachBelowGate`): monitorea desviación de rumbo vs curso ILS. Si |hdgDelta| > 5°: `_localizerViolations++` (cap 2). Comprueba DA para `_belowMinimums`.
+- Secuenciación de fixes: avanza `_nextFixIndex` cuando la aeronave está a <0.5 NM del siguiente fix.
+
+**FsuipcService — nuevos offsets:**
+- `0x0350 · INT16` — NAV1 active frequency (BCD). Decode: cada nibble = un dígito decimal → MHz (e.g. `0x1113` = 111.3 MHz)
+- `0x0C4E · INT16` — NAV1 OBS / ILS course (0–359°)
 
 ---
 
@@ -227,10 +265,13 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `Db/RunwayService.cs` | ~267 | `SafeProjectOnRunway()` con `WithinFootprint` para desambiguar pistas paralelas |
 | `Db/RunwayService.cs` | ~175 | `FindNextIntersection()` — próxima intersección de calle de rodaje adelante |
 | `Models/SimbriefPlan.cs` | ~119 | `BlockFuel`, `TripFuel` |
-| `Services/ScoringService.cs` | 213-244 | Touchdown Zone + Centreline deductions |
+| `Services/ScoringService.cs` | ~213 | Touchdown Zone + Centreline deductions |
+| `Services/ScoringService.cs` | ~247 | Localizer Alignment + Minimums Compliance deductions (v0.4.4) |
 | `Models/FlightScoreData.cs` | ~85 | `TouchdownDistanceFt`, `CenterlineDeviationFt`, `RunwayName` |
 | `Core/Flight/FlightManager.cs` | ~61 | Variables privadas touchdown |
 | `Core/Flight/FlightManager.cs` | ~852 | `SetRunwayTouchdownData()` |
+| `Core/Flight/FlightManager.cs` | ~870 | `SetApproachData()` — carga ILS/approach/fixes para scoring (v0.4.4) |
+| `Core/Flight/FlightManager.cs` | ~705 | `CheckApproachBelowGate()` — localizer alignment + DA check (v0.4.4) |
 | `Core/Flight/FlightManager.cs` | ~580 | `CheckViolations()` beacon exemption: `BeaconStrobeSharedAircraft` (DH8D) |
 | `Core/Flight/FlightManager.cs` | ~1022 | Touchdown detection con guardia de fase: solo Descent/Approach/Landing (evita falsos touchdowns en Takeoff/Climb) |
 | `ViewModels/MainViewModel.cs` | 535-560 | `LookupRunwayData()` post-touchdown |
@@ -265,5 +306,7 @@ Los umbrales elevados (−500 fpm, 20 s) evitan que cambios de QNH o turbulencia
 
 ## Próximas áreas de desarrollo (sin prioridad definida)
 
-- **Touch-and-go** — ya detectado en FlightManager; verificar que scoring y approach buffer se resetean correctamente para el segundo aterrizaje.
+- **Touch-and-go** — ya detectado en FlightManager; verificar que scoring y approach buffer se resetean correctamente para el segundo aterrizaje. Estado ILS/approach ya se resetea en el bloque touch-and-go (v0.4.4).
 - **MetarRaw en logbook** — `FlightRecord.MetarRaw` existe en el esquema pero no se popula en `SnapshotLandingRecord()`; el METAR de destino podría obtenerse de `MetarService` en ese momento.
+- **ILS - aeropuertos sin `runway_name` en `approach`** — `GetApproachType` ya tiene fallback via `runway_end_id`, pero algunos aeropuertos pueden no tener filas en `approach` para ILS (solo en tabla `ils`). En esos casos `ApproachInfo` será null aunque `IlsData` sea válido.
+- **DA calculada** — actualmente DA = threshold elevation + 200 ft (constante conservadora). Podría calcularse dinámicamente desde el `approach_leg` runway threshold fix (`altitude1`) cuando esté disponible.

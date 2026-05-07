@@ -149,6 +149,10 @@ namespace vmsOpenAcars.Services
         private readonly Offset<short> _autopilotOffset = new Offset<short>(0x07BC);
         private readonly Offset<short> _navModeOffset = new Offset<short>(0x07CC);
         private readonly Offset<short> _transponderOffset = new Offset<short>(0x0354);
+        /// <summary>0x0350 · INT16 · NAV1 active frequency, BCD encoded (decode → MHz).</summary>
+        private readonly Offset<short> _nav1FreqOffset = new Offset<short>(0x0350);
+        /// <summary>0x0C4E · INT16 · NAV1 OBS / ILS course 0–359°.</summary>
+        private readonly Offset<short> _nav1ObsCourseOffset = new Offset<short>(0x0C4E);
 
         // ---- Frenos ----
         private readonly Offset<short> _parkingBrakeOffset = new Offset<short>(0x0BC8);
@@ -296,6 +300,12 @@ namespace vmsOpenAcars.Services
         public double CurrentFuelLbs { get; private set; }
         /// <summary>QNH seleccionado en el altímetro del avión, en hPa. Calculado desde offset 0x0330.</summary>
         public double AircraftQnhMb { get; private set; }
+
+        // ---- NAV1 ----
+        /// <summary>NAV1 active frequency in MHz (e.g. 111.3). 0 when not connected.</summary>
+        public double Nav1FrequencyMhz { get; private set; }
+        /// <summary>NAV1 OBS / ILS course in degrees (0–359).</summary>
+        public int Nav1ObsCourse { get; private set; }
 
         // ---- Controles ----
         public int CurrentGearPosition { get; private set; }
@@ -620,6 +630,10 @@ namespace vmsOpenAcars.Services
                 // ── Meteorología ──────────────────────────────────────────────
                 AircraftQnhMb = aircraftQnhMb,
 
+                // ── NAV1 ──────────────────────────────────────────────────────
+                Nav1FrequencyMhz = Nav1FrequencyMhz,
+                Nav1ObsCourse    = Nav1ObsCourse,
+
                 // ── Categoría y estado de motores ─────────────────────────────
                 EngineCategory = _currentEngineCategory,
                 Eng1Running = eng1Running,
@@ -689,6 +703,10 @@ namespace vmsOpenAcars.Services
             CurrentFuelLbs = _fuelWeightOffset.Value;
             // Kohlsman: raw INT16 → hPa (raw / 16.0)
             AircraftQnhMb = _kohlsmanOffset.Value / 16.0;
+
+            // ---- NAV1 frequency (BCD) and OBS course ----
+            Nav1FrequencyMhz = DecodeNav1Bcd(_nav1FreqOffset.Value);
+            Nav1ObsCourse    = _nav1ObsCourseOffset.Value & 0x1FF; // 9-bit, 0–359
 
             // ---- G-Force ----
             CurrentGForce = _gforceOffset.Value / 625.0;
@@ -1007,6 +1025,20 @@ namespace vmsOpenAcars.Services
         /// </summary>
         private static double DecodeHeading(uint raw)
             => raw * 360.0 / (65536.0 * 65536.0);
+
+        /// <summary>
+        /// Decodes a BCD-encoded NAV1 frequency (FSUIPC 0x0350) to MHz.
+        /// Each nibble encodes a decimal digit: D3 D2 D1 . D0 (e.g. 0x1113 → 111.3 MHz).
+        /// </summary>
+        private static double DecodeNav1Bcd(short raw)
+        {
+            if (raw == 0) return 0.0;
+            int d3 = (raw >> 12) & 0xF;
+            int d2 = (raw >>  8) & 0xF;
+            int d1 = (raw >>  4) & 0xF;
+            int d0 =  raw        & 0xF;
+            return d3 * 100.0 + d2 * 10.0 + d1 + d0 * 0.1;
+        }
 
         /// <summary>
         /// 0x02B4 · INT32 · raw = m/s × 65536 → kt = raw / 65536 × 1.94384
@@ -1758,6 +1790,10 @@ namespace vmsOpenAcars.Services
         public bool SeatBeltSign { get; set; }
         /// <summary>QNH seleccionado en el altímetro del avión, en hPa. 0 si FSUIPC no conectado.</summary>
         public double AircraftQnhMb { get; set; }
+        /// <summary>NAV1 active frequency in MHz (e.g. 111.3). 0 when not connected.</summary>
+        public double Nav1FrequencyMhz { get; set; }
+        /// <summary>NAV1 OBS / ILS course in degrees (0–359).</summary>
+        public int Nav1ObsCourse { get; set; }
         public bool ApMaster { get; set; }
         public string ApNavMode { get; set; } = "HDG";  // ILS / LOC / LNAV / HDG
         public string ApVertMode { get; set; } = "ALT";  // GS  / VNAV / ALT

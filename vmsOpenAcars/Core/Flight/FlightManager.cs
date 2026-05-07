@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using vmsOpenAcars.Db;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
@@ -74,6 +75,17 @@ namespace vmsOpenAcars.Core.Flight
         private bool _isOfflineFlight = false;
         private bool _departedLate = false;
         private int _vmoKts = 320;
+
+        // ── ILS / Approach tracking ──────────────────────────────────────────────
+        private IlsData _expectedIls;
+        private ApproachInfo _expectedApproach;
+        private IList<ApproachFix> _approachFixes;
+        private int _nextFixIndex;
+        private int _localizerViolations;
+        private bool _belowMinimums;
+        private double _daAltitudeFt;
+        private bool _ilsGateChecked;
+        private bool _ilsTunedCorrectly = true;
 
         // ── Approximation gate (1000 ft AGL) ─────────────────────────────────────
         private bool _approachGateEvaluated = false;
@@ -691,7 +703,28 @@ namespace vmsOpenAcars.Core.Flight
                 else
                     OnLog?.Invoke($"⚠️ APPROACH GATE ({(int)agl} ft AGL): UNSTABILIZED — {deductions} pts deducted", Theme.Warning);
 
-                // 7. QNH de destino — comprobado en el gate de 1000 ft, igual que la salida
+                // 7. ILS tuning check — verify NAV1 is tuned to the expected localizer
+                if (_expectedIls != null && !_ilsGateChecked)
+                {
+                    _ilsGateChecked = true;
+                    double freqDelta = Math.Abs(data.Nav1FrequencyMhz - _expectedIls.FrequencyMhz);
+                    if (freqDelta > 0.05)
+                    {
+                        _ilsTunedCorrectly = false;
+                        _localizerViolations++;
+                        OnLog?.Invoke(
+                            $"⚠️ ILS NOT TUNED: NAV1 {data.Nav1FrequencyMhz:F2} MHz, expected {_expectedIls.FrequencyMhz:F2} MHz (−3)",
+                            Theme.Warning);
+                    }
+                    else
+                    {
+                        OnLog?.Invoke(
+                            $"✅ ILS correctly tuned: {data.Nav1FrequencyMhz:F2} MHz / CRS {_expectedIls.Course:F0}°",
+                            Theme.Success);
+                    }
+                }
+
+                // 9. QNH de destino — comprobado en el gate de 1000 ft, igual que la salida
                 //    se comprueba en TakeoffRoll. A esta altitud el piloto ya debe haber
                 //    recibido el ATIS y sintonizado el QNH local.
                 if (!string.IsNullOrEmpty(_activePlan?.Destination))
@@ -699,6 +732,56 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             _prevApproachAgl = agl;
+        }
+
+        /// <summary>
+        /// Monitors localizer alignment and decision altitude while below the 1000 ft gate.
+        /// Called every telemetry cycle in Approach phase.
+        /// Also advances waypoint sequencing when the aircraft passes within 0.5 NM of a fix.
+        /// </summary>
+        private void CheckApproachBelowGate(RawTelemetryData data)
+        {
+            double agl = CurrentAGL;
+
+            // Localizer heading alignment (below 500 ft AGL, above 50 ft to avoid rollout noise)
+            if (_expectedIls != null && agl < 500 && agl > 50)
+            {
+                double hdgDelta = ((CurrentHeading - _expectedIls.Course + 540) % 360) - 180;
+                if (Math.Abs(hdgDelta) > 5.0 && _localizerViolations < 2)
+                {
+                    _localizerViolations++;
+                    OnLog?.Invoke(
+                        $"⚠️ LOCALIZER: heading {CurrentHeading:F0}° deviates {hdgDelta:+0.0;-0.0}° from ILS CRS {_expectedIls.Course:F0}°",
+                        Theme.Warning);
+                }
+            }
+
+            // Decision altitude check (only when DA is known and aircraft is still in the air)
+            if (_daAltitudeFt > 0 && CurrentAltitude < _daAltitudeFt && !IsOnGround && !_belowMinimums)
+            {
+                _belowMinimums = true;
+                OnLog?.Invoke(
+                    $"⚠️ BELOW MINIMUMS: {CurrentAltitude} ft MSL < DA {_daAltitudeFt:F0} ft",
+                    Theme.Warning);
+            }
+
+            // Waypoint sequencing — advance when within 0.5 NM of next fix
+            if (_approachFixes != null && _nextFixIndex < _approachFixes.Count)
+            {
+                var fix = _approachFixes[_nextFixIndex];
+                double cosLat = Math.Cos(CurrentLat * Math.PI / 180.0);
+                double dN = (fix.Lat - CurrentLat) * 111320.0;
+                double dE = (fix.Lon - CurrentLon) * 111320.0 * cosLat;
+                double distM = Math.Sqrt(dN * dN + dE * dE);
+                if (distM < 926.0) // 0.5 NM in metres
+                {
+                    string fixLabel = string.IsNullOrEmpty(fix.FixType)
+                        ? fix.Name
+                        : $"{fix.Name} ({fix.FixType})";
+                    OnLog?.Invoke($"📍 {fixLabel} at {(int)agl} ft AGL", Theme.MainText);
+                    _nextFixIndex++;
+                }
+            }
         }
 
         private void ResetFlightState()
@@ -736,6 +819,15 @@ namespace vmsOpenAcars.Core.Flight
             _touchdownDistanceFt = 0;
             _touchdownCenterlineDeviationFt = 0;
             _touchdownRunwayName = null;
+            _expectedIls       = null;
+            _expectedApproach  = null;
+            _approachFixes     = null;
+            _nextFixIndex      = 0;
+            _localizerViolations = 0;
+            _belowMinimums     = false;
+            _daAltitudeFt      = 0;
+            _ilsGateChecked    = false;
+            _ilsTunedCorrectly = true;
             _overspeedCount = 0;
             _wasOverspeed = false;
             _lightsViolationCount = 0;
@@ -912,6 +1004,30 @@ namespace vmsOpenAcars.Core.Flight
             _touchdownRunwayName = runwayName;
         }
 
+        /// <summary>
+        /// Loads ILS and approach procedure data for scoring and waypoint sequencing.
+        /// Call from MainViewModel when the Approach phase starts (after GetRunwayThreshold).
+        /// </summary>
+        public void SetApproachData(IlsData ils, ApproachInfo approach, IList<ApproachFix> fixes)
+        {
+            _expectedIls      = ils;
+            _expectedApproach = approach;
+            _approachFixes    = fixes ?? new List<ApproachFix>();
+            _nextFixIndex     = 0;
+            _ilsGateChecked   = false;
+            _localizerViolations = 0;
+            _belowMinimums    = false;
+            _ilsTunedCorrectly = true;
+            _daAltitudeFt     = ils != null && ils.ThresholdElevFt > 0
+                                 ? ils.ThresholdElevFt + 200.0 : 0;
+
+            string type    = approach?.Type ?? "Unknown";
+            string ilsInfo = ils != null ? $" | ILS {ils.FrequencyMhz:F2} MHz CRS {ils.Course:F0}°" : "";
+            OnLog?.Invoke($"📡 Approach: {type}{ilsInfo}", Theme.MainText);
+            if (_approachFixes.Count > 0)
+                OnLog?.Invoke($"   {_approachFixes.Count} approach fix(es) loaded", Theme.MainText);
+        }
+
         public bool CanStartFlight()
         {
             if (_activePilot == null) { OnLog?.Invoke("⛔ No active pilot", Theme.Warning); return false; }
@@ -979,6 +1095,15 @@ namespace vmsOpenAcars.Core.Flight
             _touchdownDistanceFt = 0;
             _touchdownCenterlineDeviationFt = 0;
             _touchdownRunwayName = null;
+            _expectedIls       = null;
+            _expectedApproach  = null;
+            _approachFixes     = null;
+            _nextFixIndex      = 0;
+            _localizerViolations = 0;
+            _belowMinimums     = false;
+            _daAltitudeFt      = 0;
+            _ilsGateChecked    = false;
+            _ilsTunedCorrectly = true;
             _overspeedCount = 0;
             _wasOverspeed = false;
             _lightsViolationCount = 0;
@@ -1344,6 +1469,15 @@ namespace vmsOpenAcars.Core.Flight
                             _touchdownDistanceFt = 0;
                             _touchdownCenterlineDeviationFt = 0;
                             _touchdownRunwayName = null;
+                            _expectedIls       = null;
+                            _expectedApproach  = null;
+                            _approachFixes     = null;
+                            _nextFixIndex      = 0;
+                            _localizerViolations = 0;
+                            _belowMinimums     = false;
+                            _daAltitudeFt      = 0;
+                            _ilsGateChecked    = false;
+                            _ilsTunedCorrectly = true;
                             TransitionTo(FlightPhase.Climb, previousPhase);
                         }
                         break;
@@ -1479,7 +1613,10 @@ namespace vmsOpenAcars.Core.Flight
                 {
                     CheckViolations(CurrentIndicatedAirspeed, (int)CurrentAGL, data.LandingLightOn, _isBeaconOn);
                     if (CurrentPhase == FlightPhase.Approach)
+                    {
                         CheckStabilizedApproachGate(data);
+                        CheckApproachBelowGate(data);
+                    }
                 }
             }
         }
@@ -1531,6 +1668,9 @@ namespace vmsOpenAcars.Core.Flight
                 TouchdownDistanceFt = _touchdownDistanceFt,
                 CenterlineDeviationFt = _touchdownCenterlineDeviationFt,
                 RunwayName = _touchdownRunwayName,
+                IlsTunedCorrectly   = _ilsTunedCorrectly,
+                LocalizerViolations = _localizerViolations,
+                BelowMinimums       = _belowMinimums,
             };
             var scoring = new ScoringService();
             ScoringResult scoreResult = scoring.Calculate(scoreData);
@@ -1548,8 +1688,10 @@ namespace vmsOpenAcars.Core.Flight
                 { "Stabilized Approach", "Score_CritStabilized"   },
                 { "QNH Compliance",      "Score_CritQnh"          },
                 { "IVAO Presence",       "Score_CritIvao"         },
-                { "Touchdown Zone",      "Score_CritTdz"          },
-                { "Centreline",          "Score_CritCentreline"   },
+                { "Touchdown Zone",       "Score_CritTdz"          },
+                { "Centreline",           "Score_CritCentreline"   },
+                { "Localizer Alignment",  "Score_CritLocalizer"    },
+                { "Minimums Compliance",  "Score_CritMinimums"     },
             };
             foreach (var ded in scoreResult.Deductions)
             {
