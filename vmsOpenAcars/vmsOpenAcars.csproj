@@ -38,6 +38,8 @@
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <AppConfig>
+    </AppConfig>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="fsuipcClient, Version=3.3.16.420, Culture=neutral, PublicKeyToken=b8cb6f8a387dcef2, processorArchitecture=MSIL">
@@ -158,9 +160,7 @@
     <Compile Include="UI\Forms\FlightHistoryForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="UI\Forms\FlightPlannerForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
+    <Compile Include="UI\Forms\FlightPlannerForm.cs" />
     <Compile Include="UI\Forms\LandingAnalysisForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -214,7 +214,6 @@
   <ItemGroup>
     <Folder Include="Core\Enums\" />
     <Folder Include="Core\Interfaces\" />
-    <Folder Include="Db\" />
     <Folder Include="UI\Controls\" />
     <Folder Include="UI\Helpers\" />
   </ItemGroup>
@@ -232,9 +231,8 @@
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PostBuildEvent>if "$(ConfigurationName)"=="Release" (
-    copy /Y "$(ProjectDir)App.Release.config" "$(TargetDir)$(TargetName).exe.config"
-)</PostBuildEvent>
+    <PostBuildEvent>
+    </PostBuildEvent>
   </PropertyGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>

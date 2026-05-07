@@ -25,7 +25,8 @@ namespace vmsOpenAcars.Services
         // ── Vuelos disponibles ────────────────────────────────────────────────
 
         /// <summary>
-        /// Obtiene los vuelos disponibles desde un aeropuerto para un piloto.
+        /// Obtiene todos los vuelos disponibles desde un aeropuerto para un piloto,
+        /// recorriendo todas las páginas de la API (paginación Laravel).
         /// </summary>
         public async Task<List<Flight>> GetAvailableFlightsFromAirport(string airportCode, Pilot pilot)
         {
@@ -33,54 +34,64 @@ namespace vmsOpenAcars.Services
 
             try
             {
-                string url = $"{_apiService.BaseUrl}api/flights" +
-                             $"?dep_icao={airportCode}&pilot_id={pilot.Id}&available=true";
+                int currentPage = 1;
+                int lastPage    = 1;
 
-                var response = await _apiService.HttpClient.GetAsync(url);
-                if (!response.IsSuccessStatusCode) return flights;
-
-                var json = await response.Content.ReadAsStringAsync();
-                var data = JObject.Parse(json)["data"] as JArray;
-                if (data == null) return flights;
-
-                foreach (var item in data)
+                do
                 {
-                    var flightData = item as JObject;
-                    if (flightData == null) continue;
+                    string url = $"{_apiService.BaseUrl}api/flights" +
+                                 $"?dep_icao={airportCode}&pilot_id={pilot.Id}&available=true" +
+                                 $"&page={currentPage}";
 
-                    // Distancia en NM — double para no perder decimales con Value<int>
-                    double nmDistance = flightData["distance"]?["nmi"]?.Value<double?>() ?? 0;
+                    var response = await _apiService.HttpClient.GetAsync(url);
+                    if (!response.IsSuccessStatusCode) break;
 
-                    // Tipos de aeronave permitidos (desde subfleets del vuelo)
-                    var subfleets = flightData["subfleets"] as JArray;
-                    var allowedTypes = new List<string>();
-                    if (subfleets != null)
+                    var json = await response.Content.ReadAsStringAsync();
+                    var obj  = JObject.Parse(json);
+                    var data = obj["data"] as JArray;
+                    if (data == null) break;
+
+                    foreach (var item in data)
                     {
-                        foreach (var sub in subfleets)
+                        var flightData = item as JObject;
+                        if (flightData == null) continue;
+
+                        double nmDistance = flightData["distance"]?["nmi"]?.Value<double?>() ?? 0;
+
+                        var subfleets    = flightData["subfleets"] as JArray;
+                        var allowedTypes = new List<string>();
+                        if (subfleets != null)
                         {
-                            string type = sub["type"]?.ToString();
-                            if (!string.IsNullOrEmpty(type) && !allowedTypes.Contains(type))
-                                allowedTypes.Add(type);
+                            foreach (var sub in subfleets)
+                            {
+                                string type = sub["type"]?.ToString();
+                                if (!string.IsNullOrEmpty(type) && !allowedTypes.Contains(type))
+                                    allowedTypes.Add(type);
+                            }
                         }
+
+                        var airline = flightData["airline"] as JObject;
+
+                        flights.Add(new Flight
+                        {
+                            Id           = flightData["id"]?.ToString(),
+                            FlightNumber = flightData["flight_number"]?.ToString(),
+                            Airline      = airline?["icao"]?.ToString() ?? "",
+                            Departure    = flightData["dpt_airport_id"]?.ToString(),
+                            Arrival      = flightData["arr_airport_id"]?.ToString(),
+                            AllowedAircraftTypes        = allowedTypes,
+                            AllowedAircraftTypesDisplay = string.Join("/", allowedTypes),
+                            Distance     = nmDistance,
+                            FlightTime   = flightData["flight_time"]?.Value<int>() ?? 0,
+                            Route        = flightData["route"]?.ToString(),
+                            RequiredRank = GetRankFromString(flightData["flight_level"]?.ToString())
+                        });
                     }
 
-                    var airline = flightData["airline"] as JObject;
+                    lastPage = obj["meta"]?["last_page"]?.Value<int>() ?? 1;
+                    currentPage++;
 
-                    flights.Add(new Flight
-                    {
-                        Id = flightData["id"]?.ToString(),
-                        FlightNumber = flightData["flight_number"]?.ToString(),
-                        Airline = airline?["icao"]?.ToString() ?? "",
-                        Departure = flightData["dpt_airport_id"]?.ToString(),
-                        Arrival = flightData["arr_airport_id"]?.ToString(),
-                        AllowedAircraftTypes = allowedTypes,
-                        AllowedAircraftTypesDisplay = string.Join("/", allowedTypes),
-                        Distance = nmDistance,
-                        FlightTime = flightData["flight_time"]?.Value<int>() ?? 0,
-                        Route = flightData["route"]?.ToString(),
-                        RequiredRank = GetRankFromString(flightData["flight_level"]?.ToString())
-                    });
-                }
+                } while (currentPage <= lastPage);
             }
             catch (Exception ex)
             {

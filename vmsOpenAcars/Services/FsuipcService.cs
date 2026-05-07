@@ -279,6 +279,8 @@ namespace vmsOpenAcars.Services
         public double CurrentLongitude { get; private set; }
         public double CurrentAltitudeFeet { get; private set; }
         public double CurrentRadarAltitudeFeet { get; private set; }
+        /// <summary>Terrain elevation below the aircraft in feet (FSUIPC 0x0020).</summary>
+        public double CurrentGroundAltitudeFeet { get; private set; }
 
         // ---- Velocidades ----
         public double CurrentGroundSpeedKt { get; private set; }
@@ -586,6 +588,7 @@ namespace vmsOpenAcars.Services
                 FuelLbs = CurrentFuelLbs,
                 Transponder = _transponderOffset.Value,
                 RadarAltitudeFeet = CurrentRadarAltitudeFeet,
+                GroundAltitudeFeet = CurrentGroundAltitudeFeet,
                 PitchDeg = CurrentPitch,
                 BankDeg = CurrentBank,
                 SpoilersDeployed = CurrentSpoilersDeployed,
@@ -665,9 +668,13 @@ namespace vmsOpenAcars.Services
             CurrentAltitudeFeet = DecodeAltitude(_altOffset.Value);
             CurrentHeading = DecodeHeading(_headingOffset.Value);
 
-            // 0x0234: radio altitude in metres × 65536 → divide by 65536 first, then metres → feet
+            // 0x31E4: radio altitude in metres × 65536 → divide by 65536 first, then metres → feet
             int radarRaw = _radarAltitudeOffset.Value;
             CurrentRadarAltitudeFeet = radarRaw > 0 ? (radarRaw / 65536.0) * 3.28084 : 0.0;
+
+            // 0x0020: terrain elevation in metres × 65536 → feet
+            int groundRaw = _groundAltitudeOffset.Value;
+            CurrentGroundAltitudeFeet = groundRaw > 0 ? (groundRaw / 65536.0) * 3.28084 : 0.0;
 
             // ---- Velocidades ----
             CurrentGroundSpeedKt = DecodeGroundSpeed(_groundSpeedOffset.Value);
@@ -1695,6 +1702,8 @@ namespace vmsOpenAcars.Services
         public int Transponder { get; set; }
         public bool AutopilotEngaged { get; set; }
         public double RadarAltitudeFeet { get; set; }
+        /// <summary>Terrain elevation below the aircraft in feet (FSUIPC 0x0020). Used for AGL in Enroute.</summary>
+        public double GroundAltitudeFeet { get; set; }
         public double PitchDeg { get; set; }
         public double BankDeg { get; set; }
         public bool SpoilersDeployed { get; set; }

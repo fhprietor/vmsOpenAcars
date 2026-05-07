@@ -34,9 +34,10 @@ namespace vmsOpenAcars.Core.Flight
         private DateTime _lastDescentWarning = DateTime.MinValue;
         private const int DescentWarningIntervalSeconds = 30;
         private bool _hasLandedThisFlight = false;
-        private DateTime _climbStableStart = DateTime.MinValue;
-        private DateTime _descentStart = DateTime.MinValue;
-        private DateTime _stepClimbStart = DateTime.MinValue;
+        private DateTime _climbStableStart     = DateTime.MinValue;
+        private DateTime _descentStart         = DateTime.MinValue;
+        private DateTime _stepClimbStart       = DateTime.MinValue;
+        private DateTime _descentToClimbStart  = DateTime.MinValue;
         private bool _isParkingBrakeSet;
         private bool _areEnginesOn;
 
@@ -62,6 +63,7 @@ namespace vmsOpenAcars.Core.Flight
         private double _touchdownDistanceFt = 0;
         private double _touchdownCenterlineDeviationFt = 0;
         private string _touchdownRunwayName = null;
+        private double _groundAltitudeFeet = 0;
         public int LastFlightScore { get; private set; } = 0;
         private int _overspeedCount = 0;
         private bool _wasOverspeed = false;
@@ -70,6 +72,7 @@ namespace vmsOpenAcars.Core.Flight
         private bool _beaconViolationActive = false;
         private int _qnhViolationCount = 0;
         private bool _isOfflineFlight = false;
+        private bool _departedLate = false;
         private int _vmoKts = 320;
 
         // ── Approximation gate (1000 ft AGL) ─────────────────────────────────────
@@ -237,7 +240,7 @@ namespace vmsOpenAcars.Core.Flight
         /// <summary>
         /// Altura sobre el nivel del suelo en pies, calculada según la fase de vuelo:
         /// - Despegue / Climb / Tierra  → MSL − elevación aeropuerto de salida
-        /// - Crucero (Enroute)          → radar altímetro (clearance real sobre terreno de tránsito)
+        /// - Crucero (Enroute)          → MSL − elevación de terreno bajo el avión (FSUIPC 0x0020)
         /// - Descenso / Aproximación    → MSL − elevación aeropuerto de destino
         /// El radar altímetro no se usa en aproximación porque en terreno montañoso
         /// (Andes, Alpes, Himalaya) lee la orografía, no la elevación del aeropuerto.
@@ -250,7 +253,7 @@ namespace vmsOpenAcars.Core.Flight
                 switch (CurrentPhase)
                 {
                     case FlightPhase.Enroute:
-                        return CurrentAltitude;
+                        return Math.Max(0, CurrentAltitude - _groundAltitudeFeet);
                     default:
                         return CurrentAltitude - ReferenceAirportElevation;
                 }
@@ -377,11 +380,6 @@ namespace vmsOpenAcars.Core.Flight
                         CheckQnhAsync(_activePlan.Origin, AircraftQnhMb).ConfigureAwait(false);
                     break;
 
-                // ── Approach: verificar QNH de destino ────────────────────────
-                case FlightPhase.Approach:
-                    if (!string.IsNullOrEmpty(_activePlan?.Destination))
-                        CheckQnhAsync(_activePlan.Destination, AircraftQnhMb).ConfigureAwait(false);
-                    break;
             }
         }
 
@@ -486,6 +484,26 @@ namespace vmsOpenAcars.Core.Flight
                     _blockOffRecorded = true;
                     _serverBlockOffTime = DateTime.UtcNow;
                     OnLog?.Invoke($"⏱️ Block Off recorded at {_serverBlockOffTime:HH:mm:ss} UTC", Theme.MainText);
+
+                    if (_activePlan?.ScheduledOutTime > 0)
+                    {
+                        var std = DateTimeOffset.FromUnixTimeSeconds(_activePlan.ScheduledOutTime).UtcDateTime;
+                        double deltaMins = (_serverBlockOffTime - std).TotalMinutes;
+                        if (Math.Abs(deltaMins) > 10)
+                        {
+                            _departedLate = true;
+                            string earlyLate = deltaMins > 0 ? "late" : "early";
+                            OnLog?.Invoke(
+                                $"⚠️ PENALTY: Departed {Math.Abs(deltaMins):F0} min {earlyLate} (STD {std:HH:mm} UTC) — −5 pts",
+                                Theme.Warning);
+                        }
+                        else
+                        {
+                            OnLog?.Invoke(
+                                $"✅ On-time departure (Δ{deltaMins:+0;-0} min, STD {std:HH:mm} UTC)",
+                                Theme.Success);
+                        }
+                    }
                 }
                 else OnLog?.Invoke($"⚠️ Could not record block_off_time", Theme.Warning);
             }
@@ -672,6 +690,12 @@ namespace vmsOpenAcars.Core.Flight
                     OnLog?.Invoke($"✅ APPROACH GATE ({(int)agl} ft AGL): STABILIZED — all criteria met", Theme.Success);
                 else
                     OnLog?.Invoke($"⚠️ APPROACH GATE ({(int)agl} ft AGL): UNSTABILIZED — {deductions} pts deducted", Theme.Warning);
+
+                // 7. QNH de destino — comprobado en el gate de 1000 ft, igual que la salida
+                //    se comprueba en TakeoffRoll. A esta altitud el piloto ya debe haber
+                //    recibido el ATIS y sintonizado el QNH local.
+                if (!string.IsNullOrEmpty(_activePlan?.Destination))
+                    CheckQnhAsync(_activePlan.Destination, AircraftQnhMb).ConfigureAwait(false);
             }
 
             _prevApproachAgl = agl;
@@ -696,10 +720,11 @@ namespace vmsOpenAcars.Core.Flight
             _totalFuelUsed = 0;
             CurrentFuel = 0;
             _hasLandedThisFlight = false;
-            _climbStableStart = DateTime.MinValue;
-            _descentStart = DateTime.MinValue;
-            _stepClimbStart = DateTime.MinValue;
-            _goAroundStart = DateTime.MinValue;
+            _climbStableStart    = DateTime.MinValue;
+            _descentStart        = DateTime.MinValue;
+            _stepClimbStart      = DateTime.MinValue;
+            _descentToClimbStart = DateTime.MinValue;
+            _goAroundStart       = DateTime.MinValue;
             _lastTaxiPositionEvent = DateTime.MinValue;
             _blockOffRecorded = false;
             _touchdownPitch = 0;
@@ -717,6 +742,7 @@ namespace vmsOpenAcars.Core.Flight
             _lightsViolationActive = false;
             _qnhViolationCount = 0;
             _isOfflineFlight = false;
+            _departedLate = false;
             _approachGateEvaluated = false;
             _prevApproachAgl = double.MaxValue;
             _stabilizedApproachDeductions = 0;
@@ -960,6 +986,7 @@ namespace vmsOpenAcars.Core.Flight
             _beaconViolationActive = false;
             _qnhViolationCount = 0;
             _isOfflineFlight = false;
+            _departedLate = false;
             _approachGateEvaluated = false;
             _prevApproachAgl = double.MaxValue;
             _stabilizedApproachDeductions = 0;
@@ -1191,12 +1218,14 @@ namespace vmsOpenAcars.Core.Flight
                             _climbStableStart = DateTime.MinValue;
                         }
 
-                        // Si durante el ascenso se detecta un descenso sostenido, pasar directamente a Descent
-                        if (isDescending && (DateTime.UtcNow - _phaseStartTime).TotalSeconds >= 5)
+                        // Descenso directo desde Climb — umbral más alto para no confundirse con
+                        // fluctuaciones de QNH (~100 fpm) en salidas con altitud restringida.
+                        if (verticalSpeed < -500 && altitude < _maxAltitudeReached - 500
+                            && (DateTime.UtcNow - _phaseStartTime).TotalSeconds >= 5)
                         {
                             if (_descentStart == DateTime.MinValue)
                                 _descentStart = DateTime.UtcNow;
-                            else if ((DateTime.UtcNow - _descentStart).TotalSeconds >= 10)
+                            else if ((DateTime.UtcNow - _descentStart).TotalSeconds >= 20)
                             {
                                 _descentStart = DateTime.MinValue;
                                 OnLog?.Invoke($"✈️ Descent started from {altitude} ft (direct from climb)", Theme.MainText);
@@ -1227,12 +1256,13 @@ namespace vmsOpenAcars.Core.Flight
                             _stepClimbStart = DateTime.MinValue;
                         }
 
-                        // Detectar descenso sostenido
-                        if (verticalSpeed < -300 && altitude < _maxAltitudeReached - 500)
+                        // Detectar descenso sostenido — umbral elevado para no dispararse con
+                        // turbulencia suave o cambios de QNH en zonas de transición
+                        if (verticalSpeed < -500 && altitude < _maxAltitudeReached - 500)
                         {
                             if (_descentStart == DateTime.MinValue)
                                 _descentStart = DateTime.UtcNow;
-                            else if ((DateTime.UtcNow - _descentStart).TotalSeconds >= 10)
+                            else if ((DateTime.UtcNow - _descentStart).TotalSeconds >= 20)
                             {
                                 _descentStart = DateTime.MinValue;
                                 OnLog?.Invoke($"✈️ Descent started from {_maxAltitudeReached} ft", Theme.MainText);
@@ -1254,6 +1284,25 @@ namespace vmsOpenAcars.Core.Flight
                                 OnLog?.Invoke($"🛬 Approach started", Theme.Approach);
                                 TransitionTo(FlightPhase.Approach, previousPhase);
                             }
+                            _descentToClimbStart = DateTime.MinValue;
+                        }
+                        // Recuperación: si el VS es considerablemente positivo y el avión no está
+                        // cerca del destino, volver a Climb (cubre falsa transición por QNH o
+                        // altitud restringida con ascenso posterior).
+                        else if (verticalSpeed > 500)
+                        {
+                            if (_descentToClimbStart == DateTime.MinValue)
+                                _descentToClimbStart = DateTime.UtcNow;
+                            else if ((DateTime.UtcNow - _descentToClimbStart).TotalSeconds >= 20)
+                            {
+                                _descentToClimbStart = DateTime.MinValue;
+                                OnLog?.Invoke($"✈️ Resuming climb from {altitude} ft", Theme.MainText);
+                                TransitionTo(FlightPhase.Climb, previousPhase);
+                            }
+                        }
+                        else
+                        {
+                            _descentToClimbStart = DateTime.MinValue;
                         }
                         break;
 
@@ -1328,6 +1377,8 @@ namespace vmsOpenAcars.Core.Flight
             CurrentGroundSpeed = (int)data.GroundSpeedKt;
             CurrentVerticalSpeed = (int)data.VerticalSpeedFpm;
             IsOnGround = data.IsOnGround;
+            if (data.GroundAltitudeFeet > 0)
+                _groundAltitudeFeet = data.GroundAltitudeFeet;
             CurrentLat = data.Latitude;
             CurrentLon = data.Longitude;
             CurrentHeading = data.HeadingDeg;
@@ -1476,6 +1527,7 @@ namespace vmsOpenAcars.Core.Flight
                 StabilizedApproachDeductions = _stabilizedApproachDeductions,
                 QnhViolations = _qnhViolationCount,
                 WasOfflineFlight = _isOfflineFlight,
+                DepartedLate = _departedLate,
                 TouchdownDistanceFt = _touchdownDistanceFt,
                 CenterlineDeviationFt = _touchdownCenterlineDeviationFt,
                 RunwayName = _touchdownRunwayName,

@@ -76,6 +76,12 @@ namespace vmsOpenAcars.Models
         /// </summary>
         public bool WasOfflineFlight { get; set; }
 
+        /// <summary>
+        /// True if blocks-off occurred more than 10 minutes before or after the scheduled
+        /// departure time (sched_out from SimBrief). Results in a fixed -5 pt deduction.
+        /// </summary>
+        public bool DepartedLate { get; set; }
+
         // ─── NavMap runway data (optional — populated when LNM DB is configured) ──
 
         /// <summary>
@@ -108,6 +114,7 @@ namespace vmsOpenAcars.Models
             StabilizedApproachDeductions = 0;
             QnhViolations = 0;
             WasOfflineFlight = false;
+            DepartedLate = false;
             TouchdownDistanceFt = 0;
             CenterlineDeviationFt = 0;
             RunwayName = null;

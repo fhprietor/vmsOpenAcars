@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.4.1  
+**Versión actual:** v0.4.3  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -41,21 +41,22 @@ vmsOpenAcars/
 
 ### Scoring de aterrizaje — `Services/ScoringService.cs`
 
-11 criterios, puntuación parte de 100 y deduce:
+12 criterios, puntuación parte de 100 y deduce (score mínimo = 0):
 
-| Criterio | Deducción máx | Umbrales |
+| Criterio | Deducción máx | Umbrales / condición |
 |---|---|---|
 | Landing Rate | 40 pts | ≤100=0, ≤200=5, ≤300=15, ≤400=25, ≤600=35, >600=40 |
-| G-Force | 15 pts | ≤1.3g=0, ≤1.5g=7, >1.5g=15 |
+| G-Force | 15 pts | ≤1.3g=0, ≤1.5g=7, >1.5g=15 (omitido si dato = 0) |
 | Bank Angle | 10 pts | ≤2°=0, ≤5°=5, >5°=10 |
-| Pitch Angle | 10 pts | 1°-5°=0 (ideal), fuera de rango deduce 5-10 |
+| Pitch Angle | 10 pts | 1°–5°=0 (ideal nose-up); <−2°=10; −2°–1°=5; >8°=5 |
 | Overspeed | 15 pts | 0=0, 1=7, ≥2=15 |
 | Lights Compliance | 10 pts | 5 pts por violación, cap 10; Beacon exempto en aeronaves con switch compartido beacon/strobe (ver `BeaconStrobeSharedAircraft`) |
-| Stabilized Approach (1000 ft) | 15 pts | 6 criterios (speed, VS, bank, pitch, gear, flaps) |
-| QNH Compliance | 5 pts | 5 pts si Δ>2 hPa |
-| IVAO Offline | 5 pts | 5 si vuelo sin conexión IVAO |
-| Touchdown Zone | 7 pts | ≤1500 ft=0, ≤2500=3, >2500=7 — activo si `TouchdownDistanceFt > 0` |
-| Centreline Deviation | 7 pts | ≤10 ft=0, ≤30=3, >30=7 — activo si `CenterlineDeviationFt > 0` |
+| Stabilized Approach (1000 ft) | 15 pts | 6 criterios al cruzar 1000 ft AGL ↓: speed fuera [Vref−Vref+X]=−5, VS<−1000=−5, VS>−100=−5, bank>7°=−3, pitch fuera [−2.5°,+10°]=−3, gear up=−5, flaps<50%=−4 |
+| QNH Compliance | 10 pts | 5 pts si Δ>2 hPa — salida: TakeoffRoll; llegada: gate 1000 ft AGL (mismo momento que Stabilized, contador independiente) |
+| IVAO Offline | 5 pts | −5 si vuelo iniciado sin conexión IVAO |
+| On-Time Departure | 5 pts | −5 si Blocks Off difiere >10 min del STD (`sched_out`) |
+| Touchdown Zone | 7 pts | ≤1500 ft=0, ≤2500=3, >2500=7 — activo solo si `TouchdownDistanceFt > 0` (requiere LNM DB) |
+| Centreline Deviation | 7 pts | ≤10 ft=0, ≤30=3, >30=7 — activo solo si `CenterlineDeviationFt > 0` (requiere LNM DB) |
 
 ### RunwayService — `Db/RunwayService.cs`
 
@@ -67,7 +68,7 @@ RunwayEntry           FindRunwayEntry(airport, lat, lon, heading)
 string                FindNearestTaxiway(airport, lat, lon)
 HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)
 ParkingSpot           FindNearestParking(airport, lat, lon)
-RunwayTouchdownResult GetRunwayThreshold(airport, heading)          // para captura de aproximación
+RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading) // para captura de aproximación — lat/lon desambiguan pistas paralelas
 (double DistNm, double LateralFt) ComputeApproachMetrics(...)       // public static
 ```
 
@@ -173,16 +174,25 @@ En SettingsForm sección "Landing Log": usa `OpenFileDialog` con `CheckFileExist
 
 ```
 Phase → Approach
-    → RunwayService.GetRunwayThreshold(dest, heading) → _approachThreshold
+    → RunwayService.GetRunwayThreshold(dest, lat, lon, heading) → _approachThreshold
     → _approachBuffer.Clear()
 OnRawDataUpdated (cada 50 ms)
     → si phase=Approach && AGL<3000 ft && ≥2 s elapsed
     → ComputeApproachMetrics(threshold, lat, lon) → distNm, lateralFt
     → _approachBuffer.Add(ApproachTrackPoint)
-SendPirep() → FilePirep() éxito → SaveLandingRecord()
-    → LandingLogService.SaveFlight(FlightRecord, _approachBuffer)
-    → _approachBuffer.Clear()
+SendPirep()
+    → SnapshotLandingRecord()          ← captura plan + touchdown ANTES de FilePirep
+    → FilePirep() → ResetFlightState() ← aquí se borran _activePlan y touchdown data
+    → éxito → SaveLandingRecord(record)
+        → record.Score = LastFlightScore  ← LastFlightScore NO se resetea en ResetFlightState
+        → LandingLogService.SaveFlight(record, _approachBuffer)
+        → _approachBuffer.Clear()
 ```
+
+> **Importante:** `FilePirep()` llama internamente a `ResetFlightState()`, que pone `_activePlan = null`
+> y resetea todos los campos de touchdown. `SnapshotLandingRecord()` debe ejecutarse **antes** de
+> awaitar `FilePirep()`. `LastFlightScore` es la única propiedad que no se resetea y puede leerse
+> de forma segura después.
 
 ### Propiedades públicas añadidas a FlightManager
 
@@ -227,6 +237,9 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `ViewModels/MainViewModel.cs` | 620-637 | `LookupTakeoffRunwayData()` |
 | `ViewModels/MainViewModel.cs` | ~562 | `HandleTaxiPositionUpdate()` ground ops + runway exit detection for AfterLanding |
 | `ViewModels/MainViewModel.cs` | ~210 | Approach capture start log: `Lnm_ApproachCaptureStart` (pista, AGL, distancia) |
+| `ViewModels/MainViewModel.cs` | ~1101 | `SendPirep()` → llama `SnapshotLandingRecord()` antes de `FilePirep()` |
+| `ViewModels/MainViewModel.cs` | ~1120 | `SnapshotLandingRecord()` — captura plan+touchdown antes del reset |
+| `ViewModels/MainViewModel.cs` | ~1138 | `SaveLandingRecord(FlightRecord)` — añade Score y persiste a SQLite |
 | `UI/Forms/MainForm.cs` | ~1018 | Construcción del panel FMA |
 | `UI/Forms/MainForm.cs` | ~1490 | Update loop FMA plan lines |
 | `UI/Forms/MainForm.cs` | — | Botón LOGBOOK (9.º botón, antes de START) |
@@ -236,7 +249,21 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 
 ---
 
+## Detección de fases — umbrales clave
+
+| Transición | Condición | Debounce |
+|---|---|---|
+| Climb → Enroute | VS < 200 fpm + cerca de crucero, o timeout 5 min + VS < 100 fpm | 10 s |
+| Climb → Descent | VS < −500 fpm **y** alt < máx−500 ft | 20 s |
+| Enroute → Climb (step) | VS > 500 fpm + alt < crucero−500 ft | 10 s |
+| Enroute → Descent | VS < −500 fpm **y** alt < máx−500 ft | 20 s |
+| Descent → Approach | dist < 10% totalDist o AGL < aglThreshold | inmediato |
+| Descent → Climb | VS > 500 fpm (sin estar en zona approach) | 20 s |
+| Approach → Go-around | VS > 600 fpm + AGL 100–3000 ft + ≥30 s en Approach | 10 s |
+
+Los umbrales elevados (−500 fpm, 20 s) evitan que cambios de QNH o turbulencia suave (~100 fpm) disparen falsas transiciones.
+
 ## Próximas áreas de desarrollo (sin prioridad definida)
 
-- **Touch-and-go** — ya detectado en FlightManager; verificar que scoring y approach buffer se resetean correctamente para el segundo aterrizaje
-- (COMPLETADO) **Score en Landing Log** — la puntuación ya se expone en `FlightManager.LastFlightScore` y se almacena en `landing_log.sqlite` al completar el vuelo.
+- **Touch-and-go** — ya detectado en FlightManager; verificar que scoring y approach buffer se resetean correctamente para el segundo aterrizaje.
+- **MetarRaw en logbook** — `FlightRecord.MetarRaw` existe en el esquema pero no se popula en `SnapshotLandingRecord()`; el METAR de destino podría obtenerse de `MetarService` en ese momento.

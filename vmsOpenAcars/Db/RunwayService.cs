@@ -79,8 +79,11 @@ namespace vmsOpenAcars.Db
         /// <summary>
         /// Returns threshold position/heading for a runway matching <paramref name="heading"/> ±45°.
         /// Used to set up approach-track capture before landing.
+        /// When parallel runways share a similar heading (e.g. 14L/14R), the one whose
+        /// centreline the aircraft is laterally closest to is preferred.
         /// </summary>
-        public RunwayTouchdownResult GetRunwayThreshold(string airport, double heading)
+        public RunwayTouchdownResult GetRunwayThreshold(
+            string airport, double lat, double lon, double heading)
         {
             try
             {
@@ -90,13 +93,31 @@ namespace vmsOpenAcars.Db
                     long apId = GetAirportId(conn, airport);
                     if (apId < 0) return null;
 
-                    RunwayEndInfo best = null;
-                    double bestDelta = double.MaxValue;
+                    RunwayEndInfo best      = null;
+                    double        bestDelta = double.MaxValue;
+                    double        bestCross = double.MaxValue;
 
                     foreach (var end in GetRunwayEnds(conn, apId))
                     {
                         double d = HeadingDelta(end.Heading, heading);
-                        if (d < 45.0 && d < bestDelta) { bestDelta = d; best = end; }
+                        if (d >= 45.0) continue;
+
+                        // Lateral distance to this runway's centreline — tiebreaker for
+                        // parallel runways whose heading deltas are nearly identical.
+                        Project(lat, lon, end.Lat, end.Lon, end.Heading,
+                                out double _, out double cross);
+                        double absCross = Math.Abs(cross);
+
+                        // Prefer by heading first; fall back to lateral distance when
+                        // headings are within 2° of each other.
+                        if (best == null
+                            || d < bestDelta - 2.0
+                            || (d < bestDelta + 2.0 && absCross < bestCross))
+                        {
+                            best      = end;
+                            bestDelta = d;
+                            bestCross = absCross;
+                        }
                     }
 
                     if (best == null) return null;

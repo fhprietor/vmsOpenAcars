@@ -202,7 +202,7 @@ namespace vmsOpenAcars.ViewModels
                 if (_approachThreshold == null && _runwayService.IsAvailable)
                 {
                     string dest = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
-                    _approachThreshold = _runwayService.GetRunwayThreshold(dest, e.HeadingDeg);
+                    _approachThreshold = _runwayService.GetRunwayThreshold(dest, e.Latitude, e.Longitude, e.HeadingDeg);
                 }
 
                 double computedAgl = _flightManager.CurrentAGL;
@@ -337,7 +337,7 @@ namespace vmsOpenAcars.ViewModels
                 _lastApproachCapture = DateTime.MinValue;
                 string dest = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
                 double hdg  = _flightManager.CurrentHeading;
-                _approachThreshold = _runwayService.GetRunwayThreshold(dest, hdg);
+                _approachThreshold = _runwayService.GetRunwayThreshold(dest, _flightManager.CurrentLat, _flightManager.CurrentLon, hdg);
             }
             else if (phase != FlightPhase.Approach)
             {
@@ -767,7 +767,16 @@ namespace vmsOpenAcars.ViewModels
         private void OnGearChanged(int oldPos, int newPos)
         {
             string status = newPos == 1 ? "DOWN" : "UP";
-            OnLog?.Invoke($"🛬 Gear {status}{AglSuffix()}", Theme.MainText);
+            // GearChanged fires before RawDataUpdated, so FlightManager.IsOnGround may still be
+            // true right after liftoff (stale from previous tick). Compute AGL directly from
+            // fsuipc altitude (already fresh) to avoid the IsOnGround guard returning 0.
+            double msl  = _fsuipc.CurrentAltitudeFeet;
+            double elev = newPos == 0
+                ? (_flightManager.ActivePlan?.OriginElevation      ?? 0)
+                : (_flightManager.ActivePlan?.DestinationElevation ?? 0);
+            int agl = (int)(msl - elev);
+            string aglStr = agl > 50 ? $" ({agl} ft AGL)" : "";
+            OnLog?.Invoke($"🛬 Gear {status}{aglStr}", Theme.MainText);
         }
 
         private string AglSuffix()
@@ -1091,6 +1100,9 @@ namespace vmsOpenAcars.ViewModels
 
         public async Task SendPirep()
         {
+            // Snapshot plan + touchdown data before FilePirep resets state
+            var pendingRecord = SnapshotLandingRecord();
+
             if (await _flightManager.FilePirep())
             {
                 OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), false);
@@ -1098,33 +1110,38 @@ namespace vmsOpenAcars.ViewModels
                 _lastPositionUpdate = DateTime.MinValue;
                 OnLog?.Invoke("✅ Vuelo reportado, listo para siguiente vuelo", Theme.Success);
                 OnFlightEnded?.Invoke();
-                SaveLandingRecord();
+                SaveLandingRecord(pendingRecord);
                 // Fire-and-forget: refresh pilot airport once phpVMS processes the PIREP
                 Task.Run(RefreshPilotDataAfterPirep);
             }
         }
 
-        private void SaveLandingRecord()
+        // Called before FilePirep() so plan and touchdown data are still populated.
+        private FlightRecord SnapshotLandingRecord()
+        {
+            var fm   = _flightManager;
+            var plan = fm.ActivePlan;
+            return new FlightRecord
+            {
+                FlightNumber    = plan?.FlightNumber     ?? "",
+                Origin          = plan?.Origin           ?? "",
+                Destination     = plan?.Destination      ?? "",
+                RunwayName      = fm.TouchdownRunwayName ?? "",
+                FlightDate      = DateTime.UtcNow,
+                LandingRateFpm  = fm.TouchdownFpm        ?? 0,
+                GForce          = fm.TouchdownGForce,
+                TouchdownDistFt = fm.TouchdownDistanceFt,
+                CenterlineDevFt = fm.TouchdownCenterlineFt,
+            };
+        }
+
+        private void SaveLandingRecord(FlightRecord record)
         {
             if (!_landingLogService.IsAvailable || _approachBuffer.Count < 3) return;
             try
             {
-                var fm   = _flightManager;
-                var plan = fm.ActivePlan;
-
-                var record = new FlightRecord
-                {
-                    FlightNumber    = plan?.FlightNumber          ?? "",
-                    Origin          = plan?.Origin                ?? "",
-                    Destination     = plan?.Destination           ?? "",
-                    RunwayName      = fm.TouchdownRunwayName      ?? "",
-                    FlightDate      = DateTime.UtcNow,
-                    LandingRateFpm  = fm.TouchdownFpm             ?? 0,
-                    GForce          = fm.TouchdownGForce,
-                    TouchdownDistFt = fm.TouchdownDistanceFt,
-                    CenterlineDevFt = fm.TouchdownCenterlineFt,
-                    Score           = fm.LastFlightScore
-                };
+                // Score is computed inside FilePirep and is not reset by ResetFlightState
+                record.Score = _flightManager.LastFlightScore;
 
                 _landingLogService.SaveFlight(record, _approachBuffer);
                 _approachBuffer.Clear();

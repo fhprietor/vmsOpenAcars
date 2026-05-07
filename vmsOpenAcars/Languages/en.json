@@ -194,6 +194,8 @@
   "Score_CritStabilized": "Stabilized Approach",
   "Score_CritQnh": "QNH Compliance",
   "Score_CritIvao": "IVAO Presence",
+  "Score_CritDeparture": "On-Time Departure",
+  "Score_ReasonDeparture": "departed more than 10 min from schedule",
   "Score_CritTdz": "Touchdown Zone",
   "Score_CritCentreline": "Centreline",
   "Score_ReasonIvao": "flight started without IVAO connection",

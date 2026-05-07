@@ -73,8 +73,9 @@ namespace vmsOpenAcars.Services
         private const int MaxOverspeedDeduction = 15;
         private const int MaxLightsDeduction = 10;
         private const int MaxStabilizedApproachDeduction = 15;
-        private const int MaxQnhDeduction = 5;
+        private const int MaxQnhDeduction = 10;  // 5 pts salida + 5 pts llegada
         private const int OfflineFlightDeduction = 5;
+        private const int LateDepartureDeduction = 5;
         private const int MaxTouchdownZoneDeduction = 7;
         private const int MaxCenterlineDeduction = 7;
 
@@ -253,6 +254,18 @@ namespace vmsOpenAcars.Services
                     PointsDeducted = OfflineFlightDeduction
                 });
                 totalDeduction += OfflineFlightDeduction;
+            }
+
+            // ── On-Time Departure ────────────────────────────────────────────────
+            if (data.DepartedLate)
+            {
+                result.Deductions.Add(new ScoringDeduction
+                {
+                    Criterion      = "On-Time Departure",
+                    Reason         = "departed more than 10 min from schedule",
+                    PointsDeducted = LateDepartureDeduction
+                });
+                totalDeduction += LateDepartureDeduction;
             }
 
             result.TotalScore = Math.Max(0, 100 - totalDeduction);

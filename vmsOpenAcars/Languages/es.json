@@ -194,6 +194,8 @@
   "Score_CritStabilized": "Aproximación Estabilizada",
   "Score_CritQnh": "Cumplimiento de QNH",
   "Score_CritIvao": "Presencia en IVAO",
+  "Score_CritDeparture": "Salida a Tiempo",
+  "Score_ReasonDeparture": "salida más de 10 min fuera del horario programado",
   "Score_CritTdz": "Zona de Toma de Contacto",
   "Score_CritCentreline": "Línea Central",
   "Score_ReasonIvao": "vuelo iniciado sin conexión a IVAO",

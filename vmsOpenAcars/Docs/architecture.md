@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.3.16  
-> Última actualización: 2026-05-03
+> Versión del documento: 0.4.3  
+> Última actualización: 2026-05-06
 
 ---
 
@@ -238,8 +238,8 @@ El umbral de 600 fpm elimina falsos positivos por turbulencia o ajustes de pitch
 | TaxiOut | NAV + TAXI encendidas | −5 pts c/u |
 | TakeoffRoll | STROBE + LANDING encendidas | −5 pts c/u |
 | Vuelo < 10 000 ft | LANDING encendida | −5 pts |
-| Despegue | QNH ±2 hPa vs METAR origen | −5 pts |
-| Approach | QNH ±2 hPa vs METAR destino | −5 pts |
+| TakeoffRoll | QNH ±2 hPa vs METAR origen | −5 pts |
+| Gate 1 000 ft AGL (Approach) | QNH ±2 hPa vs METAR destino | −5 pts |
 
 ---
 
@@ -257,7 +257,7 @@ RunwayEntry           FindRunwayEntry(airport, lat, lon, heading)      // entrad
 string                FindNearestTaxiway(airport, lat, lon)            // taxiway más cercano
 HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)     // holding short
 ParkingSpot           FindNearestParking(airport, lat, lon)            // gate / parking
-RunwayTouchdownResult GetRunwayThreshold(airport, heading)             // umbral para captura de aproximación
+RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading)   // umbral para captura de aproximación — lat/lon desambiguan pistas paralelas
 (double DistNm, double LateralFt) ComputeApproachMetrics(...)         // proyección flat-earth (static)
 ```
 
@@ -306,8 +306,9 @@ Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se
 | Overspeed | −15 pts | 0 eventos: 0 / 1: −7 / ≥2: −15 |
 | Lights Compliance | −10 pts | −5 pts por violación, cap −10 |
 | Stabilized Approach (1000 ft) | −15 pts | Evalúa speed, VS, bank, pitch, gear y flaps a 1000 ft AGL |
-| QNH Compliance | −5 pts | −5 si Δ > 2 hPa vs METAR destino |
+| QNH Compliance | −10 pts | −5 pts si Δ > 2 hPa — salida (TakeoffRoll) + llegada (gate 1000 ft AGL), independientes |
 | IVAO Offline | −5 pts | −5 si el vuelo se realizó sin conexión IVAO |
+| On-Time Departure | −5 pts | −5 si Blocks Off difiere > 10 min del STD (`sched_out`) |
 | Touchdown Zone | −7 pts | ≤1500 ft = 0 / ≤2500 ft = −3 / >2500 ft = −7 · requiere LNM DB |
 | Centreline Deviation | −7 pts | ≤10 ft = 0 / ≤30 ft = −3 / >30 ft = −7 · requiere LNM DB |
 
@@ -364,16 +365,23 @@ void SeedMockData()             // solo disponible en #if DEBUG — 5 vuelos SKR
 
 ```
 Phase → Approach
-    → RunwayService.GetRunwayThreshold(dest, heading) → _approachThreshold
+    → RunwayService.GetRunwayThreshold(dest, lat, lon, heading) → _approachThreshold
     → _approachBuffer.Clear()
 OnRawDataUpdated (cada 50 ms)
     → si phase=Approach && AGL < 3000 ft && ≥ 2 s desde último punto
     → ComputeApproachMetrics(threshold, lat, lon) → (distNm, lateralFt)
     → _approachBuffer.Add(ApproachTrackPoint)
-FilePirep() éxito → SaveLandingRecord()
-    → LandingLogService.SaveFlight(FlightRecord, _approachBuffer)
-    → _approachBuffer.Clear()
+SendPirep()
+    → SnapshotLandingRecord()          ← captura plan + touchdown ANTES de FilePirep
+    → FilePirep() → ResetFlightState() ← borra _activePlan y touchdown data
+    → éxito → SaveLandingRecord(record)
+        → record.Score = LastFlightScore  ← no se resetea en ResetFlightState
+        → LandingLogService.SaveFlight(record, _approachBuffer)
+        → _approachBuffer.Clear()
 ```
+
+> `SnapshotLandingRecord()` debe ejecutarse **antes** de awaitar `FilePirep()`. `LastFlightScore`
+> es la única propiedad que `ResetFlightState()` no borra, por lo que puede leerse después.
 
 ---
 
@@ -663,7 +671,7 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 
 ## Notas de Build
 
-- Configuración **Release**: copia `App.Release.config` sobre `vmsOpenAcars.exe.config` en post-build
+- Configuración **Release**: `<AppConfig></AppConfig>` en el PropertyGroup de Release evita que MSBuild copie `App.config` sobre `vmsOpenAcars.exe.config`. El `App.Release.config` de producción en `bin\Release\` queda intacto.
 - `pdfium.dll` se copia siempre al directorio de salida (`CopyToOutputDirectory=Always`)
 - `Languages/*.json` se copian con `PreserveNewest`
 - `SeedMockData()` en `LandingLogService` solo compila en configuración **Debug** (`#if DEBUG`)

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Text;
@@ -13,6 +14,42 @@ using vmsOpenAcars.UI.Forms;
 
 namespace vmsOpenAcars.UI
 {
+    internal class ListViewColumnSorter : IComparer
+    {
+        public int  SortColumn    { get; set; } = 0;
+        public SortOrder Order    { get; set; } = SortOrder.Ascending;
+
+        private static readonly string[] NumericSuffixes = { " NM", "h ", "m" };
+
+        public int Compare(object x, object y)
+        {
+            var lx = (ListViewItem)x;
+            var ly = (ListViewItem)y;
+
+            string tx = lx.SubItems.Count > SortColumn ? lx.SubItems[SortColumn].Text : "";
+            string ty = ly.SubItems.Count > SortColumn ? ly.SubItems[SortColumn].Text : "";
+
+            // Try numeric comparison (strip units suffix)
+            string nx = StripUnits(tx);
+            string ny = StripUnits(ty);
+            int cmp;
+            if (double.TryParse(nx, out double dx) && double.TryParse(ny, out double dy))
+                cmp = dx.CompareTo(dy);
+            else
+                cmp = string.Compare(tx, ty, StringComparison.OrdinalIgnoreCase);
+
+            return Order == SortOrder.Descending ? -cmp : cmp;
+        }
+
+        private static string StripUnits(string s)
+        {
+            foreach (var suffix in NumericSuffixes)
+                s = s.Replace(suffix, " ").Trim();
+            return s;
+        }
+    }
+
+
     public class FlightPlannerForm : Form
     {
         // Controles
@@ -23,6 +60,7 @@ namespace vmsOpenAcars.UI
         private ListView lvAvailableFlights; // Renombrado para claridad
 
         private bool _hasPlanned = false;
+        private readonly ListViewColumnSorter _availableSorter = new ListViewColumnSorter();
 
         private Label lblTitle;
         private Label lblAirport;
@@ -259,8 +297,10 @@ namespace vmsOpenAcars.UI
             lvAvailableFlights.Columns.Add("Flight Time", 90);
             lvAvailableFlights.Columns.Add("Route", 200);
 
+            lvAvailableFlights.ListViewItemSorter = _availableSorter;
             lvAvailableFlights.SelectedIndexChanged += LvAvailableFlights_SelectedIndexChanged;
             lvAvailableFlights.DoubleClick += (s, e) => BtnPlanWithSimbrief_Click(s, e);
+            lvAvailableFlights.ColumnClick += LvAvailableFlights_ColumnClick;
 
             tabAvailable.Controls.Add(lvAvailableFlights);
         }
@@ -339,6 +379,9 @@ namespace vmsOpenAcars.UI
                 {
                     lvAvailableFlights.Items.Add(CreateFlightListViewItem(flight, false));
                 }
+                _availableSorter.SortColumn = 0;
+                _availableSorter.Order      = SortOrder.Ascending;
+                lvAvailableFlights.Sort();
                 lvAvailableFlights.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
 
                 lblStatus.Text = $"✅ {validFlights.Count} flights available" +
@@ -451,6 +494,22 @@ namespace vmsOpenAcars.UI
 
             item.Tag = flight;
             return item;
+        }
+
+        private void LvAvailableFlights_ColumnClick(object sender, ColumnClickEventArgs e)
+        {
+            if (_availableSorter.SortColumn == e.Column)
+            {
+                _availableSorter.Order = _availableSorter.Order == SortOrder.Ascending
+                    ? SortOrder.Descending
+                    : SortOrder.Ascending;
+            }
+            else
+            {
+                _availableSorter.SortColumn = e.Column;
+                _availableSorter.Order      = SortOrder.Ascending;
+            }
+            lvAvailableFlights.Sort();
         }
 
         private async void LvAvailableFlights_SelectedIndexChanged(object sender, EventArgs e)
