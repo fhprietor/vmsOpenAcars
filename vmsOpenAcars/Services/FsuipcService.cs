@@ -149,6 +149,8 @@ namespace vmsOpenAcars.Services
         private readonly Offset<short> _autopilotOffset = new Offset<short>(0x07BC);
         private readonly Offset<short> _navModeOffset = new Offset<short>(0x07CC);
         private readonly Offset<short> _transponderOffset = new Offset<short>(0x0354);
+        /// <summary>0x034E · INT16 · COM1 active frequency, BCD encoded (decode → MHz).</summary>
+        private readonly Offset<short> _com1FreqOffset = new Offset<short>(0x034E);
         /// <summary>0x0350 · INT16 · NAV1 active frequency, BCD encoded (decode → MHz).</summary>
         private readonly Offset<short> _nav1FreqOffset = new Offset<short>(0x0350);
         /// <summary>0x0C4E · INT16 · NAV1 OBS / ILS course 0–359°.</summary>
@@ -301,7 +303,9 @@ namespace vmsOpenAcars.Services
         /// <summary>QNH seleccionado en el altímetro del avión, en hPa. Calculado desde offset 0x0330.</summary>
         public double AircraftQnhMb { get; private set; }
 
-        // ---- NAV1 ----
+        // ---- COM1 / NAV1 ----
+        /// <summary>COM1 active frequency in MHz (e.g. 118.5). 0 when not connected.</summary>
+        public double Com1FrequencyMhz { get; private set; }
         /// <summary>NAV1 active frequency in MHz (e.g. 111.3). 0 when not connected.</summary>
         public double Nav1FrequencyMhz { get; private set; }
         /// <summary>NAV1 OBS / ILS course in degrees (0–359).</summary>
@@ -501,7 +505,8 @@ namespace vmsOpenAcars.Services
             // Use navModeOffset (0x07CC) as fallback engagement indicator.
             short apBits = _autopilotOffset.Value;
             short navModeBits = _navModeOffset.Value;
-            bool apMaster = apBits != 0;
+            // navModeBits fallback: complex MSFS add-ons (iFly, PMDG, FBW) don't write 0x07BC
+            bool apMaster = apBits != 0 || navModeBits != 0;
             bool apLnav = (apBits & 0x04) != 0;  // bit 2: LNAV (FSX/P3D only)
             bool apVnav = (apBits & 0x08) != 0;  // bit 3: VNAV (FSX/P3D only)
             bool apLoc = (apBits & 0x10) != 0;   // bit 4: LOC (FSX/P3D only)
@@ -630,7 +635,8 @@ namespace vmsOpenAcars.Services
                 // ── Meteorología ──────────────────────────────────────────────
                 AircraftQnhMb = aircraftQnhMb,
 
-                // ── NAV1 ──────────────────────────────────────────────────────
+                // ── COM1 / NAV1 ───────────────────────────────────────────────
+                Com1FrequencyMhz = Com1FrequencyMhz,
                 Nav1FrequencyMhz = Nav1FrequencyMhz,
                 Nav1ObsCourse    = Nav1ObsCourse,
 
@@ -704,7 +710,8 @@ namespace vmsOpenAcars.Services
             // Kohlsman: raw INT16 → hPa (raw / 16.0)
             AircraftQnhMb = _kohlsmanOffset.Value / 16.0;
 
-            // ---- NAV1 frequency (BCD) and OBS course ----
+            // ---- COM1 / NAV1 frequency (BCD) and OBS course ----
+            Com1FrequencyMhz = DecodeNav1Bcd(_com1FreqOffset.Value);
             Nav1FrequencyMhz = DecodeNav1Bcd(_nav1FreqOffset.Value);
             Nav1ObsCourse    = _nav1ObsCourseOffset.Value & 0x1FF; // 9-bit, 0–359
 
@@ -1417,7 +1424,7 @@ namespace vmsOpenAcars.Services
                 IsOnGround = _lastOnGround,
                 FuelLbs = CurrentFuelLbs,
                 Transponder = _transponderOffset.Value,
-                AutopilotEngaged = _autopilotOffset.Value != 0,
+                AutopilotEngaged = _autopilotOffset.Value != 0 || _navModeOffset.Value != 0,
                 Order = _positionOrder,
                 PitchDeg = CurrentPitch,
                 BankDeg = CurrentBank,
@@ -1431,7 +1438,7 @@ namespace vmsOpenAcars.Services
 
         private int DetermineNavType()
         {
-            if (_autopilotOffset.Value == 0) return 0;
+            if (_autopilotOffset.Value == 0 && _navModeOffset.Value == 0) return 0;
             switch (_navModeOffset.Value)
             {
                 case 1: return 1;
@@ -1790,6 +1797,8 @@ namespace vmsOpenAcars.Services
         public bool SeatBeltSign { get; set; }
         /// <summary>QNH seleccionado en el altímetro del avión, en hPa. 0 si FSUIPC no conectado.</summary>
         public double AircraftQnhMb { get; set; }
+        /// <summary>COM1 active frequency in MHz (e.g. 118.5). 0 when not connected.</summary>
+        public double Com1FrequencyMhz { get; set; }
         /// <summary>NAV1 active frequency in MHz (e.g. 111.3). 0 when not connected.</summary>
         public double Nav1FrequencyMhz { get; set; }
         /// <summary>NAV1 OBS / ILS course in degrees (0–359).</summary>

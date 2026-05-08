@@ -1,4 +1,45 @@
-# Changelog - vmsOpenAcars
+# CHANGELOG — vmsOpenAcars
+
+---
+
+## [0.4.6] — 2026-05-08
+
+### Added
+
+- **OSD Overlay** — nueva ventana `OsdOverlayForm` (TopMost, sin borde, sin barra de tareas) que muestra notificaciones en pantalla superpuestas al simulador. Soporta 4 niveles de severidad: Info (azul), Success (verde), Warning (dorado), Critical (rojo parpadeante). Animación de fade-in/fade-out configurable.
+- **OSD en fases de vuelo** — mensajes automáticos en cada transición de fase: `TAXI OUT`, `TAKEOFF ROLL`, `CRUISE`, `DESCENDING`, `APPROACH`, `ON BLOCK`, `TOUCH AND GO`.
+- **OSD en touchdown** — muestra calificación cualitativa (`BUTTER / SMOOTH / NORMAL LANDING / FIRM LANDING / HARD LANDING / SLAM LANDING`), tasa en fpm y G-force en el momento del aterrizaje.
+- **OSD al iniciar vuelo** — `ACARS ACTIVE` (Success) al pulsar START y confirmar inicio.
+- **OSD al enviar PIREP** — muestra la puntuación final (`PIREP FILED — SCORE: XX/100`).
+- **Botón MENU** — nuevo botón en la barra principal. Abre un menú desplegable con submenú **Test OSD** para probar los 4 niveles de severidad (Info / Success / Warning / Critical) sin necesidad de volar.
+- **Configuración OSD en Settings** — nueva sección **OSD** en SettingsForm con:
+  - Checkbox `Enable OSD` para activar/desactivar globalmente.
+  - `Duration (s)` — tiempo de visualización (1–30 s).
+  - `Screen index` — índice de pantalla donde mostrar el OSD (0 = primaria).
+  - `Opacity (%)` — opacidad del overlay (10–100 %).
+- **App.config — claves OSD:** `osd_enabled` (true), `osd_duration_seconds` (4), `osd_screen_index` (0), `osd_opacity` (90).
+
+### Fixed
+
+- **Botón START no se reactivaba tras enviar PIREP** — `SetActivePlan()` ahora emite `OnButtonStateChanged("START", enabled=true)` al cargar un nuevo plan, reactivando el botón inmediatamente sin esperar al siguiente ciclo de validación.
+- **UI bloqueada ~120 s tras aceptar OFP** — `TriggerMetarFetchAsync()` y `DownloadOFPPdfAsync()` se llamaban con `var __ = ...` desde el hilo UI, capturando el `WindowsFormsSynchronizationContext`. Las continuaciones de los 4+ requests HTTP (incluido el doble bucle de `FetchNearestAsync`) se acumulaban en el message pump. Corregido usando `Task.Run(() => ...)` en ambas llamadas para ejecutar toda la cadena async en el ThreadPool sin capturar el contexto UI.
+- **OSD mal posicionado en modo ventana del simulador** — la posición solo se calculaba en el constructor. Ahora se recalcula en cada llamada a `ShowMessage()` usando `Screen.Bounds` (área completa de la pantalla) en lugar de `WorkingArea` (que excluye la barra de tareas), garantizando posicionamiento correcto tanto en modo ventana como fullscreen.
+
+---
+
+## [0.4.5] — 2026-05-07
+
+### Added
+- **COM1/NAV1 en barra de estado** — dos nuevas pills muestran en tiempo real la frecuencia activa de COM1 (`COM 118.50`) y NAV1 (`NAV 111.30/135`). El curso solo aparece cuando el OBS está configurado (≠ 0°). Offset nuevo: `0x034E` BCD para COM1.
+- **Autopilot fallback MSFS** — `apMaster` ahora es `true` si `0x07BC != 0` **ó** `0x07CC != 0`. Los add-ons complejos de MSFS (iFly, PMDG, FBW) no escriben el offset maestro `0x07BC`; el offset de modo de navegación (`0x07CC`) actúa como fallback.
+
+### Fixed
+- **Pistas paralelas — identificación errónea** — el threshold de aproximación se capturaba una sola vez al entrar en fase Approach, a veces con el avión a > 10 NM y sin estar alineado. Ahora se re-evalúa automáticamente la primera vez que el buffer detecta distancia < 6 NM; si el resultado es una pista distinta se limpia el buffer y se recarga el procedimiento de ILS/aproximación.
+- **Touch-and-go falso por rebote** — un rebote (< 1 s en tierra) disparaba la detección de T&G y transitaba a fase Climb sin retorno. Se añadió un guard mínimo de **5 segundos en tierra** (`_touchdownTimestamp`) antes de aceptar un T&G; los rebotes se ignoran.
+- **Cuenta atrás de salida — lógica de colores** — nueva escala: rojo (> 10 min antes) → amarillo (5–10 min) → verde (ventana ±5 min) → amarillo (5–10 min de retraso) → rojo (> 10 min de retraso).
+- **Penalización IVAO al iniciar TaxiOut** — el check de IVAO se trasladó al inicio de la fase TaxiOut (independientemente de la fase previa). El diálogo bloqueante de StartFlight se reemplazó por un simple aviso informativo en el log. La penalización de −5 pts se aplica únicamente si el piloto no está en IVAO al comenzar el rodaje.
+
+---
 
 ## [0.4.4]
 

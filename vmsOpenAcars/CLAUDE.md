@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.4.4  
+**Versión actual:** v0.4.6  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -21,7 +21,8 @@ vmsOpenAcars/
 │                           IvaoService, SimbriefEnhancedService, LandingLogService
 ├── ViewModels/           → MainViewModel.cs  (coordinación UI ↔ dominio)
 ├── UI/Forms/             → MainForm, SettingsForm, MetarDecodeForm, OFPViewerForm,
-│                           FlightHistoryForm, LandingAnalysisForm, EcamDialog
+│                           FlightHistoryForm, LandingAnalysisForm, EcamDialog,
+│                           OsdOverlayForm
 ├── Docs/                 → BRIEFING.md (guía de usuario final)
 └── Controls/             → GaugeControl, LinearGauge, EngineMonitorPanel
 ```
@@ -53,7 +54,7 @@ vmsOpenAcars/
 | Lights Compliance | 10 pts | 5 pts por violación, cap 10; Beacon exempto en aeronaves con switch compartido beacon/strobe (ver `BeaconStrobeSharedAircraft`) |
 | Stabilized Approach (1000 ft) | 15 pts | 6 criterios al cruzar 1000 ft AGL ↓: speed fuera [Vref−Vref+X]=−5, VS<−1000=−5, VS>−100=−5, bank>7°=−3, pitch fuera [−2.5°,+10°]=−3, gear up=−5, flaps<50%=−4 |
 | QNH Compliance | 10 pts | 5 pts si Δ>2 hPa — salida: TakeoffRoll; llegada: gate 1000 ft AGL (mismo momento que Stabilized, contador independiente) |
-| IVAO Offline | 5 pts | −5 si vuelo iniciado sin conexión IVAO |
+| IVAO Offline | 5 pts | −5 si piloto no conectado a IVAO al iniciar TaxiOut |
 | On-Time Departure | 5 pts | −5 si Blocks Off difiere >10 min del STD (`sched_out`) |
 | Touchdown Zone | 7 pts | ≤1500 ft=0, ≤2500=3, >2500=7 — activo solo si `TouchdownDistanceFt > 0` (requiere LNM DB) |
 | Centreline Deviation | 7 pts | ≤10 ft=0, ≤30=3, >30=7 — activo solo si `CenterlineDeviationFt > 0` (requiere LNM DB) |
@@ -243,6 +244,57 @@ OnFlightPhaseChanged(Approach)
 
 ---
 
+## OSD Overlay — v0.4.6
+
+### OsdOverlayForm — `UI/Forms/OsdOverlayForm.cs`
+
+Ventana TopMost, sin borde, click-through (`WM_NCHITTEST → HTTRANSPARENT`), sin entrada en taskbar. Centrada horizontalmente en la pantalla configurada, 40 px desde el borde superior.
+
+```csharp
+public enum OsdSeverity { Info, Success, Warning, Critical }
+public void ShowMessage(string text, OsdSeverity severity, int durationMs = 4000)
+public void HideOsd()
+```
+
+`ShowMessage()` es thread-safe. Recalcula posición en cada llamada con `Screen.Bounds` (no `WorkingArea`).
+
+**Animación:** FadeIn (0.06/tick) → Hold → FadeOut (0.04/tick). Critical: `_flashTimer` (220 ms, 3 ciclos on/off) antes del Hold.
+
+### Configuración — App.config
+
+| Clave | Default | Helper |
+|---|---|---|
+| `osd_enabled` | true | `AppConfig.OsdEnabled` |
+| `osd_duration_seconds` | 4 | `AppConfig.OsdDurationMs` (× 1000) |
+| `osd_screen_index` | 0 | `AppConfig.OsdScreenIndex` |
+| `osd_opacity` | 90 | `AppConfig.OsdOpacity` |
+
+### Puntos de disparo (MainViewModel → `OnOsdMessage`)
+
+| Momento | Texto | Severidad |
+|---|---|---|
+| `StartFlight()` ok | `ACARS ACTIVE` | Success |
+| Fase TaxiOut | `TAXI OUT` | Info |
+| Fase TakeoffRoll | `TAKEOFF ROLL` | Info |
+| Fase Enroute | `CRUISE` | Info |
+| Fase Descent | `DESCENDING` | Info |
+| Fase Approach | `APPROACH` | Info |
+| Fase OnBlock | `ON BLOCK` | Info |
+| Touchdown | `<calificación>  −XXX fpm  X.Xg` | Success/Info/Warning/Critical según fpm |
+| Touch-and-go | `TOUCH AND GO` | Warning |
+| PIREP filed | `PIREP FILED — SCORE: XX/100` | Success |
+
+### Integración en MainForm
+
+```csharp
+_viewModel.OnOsdMessage += (text, severity) =>
+    _osd.ShowMessage(text, severity, AppConfig.OsdDurationMs);
+```
+
+MENU button (antes del botón START) → submenú "Test OSD" con 4 opciones (Info/Success/Warning/Critical).
+
+---
+
 ## Flujo completo del scoring (touchdown zone + centreline)
 
 ```
@@ -283,10 +335,15 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `ViewModels/MainViewModel.cs` | ~1138 | `SaveLandingRecord(FlightRecord)` — añade Score y persiste a SQLite |
 | `UI/Forms/MainForm.cs` | ~1018 | Construcción del panel FMA |
 | `UI/Forms/MainForm.cs` | ~1490 | Update loop FMA plan lines |
-| `UI/Forms/MainForm.cs` | — | Botón LOGBOOK (9.º botón, antes de START) |
+| `UI/Forms/MainForm.cs` | — | Botón LOGBOOK (9.º botón) · Botón MENU (10.º) · Botón START (11.º) |
+| `UI/Forms/MainForm.cs` | — | `OnOsdMessage` handler → `_osd.ShowMessage()` |
+| `UI/Forms/OsdOverlayForm.cs` | — | OSD overlay completo (v0.4.6) |
 | `Services/UIService.cs` | ~143 | `SetPhaseText()` |
 | `Services/UIService.cs` | ~186 | `SetAirStatus()` |
 | `UI/Forms/SettingsForm.cs` | — | Sección Landing Log con OpenFileDialog (CheckFileExists=false) |
+| `UI/Forms/SettingsForm.cs` | — | Sección OSD: checkBox + numericUpDown duration/opacity/screen |
+| `ViewModels/MainViewModel.cs` | — | `OnOsdMessage` event (`Action<string, OsdSeverity>`) |
+| `ViewModels/MainViewModel.cs` | — | `SetActivePlan()` → `OnButtonStateChanged("START", enabled=true)` (v0.4.6) |
 
 ---
 
@@ -306,7 +363,8 @@ Los umbrales elevados (−500 fpm, 20 s) evitan que cambios de QNH o turbulencia
 
 ## Próximas áreas de desarrollo (sin prioridad definida)
 
-- **Touch-and-go** — ya detectado en FlightManager; verificar que scoring y approach buffer se resetean correctamente para el segundo aterrizaje. Estado ILS/approach ya se resetea en el bloque touch-and-go (v0.4.4).
+- **Touch-and-go real** — el guard de 5 s filtra rebotes, pero un T&G real reinicia el estado ILS/approach. Verificar que scoring y approach buffer se resetean correctamente para el segundo aterrizaje.
 - **MetarRaw en logbook** — `FlightRecord.MetarRaw` existe en el esquema pero no se popula en `SnapshotLandingRecord()`; el METAR de destino podría obtenerse de `MetarService` en ese momento.
 - **ILS - aeropuertos sin `runway_name` en `approach`** — `GetApproachType` ya tiene fallback via `runway_end_id`, pero algunos aeropuertos pueden no tener filas en `approach` para ILS (solo en tabla `ils`). En esos casos `ApproachInfo` será null aunque `IlsData` sea válido.
 - **DA calculada** — actualmente DA = threshold elevation + 200 ft (constante conservadora). Podría calcularse dinámicamente desde el `approach_leg` runway threshold fix (`altitude1`) cuando esté disponible.
+- **OSD en go-around** — actualmente no hay mensaje OSD al detectar go-around. Podría añadirse `GO AROUND` (Warning) en `OnFlightPhaseChanged` cuando la fase vuelve a Climb desde Approach.

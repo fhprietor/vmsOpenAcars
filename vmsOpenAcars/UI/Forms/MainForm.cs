@@ -11,6 +11,7 @@ using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.UI;
 using vmsOpenAcars.ViewModels;
+using vmsOpenAcars.Helpers;
 using static vmsOpenAcars.Helpers.L;
 using System.Reflection;
 using vmsOpenAcars.Core.Helpers;
@@ -117,6 +118,10 @@ namespace vmsOpenAcars.UI.Forms
         private Label _lblAutopilot;
         private Label _lblStabilized;
 
+        // STATUS BAR RADIO
+        private Label _lblCom1;
+        private Label _lblNav1;
+
         // FMA PLAN LINES + DEPARTURE COUNTDOWN
         private Label _lblFmaPlanLine1;
         private Label _lblFmaPlanLine2;
@@ -148,6 +153,7 @@ namespace vmsOpenAcars.UI.Forms
         // ========== VIEWMODEL Y SERVICIOS ==========
         private MainViewModel _viewModel;
         private UIService _uiService;
+        private OsdOverlayForm _osd;
 
         public MainForm()
         {
@@ -192,6 +198,9 @@ namespace vmsOpenAcars.UI.Forms
 
                     _viewModel = new MainViewModel(flightManager, fsuipc, apiService, phpVmsFlightService, simbriefEnhancedService);
                     _uiService = new UIService(this, flightManager, apiService);
+
+                    if (AppConfig.OsdEnabled)
+                        _osd = new OsdOverlayForm();
                 }
             }
             catch (Exception ex)
@@ -246,6 +255,11 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel.OnButtonStateChanged += UpdateButtonState;
             _viewModel.OnMetarUpdated      += UpdateMetarPanel;
             _viewModel.OnMetarStateChanged += UpdateMetarPanelState;
+            _viewModel.OnOsdMessage += (msg, sev) =>
+            {
+                if (AppConfig.OsdEnabled)
+                    _osd?.ShowMessage(msg, sev, AppConfig.OsdDurationSeconds * 1000);
+            };
             _viewModel.OnShowMessage += (message, title) =>
             {
                 MessageBox.Show(message, title);
@@ -1160,9 +1174,12 @@ namespace vmsOpenAcars.UI.Forms
             lblCurrentAirport = CreateStatusPill("---", Color.DimGray);
             lblValidationStatus = CreateStatusPill("ICAO --- GPS ---", Color.DimGray);
             lblPos            = CreateStatusPill("---", Color.DimGray);
+            _lblCom1          = CreateStatusPill("COM ---", Color.DimGray);
+            _lblNav1          = CreateStatusPill("NAV ---", Color.DimGray);
 
             flow.Controls.AddRange(new Control[] {
-                lblSimName, lblAcarsStatus, lblCurrentAirport, lblValidationStatus, lblPos
+                lblSimName, lblAcarsStatus, lblCurrentAirport, lblValidationStatus, lblPos,
+                _lblCom1, _lblNav1
             });
 
             pnlStatus.Controls.Add(flow);
@@ -1254,6 +1271,10 @@ namespace vmsOpenAcars.UI.Forms
                     case "WEATHER":
                         btnWeather = btn;
                         btn.Click += BtnWeather_Click;
+                        break;
+                    case "MENU":
+                        btnMenu = btn;
+                        btn.Click += BtnMenu_Click;
                         break;
                     default:
                         btn.Click += GenericButton_Click;
@@ -1501,6 +1522,44 @@ namespace vmsOpenAcars.UI.Forms
                     _lblStrobeLight.ForeColor = fm.IsStrobeLightOn ? Color.Lime : Color.Gray;
                 }
 
+                // ===== RADIO (COM1 / NAV1) =====
+                if (_lblCom1 != null || _lblNav1 != null)
+                {
+                    var raw = fm.LastRawData;
+                    double com1 = raw?.Com1FrequencyMhz ?? 0;
+                    double nav1 = raw?.Nav1FrequencyMhz ?? 0;
+                    int    nav1Crs = raw?.Nav1ObsCourse ?? 0;
+
+                    if (_lblCom1 != null)
+                    {
+                        if (com1 > 0)
+                        {
+                            _lblCom1.Text      = $"COM {com1:F2}";
+                            _lblCom1.ForeColor = Color.LightGreen;
+                        }
+                        else
+                        {
+                            _lblCom1.Text      = "COM ---";
+                            _lblCom1.ForeColor = Color.DimGray;
+                        }
+                    }
+                    if (_lblNav1 != null)
+                    {
+                        if (nav1 > 0)
+                        {
+                            _lblNav1.Text = nav1Crs > 0
+                                ? $"NAV {nav1:F2}/{nav1Crs:D3}"
+                                : $"NAV {nav1:F2}";
+                            _lblNav1.ForeColor = Color.Cyan;
+                        }
+                        else
+                        {
+                            _lblNav1.Text      = "NAV ---";
+                            _lblNav1.ForeColor = Color.DimGray;
+                        }
+                    }
+                }
+
                 // ===== FMA PLAN LINES =====
                 if (_lblFmaPlanLine1 != null && plan != _lastRenderedPlan)
                 {
@@ -1557,21 +1616,28 @@ namespace vmsOpenAcars.UI.Forms
                     {
                         long secondsRemaining = cdwTarget -
                                                 DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                        if (secondsRemaining > 0)
+                        Color cdwColor;
+                        if (secondsRemaining > 600 || secondsRemaining < -600)
+                            cdwColor = Color.Red;
+                        else if (secondsRemaining > 300 || secondsRemaining < -300)
+                            cdwColor = Color.Yellow;
+                        else
+                            cdwColor = Color.Lime;
+
+                        string cdwText;
+                        if (secondsRemaining >= 0)
                         {
-                            string timeStr = secondsRemaining >= 3600
+                            cdwText = secondsRemaining >= 3600
                                 ? $"{secondsRemaining / 3600}:{(secondsRemaining % 3600) / 60:D2}"
                                 : $"{secondsRemaining / 60:D2}:{secondsRemaining % 60:D2}";
-                            _lblDepartureCdw.Text     = timeStr;
-                            _lblDepartureCdw.ForeColor = secondsRemaining <= 300
-                                ? Color.Yellow : Color.Lime;
                         }
                         else
                         {
                             long delay = -secondsRemaining;
-                            _lblDepartureCdw.Text     = $"+{delay / 60:D2}:{delay % 60:D2}";
-                            _lblDepartureCdw.ForeColor = Color.Red;
+                            cdwText = $"+{delay / 60:D2}:{delay % 60:D2}";
                         }
+                        _lblDepartureCdw.Text      = cdwText;
+                        _lblDepartureCdw.ForeColor  = cdwColor;
                         _lblDepartureCdw.Visible = true;
                     }
                     else
@@ -1717,12 +1783,9 @@ namespace vmsOpenAcars.UI.Forms
                     {
                         _viewModel.SetActivePlan(completePlan);
                         _uiService.AddLog($"✅ Plan loaded: {completePlan.Origin} → {completePlan.Destination}", Theme.Success);
-                        await _viewModel.TriggerMetarFetchAsync();
-                        // Pre-descargar el PDF del OFP en background para tenerlo listo al instante
+                        Task.Run(() => _viewModel.TriggerMetarFetchAsync());
                         if (_viewModel.HasOFPPdf())
-                        {
-                            var preload = _viewModel.DownloadOFPPdfAsync();
-                        }
+                            Task.Run(() => _viewModel.DownloadOFPPdfAsync());
                         _viewModel.UpdateFlightInfo();
                         return;
                     }
@@ -1821,6 +1884,25 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel?.LogButtonPress(btn?.Text);
         }
 
+        private void BtnMenu_Click(object sender, EventArgs e)
+        {
+            var menu = new ContextMenuStrip();
+            menu.Items.Add("Settings", null, (s, ev) => BtnSettings_Click(s, ev));
+
+            if (_osd != null)
+            {
+                menu.Items.Add(new ToolStripSeparator());
+                var osdSub = new ToolStripMenuItem("Test OSD");
+                osdSub.DropDownItems.Add("Info",     null, (s, ev) => _osd.ShowMessage("OSD TEST  —  INFO",     OsdSeverity.Info,     5000));
+                osdSub.DropDownItems.Add("Success",  null, (s, ev) => _osd.ShowMessage("OSD TEST  —  SUCCESS",  OsdSeverity.Success,  5000));
+                osdSub.DropDownItems.Add("Warning",  null, (s, ev) => _osd.ShowMessage("OSD TEST  —  WARNING",  OsdSeverity.Warning,  5000));
+                osdSub.DropDownItems.Add("Critical", null, (s, ev) => _osd.ShowMessage("OSD TEST  —  CRITICAL", OsdSeverity.Critical, 5000));
+                menu.Items.Add(osdSub);
+            }
+
+            menu.Show(btnMenu, new Point(0, btnMenu.Height));
+        }
+
         private void BtnLogbook_Click(object sender, EventArgs e)
         {
             var svc = _viewModel?.LandingLogService;
@@ -1836,10 +1918,10 @@ namespace vmsOpenAcars.UI.Forms
                 form.ShowDialog(this);
         }
 
-        private async void BtnWeather_Click(object sender, EventArgs e)
+        private void BtnWeather_Click(object sender, EventArgs e)
         {
             if (_viewModel != null)
-                await _viewModel.TriggerMetarFetchAsync();
+                Task.Run(() => _viewModel.TriggerMetarFetchAsync());
         }
 
         private Panel InitializeMetarPanel()
@@ -2010,6 +2092,8 @@ namespace vmsOpenAcars.UI.Forms
             }
             else
             {
+                _osd?.Close();
+                _osd = null;
                 _viewModel?.Stop();
                 base.OnFormClosing(e);
 
@@ -2125,6 +2209,12 @@ namespace vmsOpenAcars.UI.Forms
                 // Combustible
                 { "fuel_tolerance_percent",  "10" },
                 { "fuel_tolerance_absolute", "50" },
+
+                // OSD
+                { "osd_enabled",          "true" },
+                { "osd_duration_seconds", "4" },
+                { "osd_screen_index",     "1" },
+                { "osd_opacity",          "90" },
 
                 // Cliente
                 { "ClientSettingsProvider.ServiceUri", "" }

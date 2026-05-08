@@ -288,7 +288,7 @@ namespace vmsOpenAcars.Services
                 result.Deductions.Add(new ScoringDeduction
                 {
                     Criterion = "IVAO Presence",
-                    Reason    = "flight started without IVAO connection",
+                    Reason    = "not connected to IVAO at TaxiOut",
                     PointsDeducted = OfflineFlightDeduction
                 });
                 totalDeduction += OfflineFlightDeduction;

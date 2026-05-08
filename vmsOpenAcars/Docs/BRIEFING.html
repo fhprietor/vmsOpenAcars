@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>BRIEFING.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> or <div class="page"></div> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="vmsopenacars--guía-del-usuario">vmsOpenAcars — Guía del Usuario</h1>
+<p><strong>Versión 0.4.6</strong></p>
+<p>vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.</p>
+<hr>
+<h2 id="índice">Índice</h2>
+<ul>
+<li><a href="#1-requisitos">1. Requisitos</a></li>
+<li><a href="#2-configuraci%C3%B3n-inicial-settings">2. Configuración inicial (Settings)</a></li>
+<li><a href="#3-interfaz-principal">3. Interfaz principal</a></li>
+<li><a href="#4-flujo-de-un-vuelo-t%C3%ADpico">4. Flujo de un vuelo típico</a></li>
+<li><a href="#5-scoring-de-vuelo">5. Scoring de vuelo</a></li>
+<li><a href="#6-metar">6. METAR</a></li>
+<li><a href="#7-osd-overlay">7. OSD Overlay</a></li>
+<li><a href="#8-logbook-y-landing-analysis">8. LOGBOOK y Landing Analysis</a></li>
+<li><a href="#9-soluci%C3%B3n-de-problemas">9. Solución de problemas</a></li>
+</ul>
+<hr>
+<h2 id="1-requisitos">1. Requisitos</h2>
+<table>
+<thead>
+<tr>
+<th>Requisito</th>
+<th>Detalle</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Simulador</td>
+<td>Ver tabla de simuladores compatibles abajo</td>
+</tr>
+<tr>
+<td>FSUIPC</td>
+<td>Instalado y activo (versión gratuita es suficiente)</td>
+</tr>
+<tr>
+<td>LittleNavMap</td>
+<td>Necesario para scoring de pista (Touchdown Zone y Centreline)</td>
+</tr>
+<tr>
+<td>Cuenta phpVMS 7</td>
+<td>API Key generada en tu perfil de la aerolínea virtual</td>
+</tr>
+<tr>
+<td>Cuenta SimBrief</td>
+<td>Usuario de SimBrief (gratuito)</td>
+</tr>
+<tr>
+<td>Conexión a internet</td>
+<td>Para comunicarse con phpVMS, SimBrief y METARs</td>
+</tr>
+</tbody>
+</table>
+<h3 id="simuladores-compatibles">Simuladores compatibles</h3>
+<p>vmsOpenAcars se comunica con el simulador a través de <strong>FSUIPC</strong>, por lo que es compatible con todos los simuladores que soporta dicha librería:</p>
+<table>
+<thead>
+<tr>
+<th>Simulador</th>
+<th>Versión de FSUIPC requerida</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Microsoft Flight Simulator 2020</td>
+<td>FSUIPC 7</td>
+</tr>
+<tr>
+<td>Microsoft Flight Simulator 2024</td>
+<td>FSUIPC 7</td>
+</tr>
+<tr>
+<td>Prepar3D v4</td>
+<td>FSUIPC 5 o 6</td>
+</tr>
+<tr>
+<td>Prepar3D v5 / v6</td>
+<td>FSUIPC 6</td>
+</tr>
+<tr>
+<td>Prepar3D v1 / v2 / v3</td>
+<td>FSUIPC 4</td>
+</tr>
+<tr>
+<td>FSX / FSX: Steam Edition</td>
+<td>FSUIPC 4</td>
+</tr>
+<tr>
+<td>X-Plane 11</td>
+<td>XUIPC (plugin para X-Plane)</td>
+</tr>
+<tr>
+<td>X-Plane 12</td>
+<td>XUIPC (plugin para X-Plane)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Instala la versión de FSUIPC que corresponda a tu simulador. La versión gratuita es suficiente. Para X-Plane, instala el plugin <strong>XUIPC</strong> en lugar de FSUIPC.</p>
+</blockquote>
+<hr>
+<h2 id="2-configuración-inicial-settings">2. Configuración inicial (Settings)</h2>
+<p>Haz clic en el botón <strong>SETTINGS</strong> para abrir el diálogo de configuración. Todos los cambios se guardan en <code>vmsOpenAcars.exe.config</code>.</p>
+<h3 id="sección-phpvms">Sección phpVMS</h3>
+<table>
+<thead>
+<tr>
+<th>Campo</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API URL</td>
+<td>URL base de tu aerolínea virtual, con <code>/</code> al final. Ej: <code>https://miaerolinea.com/</code></td>
+</tr>
+<tr>
+<td>API Key</td>
+<td>Tu clave personal de phpVMS (generada en tu perfil de piloto)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sección-simbrief">Sección SimBrief</h3>
+<table>
+<thead>
+<tr>
+<th>Campo</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SimBrief User</td>
+<td>Tu nombre de usuario de SimBrief (pilot ID o alias, no el correo)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sección-navmap-database">Sección NavMap Database</h3>
+<p>vmsOpenAcars usa la base de datos de <strong>LittleNavMap</strong> para calcular con precisión la distancia al umbral de pista, la desviación de centreline, y detectar el ILS de la pista de aterrizaje. Sin esta BD el scoring básico funciona, pero los criterios <strong>Touchdown Zone</strong>, <strong>Centreline Deviation</strong>, <strong>Localizer Alignment</strong> y <strong>Minimums Compliance</strong> no se evaluarán.</p>
+<ol>
+<li>Abre LittleNavMap al menos una vez para que genere su base de datos.</li>
+<li>En Settings → <strong>LNM DB Path</strong>, haz clic en <code>[...]</code> y selecciona el archivo <code>.sqlite</code> de LittleNavMap. Por defecto se encuentra en:<pre class="hljs"><code><div>C:\Users\&lt;TuUsuario&gt;\AppData\Roaming\ABarthel\little_navmap_db\little_navmap_navigraph.sqlite
+</div></code></pre>
+</li>
+</ol>
+<h3 id="sección-landing-log">Sección Landing Log</h3>
+<p>El LOGBOOK guarda el historial de tus aterrizajes con trayectoria de aproximación en una base de datos SQLite local.</p>
+<ol>
+<li>En Settings → <strong>Landing Log</strong>, haz clic en <code>[...]</code>.</li>
+<li>Selecciona un archivo <code>.sqlite</code> existente o escribe un nombre nuevo para crearlo (p. ej. <code>landing_log.sqlite</code>).</li>
+<li>La base de datos se crea y migra automáticamente al primer uso.</li>
+</ol>
+<blockquote>
+<p>Puedes hacer copias de seguridad simplemente copiando el archivo <code>.sqlite</code>.</p>
+</blockquote>
+<h3 id="sección-osd">Sección OSD</h3>
+<p>Controla el overlay de notificaciones que aparece sobre el simulador.</p>
+<table>
+<thead>
+<tr>
+<th>Campo</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Enable OSD</td>
+<td>Activa o desactiva el overlay globalmente</td>
+</tr>
+<tr>
+<td>Duration (s)</td>
+<td>Tiempo que permanece visible cada notificación (1–30 s)</td>
+</tr>
+<tr>
+<td>Screen index</td>
+<td>Índice de la pantalla donde se muestra (0 = pantalla principal, 1 = segunda pantalla, etc.)</td>
+</tr>
+<tr>
+<td>Opacity (%)</td>
+<td>Opacidad del overlay (10–100 %)</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="3-interfaz-principal">3. Interfaz principal</h2>
+<pre class="hljs"><code><div>┌────────────────────────────────────────────────────────────────────┐
+│  [FMA]  Línea 1: Vuelo / ruta / CI / fecha / matrícula / tipo      │
+│         Línea 2: PAX / FUEL / TRIP FUEL / CARGO / FL / WIND / ISA  │
+│                                          PHASE BOARDING │ GROUND   │
+│                                          cuenta atrás salida        │
+├────────────────────────────────────────────────────────────────────┤
+│  [FLIGHT INFORMATION]  Datos del plan activo                        │
+├────────────────────────────────────────────────────────────────────┤
+│  [GAUGES / ENGINE]  Indicadores de vuelo en tiempo real             │
+├────────────────────────────────────────────────────────────────────┤
+│  [INCOMING MSG]  Log de eventos del vuelo                           │
+├────────────────────────────────────────────────────────────────────┤
+│  [STATUS]  GPS • Conexión sim • ACARS • Aeropuerto • COM • NAV       │
+├────────────────────────────────────────────────────────────────────┤
+│  LOGIN  SETTINGS  SIMBRIEF  METAR  LOGBOOK  DISPATCH  MENU  START   │
+└────────────────────────────────────────────────────────────────────┘
+</div></code></pre>
+<h3 id="panel-fma">Panel FMA</h3>
+<ul>
+<li><strong>Línea 1:</strong> identificador del vuelo, par ICAO/IATA, Cost Index, fecha, matrícula y tipo.</li>
+<li><strong>Línea 2:</strong> PAX, combustible en rampa (FUEL), combustible de vuelo (TRIP), carga, nivel de crucero, viento promedio e ISA.</li>
+<li><strong>Columna derecha:</strong> fase actual y estado <code>GROUND</code> / <code>AIRBORNE</code>. Mientras el avión está en boarding muestra una <strong>cuenta regresiva hasta la hora de salida</strong> (Blocks Off programado).</li>
+</ul>
+<h3 id="botón-menu">Botón MENU</h3>
+<p>Abre un menú con opciones adicionales:</p>
+<ul>
+<li><strong>Test OSD → Info / Success / Warning / Critical</strong> — muestra un mensaje de prueba del overlay de notificaciones en cada nivel de severidad. Útil para verificar la posición y apariencia del OSD antes de volar.</li>
+</ul>
+<hr>
+<h2 id="4-flujo-de-un-vuelo-típico">4. Flujo de un vuelo típico</h2>
+<h3 id="41-login">4.1 Login</h3>
+<ol>
+<li>Inicia el simulador y carga tu aeronave en el aeropuerto de salida.</li>
+<li>Abre vmsOpenAcars y haz clic en <strong>LOGIN</strong>.</li>
+<li>Tu nombre de piloto y aeropuerto base aparecerán en el panel STATUS.</li>
+</ol>
+<h3 id="42-selección-de-vuelo-con-el-flight-planner">4.2 Selección de vuelo con el Flight Planner</h3>
+<ol>
+<li>Haz clic en <strong>SIMBRIEF</strong> para abrir el Flight Planner.</li>
+<li>El planner tiene dos pestañas:
+<ul>
+<li><strong>My Bids</strong> — tus vuelos reservados en phpVMS que salen de tu aeropuerto actual.</li>
+<li><strong>Available Flights</strong> — todos los vuelos disponibles desde tu aeropuerto, ordenados por número de vuelo. Haz clic en cualquier encabezado de columna para reordenar.</li>
+</ul>
+</li>
+<li>Selecciona un vuelo. La lista de aeronaves disponibles se cargará automáticamente.</li>
+<li>Elige la aeronave con la que quieres operar.</li>
+</ol>
+<h3 id="43-plan-de-vuelo-con-simbrief">4.3 Plan de vuelo con SimBrief</h3>
+<ol>
+<li>Haz clic en <strong>PLAN IN SIMBRIEF</strong>. Se abrirá tu navegador con el dispatch pre-cargado.</li>
+<li>Ajusta lo que necesites y genera el OFP en SimBrief.</li>
+<li>Vuelve a vmsOpenAcars y haz clic en <strong>FETCH OFP</strong>.</li>
+<li>El sistema descarga y valida el plan (origen, destino, tipo, matrícula, antigüedad máx. 2 h).</li>
+<li>Si la validación pasa, haz clic en <strong>ACCEPT</strong> para cargar el plan.</li>
+</ol>
+<h3 id="44-inicio-del-vuelo">4.4 Inicio del vuelo</h3>
+<p>El botón <strong>START</strong> se habilita cuando:</p>
+<ul>
+<li>✅ Simulador conectado via FSUIPC</li>
+<li>✅ Plan de vuelo cargado y aceptado</li>
+<li>✅ Posición GPS válida (estás en el aeropuerto correcto, dentro de ~5 km)</li>
+</ul>
+<p>Haz clic en <strong>START</strong>. La aplicación enviará un prefile a phpVMS y comenzará el seguimiento.</p>
+<blockquote>
+<p>Para cancelar, haz clic en <strong>ABORT</strong> y confirma. El PIREP se eliminará del servidor.</p>
+</blockquote>
+<h3 id="45-durante-el-vuelo">4.5 Durante el vuelo</h3>
+<h4 id="fases-detectadas-automáticamente">Fases detectadas automáticamente</h4>
+<table>
+<thead>
+<tr>
+<th>Fase</th>
+<th>Condición de entrada</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Boarding</td>
+<td>Plan activo, avión en tierra con freno de estacionamiento</td>
+</tr>
+<tr>
+<td>Pushback</td>
+<td>Movimiento lento hacia atrás</td>
+</tr>
+<tr>
+<td>TaxiOut</td>
+<td>Movimiento hacia delante antes del despegue</td>
+</tr>
+<tr>
+<td>TakeoffRoll</td>
+<td>Velocidad de suelo &gt; 30 kt con freno liberado</td>
+</tr>
+<tr>
+<td>Takeoff</td>
+<td>Liftoff detectado</td>
+</tr>
+<tr>
+<td>Climb</td>
+<td>VS positivo sostenido</td>
+</tr>
+<tr>
+<td>Enroute</td>
+<td>Crucero estabilizado</td>
+</tr>
+<tr>
+<td>Descent</td>
+<td>Descenso sostenido (VS &lt; −500 fpm durante 20 s)</td>
+</tr>
+<tr>
+<td>Approach</td>
+<td>Descenso final hacia pista</td>
+</tr>
+<tr>
+<td>Landing</td>
+<td>Touchdown detectado</td>
+</tr>
+<tr>
+<td>AfterLanding</td>
+<td>Deceleración tras aterrizaje</td>
+</tr>
+<tr>
+<td>TaxiIn</td>
+<td>Rodaje hacia puerta</td>
+</tr>
+<tr>
+<td>OnBlock</td>
+<td>Freno de estacionamiento puesto con motores apagados</td>
+</tr>
+<tr>
+<td>Completed</td>
+<td>Vuelo listo para enviar PIREP</td>
+</tr>
+</tbody>
+</table>
+<h4 id="ground-operations">Ground operations</h4>
+<p>Durante el rodaje el sistema informa en el log: pista en uso al alinearse, taxiways recorridos, holding points y puerta/estacionamiento de llegada.</p>
+<h4 id="trayectoria-de-aproximación">Trayectoria de aproximación</h4>
+<p>A partir de <strong>3 000 ft AGL</strong> en fase Approach, el sistema captura un punto de trayectoria cada 2 segundos (altitud, velocidad, VS, desviación lateral) para los gráficos del LOGBOOK.</p>
+<h4 id="frecuencia-de-envío-de-posición">Frecuencia de envío de posición</h4>
+<table>
+<thead>
+<tr>
+<th>Fase</th>
+<th>Intervalo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>En tierra (rodaje)</td>
+<td>30 s</td>
+</tr>
+<tr>
+<td>Takeoff / Landing</td>
+<td>2 s</td>
+</tr>
+<tr>
+<td>Climb / Descent / Approach</td>
+<td>5 s</td>
+</tr>
+<tr>
+<td>Crucero</td>
+<td>15 s</td>
+</tr>
+</tbody>
+</table>
+<h3 id="46-finalización-y-envío-del-pirep">4.6 Finalización y envío del PIREP</h3>
+<ol>
+<li>Cuando llegues a puerta con motores apagados, la fase cambiará a <strong>Completed</strong>.</li>
+<li>El botón cambiará a <strong>SEND PIREP</strong>.</li>
+<li>Haz clic. Se envía el PIREP a phpVMS con combustible usado, tasa de aterrizaje, tiempo de vuelo, distancia y <strong>score</strong>.</li>
+<li>Si el LOGBOOK está configurado, el aterrizaje se guarda automáticamente con su trayectoria.</li>
+</ol>
+<hr>
+<h2 id="5-scoring-de-vuelo">5. Scoring de vuelo</h2>
+<p>El score parte de <strong>100 puntos</strong> y aplica deducciones según <strong>12 criterios</strong>. El valor final (0–100) se envía con el PIREP a phpVMS y queda registrado en el LOGBOOK.</p>
+<h3 id="tabla-de-criterios">Tabla de criterios</h3>
+<table>
+<thead>
+<tr>
+<th>Criterio</th>
+<th>Máx. deducción</th>
+<th>Regla</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Landing Rate</strong></td>
+<td>−40 pts</td>
+<td>≤ 100 fpm → 0 · ≤ 200 → −5 · ≤ 300 → −15 · ≤ 400 → −25 · ≤ 600 → −35 · &gt; 600 → −40</td>
+</tr>
+<tr>
+<td><strong>G-Force</strong></td>
+<td>−15 pts</td>
+<td>≤ 1.3 g → 0 · ≤ 1.5 g → −7 · &gt; 1.5 g → −15</td>
+</tr>
+<tr>
+<td><strong>Bank Angle</strong></td>
+<td>−10 pts</td>
+<td>≤ 2° → 0 · ≤ 5° → −5 · &gt; 5° → −10</td>
+</tr>
+<tr>
+<td><strong>Pitch Angle</strong></td>
+<td>−10 pts</td>
+<td>1°–5° nose-up → 0 (ideal) · &lt; −2° → −10 · −2° a 1° → −5 · &gt; 8° → −5</td>
+</tr>
+<tr>
+<td><strong>Overspeed</strong></td>
+<td>−15 pts</td>
+<td>0 eventos → 0 · 1 evento → −7 · ≥ 2 eventos → −15</td>
+</tr>
+<tr>
+<td><strong>Lights Compliance</strong></td>
+<td>−10 pts</td>
+<td>−5 pts por violación (cap −10). Ver detalle abajo.</td>
+</tr>
+<tr>
+<td><strong>Stabilized Approach</strong></td>
+<td>−15 pts</td>
+<td>Evaluado al cruzar 1 000 ft AGL en descenso. Ver detalle abajo.</td>
+</tr>
+<tr>
+<td><strong>QNH Compliance</strong></td>
+<td>−10 pts</td>
+<td>−5 pts si Δ QNH &gt; 2 hPa. Verificado <strong>dos veces</strong>: salida (TakeoffRoll) y llegada (gate 1 000 ft AGL).</td>
+</tr>
+<tr>
+<td><strong>IVAO Offline</strong></td>
+<td>−5 pts</td>
+<td>−5 si el piloto no está conectado a IVAO al iniciar el TaxiOut</td>
+</tr>
+<tr>
+<td><strong>On-Time Departure</strong></td>
+<td>−5 pts</td>
+<td>−5 si el Blocks Off real difiere más de 10 min del STD programado</td>
+</tr>
+<tr>
+<td><strong>Touchdown Zone</strong></td>
+<td>−7 pts</td>
+<td>≤ 1 500 ft del umbral → 0 · ≤ 2 500 ft → −3 · &gt; 2 500 ft → −7 ¹</td>
+</tr>
+<tr>
+<td><strong>Centreline Deviation</strong></td>
+<td>−7 pts</td>
+<td>≤ 10 ft → 0 · ≤ 30 ft → −3 · &gt; 30 ft → −7 ¹</td>
+</tr>
+<tr>
+<td><strong>Localizer Alignment</strong></td>
+<td>−5 pts</td>
+<td>ILS no sintonizado → −3 · desviación de rumbo &gt; 5° (× 2 máx) → −2 ¹</td>
+</tr>
+<tr>
+<td><strong>Minimums Compliance</strong></td>
+<td>−5 pts</td>
+<td>−5 si el avión descendió bajo la DA sin aterrizar ¹</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>¹ Requiere la base de datos de LittleNavMap configurada en Settings. <strong>Localizer Alignment</strong> y <strong>Minimums Compliance</strong> además requieren que la pista tenga un procedimiento ILS en la BD. Sin ello estos criterios no se evalúan.</p>
+</blockquote>
+<hr>
+<h3 id="detalle-lights-compliance-5-pts-cada-violación-cap-10">Detalle: Lights Compliance (−5 pts cada violación, cap −10)</h3>
+<p>El sistema monitoriza las luces durante todo el vuelo y penaliza cada incumplimiento:</p>
+<table>
+<thead>
+<tr>
+<th>Momento</th>
+<th>Luz requerida</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pushback</td>
+<td>NAV ON</td>
+</tr>
+<tr>
+<td>Inicio de rodaje (TaxiOut)</td>
+<td>NAV ON + TAXI ON</td>
+</tr>
+<tr>
+<td>TakeoffRoll</td>
+<td>STROBE ON + LANDING ON</td>
+</tr>
+<tr>
+<td>En vuelo (cualquier fase)</td>
+<td>BEACON ON continuo</td>
+</tr>
+<tr>
+<td>Por debajo de 10 000 ft AGL</td>
+<td>LANDING ON</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Excepción Beacon:</strong> en aeronaves con switch único BEACON/STROBE (como el Dash 8 / Q400), encender los Strobes apaga el Beacon automáticamente. Estas aeronaves están exentas de la penalización de Beacon.</p>
+</blockquote>
+<hr>
+<h3 id="detalle-stabilized-approach--gate-de-1-000-ft-agl-hasta-15-pts">Detalle: Stabilized Approach — gate de 1 000 ft AGL (hasta −15 pts)</h3>
+<p>Al cruzar <strong>1 000 ft AGL en descenso</strong> el sistema evalúa el estado del avión. Cada incumplimiento resta puntos al score final:</p>
+<table>
+<thead>
+<tr>
+<th>Criterio</th>
+<th>Penalización</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Velocidad fuera del rango Vapp ± tolerancia</td>
+<td>−5 pts</td>
+</tr>
+<tr>
+<td>VS excesivo (&lt; −1 000 fpm)</td>
+<td>−5 pts</td>
+</tr>
+<tr>
+<td>No descendiendo (VS &gt; −100 fpm)</td>
+<td>−5 pts</td>
+</tr>
+<tr>
+<td>Bank &gt; 7°</td>
+<td>−3 pts</td>
+</tr>
+<tr>
+<td>Pitch fuera de [−2.5°, +10°]</td>
+<td>−3 pts</td>
+</tr>
+<tr>
+<td>Tren de aterrizaje no extendido</td>
+<td>−5 pts</td>
+</tr>
+<tr>
+<td>Flaps &lt; 50 % de extensión</td>
+<td>−4 pts</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>El gate también comprueba el <strong>QNH de destino</strong> en ese mismo momento (ver criterio QNH Compliance). Si el Δ QNH supera 2 hPa, se aplican −5 pts adicionales en el apartado QNH, no en Stabilized Approach.</p>
+</blockquote>
+<p>La suma máxima de penalizaciones del gate es <strong>−15 pts</strong> para Stabilized Approach + <strong>−5 pts</strong> para QNH llegada = <strong>−20 pts</strong> posibles en ese único instante.</p>
+<hr>
+<h3 id="detalle-qnh-compliance-hasta-10-pts">Detalle: QNH Compliance (hasta −10 pts)</h3>
+<p>El QNH del altímetro se comprueba en <strong>dos momentos distintos</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Momento</th>
+<th>Aeropuerto verificado</th>
+<th>Penalización</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TakeoffRoll (inicio de carrera)</td>
+<td>Origen</td>
+<td>−5 pts si Δ &gt; 2 hPa</td>
+</tr>
+<tr>
+<td>Gate 1 000 ft AGL (en aproximación)</td>
+<td>Destino</td>
+<td>−5 pts si Δ &gt; 2 hPa</td>
+</tr>
+</tbody>
+</table>
+<p>Ambas verificaciones son independientes: si fallas las dos, el score baja −10 pts. El sistema registra el resultado de cada check en el log del vuelo.</p>
+<hr>
+<h3 id="detalle-on-time-departure-5-pts">Detalle: On-Time Departure (−5 pts)</h3>
+<p>El sistema compara la hora real de <strong>Blocks Off</strong> (primer movimiento registrado por el servidor) con la hora de salida programada (<code>sched_out</code>) del plan de SimBrief.</p>
+<ul>
+<li>Si la diferencia es <strong>≤ 10 minutos</strong> (temprano o tarde) → sin penalización.</li>
+<li>Si la diferencia es <strong>&gt; 10 minutos</strong> → −5 pts.</li>
+</ul>
+<p>El resultado se notifica en el log en el momento en que se registra el Blocks Off, mostrando el delta y la hora STD.</p>
+<hr>
+<h3 id="calificaciones-de-aterrizaje">Calificaciones de aterrizaje</h3>
+<p>La tasa de descenso (fpm) en el touchdown determina también una calificación cualitativa que aparece en el log y en el LOGBOOK:</p>
+<table>
+<thead>
+<tr>
+<th>Calificación</th>
+<th>Tasa de descenso</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>🧈 <strong>Butter</strong></td>
+<td>≤ 100 fpm</td>
+</tr>
+<tr>
+<td>✅ <strong>Smooth</strong></td>
+<td>101 – 200 fpm</td>
+</tr>
+<tr>
+<td>🟢 <strong>Normal</strong></td>
+<td>201 – 300 fpm</td>
+</tr>
+<tr>
+<td>🟡 <strong>Hard</strong></td>
+<td>301 – 400 fpm</td>
+</tr>
+<tr>
+<td>🟠 <strong>Very Hard</strong></td>
+<td>401 – 600 fpm</td>
+</tr>
+<tr>
+<td>🔴 <strong>Slam</strong></td>
+<td>&gt; 600 fpm</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="consejos-para-un-score-perfecto">Consejos para un score perfecto</h3>
+<table>
+<thead>
+<tr>
+<th>Aspecto</th>
+<th>Qué hacer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Luces</strong></td>
+<td>NAV ON antes del pushback · TAXI ON al rodar · STROBE y LANDING ON en TakeoffRoll · BEACON ON siempre en vuelo</td>
+</tr>
+<tr>
+<td><strong>QNH salida</strong></td>
+<td>Sintoniza el QNH del aeropuerto de origen <strong>antes</strong> de comenzar la carrera de despegue</td>
+</tr>
+<tr>
+<td><strong>Hora de salida</strong></td>
+<td>Respeta el STD del plan. La tolerancia es ±10 min</td>
+</tr>
+<tr>
+<td><strong>IVAO</strong></td>
+<td>Conéctate a la red IVAO antes de iniciar el rodaje (TaxiOut)</td>
+</tr>
+<tr>
+<td><strong>Aproximación estabilizada</strong></td>
+<td>A 1 000 ft AGL: velocidad en rango Vapp, VS entre −100 y −1 000 fpm, bank &lt; 7°, tren extendido, flaps ≥ 50 %</td>
+</tr>
+<tr>
+<td><strong>QNH llegada</strong></td>
+<td>Sintoniza el QNH del aeropuerto de destino (recibirás el ATIS durante el descenso) antes de llegar a 1 000 ft AGL</td>
+</tr>
+<tr>
+<td><strong>Touchdown</strong></td>
+<td>Aterriza en la zona de touchdown (primeros 1 500 ft de pista), alineado con el eje (&lt; 10 ft de desviación)</td>
+</tr>
+<tr>
+<td><strong>Tasa de descenso</strong></td>
+<td>Apunta a ≤ 200 fpm para eliminar la deducción por Landing Rate</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="6-metar">6. METAR</h2>
+<p>El botón <strong>METAR</strong> abre el panel meteorológico de los aeropuertos del plan activo.</p>
+<ul>
+<li>Se muestran hasta 4 estaciones: <strong>ORIG</strong>, <strong>DEST</strong>, <strong>ALT</strong> y <strong>ENRT</strong>.</li>
+<li>Los METARs se recuperan automáticamente al cargar el plan y se actualizan durante el vuelo.</li>
+<li>Haz clic en cualquier estación para abrir el <strong>METAR Decode</strong> — desglose completo de cada elemento (viento, visibilidad, nubes, temperatura, QNH, tendencia, etc.).</li>
+</ul>
+<hr>
+<h2 id="7-osd-overlay">7. OSD Overlay</h2>
+<p>El overlay OSD (<strong>On-Screen Display</strong>) muestra notificaciones superpuestas al simulador, sin robar el foco ni interrumpir la experiencia de vuelo.</p>
+<h3 id="notificaciones-automáticas">Notificaciones automáticas</h3>
+<table>
+<thead>
+<tr>
+<th>Momento</th>
+<th>Mensaje</th>
+<th>Severidad</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>START pulsado</td>
+<td><code>ACARS ACTIVE</code></td>
+<td>Success (verde)</td>
+</tr>
+<tr>
+<td>Inicio de rodaje</td>
+<td><code>TAXI OUT</code></td>
+<td>Info (azul)</td>
+</tr>
+<tr>
+<td>Carrera de despegue</td>
+<td><code>TAKEOFF ROLL</code></td>
+<td>Info</td>
+</tr>
+<tr>
+<td>Crucero estabilizado</td>
+<td><code>CRUISE</code></td>
+<td>Info</td>
+</tr>
+<tr>
+<td>Inicio de descenso</td>
+<td><code>DESCENDING</code></td>
+<td>Info</td>
+</tr>
+<tr>
+<td>Fase Approach</td>
+<td><code>APPROACH</code></td>
+<td>Info</td>
+</tr>
+<tr>
+<td>Touchdown (≤ 100 fpm)</td>
+<td><code>BUTTER  −XX fpm  X.Xg</code></td>
+<td>Success</td>
+</tr>
+<tr>
+<td>Touchdown (101–300 fpm)</td>
+<td><code>SMOOTH / NORMAL LANDING  −XX fpm  X.Xg</code></td>
+<td>Success / Info</td>
+</tr>
+<tr>
+<td>Touchdown (301–600 fpm)</td>
+<td><code>FIRM LANDING  −XX fpm  X.Xg</code></td>
+<td>Warning (dorado)</td>
+</tr>
+<tr>
+<td>Touchdown (&gt; 600 fpm)</td>
+<td><code>HARD LANDING  −XX fpm  X.Xg</code></td>
+<td>Critical (rojo parpadeante)</td>
+</tr>
+<tr>
+<td>Touch-and-go</td>
+<td><code>TOUCH AND GO</code></td>
+<td>Warning</td>
+</tr>
+<tr>
+<td>PIREP enviado</td>
+<td><code>PIREP FILED — SCORE: XX/100</code></td>
+<td>Success</td>
+</tr>
+<tr>
+<td>OnBlock</td>
+<td><code>ON BLOCK</code></td>
+<td>Info</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Los mensajes <strong>Critical</strong> parpadean en rojo durante ~1.3 s antes de mostrar el texto fijo. Los demás niveles usan fade-in/fade-out suave.</p>
+</blockquote>
+<h3 id="configuración">Configuración</h3>
+<p>Ve a <strong>Settings → OSD</strong> para ajustar duración, pantalla y opacidad. Usa <strong>MENU → Test OSD</strong> para previsualizar el overlay antes de volar.</p>
+<hr>
+<h2 id="8-logbook-y-landing-analysis">8. LOGBOOK y Landing Analysis</h2>
+<p>El LOGBOOK guarda el historial completo de tus aterrizajes con análisis gráfico de cada aproximación.</p>
+<h3 id="abrir-el-logbook">Abrir el LOGBOOK</h3>
+<p>Haz clic en <strong>LOGBOOK</strong> en la pantalla principal.</p>
+<h3 id="columnas-del-historial">Columnas del historial</h3>
+<table>
+<thead>
+<tr>
+<th>Columna</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Date</td>
+<td>Fecha y hora local del aterrizaje</td>
+</tr>
+<tr>
+<td>Flight</td>
+<td>Número de vuelo</td>
+</tr>
+<tr>
+<td>Route</td>
+<td>Par origen → destino</td>
+</tr>
+<tr>
+<td>RWY</td>
+<td>Pista de aterrizaje</td>
+</tr>
+<tr>
+<td>VS (fpm)</td>
+<td>Velocidad vertical en el touchdown</td>
+</tr>
+<tr>
+<td>G</td>
+<td>Factor de carga en el touchdown</td>
+</tr>
+<tr>
+<td>Score</td>
+<td>Puntuación del vuelo (sobre 100)</td>
+</tr>
+</tbody>
+</table>
+<p>El color del score indica la calidad: verde ≥ 90 · amarillo ≥ 75 · rojo &lt; 75.</p>
+<h3 id="ver-análisis-de-un-vuelo">Ver análisis de un vuelo</h3>
+<p>Selecciona un vuelo y haz clic en <strong>VIEW ANALYSIS</strong>. Se abrirán <strong>4 gráficos</strong> de la aproximación (eje X = distancia al umbral, de 5 NM a la izquierda hasta el umbral a la derecha):</p>
+<table>
+<thead>
+<tr>
+<th>Gráfico</th>
+<th>Qué muestra</th>
+<th>Referencia visual</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Vertical Profile</strong></td>
+<td>Altitud AGL (ft)</td>
+<td>Línea verde punteada = planeo 3° ideal</td>
+</tr>
+<tr>
+<td><strong>Lateral Deviation</strong></td>
+<td>Desviación del eje de pista (ft ± signed)</td>
+<td>Línea cero = eje de pista</td>
+</tr>
+<tr>
+<td><strong>IAS</strong></td>
+<td>Velocidad indicada (kt)</td>
+<td>Línea = Vref promedio estimado</td>
+</tr>
+<tr>
+<td><strong>VS</strong></td>
+<td>Velocidad vertical (fpm)</td>
+<td>Línea cero</td>
+</tr>
+</tbody>
+</table>
+<h3 id="comparar-aproximaciones">Comparar aproximaciones</h3>
+<ol>
+<li>Selecciona 2–5 vuelos (Ctrl+clic o Shift+clic) y haz clic en <strong>COMPARE</strong>.</li>
+<li>Los 4 gráficos mostrarán todas las trayectorias superpuestas, cada una con un color distinto.</li>
+<li>El encabezado muestra una leyenda por vuelo con callsign, fecha, pista y estadísticas de touchdown.</li>
+</ol>
+<h3 id="eliminar-registros">Eliminar registros</h3>
+<p>Selecciona uno o varios vuelos y haz clic en <strong>DELETE</strong>. Se pedirá confirmación.</p>
+<hr>
+<h2 id="9-solución-de-problemas">9. Solución de problemas</h2>
+<p><strong>El botón START no se habilita</strong></p>
+<ul>
+<li>Verifica que el simulador esté activo y FSUIPC conectado (el STATUS debe mostrarlo).</li>
+<li>El avión debe estar posicionado en el aeropuerto correcto (&lt; ~5 km del ICAO del plan).</li>
+<li>El ICAO del plan debe coincidir con el aeropuerto asignado en phpVMS.</li>
+</ul>
+<p><strong>FETCH OFP no encuentra el plan</strong></p>
+<ul>
+<li>El plan de SimBrief no puede tener más de 2 horas de antigüedad.</li>
+<li>Verifica que el usuario de SimBrief en Settings sea correcto.</li>
+<li>Asegúrate de haber generado el OFP en SimBrief antes de hacer FETCH.</li>
+</ul>
+<p><strong>El score aparece más bajo de lo esperado</strong></p>
+<ul>
+<li>Revisa el log del vuelo: cada penalización se registra en el momento en que ocurre.</li>
+<li>Comprueba especialmente las penalizaciones de QNH (salida y llegada), luces y la evaluación del gate de 1 000 ft AGL.</li>
+</ul>
+<p><strong>Touchdown Zone y Centreline no se evalúan</strong></p>
+<ul>
+<li>La base de datos de LittleNavMap no está configurada o la ruta es incorrecta.</li>
+<li>Ve a Settings → NavMap Database y selecciona el archivo <code>.sqlite</code> correcto.</li>
+</ul>
+<p><strong>El LOGBOOK no guarda los vuelos</strong></p>
+<ul>
+<li>Ve a Settings → Landing Log y selecciona o crea el archivo <code>.sqlite</code>.</li>
+</ul>
+<p><strong>Los gráficos del Landing Analysis aparecen vacíos</strong></p>
+<ul>
+<li>La trayectoria solo se captura en fase <strong>Approach</strong> con AGL &lt; 3 000 ft. Si el vuelo pasó directamente a Landing sin activar Approach, no habrá track.</li>
+</ul>
+<p><strong>La ventana de METAR no carga datos</strong></p>
+<ul>
+<li>Requiere un plan activo con aeropuertos ICAO válidos y conexión a internet.</li>
+</ul>
+<hr>
+<p><em>vmsOpenAcars v0.4.6 — que tengas buen vuelo.</em></p>
+
+</body>
+</html>

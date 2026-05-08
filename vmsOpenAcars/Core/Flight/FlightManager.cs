@@ -21,6 +21,7 @@ namespace vmsOpenAcars.Core.Flight
         private readonly PositionValidator _positionValidator;
         private bool _wasOnGround = true;
         private bool _touchdownCaptured = false;
+        private DateTime _touchdownTimestamp = DateTime.MinValue;
         private string _currentAirport = "";
         private Pilot _activePilot;
         private SimbriefPlan _activePlan;
@@ -569,6 +570,7 @@ namespace vmsOpenAcars.Core.Flight
             if (_touchdownCaptured) return;
             TouchdownFpm = verticalSpeed;
             _touchdownCaptured = true;
+            _touchdownTimestamp = DateTime.UtcNow;
             _hasLandedThisFlight = true;
             double gforce = CalculateGForce(verticalSpeed);
             _touchdownPitch = _currentPitch;
@@ -939,7 +941,7 @@ namespace vmsOpenAcars.Core.Flight
 
             // Reset all scoring state before the API call so stale data from a
             // previous flight never survives into a new one, even if prefileing fails.
-            _touchdownCaptured = false;
+            _touchdownCaptured = false; _touchdownTimestamp = DateTime.MinValue;
             TouchdownFpm = null;
             _touchdownPitch = 0; _touchdownBank = 0; _touchdownGForce = 0;
             _touchdownLatSaved = 0; _touchdownLonSaved = 0; _touchdownHeadingDeg = 0;
@@ -1084,7 +1086,7 @@ namespace vmsOpenAcars.Core.Flight
 
             // El scoring de esta sesión arranca limpio (no podemos recuperar
             // los datos de la sesión anterior)
-            _touchdownCaptured = false;
+            _touchdownCaptured = false; _touchdownTimestamp = DateTime.MinValue;
             TouchdownFpm = null;
             _touchdownPitch = 0;
             _touchdownBank = 0;
@@ -1459,8 +1461,9 @@ namespace vmsOpenAcars.Core.Flight
 
                     case FlightPhase.AfterLanding:
                         // Touch and go: el avión volvió al aire sin completar el taxi.
-                        // Con GS > 60 kt en el aire es inequívoco que hay un nuevo despegue.
-                        if (groundSpeed > 60)
+                        // Requiere mínimo 5 s en tierra para descartar rebotes (bounce).
+                        if (groundSpeed > 60 &&
+                            (DateTime.UtcNow - _touchdownTimestamp).TotalSeconds >= 5.0)
                         {
                             OnLog?.Invoke($"✈️ Touch and go detected (GS {groundSpeed} kt) — resetting for new approach", Theme.Warning);
                             _touchdownCaptured = false;

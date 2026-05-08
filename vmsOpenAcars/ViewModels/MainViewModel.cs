@@ -39,6 +39,7 @@ namespace vmsOpenAcars.ViewModels
         private List<ApproachTrackPoint> _approachBuffer    = new List<ApproachTrackPoint>();
         private RunwayTouchdownResult    _approachThreshold = null;
         private DateTime                 _lastApproachCapture = DateTime.MinValue;
+        private bool                     _approachThresholdLocked = false;
 
         private DateTime _lastPositionUpdate = DateTime.MinValue;
         private AcarsPosition _lastSentPosition = null;
@@ -74,6 +75,7 @@ namespace vmsOpenAcars.ViewModels
         public event Action OnFlightEnded;
         public event Action<MetarData[]>     OnMetarUpdated;
         public event Action<MetarFetchState> OnMetarStateChanged;
+        public event Action<string, OsdSeverity> OnOsdMessage;
 
         public MainViewModel(
             FlightManager flightManager,
@@ -218,6 +220,32 @@ namespace vmsOpenAcars.ViewModels
                         _approachThreshold.ThresholdHeading,
                         e.Latitude, e.Longitude);
 
+                    // Re-evaluate runway once when within 6 NM.
+                    // Prevents wrong parallel-runway identification made at long range (>6 NM)
+                    // when the aircraft was still on a heading intercepting the approach.
+                    if (!_approachThresholdLocked && distNm < 6.0 && _runwayService.IsAvailable)
+                    {
+                        _approachThresholdLocked = true;
+                        string destRef = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
+                        var refined = _runwayService.GetRunwayThreshold(destRef, e.Latitude, e.Longitude, e.HeadingDeg);
+                        if (refined != null && refined.RunwayName != _approachThreshold.RunwayName)
+                        {
+                            OnLog?.Invoke($"📍 Pista corregida: {_approachThreshold.RunwayName} → {refined.RunwayName}", Theme.Warning);
+                            _approachThreshold = refined;
+                            _approachBuffer.Clear();
+                            Task.Run(() => LoadApproachData(destRef, refined.RunwayName));
+                            (distNm, lateralFt) = RunwayService.ComputeApproachMetrics(
+                                _approachThreshold.ThresholdLat,
+                                _approachThreshold.ThresholdLon,
+                                _approachThreshold.ThresholdHeading,
+                                e.Latitude, e.Longitude);
+                        }
+                    }
+                    else if (!_approachThresholdLocked && distNm >= 6.0)
+                    {
+                        _approachThresholdLocked = false; // keep unlocked until within 6 NM
+                    }
+
                     // First capture point — log runway, AGL, distance
                     if (_approachBuffer.Count == 0)
                     {
@@ -285,9 +313,8 @@ namespace vmsOpenAcars.ViewModels
         private void OnFlightManagerLog(string msg, Color color) => OnLog?.Invoke(msg, color);
         private async void OnFlightPhaseChanged(FlightPhase phase)
         {
-            // Verificar IVAO al salir de Boarding (blocks-off real)
-            if (_prevPhase == FlightPhase.Boarding &&
-                (phase == FlightPhase.Pushback || phase == FlightPhase.TaxiOut))
+            // Verificar IVAO al iniciar TaxiOut
+            if (phase == FlightPhase.TaxiOut)
             {
                 await CheckIvaoAtBlocksOffAsync();
             }
@@ -335,6 +362,7 @@ namespace vmsOpenAcars.ViewModels
             {
                 _approachBuffer.Clear();
                 _lastApproachCapture = DateTime.MinValue;
+                _approachThresholdLocked = false;
                 string dest = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
                 double hdg  = _flightManager.CurrentHeading;
                 _approachThreshold = _runwayService.GetRunwayThreshold(dest, _flightManager.CurrentLat, _flightManager.CurrentLon, hdg);
@@ -345,6 +373,22 @@ namespace vmsOpenAcars.ViewModels
             else if (phase != FlightPhase.Approach)
             {
                 _approachThreshold = null;
+                _approachThresholdLocked = false;
+            }
+
+            // OSD phase notifications
+            switch (phase)
+            {
+                case FlightPhase.TaxiOut:     OnOsdMessage?.Invoke("TAXI OUT",     OsdSeverity.Info);    break;
+                case FlightPhase.TakeoffRoll: OnOsdMessage?.Invoke("TAKEOFF ROLL", OsdSeverity.Warning); break;
+                case FlightPhase.Enroute:     OnOsdMessage?.Invoke("CRUISE",       OsdSeverity.Info);    break;
+                case FlightPhase.Descent:     OnOsdMessage?.Invoke("DESCENDING",   OsdSeverity.Info);    break;
+                case FlightPhase.Approach:    OnOsdMessage?.Invoke("APPROACH",     OsdSeverity.Warning); break;
+                case FlightPhase.OnBlock:     OnOsdMessage?.Invoke("ON BLOCK",     OsdSeverity.Success); break;
+                case FlightPhase.Climb:
+                    if (_prevPhase == FlightPhase.AfterLanding)
+                        OnOsdMessage?.Invoke("TOUCH AND GO", OsdSeverity.Warning);
+                    break;
             }
 
             _prevPhase = phase;
@@ -432,6 +476,15 @@ namespace vmsOpenAcars.ViewModels
                 await _apiService.SendPositionUpdate(_flightManager.ActivePirepId, update);
                 OnLog?.Invoke($"🛬 Landing recorded: {verticalSpeed} fpm, {gforce:F2} G, Heading: {(int)_fsuipc.CurrentHeading}°, Pitch: {pitch:F1}°, Bank: {bank:F1}°", Theme.Success);
             });
+
+            int absVs = Math.Abs(verticalSpeed);
+            OsdSeverity tdSev  = absVs <= 300 ? OsdSeverity.Success
+                               : absVs <= 600 ? OsdSeverity.Warning
+                               : OsdSeverity.Critical;
+            string tdLabel = absVs <= 300 ? "TOUCHDOWN"
+                           : absVs <= 600 ? "FIRM LANDING"
+                           : "HARD LANDING";
+            OnOsdMessage?.Invoke($"{tdLabel}  {verticalSpeed} FPM  {gforce:F2} G", tdSev);
         }
 
         // ========== EVENTOS DE FSUIPCSERVICE (nuevos) ==========
@@ -955,6 +1008,7 @@ namespace vmsOpenAcars.ViewModels
                 _flightManager.UpdatePositionValidation(_fsuipc.CurrentLatitude, _fsuipc.CurrentLongitude);
                 OnValidationStatusChanged?.Invoke(_flightManager.PositionValidationStatus);
             }
+            OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), true);
         }
 
         public void UpdateFlightInfo()
@@ -1043,29 +1097,15 @@ namespace vmsOpenAcars.ViewModels
             OnLog?.Invoke($"📋 Planned fuel: {plannedFuel:F0} {plan.Units} ({plannedFuelKg:F0} kg)", Theme.MainText);
             OnLog?.Invoke($"⛽ Simulator fuel: {actualFuelLbs:F0} lbs ({actualFuelKg:F0} kg)", Theme.MainText);
 
-            // ===== 5. VERIFICAR PRESENCIA IVAO (advertencia, sin penalización) =====
+            // ===== 5. VERIFICAR PRESENCIA IVAO (informativo — penalización se aplica al iniciar TaxiOut) =====
             var activePilot = _flightManager.ActivePilot;
             if (activePilot?.IvaoId > 0)
             {
                 bool? isOnline = await _ivaoService.IsOnlineAsync(activePilot.IvaoId);
                 if (isOnline == false)
-                {
-                    OnLog?.Invoke($"⚠️ VID {activePilot.IvaoId} no detectado en IVAO", Theme.Warning);
-                    if (OnShowConfirmation != null)
-                    {
-                        var confirmed = await OnShowConfirmation(
-                            $"El piloto (VID {activePilot.IvaoId}) no está conectado a IVAO.\n\n" +
-                            "Puedes conectarte antes del pushback/taxi para evitar penalización.\n\n" +
-                            "¿Deseas iniciar el vuelo de todas formas?",
-                            "⚠️ IVAO OFFLINE",
-                            EcamDialogButtons.YesNo);
-                        if (confirmed != DialogResult.Yes) return;
-                    }
-                }
+                    OnLog?.Invoke($"⚠️ VID {activePilot.IvaoId} no detectado en IVAO — conéctate antes del taxi para evitar −5 pts", Theme.Warning);
                 else if (isOnline == true)
-                {
                     OnLog?.Invoke($"✅ Conectado en IVAO (VID {activePilot.IvaoId})", Theme.Success);
-                }
             }
 
             // ===== 6. INICIAR VUELO =====
@@ -1076,6 +1116,7 @@ namespace vmsOpenAcars.ViewModels
                 LogPlanSummary(plan);
                 OnLog?.Invoke(_("FlightStarted"), Theme.Success);
                 OnFlightStarted?.Invoke();
+                OnOsdMessage?.Invoke("ACARS ACTIVE", OsdSeverity.Success);
             }
         }
 
@@ -1119,6 +1160,12 @@ namespace vmsOpenAcars.ViewModels
 
             if (await _flightManager.FilePirep())
             {
+                int pirepScore = _flightManager.LastFlightScore;
+                OsdSeverity scoreSev = pirepScore >= 80 ? OsdSeverity.Success
+                                     : pirepScore >= 60 ? OsdSeverity.Info
+                                     : OsdSeverity.Warning;
+                OnOsdMessage?.Invoke($"PIREP FILED   SCORE {pirepScore} / 100", scoreSev);
+
                 OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), false);
                 _lastTelemetry = null;
                 _lastPositionUpdate = DateTime.MinValue;

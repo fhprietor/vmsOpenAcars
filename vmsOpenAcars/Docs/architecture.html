@@ -1,0 +1,1873 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>architecture.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> or <div class="page"></div> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="vmsopenacars--documentación-de-arquitectura">vmsOpenAcars — Documentación de Arquitectura</h1>
+<blockquote>
+<p>Versión del documento: 0.4.6<br>
+Última actualización: 2026-05-08</p>
+</blockquote>
+<hr>
+<h2 id="qué-es-vmsopenacars">¿Qué es vmsOpenAcars?</h2>
+<p>Cliente ACARS de escritorio para Windows que conecta un simulador de vuelo con una aerolínea virtual basada en <strong>phpVMS v7</strong>. El piloto vuela en el simulador y la aplicación registra, valida y envía el PIREP automáticamente, sin intervención manual.</p>
+<hr>
+<h2 id="stack-técnico">Stack Técnico</h2>
+<table>
+<thead>
+<tr>
+<th>Componente</th>
+<th>Tecnología</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Plataforma</td>
+<td>.NET Framework 4.8, C# 7.3</td>
+</tr>
+<tr>
+<td>UI</td>
+<td>Windows Forms (WinForms)</td>
+</tr>
+<tr>
+<td>Sim → App</td>
+<td>FSUIPC / FSUIPC7 — FSUIPCClientDLL 3.3.16 · XUIPC (X-Plane)</td>
+</tr>
+<tr>
+<td>App → VA</td>
+<td>phpVMS v7 REST API</td>
+</tr>
+<tr>
+<td>Serialización</td>
+<td>Newtonsoft.Json 13</td>
+</tr>
+<tr>
+<td>Plan de vuelo</td>
+<td>SimBrief API (JSON)</td>
+</tr>
+<tr>
+<td>BD de pista</td>
+<td>System.Data.SQLite 1.0.119 (LittleNavMap)</td>
+</tr>
+<tr>
+<td>BD de historial</td>
+<td>System.Data.SQLite 1.0.119 (landing_log.sqlite)</td>
+</tr>
+<tr>
+<td>Gráficos</td>
+<td>System.Windows.Forms.DataVisualization (incluido en .NET 4.8)</td>
+</tr>
+<tr>
+<td>PDF</td>
+<td>PdfiumViewer 2.13 + pdfium.dll x64</td>
+</tr>
+<tr>
+<td>Clima / QNH</td>
+<td>METAR vía WeatherService</td>
+</tr>
+<tr>
+<td>Localización</td>
+<td>JSON (en.json / es.json)</td>
+</tr>
+<tr>
+<td>Configuración</td>
+<td>App.config + Settings.settings</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="estructura-de-carpetas">Estructura de Carpetas</h2>
+<pre class="hljs"><code><div>vmsOpenAcars/
+├── Controls/               Controles visuales personalizados (gauges, engine monitor)
+├── Core/
+│   ├── Flight/             FlightManager, FlightTimer
+│   └── Helpers/            AppInfo
+├── Db/                     RunwayService (LittleNavMap SQLite)
+├── Docs/                   BRIEFING.md (guía usuario), architecture.md
+├── Helpers/                AppConfig, Constants, FlightPhaseHelper, L (localización), UnitConverter
+├── Languages/              en.json, es.json
+├── Models/                 Aircraft, Flight, Pirep, SimbriefPlan, FlightPhase,
+│                           FlightScoreData, TouchdownData, TakeoffData,
+│                           FlightRecord, ApproachTrackPoint
+├── Properties/             AssemblyInfo, Resources, Settings
+├── Services/               ApiService, FsuipcService, ScoringService, MetarService,
+│                           IvaoService, SimbriefEnhancedService, LandingLogService
+├── UI/
+│   ├── Forms/              MainForm, FlightPlannerForm, OFPViewerForm, SettingsForm,
+│   │                       MetarDecodeForm, EcamDialog,
+│   │                       FlightHistoryForm, LandingAnalysisForm,
+│   │                       OsdOverlayForm
+│   └── Theme.cs            Paleta de colores centralizada
+└── ViewModels/             MainViewModel
+</div></code></pre>
+<hr>
+<h2 id="arquitectura-general">Arquitectura General</h2>
+<p>El proyecto sigue un patrón <strong>MVVM ligero</strong>:</p>
+<pre class="hljs"><code><div>MainForm.cs  (Vista — WinForms)
+    │
+    └── MainViewModel.cs  (ViewModel — coordinación, eventos, lógica de botones)
+            │
+            ├── FlightManager.cs          Máquina de estados del vuelo
+            ├── FsuipcService.cs          Polling del simulador (FSUIPC/XUIPC)
+            ├── ApiService.cs             HTTP client → phpVMS REST API
+            ├── PhpVmsFlightService.cs    Vuelos, bids, PIREPs
+            ├── SimbriefEnhancedService.cs Plan de vuelo + OFP PDF
+            ├── WeatherService.cs         QNH vía METAR
+            └── LandingLogService.cs      Historial de aterrizajes (SQLite)
+</div></code></pre>
+<p>La comunicación ViewModel → Vista se hace mediante <strong>eventos</strong> (<code>Action&lt;T&gt;</code>, <code>Func&lt;T&gt;</code>). La Vista nunca llama directamente a servicios de infraestructura.</p>
+<hr>
+<h2 id="fases-de-vuelo">Fases de Vuelo</h2>
+<p>La máquina de estados central (<code>FlightManager</code>) gestiona las siguientes fases:</p>
+<pre class="hljs"><code><div>Idle
+ └─► Boarding
+      └─► Pushback ──────────────────────────────────────────┐
+      └─► TaxiOut (directo sin pushback)                     │
+           └─► TakeoffRoll                                   │ (pushback → taxi)
+                └─► Takeoff                                  │
+                     └─► Climb                               │
+                          └─► Enroute                        │
+                               └─► Descent                   │
+                                    └─► Approach             │
+                                         │                   │
+                                         ├─► Climb (go-around)
+                                         │
+                                         └─► (touchdown)
+                                              └─► AfterLanding
+                                                   └─► TaxiIn
+                                                        └─► OnBlock
+                                                             └─► Arrived
+                                                                  └─► Completed
+</div></code></pre>
+<p>Cada transición envía un código de estado al servidor phpVMS:</p>
+<table>
+<thead>
+<tr>
+<th>Fase</th>
+<th>Código phpVMS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Boarding</td>
+<td><code>BST</code></td>
+</tr>
+<tr>
+<td>Pushback</td>
+<td><code>PBT</code></td>
+</tr>
+<tr>
+<td>TaxiOut / TaxiIn</td>
+<td><code>TXI</code></td>
+</tr>
+<tr>
+<td>Takeoff</td>
+<td><code>TOF</code></td>
+</tr>
+<tr>
+<td>Climb</td>
+<td><code>ICL</code></td>
+</tr>
+<tr>
+<td>Enroute</td>
+<td><code>ENR</code></td>
+</tr>
+<tr>
+<td>Descent</td>
+<td><code>APR</code></td>
+</tr>
+<tr>
+<td>Approach</td>
+<td><code>FIN</code></td>
+</tr>
+<tr>
+<td>Landing</td>
+<td><code>LDG</code></td>
+</tr>
+<tr>
+<td>OnBlock / Completed</td>
+<td><code>ARR</code></td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="módulos">Módulos</h2>
+<h3 id="fsuipcservice">FsuipcService</h3>
+<p>Servicio de lectura del simulador. Opera en un timer a <strong>50 ms</strong> e interpola los offsets FSUIPC.</p>
+<p><strong>Offsets principales leídos:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Dato</th>
+<th>Offset</th>
+<th>Conversión</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Latitud</td>
+<td>0x0560</td>
+<td><code>raw × 90 / (10001750 × 65536²)</code></td>
+</tr>
+<tr>
+<td>Longitud</td>
+<td>0x0568</td>
+<td><code>raw × 360 / 2⁶⁴</code></td>
+</tr>
+<tr>
+<td>Altitud MSL</td>
+<td>0x0570</td>
+<td><code>(raw / 65536²) × 3.28084</code> ft</td>
+</tr>
+<tr>
+<td>Heading</td>
+<td>0x0580</td>
+<td><code>raw × 360 / 2³²</code></td>
+</tr>
+<tr>
+<td>Ground Speed</td>
+<td>0x02B4</td>
+<td><code>(raw / 65536) × 1.94384</code> kts</td>
+</tr>
+<tr>
+<td>Vertical Speed</td>
+<td>0x02C8</td>
+<td><code>(raw / 256) × 196.85</code> fpm</td>
+</tr>
+<tr>
+<td>IAS</td>
+<td>0x02BC</td>
+<td><code>raw / 128</code> kts</td>
+</tr>
+<tr>
+<td>Radar Altímetro</td>
+<td>0x31E4</td>
+<td>metros → feet</td>
+</tr>
+<tr>
+<td>Luces</td>
+<td>0x0D0C</td>
+<td>bitfield (ver tabla de luces)</td>
+</tr>
+<tr>
+<td>QNH (Kohlsman)</td>
+<td>0x0330</td>
+<td><code>raw / 16.0</code> hPa</td>
+</tr>
+<tr>
+<td>Viento velocidad</td>
+<td>0x0E90</td>
+<td>kts directo</td>
+</tr>
+<tr>
+<td>Viento dirección</td>
+<td>0x0E92</td>
+<td><code>raw × 360 / 65536</code> grados</td>
+</tr>
+<tr>
+<td>OAT</td>
+<td>0x0E8C</td>
+<td><code>raw / 256</code> °C</td>
+</tr>
+<tr>
+<td>G-Force</td>
+<td>0x11BA</td>
+<td><code>raw / 625.0</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Bitfield de luces (0x0D0C):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Bit</th>
+<th>Luz</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>NAV</td>
+</tr>
+<tr>
+<td>1</td>
+<td>BEACON</td>
+</tr>
+<tr>
+<td>2</td>
+<td>LANDING</td>
+</tr>
+<tr>
+<td>3</td>
+<td>TAXI</td>
+</tr>
+<tr>
+<td>4</td>
+<td>STROBE</td>
+</tr>
+<tr>
+<td>5</td>
+<td>SEAT BELT SIGN</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Detección de eventos con debounce:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Evento</th>
+<th>Debounce</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NAV light</td>
+<td>1.5 s</td>
+</tr>
+<tr>
+<td>STROBE light</td>
+<td>1.5 s</td>
+</tr>
+<tr>
+<td>BEACON light</td>
+<td>1.5 s</td>
+</tr>
+<tr>
+<td>LANDING light</td>
+<td>1.5 s</td>
+</tr>
+<tr>
+<td>TAXI light</td>
+<td>1.5 s</td>
+</tr>
+<tr>
+<td>Parking Brake</td>
+<td>2.0 s</td>
+</tr>
+<tr>
+<td>Flaps</td>
+<td>500 ms + histéresis 1%</td>
+</tr>
+<tr>
+<td>Touchdown / Liftoff</td>
+<td>2.0 s + umbral GS</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Telemetría adaptativa por fase:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Fase</th>
+<th>Intervalo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Taxi</td>
+<td>30 s</td>
+</tr>
+<tr>
+<td>Takeoff / Approach</td>
+<td>5 s</td>
+</tr>
+<tr>
+<td>Climb / Descent</td>
+<td>15 s</td>
+</tr>
+<tr>
+<td>Enroute</td>
+<td>30 s</td>
+</tr>
+<tr>
+<td>Otros</td>
+<td>30 s</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="flightmanager">FlightManager</h3>
+<p>Núcleo de la lógica del vuelo. Recibe <code>RawTelemetryData</code> cada ciclo y:</p>
+<ol>
+<li>Actualiza propiedades públicas (altitud, GS, VS, luces, motores…)</li>
+<li>Aplica <strong>debounce de luces</strong> (2 s) antes de actualizar los campos internos usados en compliance</li>
+<li>Detecta transiciones de fase con umbrales relativos al plan de vuelo</li>
+<li>Llama a <code>CheckProcedureAtPhaseEntry()</code> en cada transición</li>
+<li>Llama a <code>CheckViolations()</code> cada ciclo mientras el avión está airborne y hay PIREP activo</li>
+</ol>
+<p><strong>Propiedades públicas de touchdown</strong> (expuestas para LandingLogService):</p>
+<pre class="hljs"><code><div><span class="hljs-keyword">public</span> <span class="hljs-built_in">double</span> TouchdownDistanceFt   =&gt; _touchdownDistanceFt;
+<span class="hljs-keyword">public</span> <span class="hljs-built_in">double</span> TouchdownCenterlineFt =&gt; _touchdownCenterlineDeviationFt;
+<span class="hljs-keyword">public</span> <span class="hljs-built_in">string</span> TouchdownRunwayName   =&gt; _touchdownRunwayName;
+<span class="hljs-keyword">public</span> <span class="hljs-built_in">double</span> TouchdownGForce       =&gt; _touchdownGForce;
+</div></code></pre>
+<h4 id="cálculo-de-agl">Cálculo de AGL</h4>
+<table>
+<thead>
+<tr>
+<th>Condición</th>
+<th>Fuente</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>En tierra (<code>IsOnGround = true</code>)</td>
+<td><code>0</code> siempre</td>
+</tr>
+<tr>
+<td>Fase <strong>Enroute</strong></td>
+<td>Radar altímetro (<code>RadarAltitude</code>); fallback a baro si = 0</td>
+</tr>
+<tr>
+<td>Resto de fases aéreas</td>
+<td><code>CurrentAltitude − ReferenceAirportElevation</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>ReferenceAirportElevation</code> devuelve la elevación del aeropuerto de <strong>salida</strong> en fases de despegue/climb, y la elevación del aeropuerto de <strong>destino</strong> en fases de llegada.</p>
+<blockquote>
+<p>El radar altímetro <strong>no se usa en aproximación</strong> porque en terrenos montañosos (Andes, Alpes, Himalaya) lee la orografía bajo las ruedas, que puede estar muy por encima del aeropuerto, dando un AGL incorrecto.</p>
+</blockquote>
+<h4 id="detección-de-go-around">Detección de Go-Around</h4>
+<p>Un go-around se confirma si se cumplen <strong>todos</strong> los criterios simultáneamente:</p>
+<table>
+<thead>
+<tr>
+<th>Criterio</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VS positivo</td>
+<td>&gt; 600 fpm</td>
+</tr>
+<tr>
+<td>Duración sostenida</td>
+<td>≥ 8 segundos consecutivos</td>
+</tr>
+<tr>
+<td>Tiempo mínimo en fase Approach</td>
+<td>≥ 30 segundos</td>
+</tr>
+<tr>
+<td>AGL (MSL − destElev)</td>
+<td>entre 100 y 3 000 ft</td>
+</tr>
+</tbody>
+</table>
+<p>El umbral de 600 fpm elimina falsos positivos por turbulencia o ajustes de pitch en final.</p>
+<h4 id="compliance-de-procedimientos-penalizaciones">Compliance de Procedimientos (penalizaciones)</h4>
+<table>
+<thead>
+<tr>
+<th>Momento</th>
+<th>Verificación</th>
+<th>Penalización</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Motores ON</td>
+<td>BEACON encendida</td>
+<td>−5 pts</td>
+</tr>
+<tr>
+<td>Pushback</td>
+<td>NAV encendida</td>
+<td>−5 pts</td>
+</tr>
+<tr>
+<td>TaxiOut</td>
+<td>NAV + TAXI encendidas</td>
+<td>−5 pts c/u</td>
+</tr>
+<tr>
+<td>TakeoffRoll</td>
+<td>STROBE + LANDING encendidas</td>
+<td>−5 pts c/u</td>
+</tr>
+<tr>
+<td>Vuelo &lt; 10 000 ft</td>
+<td>LANDING encendida</td>
+<td>−5 pts</td>
+</tr>
+<tr>
+<td>TakeoffRoll</td>
+<td>QNH ±2 hPa vs METAR origen</td>
+<td>−5 pts</td>
+</tr>
+<tr>
+<td>Gate 1 000 ft AGL (Approach)</td>
+<td>QNH ±2 hPa vs METAR destino</td>
+<td>−5 pts</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="runwayservice--dbrunwayservicecs">RunwayService — <code>Db/RunwayService.cs</code></h3>
+<p>Consulta la base de datos SQLite de <strong>LittleNavMap</strong> para cálculos precisos de posición en pista. Ruta configurada en <code>App.config</code> clave <code>lnm_db_path</code>.</p>
+<p><strong>API pública:</strong></p>
+<pre class="hljs"><code><div><span class="hljs-function"><span class="hljs-built_in">bool</span> IsAvailable
+RunwayTouchdownResult <span class="hljs-title">FindTouchdownRunway</span>(<span class="hljs-params">airport, lat, lon, heading</span>)  <span class="hljs-comment">// touchdown zone + centreline</span>
+RunwayTouchdownResult <span class="hljs-title">FindTakeoffRunway</span>(<span class="hljs-params">airport, lat, lon, heading</span>)    <span class="hljs-comment">// pista de despegue</span>
+RunwayEntry           <span class="hljs-title">FindRunwayEntry</span>(<span class="hljs-params">airport, lat, lon, heading</span>)      <span class="hljs-comment">// entrada a pista</span>
+<span class="hljs-built_in">string</span>                <span class="hljs-title">FindNearestTaxiway</span>(<span class="hljs-params">airport, lat, lon</span>)            <span class="hljs-comment">// taxiway más cercano</span>
+HoldingPoint          <span class="hljs-title">FindHoldingPoint</span>(<span class="hljs-params">airport, lat, lon, heading</span>)     <span class="hljs-comment">// holding short</span>
+ParkingSpot           <span class="hljs-title">FindNearestParking</span>(<span class="hljs-params">airport, lat, lon</span>)            <span class="hljs-comment">// gate / parking</span>
+RunwayTouchdownResult <span class="hljs-title">GetRunwayThreshold</span>(<span class="hljs-params">airport, lat, lon, heading</span>)   <span class="hljs-comment">// umbral para captura de aproximación — lat/lon desambiguan pistas paralelas</span>
+(<span class="hljs-params"><span class="hljs-built_in">double</span> DistNm, <span class="hljs-built_in">double</span> LateralFt</span>) <span class="hljs-title">ComputeApproachMetrics</span>(<span class="hljs-params">...</span>)         <span class="hljs-comment">// proyección flat-earth (static)</span>
+<span class="hljs-comment">// ILS / Approach (v0.4.4)</span>
+IlsData              <span class="hljs-title">GetIlsForRunway</span>(<span class="hljs-params">airport, runwayName</span>)             <span class="hljs-comment">// frecuencia MHz, curso ILS, gs_pitch; null si no existe o no es ILS</span>
+ApproachInfo         <span class="hljs-title">GetApproachType</span>(<span class="hljs-params">airport, runwayName</span>)             <span class="hljs-comment">// mejor procedimiento (ILS &gt; RNAV &gt; otro)</span>
+IList&lt;ApproachFix&gt;   <span class="hljs-title">GetApproachFixes</span>(<span class="hljs-params">approachId</span>)                     <span class="hljs-comment">// fixes IF/FAF/MAP del procedimiento</span>
+</span></div></code></pre>
+<p><code>RunwayTouchdownResult</code> incluye: <code>ThresholdDistanceFt</code>, <code>CenterlineDeviationFt</code>, <code>RunwayName</code>, <code>ThresholdLat</code>, <code>ThresholdLon</code>, <code>ThresholdHeading</code>.</p>
+<p><strong>ILS / Approach result types (v0.4.4):</strong></p>
+<ul>
+<li><code>IlsData</code> — <code>FrequencyMhz</code>, <code>Course</code>, <code>GlideSlopePitch</code>, <code>RunwayName</code>, <code>ThresholdLat/Lon/ElevFt</code></li>
+<li><code>ApproachInfo</code> — <code>ApproachId</code>, <code>Type</code> (&quot;ILS&quot;, &quot;RNAV&quot;…), <code>RunwayName</code>, <code>HasVerticalGuidance</code></li>
+<li><code>ApproachFix</code> — <code>Name</code>, <code>FixType</code> (&quot;IF&quot;, &quot;FAF&quot;, &quot;MAP&quot;), <code>Lat</code>, <code>Lon</code>, <code>AltitudeFt</code></li>
+</ul>
+<p><strong>Esquema de BD LittleNavMap</strong> (verificado en producción):</p>
+<pre class="hljs"><code><div>airport    → airport_id, ident, lonx, laty
+runway     → runway_id, airport_id, primary_end_id, secondary_end_id, width (ft), length (ft)
+runway_end → runway_end_id, name, heading, lonx, laty, offset_threshold
+taxi_path  → taxi_path_id, airport_id, type ('T'=taxiway, 'P'=pavement), name, start_lonx/laty, end_lonx/laty
+parking    → parking_id, airport_id, type, name, number, suffix, radius, lonx, laty
+</div></code></pre>
+<p><strong>Geometría flat-earth:</strong></p>
+<pre class="hljs"><code><div>dN = (lat - thLat) × 111320
+dE = (lon - thLon) × 111320 × cos(thLat_rad)
+along = dE × sin(hdg_rad) + dN × cos(hdg_rad)   → distancia al umbral (m)
+cross = dE × cos(hdg_rad) − dN × sin(hdg_rad)   → desviación centreline (m, signed)
+</div></code></pre>
+<p><strong>Radios de búsqueda:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Elemento</th>
+<th>Radio</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Runway footprint</td>
+<td>1.5× semi-ancho real + 30 m buffer longitudinal</td>
+</tr>
+<tr>
+<td>HoldingPoint</td>
+<td>200 m del umbral</td>
+</tr>
+<tr>
+<td>Taxiway</td>
+<td>300 m del segmento más cercano</td>
+</tr>
+<tr>
+<td>Parking</td>
+<td>200 m</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="scoringservice">ScoringService</h3>
+<p>Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se aplican deducciones:</p>
+<table>
+<thead>
+<tr>
+<th>Criterio</th>
+<th>Máx. deducción</th>
+<th>Escala</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Landing Rate</td>
+<td>−40 pts</td>
+<td>≤100 fpm: 0 / ≤200: −5 / ≤300: −15 / ≤400: −25 / ≤600: −35 / &gt;600: −40</td>
+</tr>
+<tr>
+<td>G-Force touchdown</td>
+<td>−15 pts</td>
+<td>≤1.3g: 0 / ≤1.5g: −7 / &gt;1.5g: −15</td>
+</tr>
+<tr>
+<td>Bank Angle touchdown</td>
+<td>−10 pts</td>
+<td>≤2°: 0 / ≤5°: −5 / &gt;5°: −10</td>
+</tr>
+<tr>
+<td>Pitch Angle touchdown</td>
+<td>−10 pts</td>
+<td>1°–5°: 0 (ideal) / fuera de rango: −5 a −10</td>
+</tr>
+<tr>
+<td>Overspeed</td>
+<td>−15 pts</td>
+<td>0 eventos: 0 / 1: −7 / ≥2: −15</td>
+</tr>
+<tr>
+<td>Lights Compliance</td>
+<td>−10 pts</td>
+<td>−5 pts por violación, cap −10</td>
+</tr>
+<tr>
+<td>Stabilized Approach (1000 ft)</td>
+<td>−15 pts</td>
+<td>Evalúa speed, VS, bank, pitch, gear y flaps a 1000 ft AGL</td>
+</tr>
+<tr>
+<td>QNH Compliance</td>
+<td>−10 pts</td>
+<td>−5 pts si Δ &gt; 2 hPa — salida (TakeoffRoll) + llegada (gate 1000 ft AGL), independientes</td>
+</tr>
+<tr>
+<td>IVAO Offline</td>
+<td>−5 pts</td>
+<td>−5 si el vuelo se realizó sin conexión IVAO</td>
+</tr>
+<tr>
+<td>On-Time Departure</td>
+<td>−5 pts</td>
+<td>−5 si Blocks Off difiere &gt; 10 min del STD (<code>sched_out</code>)</td>
+</tr>
+<tr>
+<td>Touchdown Zone</td>
+<td>−7 pts</td>
+<td>≤1500 ft = 0 / ≤2500 ft = −3 / &gt;2500 ft = −7 · requiere LNM DB</td>
+</tr>
+<tr>
+<td>Centreline Deviation</td>
+<td>−7 pts</td>
+<td>≤10 ft = 0 / ≤30 ft = −3 / &gt;30 ft = −7 · requiere LNM DB</td>
+</tr>
+<tr>
+<td>Localizer Alignment</td>
+<td>−5 pts</td>
+<td>ILS not tuned −3; heading &gt;5° x2 max −2; cap −5 · requiere LNM DB + ILS approach</td>
+</tr>
+<tr>
+<td>Minimums Compliance</td>
+<td>−5 pts</td>
+<td>−5 si descenso bajo DA (threshold elevation + 200 ft) sin aterrizar</td>
+</tr>
+</tbody>
+</table>
+<p>Los criterios <strong>Touchdown Zone</strong> y <strong>Centreline Deviation</strong> solo se evalúan si <code>TouchdownDistanceFt &gt; 0</code> (es decir, si RunwayService pudo consultar la BD de LittleNavMap). Los criterios <strong>Localizer Alignment</strong> y <strong>Minimums Compliance</strong> solo se evalúan si se detectó un procedimiento ILS para la pista de aterrizaje.</p>
+<p><strong>Landing ratings:</strong> Butter (≤100 fpm) · Smooth · Normal · Hard · Very Hard · Slam (≥600 fpm)</p>
+<hr>
+<h3 id="landinglogservice--serviceslandinglogservicecs">LandingLogService — <code>Services/LandingLogService.cs</code></h3>
+<p>Gestiona la base de datos SQLite local <code>landing_log.sqlite</code>. Ruta configurada en <code>App.config</code> clave <code>landing_log_path</code>.</p>
+<p><strong>Tablas:</strong></p>
+<pre class="hljs"><code><div>flights (
+    id <span class="hljs-type">INTEGER</span> <span class="hljs-keyword">PRIMARY KEY</span>,
+    flight_number, origin, destination, runway_name, metar_raw TEXT,
+    flight_date TEXT,  <span class="hljs-comment">-- ISO 8601 UTC</span>
+    landing_rate_fpm <span class="hljs-type">INTEGER</span>,
+    score <span class="hljs-type">INTEGER</span>,
+    g_force <span class="hljs-type">REAL</span>,
+    touchdown_dist_ft <span class="hljs-type">REAL</span>,
+    centerline_dev_ft <span class="hljs-type">REAL</span>
+)
+
+approach_track (
+    id <span class="hljs-type">INTEGER</span> <span class="hljs-keyword">PRIMARY KEY</span>,
+    flight_id <span class="hljs-type">INTEGER</span>,  <span class="hljs-comment">-- FK → flights.id</span>
+    seq_no <span class="hljs-type">INTEGER</span>,
+    lat <span class="hljs-type">REAL</span>, lon <span class="hljs-type">REAL</span>,
+    alt_ft <span class="hljs-type">REAL</span>, agl_ft <span class="hljs-type">REAL</span>,
+    ias_kt <span class="hljs-type">REAL</span>, vs_fpm <span class="hljs-type">REAL</span>,
+    heading_deg <span class="hljs-type">REAL</span>,
+    dist_nm <span class="hljs-type">REAL</span>,       <span class="hljs-comment">-- distancia al umbral (positiva = antes del umbral)</span>
+    lateral_ft <span class="hljs-type">REAL</span>     <span class="hljs-comment">-- desviación centreline (signed: + derecha, - izquierda)</span>
+)
+</div></code></pre>
+<p><strong>API pública:</strong></p>
+<pre class="hljs"><code><div><span class="hljs-function"><span class="hljs-built_in">bool</span> IsAvailable
+<span class="hljs-built_in">int</span>  <span class="hljs-title">SaveFlight</span>(<span class="hljs-params">FlightRecord <span class="hljs-keyword">record</span>, IList&lt;ApproachTrackPoint&gt; track</span>)
+<span class="hljs-keyword">void</span> <span class="hljs-title">DeleteFlight</span>(<span class="hljs-params"><span class="hljs-built_in">int</span> id</span>)       <span class="hljs-comment">// borra en transacción: approach_track primero, luego flights</span>
+List&lt;FlightRecord&gt;        <span class="hljs-title">GetFlights</span>()
+List&lt;ApproachTrackPoint&gt;  <span class="hljs-title">GetTrackPoints</span>(<span class="hljs-params"><span class="hljs-built_in">int</span> flightId</span>)
+<span class="hljs-built_in">bool</span> <span class="hljs-title">HasFlights</span>()
+<span class="hljs-keyword">void</span> <span class="hljs-title">SeedMockData</span>()             <span class="hljs-comment">// solo disponible en #if DEBUG — 5 vuelos SKRG RWY 01</span>
+</span></div></code></pre>
+<p><strong>Flujo de captura de aproximación:</strong></p>
+<pre class="hljs"><code><div>Phase → Approach
+    → RunwayService.GetRunwayThreshold(dest, lat, lon, heading) → _approachThreshold
+    → Task.Run(LoadApproachData)                                              // v0.4.4
+        → GetIlsForRunway() + GetApproachType() + GetApproachFixes()
+        → _flightManager.SetApproachData(ils, approach, fixes)
+    → _approachBuffer.Clear()
+OnRawDataUpdated (cada 50 ms)
+    → si phase=Approach &amp;&amp; AGL &lt; 3000 ft &amp;&amp; ≥ 2 s desde último punto
+    → ComputeApproachMetrics(threshold, lat, lon) → (distNm, lateralFt)
+    → _approachBuffer.Add(ApproachTrackPoint)
+SendPirep()
+    → SnapshotLandingRecord()          ← captura plan + touchdown ANTES de FilePirep
+    → FilePirep() → ResetFlightState() ← borra _activePlan y touchdown data
+    → éxito → SaveLandingRecord(record)
+        → record.Score = LastFlightScore  ← no se resetea en ResetFlightState
+        → LandingLogService.SaveFlight(record, _approachBuffer)
+        → _approachBuffer.Clear()
+</div></code></pre>
+<blockquote>
+<p><code>SnapshotLandingRecord()</code> debe ejecutarse <strong>antes</strong> de awaitar <code>FilePirep()</code>. <code>LastFlightScore</code>
+es la única propiedad que <code>ResetFlightState()</code> no borra, por lo que puede leerse después.</p>
+</blockquote>
+<hr>
+<h3 id="landinganalysisform--uiformslandinganalysisformcs">LandingAnalysisForm — <code>UI/Forms/LandingAnalysisForm.cs</code></h3>
+<p>Ventana no-modal que muestra 4 gráficos de la trayectoria de aproximación. Soporta modo individual y modo comparación (2-5 vuelos).</p>
+<p><strong>Constructor:</strong> <code>LandingAnalysisForm(IList&lt;(FlightRecord Record, List&lt;ApproachTrackPoint&gt; Track)&gt; flights)</code></p>
+<p><strong>Gráficos:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Gráfico</th>
+<th>Y</th>
+<th>Referencia</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Vertical Profile</td>
+<td>AGL (ft)</td>
+<td>Línea 3° = dist_nm × 319 ft/NM</td>
+</tr>
+<tr>
+<td>Lateral Deviation</td>
+<td>Desviación (ft, signed ±)</td>
+<td>Línea cero = eje de pista</td>
+</tr>
+<tr>
+<td>IAS</td>
+<td>Velocidad indicada (kt)</td>
+<td>Línea promedio ≈ Vref</td>
+</tr>
+<tr>
+<td>VS</td>
+<td>Vertical speed (fpm)</td>
+<td>Línea cero</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>Eje X invertido: 5 NM izquierda → 0 (umbral) derecha</li>
+<li>Suavizado Gaussiano (window=7, σ=window/4) aplicado a Lateral, IAS, VS — NO a Vertical Profile</li>
+<li>En comparación, cada vuelo usa un color de la paleta <code>TrackColors[]</code> (azul, naranja, verde, violeta, dorado)</li>
+<li>Nombres de series: <code>&quot;{FlightNumber} #{i+1}&quot;</code> en comparación; <code>&quot;Actual&quot;</code> en modo individual</li>
+</ul>
+<hr>
+<h3 id="osdoverlayform--uiformsosdoverlayformcs">OsdOverlayForm — <code>UI/Forms/OsdOverlayForm.cs</code></h3>
+<p>Ventana de notificaciones en pantalla (OSD — On-Screen Display). TopMost, sin borde, sin entrada en la barra de tareas, completamente click-through (<code>WM_NCHITTEST → HTTRANSPARENT</code>).</p>
+<p><strong>Enum de severidad:</strong></p>
+<pre class="hljs"><code><div><span class="hljs-keyword">public</span> <span class="hljs-built_in">enum</span> OsdSeverity { Info, Success, Warning, Critical }
+</div></code></pre>
+<p><strong>Colores de texto por severidad:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Severidad</th>
+<th>Color</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Info</td>
+<td>Azul claro <code>#A0DCFF</code></td>
+</tr>
+<tr>
+<td>Success</td>
+<td>Lima <code>#64FF82</code></td>
+</tr>
+<tr>
+<td>Warning</td>
+<td>Dorado <code>#FFD700</code></td>
+</tr>
+<tr>
+<td>Critical</td>
+<td>Rojo <code>#FF6E6E</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Estados de animación:</strong></p>
+<pre class="hljs"><code><div>Idle → FadeIn (Opacity 0→target, paso 0.06/tick) → Hold (_holdTicks) → FadeOut (paso −0.04/tick) → Idle+Hide
+</div></code></pre>
+<p>Para <strong>Critical</strong>: en lugar de FadeIn, activa el <code>_flashTimer</code> (220 ms) que alterna <code>BgFlashOn</code>/<code>BgFlashOff</code> durante 3 ciclos completos, luego transiciona a Hold → FadeOut.</p>
+<p><strong>API pública:</strong></p>
+<pre class="hljs"><code><div><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">ShowMessage</span>(<span class="hljs-params"><span class="hljs-built_in">string</span> text, OsdSeverity severity, <span class="hljs-built_in">int</span> durationMs = <span class="hljs-number">4000</span></span>)
+<span class="hljs-keyword">void</span> <span class="hljs-title">HideOsd</span>()
+</span></div></code></pre>
+<p><code>ShowMessage()</code> es thread-safe (usa <code>InvokeRequired</code>). Recalcula la posición en pantalla en cada llamada usando <code>Screen.Bounds</code> (área completa, incluyendo zona de taskbar) para funcionar correctamente tanto en modo ventana como en fullscreen.</p>
+<p><strong>Posicionamiento:</strong> centrado horizontalmente, 40 px desde el borde superior de la pantalla configurada (<code>osd_screen_index</code>). Si el índice está fuera de rango, usa la pantalla primaria.</p>
+<p><strong>Puntos de disparo en MainViewModel:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Evento</th>
+<th>Mensaje</th>
+<th>Severidad</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>StartFlight()</code> confirmado</td>
+<td><code>ACARS ACTIVE</code></td>
+<td>Success</td>
+</tr>
+<tr>
+<td><code>OnFlightPhaseChanged(TaxiOut)</code></td>
+<td><code>TAXI OUT</code></td>
+<td>Info</td>
+</tr>
+<tr>
+<td><code>OnFlightPhaseChanged(TakeoffRoll)</code></td>
+<td><code>TAKEOFF ROLL</code></td>
+<td>Info</td>
+</tr>
+<tr>
+<td><code>OnFlightPhaseChanged(Enroute)</code></td>
+<td><code>CRUISE</code></td>
+<td>Info</td>
+</tr>
+<tr>
+<td><code>OnFlightPhaseChanged(Descent)</code></td>
+<td><code>DESCENDING</code></td>
+<td>Info</td>
+</tr>
+<tr>
+<td><code>OnFlightPhaseChanged(Approach)</code></td>
+<td><code>APPROACH</code></td>
+<td>Info</td>
+</tr>
+<tr>
+<td><code>OnFlightPhaseChanged(OnBlock)</code></td>
+<td><code>ON BLOCK</code></td>
+<td>Info</td>
+</tr>
+<tr>
+<td>Touchdown detectado</td>
+<td><code>&lt;calificación&gt;  −XXX fpm  X.Xg</code></td>
+<td>varía por fpm</td>
+</tr>
+<tr>
+<td>Touch-and-go</td>
+<td><code>TOUCH AND GO</code></td>
+<td>Warning</td>
+</tr>
+<tr>
+<td><code>SendPirep()</code> exitoso</td>
+<td><code>PIREP FILED — SCORE: XX/100</code></td>
+<td>Success</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Integración en MainForm:</strong></p>
+<pre class="hljs"><code><div>_viewModel.OnOsdMessage += (text, severity) =&gt;
+    _osd.ShowMessage(text, severity, AppConfig.OsdDurationMs);
+</div></code></pre>
+<hr>
+<h3 id="aircraftperformancetable-y-detección-de-overspeed">AircraftPerformanceTable y Detección de Overspeed</h3>
+<h4 id="qué-es-vmo">¿Qué es Vmo?</h4>
+<p><strong>Vmo</strong> (Velocity Maximum Operating) es la velocidad máxima operativa publicada en el FCOM/AFM de cada aeronave, expresada en nudos IAS. En vmsOpenAcars es el único umbral de velocidad para penalizar al piloto (no se implementa Mmo por requerir datos de temperatura y presión variable con la altitud).</p>
+<h4 id="resolución-del-tipo-de-aeronave">Resolución del Tipo de Aeronave</h4>
+<pre class="hljs"><code><div>1. Match exacto (case-insensitive)   &quot;B738&quot;  → Boeing 737-800, Vmo 340 kts
+        ↓ no encontrado
+2. Prefijo de 4 chars
+        ↓ no encontrado
+3. Prefijo de 3 chars                &quot;B38M&quot;  → prefijo &quot;B3&quot; → familia B737 MAX, Vmo 340 kts
+        ↓ no encontrado
+4. Default genérico                  320 kts
+</div></code></pre>
+<h4 id="tabla-de-vmo-por-categoría">Tabla de Vmo por Categoría</h4>
+<p><strong>Pistones ligeros y GA</strong></p>
+<table>
+<thead>
+<tr>
+<th>Tipo ICAO</th>
+<th>Aeronave</th>
+<th>Vmo (kts)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>C172</td>
+<td>Cessna 172</td>
+<td>163</td>
+</tr>
+<tr>
+<td>C182</td>
+<td>Cessna 182</td>
+<td>175</td>
+</tr>
+<tr>
+<td>C208</td>
+<td>Cessna Caravan</td>
+<td>175</td>
+</tr>
+<tr>
+<td>PA28</td>
+<td>Piper PA-28</td>
+<td>148</td>
+</tr>
+<tr>
+<td>PA44</td>
+<td>Piper Seminole</td>
+<td>169</td>
+</tr>
+<tr>
+<td>BE58</td>
+<td>Beechcraft Baron 58</td>
+<td>195</td>
+</tr>
+<tr>
+<td>BE20</td>
+<td>King Air 200</td>
+<td>260</td>
+</tr>
+<tr>
+<td>BE30</td>
+<td>King Air 300/350</td>
+<td>260</td>
+</tr>
+<tr>
+<td>PC12</td>
+<td>Pilatus PC-12</td>
+<td>210</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Turboprops regionales</strong></p>
+<table>
+<thead>
+<tr>
+<th>Tipo ICAO</th>
+<th>Aeronave</th>
+<th>Vmo (kts)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AT42–AT46</td>
+<td>ATR 42 (todas variantes)</td>
+<td>250</td>
+</tr>
+<tr>
+<td>AT72–AT76</td>
+<td>ATR 72 (todas variantes)</td>
+<td>250</td>
+</tr>
+<tr>
+<td>DH8A / DH8B</td>
+<td>Dash 8-100/200</td>
+<td>220</td>
+</tr>
+<tr>
+<td>DH8C / DH8D</td>
+<td>Dash 8-300/400 (Q400)</td>
+<td>260</td>
+</tr>
+<tr>
+<td>SB20</td>
+<td>Saab 2000</td>
+<td>290</td>
+</tr>
+<tr>
+<td>SF34</td>
+<td>Saab 340</td>
+<td>250</td>
+</tr>
+<tr>
+<td>E120</td>
+<td>Embraer 120</td>
+<td>255</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Jets regionales</strong></p>
+<table>
+<thead>
+<tr>
+<th>Tipo ICAO</th>
+<th>Aeronave</th>
+<th>Vmo (kts)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CRJ2</td>
+<td>CRJ-200</td>
+<td>320</td>
+</tr>
+<tr>
+<td>CRJ7</td>
+<td>CRJ-700</td>
+<td>320</td>
+</tr>
+<tr>
+<td>CRJ9</td>
+<td>CRJ-900</td>
+<td>320</td>
+</tr>
+<tr>
+<td>CRJX</td>
+<td>CRJ-1000</td>
+<td>320</td>
+</tr>
+<tr>
+<td>E135 / E145</td>
+<td>ERJ-135 / ERJ-145</td>
+<td>320</td>
+</tr>
+<tr>
+<td>E170 / E175</td>
+<td>Embraer E170 / E175</td>
+<td>320</td>
+</tr>
+<tr>
+<td>E190 / E195</td>
+<td>Embraer E190 / E195</td>
+<td>320</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Narrow-body jets</strong></p>
+<table>
+<thead>
+<tr>
+<th>Tipo ICAO</th>
+<th>Aeronave</th>
+<th>Vmo (kts)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A318–A321</td>
+<td>Airbus A318/319/320/321</td>
+<td>350</td>
+</tr>
+<tr>
+<td>A20N / A21N</td>
+<td>A320neo / A321neo</td>
+<td>350</td>
+</tr>
+<tr>
+<td>B731–B739</td>
+<td>Boeing 737 Clásico y NG</td>
+<td>340</td>
+</tr>
+<tr>
+<td>B37M–B3XM</td>
+<td>Boeing 737 MAX 7/8/9/10</td>
+<td>340</td>
+</tr>
+<tr>
+<td>MD82 / MD83</td>
+<td>McDonnell Douglas MD-80</td>
+<td>340</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Wide-body jets</strong></p>
+<table>
+<thead>
+<tr>
+<th>Tipo ICAO</th>
+<th>Aeronave</th>
+<th>Vmo (kts)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A332 / A333 / A339</td>
+<td>Airbus A330-200/300/900neo</td>
+<td>330</td>
+</tr>
+<tr>
+<td>A342–A346</td>
+<td>Airbus A340 (todas variantes)</td>
+<td>330</td>
+</tr>
+<tr>
+<td>A359 / A35K</td>
+<td>Airbus A350-900/1000</td>
+<td>330</td>
+</tr>
+<tr>
+<td>A388</td>
+<td>Airbus A380-800</td>
+<td>330</td>
+</tr>
+<tr>
+<td>B752 / B753</td>
+<td>Boeing 757-200/300</td>
+<td>350</td>
+</tr>
+<tr>
+<td>B762–B764</td>
+<td>Boeing 767-200/300/400</td>
+<td>350</td>
+</tr>
+<tr>
+<td>B772–B77W</td>
+<td>Boeing 777-200/300/ER/LR</td>
+<td>330</td>
+</tr>
+<tr>
+<td>B779</td>
+<td>Boeing 777X</td>
+<td>330</td>
+</tr>
+<tr>
+<td>B787–B78X</td>
+<td>Boeing 787-8/9/10</td>
+<td>330</td>
+</tr>
+<tr>
+<td>B744 / B748</td>
+<td>Boeing 747-400/8</td>
+<td>365</td>
+</tr>
+<tr>
+<td>B74F / B74S</td>
+<td>Boeing 747-400F / 747SP</td>
+<td>365</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prefijos fallback (3 chars):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Prefijo</th>
+<th>Familia</th>
+<th>Vmo (kts)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A32</td>
+<td>A320 family</td>
+<td>350</td>
+</tr>
+<tr>
+<td>A33</td>
+<td>A330 family</td>
+<td>330</td>
+</tr>
+<tr>
+<td>A34</td>
+<td>A340 family</td>
+<td>330</td>
+</tr>
+<tr>
+<td>A35</td>
+<td>A350 family</td>
+<td>330</td>
+</tr>
+<tr>
+<td>A38</td>
+<td>A380 family</td>
+<td>330</td>
+</tr>
+<tr>
+<td>B73</td>
+<td>B737 family</td>
+<td>340</td>
+</tr>
+<tr>
+<td>B3</td>
+<td>B737 MAX</td>
+<td>340</td>
+</tr>
+<tr>
+<td>B74</td>
+<td>B747 family</td>
+<td>365</td>
+</tr>
+<tr>
+<td>B75</td>
+<td>B757 family</td>
+<td>350</td>
+</tr>
+<tr>
+<td>B76</td>
+<td>B767 family</td>
+<td>350</td>
+</tr>
+<tr>
+<td>B77</td>
+<td>B777 family</td>
+<td>330</td>
+</tr>
+<tr>
+<td>B78</td>
+<td>B787 family</td>
+<td>330</td>
+</tr>
+<tr>
+<td>AT4</td>
+<td>ATR 42 family</td>
+<td>250</td>
+</tr>
+<tr>
+<td>AT7</td>
+<td>ATR 72 family</td>
+<td>250</td>
+</tr>
+<tr>
+<td>DH8</td>
+<td>Dash 8 family</td>
+<td>260</td>
+</tr>
+<tr>
+<td>DHC</td>
+<td>DHC family</td>
+<td>215</td>
+</tr>
+<tr>
+<td>CRJ</td>
+<td>CRJ family</td>
+<td>320</td>
+</tr>
+<tr>
+<td>E17</td>
+<td>E-jet 170</td>
+<td>320</td>
+</tr>
+<tr>
+<td>E19</td>
+<td>E-jet 190</td>
+<td>320</td>
+</tr>
+<tr>
+<td>BE2</td>
+<td>King Air</td>
+<td>260</td>
+</tr>
+<tr>
+<td>BE3</td>
+<td>King Air 350</td>
+<td>260</td>
+</tr>
+<tr>
+<td>C20</td>
+<td>Caravan</td>
+<td>175</td>
+</tr>
+</tbody>
+</table>
+<p>Si ningún prefijo coincide → <strong>320 kts</strong> (default genérico conservador).</p>
+<h4 id="ciclo-de-detección-de-overspeed">Ciclo de Detección de Overspeed</h4>
+<p><code>CheckViolations()</code> se llama <strong>una vez por ciclo de telemetría</strong> (~50 ms) mientras airborne con PIREP activo:</p>
+<pre class="hljs"><code><div>Por cada ciclo:
+    IAS actual &gt; Vmo?
+        SÍ y _wasOverspeed=false → _overspeedCount++ + log
+        NO                       → _wasOverspeed=false
+</div></code></pre>
+<p>El flag <code>_wasOverspeed</code> actúa como latch: un overspeed sostenido cuenta como <strong>un solo evento</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Eventos registrados</th>
+<th>Deducción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>0 pts</td>
+</tr>
+<tr>
+<td>1</td>
+<td>−7 pts</td>
+</tr>
+<tr>
+<td>≥ 2</td>
+<td>−15 pts (máximo)</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="simbriefenhancedservice">SimbriefEnhancedService</h3>
+<p><strong><code>GenerateDispatchUrl()</code></strong> — Genera URL para pre-cargar el plan en SimBrief:</p>
+<ul>
+<li>Hora de salida: UTC actual + 30 min</li>
+<li>Parámetros: aerolínea, número, origen, destino, tipo aeronave, matrícula, ruta, CI, unidades</li>
+</ul>
+<p><strong><code>FetchAndParseOFP()</code></strong> — Descarga y parsea el JSON de la API de SimBrief:</p>
+<ul>
+<li>Construye <code>SimbriefPlan</code> completo: routing, combustible, pesos, tiempos, elevaciones, URL del PDF</li>
+<li>Maneja que <code>files.pdf</code> puede ser string o objeto <code>{name, link}</code></li>
+<li>Campos de combustible: <code>BlockFuel</code> ← <code>fuel.plan_ramp</code> · <code>TripFuel</code> ← <code>fuel.enroute_burn</code></li>
+</ul>
+<hr>
+<h3 id="ofp-pdf--flujo-completo">OFP PDF — Flujo Completo</h3>
+<pre class="hljs"><code><div>FlightPlannerForm (acepta OFP)
+    │
+    ├─► SetActivePlan(plan)
+    └─► DownloadOFPPdfAsync()  ← background, fire-and-forget
+              │
+              └─► plan.LocalPdfPath = &quot;/temp/vmsOFP_xxxx.pdf&quot;
+
+BtnOfp_Click
+    ├─ GetCachedOFPPath()  ←─ archivo en disco?
+    │       ├─ Sí → OFPViewerForm(cachedPath)  [instantáneo]
+    │       └─ No → DownloadOFPPdfAsync() → OFPViewerForm(newPath)
+    │
+    └── OFPViewerForm.OnFormClosed → File.Delete(tempPath)
+</div></code></pre>
+<hr>
+<h2 id="modelos-principales">Modelos Principales</h2>
+<h3 id="simbriefplan">SimbriefPlan</h3>
+<pre class="hljs"><code><div><span class="hljs-comment">// Vuelo</span>
+<span class="hljs-built_in">string</span> FlightNumber, Airline, Origin, Destination, Alternate, Route
+<span class="hljs-built_in">int</span> DestinationElevation, OriginElevation, CruiseAltitude, EstTimeEnroute
+<span class="hljs-built_in">long</span> TimeGenerated, ScheduledOffTime
+
+<span class="hljs-comment">// Aeronave</span>
+<span class="hljs-built_in">string</span> Aircraft, AircraftIcao, Registration, FlightId, BidId
+
+<span class="hljs-comment">// Combustible / Pesos</span>
+<span class="hljs-built_in">double</span> BlockFuel, TripFuel, DepartureFuel, PayLoad, ZeroFuelWeight
+<span class="hljs-built_in">string</span> Units   <span class="hljs-comment">// &quot;KG&quot; | &quot;LBS&quot;</span>
+<span class="hljs-built_in">int</span> PaxCount
+
+<span class="hljs-comment">// PDF</span>
+<span class="hljs-built_in">string</span> PdfUrl, LocalPdfPath
+</div></code></pre>
+<h3 id="flightrecord">FlightRecord</h3>
+<pre class="hljs"><code><div><span class="hljs-built_in">int</span>    Id, LandingRateFpm, Score
+<span class="hljs-built_in">string</span> FlightNumber, Origin, Destination, RunwayName, MetarRaw
+DateTime FlightDate
+<span class="hljs-built_in">double</span> GForce, TouchdownDistFt, CenterlineDevFt
+<span class="hljs-comment">// Display helpers:</span>
+<span class="hljs-built_in">string</span> DisplayDate  → <span class="hljs-string">&quot;yyyy-MM-dd HH:mm&quot;</span>
+<span class="hljs-built_in">string</span> DisplayRoute → <span class="hljs-string">&quot;ORIG → DEST&quot;</span>
+<span class="hljs-built_in">string</span> DisplayScore → <span class="hljs-string">&quot;score/100&quot;</span>
+</div></code></pre>
+<h3 id="approachtrackpoint">ApproachTrackPoint</h3>
+<pre class="hljs"><code><div><span class="hljs-built_in">int</span>    FlightId, SeqNo
+<span class="hljs-built_in">double</span> Lat, Lon, AltFt, AglFt, IasKt, VsFpm, HeadingDeg, DistNm, LateralFt
+</div></code></pre>
+<h3 id="flightphase-enum">FlightPhase (enum)</h3>
+<p><code>Idle → Boarding → Pushback → TaxiOut → TakeoffRoll → Takeoff → Climb → Enroute → Descent → Approach → Landing → Landed → AfterLanding → TaxiIn → OnBlock → Arrived → Completed</code></p>
+<hr>
+<h2 id="localización">Localización</h2>
+<p>Dos archivos JSON en <code>Languages/</code>: <code>en.json</code> y <code>es.json</code>.<br>
+Acceso mediante el helper estático <code>L._(&quot;key&quot;)</code> importado con <code>using static vmsOpenAcars.Helpers.L</code>.<br>
+El idioma se selecciona en <code>SettingsForm</code> y se persiste en <code>App.config</code>.</p>
+<hr>
+<h2 id="configuración-appconfig--appconfig">Configuración (App.config / AppConfig)</h2>
+<table>
+<thead>
+<tr>
+<th>Clave</th>
+<th>Default</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>polling_interval_ms</code></td>
+<td>50</td>
+<td>Intervalo de polling FSUIPC</td>
+</tr>
+<tr>
+<td><code>update_interval_taxi</code></td>
+<td>30</td>
+<td>Telemetría en taxi (s)</td>
+</tr>
+<tr>
+<td><code>update_interval_takeoff</code></td>
+<td>5</td>
+<td>Telemetría en despegue (s)</td>
+</tr>
+<tr>
+<td><code>update_interval_climb</code></td>
+<td>15</td>
+<td>Telemetría en subida (s)</td>
+</tr>
+<tr>
+<td><code>update_interval_cruise</code></td>
+<td>30</td>
+<td>Telemetría en crucero (s)</td>
+</tr>
+<tr>
+<td><code>update_interval_descent</code></td>
+<td>15</td>
+<td>Telemetría en descenso (s)</td>
+</tr>
+<tr>
+<td><code>update_interval_approach</code></td>
+<td>5</td>
+<td>Telemetría en approach (s)</td>
+</tr>
+<tr>
+<td><code>fuel_tolerance_percent</code></td>
+<td>10</td>
+<td>Tolerancia combustible (%)</td>
+</tr>
+<tr>
+<td><code>fuel_tolerance_absolute</code></td>
+<td>50</td>
+<td>Tolerancia combustible (kg)</td>
+</tr>
+<tr>
+<td><code>simbrief_civalue</code></td>
+<td>30</td>
+<td>Cost Index para SimBrief</td>
+</tr>
+<tr>
+<td><code>simbrief_units</code></td>
+<td>lbs</td>
+<td>Unidades combustible SimBrief</td>
+</tr>
+<tr>
+<td><code>lnm_db_path</code></td>
+<td><em>(vacío)</em></td>
+<td>Ruta al <code>airports.sqlite</code> de LittleNavMap</td>
+</tr>
+<tr>
+<td><code>landing_log_path</code></td>
+<td><em>(vacío)</em></td>
+<td>Ruta al archivo <code>landing_log.sqlite</code></td>
+</tr>
+<tr>
+<td><code>osd_enabled</code></td>
+<td>true</td>
+<td>Activa el overlay OSD</td>
+</tr>
+<tr>
+<td><code>osd_duration_seconds</code></td>
+<td>4</td>
+<td>Tiempo de visualización por notificación (s)</td>
+</tr>
+<tr>
+<td><code>osd_screen_index</code></td>
+<td>0</td>
+<td>Índice de pantalla para el OSD (0 = primaria)</td>
+</tr>
+<tr>
+<td><code>osd_opacity</code></td>
+<td>90</td>
+<td>Opacidad del OSD (10–100 %)</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="requisitos-de-instalación">Requisitos de Instalación</h2>
+<ol>
+<li><strong>Simulador</strong>: ver tabla de compatibilidad</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Simulador</th>
+<th>Plugin requerido</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MSFS 2020 / 2024</td>
+<td>FSUIPC 7</td>
+</tr>
+<tr>
+<td>Prepar3D v5 / v6</td>
+<td>FSUIPC 6</td>
+</tr>
+<tr>
+<td>Prepar3D v4</td>
+<td>FSUIPC 5 o 6</td>
+</tr>
+<tr>
+<td>Prepar3D v1 / v2 / v3</td>
+<td>FSUIPC 4</td>
+</tr>
+<tr>
+<td>FSX / FSX: Steam Edition</td>
+<td>FSUIPC 4</td>
+</tr>
+<tr>
+<td>X-Plane 11 / 12</td>
+<td>XUIPC (plugin para X-Plane)</td>
+</tr>
+</tbody>
+</table>
+<ol start="2">
+<li><strong>pdfium.dll</strong> (x64): incluido en el build (<code>PdfiumViewer.Native.x86_64.no_v8-no_xfa</code>)</li>
+<li><strong>Plataforma destino</strong>: x64 (<code>Prefer32Bit=false</code> en el proyecto)</li>
+<li><strong>.NET Framework 4.8</strong> en el sistema</li>
+</ol>
+<hr>
+<h2 id="notas-de-build">Notas de Build</h2>
+<ul>
+<li>Configuración <strong>Release</strong>: <code>&lt;AppConfig&gt;&lt;/AppConfig&gt;</code> en el PropertyGroup de Release evita que MSBuild copie <code>App.config</code> sobre <code>vmsOpenAcars.exe.config</code>. El <code>App.Release.config</code> de producción en <code>bin\Release\</code> queda intacto.</li>
+<li><code>pdfium.dll</code> se copia siempre al directorio de salida (<code>CopyToOutputDirectory=Always</code>)</li>
+<li><code>Languages/*.json</code> se copian con <code>PreserveNewest</code></li>
+<li><code>SeedMockData()</code> en <code>LandingLogService</code> solo compila en configuración <strong>Debug</strong> (<code>#if DEBUG</code>)</li>
+</ul>
+
+</body>
+</html>

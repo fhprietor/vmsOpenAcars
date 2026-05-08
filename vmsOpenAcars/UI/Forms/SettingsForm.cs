@@ -35,6 +35,11 @@ namespace vmsOpenAcars.UI.Forms
         // Landing log database
         private TextBox txtLandingLogPath;
 
+        // OSD Overlay
+        private CheckBox chkOsdEnabled;
+        private NumericUpDown nudOsdDuration;
+        private NumericUpDown nudOsdOpacity;
+
         private Button btnSave;
         private Button btnCancel;
 
@@ -47,8 +52,8 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeForm()
         {
-            // 13 filas de datos + 1 fila de botones = 14 filas × 35px + título 35px + padding
-            this.Size = new Size(500, 585);
+            // 17 filas de datos + 1 fila de botones = 18 filas × 35px + título 35px + padding
+            this.Size = new Size(500, 725);
             this.MinimumSize = new Size(460, 400);
             this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.None;
@@ -132,13 +137,13 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 14,
+                RowCount = 18,
                 BackColor = Color.Transparent
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68F));
 
-            for (int i = 0; i < 13; i++)
+            for (int i = 0; i < 17; i++)
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F)); // fila botones
 
@@ -335,7 +340,59 @@ namespace vmsOpenAcars.UI.Forms
             };
             layout.Controls.Add(logPanel, 1, 12);
 
-            // Fila 13 — Botones (ocupa las 2 columnas, alineados a la derecha)
+            // Fila 13 — Separador OSD
+            var sepOsd = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "── OSD Overlay ──",
+                ForeColor = Color.FromArgb(80, 160, 220),
+                Font = new Font("Consolas", 8, FontStyle.Italic),
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            layout.SetColumnSpan(sepOsd, 2);
+            layout.Controls.Add(sepOsd, 0, 13);
+
+            // Fila 14 — OSD Enabled
+            layout.Controls.Add(CreateLabel("OSD"), 0, 14);
+            chkOsdEnabled = new CheckBox
+            {
+                Dock = DockStyle.Fill,
+                Text = "Enabled",
+                ForeColor = Color.White,
+                Font = new Font("Consolas", 10)
+            };
+            layout.Controls.Add(chkOsdEnabled, 1, 14);
+
+            // Fila 15 — OSD Duration
+            layout.Controls.Add(CreateLabel("Duration (s)"), 0, 15);
+            nudOsdDuration = new NumericUpDown
+            {
+                Dock = DockStyle.Fill,
+                Minimum = 1,
+                Maximum = 30,
+                Value = 4,
+                BackColor = Color.FromArgb(50, 50, 60),
+                ForeColor = Color.White,
+                Font = new Font("Consolas", 10)
+            };
+            layout.Controls.Add(nudOsdDuration, 1, 15);
+
+            // Fila 16 — OSD Opacity
+            layout.Controls.Add(CreateLabel("Opacity (%)"), 0, 16);
+            nudOsdOpacity = new NumericUpDown
+            {
+                Dock = DockStyle.Fill,
+                Minimum = 10,
+                Maximum = 100,
+                Increment = 5,
+                Value = 90,
+                BackColor = Color.FromArgb(50, 50, 60),
+                ForeColor = Color.White,
+                Font = new Font("Consolas", 10)
+            };
+            layout.Controls.Add(nudOsdOpacity, 1, 16);
+
+            // Fila 17 — Botones (ocupa las 2 columnas, alineados a la derecha)
             var btnPanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -372,7 +429,7 @@ namespace vmsOpenAcars.UI.Forms
             btnPanel.Controls.Add(btnCancel);
 
             layout.SetColumnSpan(btnPanel, 2);
-            layout.Controls.Add(btnPanel, 0, 13);
+            layout.Controls.Add(btnPanel, 0, 17);
 
             contentPanel.Controls.Add(layout);
             this.Controls.Add(contentPanel);
@@ -426,6 +483,21 @@ namespace vmsOpenAcars.UI.Forms
             txtSimbriefExtraRmk.Text = ConfigurationManager.AppSettings["simbrief_extrarmk"] ?? "";
             txtLnmDbPath.Text      = ConfigurationManager.AppSettings["lnm_db_path"]      ?? "";
             txtLandingLogPath.Text = ConfigurationManager.AppSettings["landing_log_path"] ?? "";
+
+            bool osdEnabled = true;
+            if (bool.TryParse(ConfigurationManager.AppSettings["osd_enabled"], out bool osdParsed))
+                osdEnabled = osdParsed;
+            chkOsdEnabled.Checked = osdEnabled;
+
+            int osdDuration = 4;
+            if (int.TryParse(ConfigurationManager.AppSettings["osd_duration_seconds"], out int durParsed))
+                osdDuration = durParsed;
+            nudOsdDuration.Value = Math.Max(nudOsdDuration.Minimum, Math.Min(nudOsdDuration.Maximum, osdDuration));
+
+            int osdOpacity = 90;
+            if (int.TryParse(ConfigurationManager.AppSettings["osd_opacity"], out int opacityParsed))
+                osdOpacity = opacityParsed;
+            nudOsdOpacity.Value = Math.Max(nudOsdOpacity.Minimum, Math.Min(nudOsdOpacity.Maximum, osdOpacity));
         }
 
         private void LoadLanguages()
@@ -458,7 +530,10 @@ namespace vmsOpenAcars.UI.Forms
                 txtSimbriefCi.Text.Trim()                          != Cfg("simbrief_civalue", "30")||
                 txtSimbriefExtraRmk.Text.Trim()                    != Cfg("simbrief_extrarmk")     ||
                 txtLnmDbPath.Text.Trim()                           != Cfg("lnm_db_path")      ||
-                txtLandingLogPath.Text.Trim()                      != Cfg("landing_log_path");
+                txtLandingLogPath.Text.Trim()                      != Cfg("landing_log_path")  ||
+                chkOsdEnabled.Checked.ToString().ToLower()         != Cfg("osd_enabled", "true").ToLower() ||
+                ((int)nudOsdDuration.Value).ToString()             != Cfg("osd_duration_seconds", "4") ||
+                ((int)nudOsdOpacity.Value).ToString()              != Cfg("osd_opacity", "90");
         }
 
         private void BtnSave_Click(object sender, EventArgs e)
@@ -483,6 +558,9 @@ namespace vmsOpenAcars.UI.Forms
                 SetValue(config, "simbrief_extrarmk", txtSimbriefExtraRmk.Text.Trim());
                 SetValue(config, "lnm_db_path",       txtLnmDbPath.Text.Trim());
                 SetValue(config, "landing_log_path",  txtLandingLogPath.Text.Trim());
+                SetValue(config, "osd_enabled",          chkOsdEnabled.Checked.ToString().ToLower());
+                SetValue(config, "osd_duration_seconds", ((int)nudOsdDuration.Value).ToString());
+                SetValue(config, "osd_opacity",          ((int)nudOsdOpacity.Value).ToString());
 
                 config.Save(ConfigurationSaveMode.Modified);
                 ConfigurationManager.RefreshSection("appSettings");

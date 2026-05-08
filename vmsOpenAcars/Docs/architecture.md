@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.4.4  
-> Última actualización: 2026-05-07
+> Versión del documento: 0.4.6  
+> Última actualización: 2026-05-08
 
 ---
 
@@ -52,7 +52,8 @@ vmsOpenAcars/
 ├── UI/
 │   ├── Forms/              MainForm, FlightPlannerForm, OFPViewerForm, SettingsForm,
 │   │                       MetarDecodeForm, EcamDialog,
-│   │                       FlightHistoryForm, LandingAnalysisForm
+│   │                       FlightHistoryForm, LandingAnalysisForm,
+│   │                       OsdOverlayForm
 │   └── Theme.cs            Paleta de colores centralizada
 └── ViewModels/             MainViewModel
 ```
@@ -421,6 +422,68 @@ Ventana no-modal que muestra 4 gráficos de la trayectoria de aproximación. Sop
 
 ---
 
+### OsdOverlayForm — `UI/Forms/OsdOverlayForm.cs`
+
+Ventana de notificaciones en pantalla (OSD — On-Screen Display). TopMost, sin borde, sin entrada en la barra de tareas, completamente click-through (`WM_NCHITTEST → HTTRANSPARENT`).
+
+**Enum de severidad:**
+
+```csharp
+public enum OsdSeverity { Info, Success, Warning, Critical }
+```
+
+**Colores de texto por severidad:**
+
+| Severidad | Color |
+|---|---|
+| Info | Azul claro `#A0DCFF` |
+| Success | Lima `#64FF82` |
+| Warning | Dorado `#FFD700` |
+| Critical | Rojo `#FF6E6E` |
+
+**Estados de animación:**
+
+```
+Idle → FadeIn (Opacity 0→target, paso 0.06/tick) → Hold (_holdTicks) → FadeOut (paso −0.04/tick) → Idle+Hide
+```
+
+Para **Critical**: en lugar de FadeIn, activa el `_flashTimer` (220 ms) que alterna `BgFlashOn`/`BgFlashOff` durante 3 ciclos completos, luego transiciona a Hold → FadeOut.
+
+**API pública:**
+
+```csharp
+void ShowMessage(string text, OsdSeverity severity, int durationMs = 4000)
+void HideOsd()
+```
+
+`ShowMessage()` es thread-safe (usa `InvokeRequired`). Recalcula la posición en pantalla en cada llamada usando `Screen.Bounds` (área completa, incluyendo zona de taskbar) para funcionar correctamente tanto en modo ventana como en fullscreen.
+
+**Posicionamiento:** centrado horizontalmente, 40 px desde el borde superior de la pantalla configurada (`osd_screen_index`). Si el índice está fuera de rango, usa la pantalla primaria.
+
+**Puntos de disparo en MainViewModel:**
+
+| Evento | Mensaje | Severidad |
+|---|---|---|
+| `StartFlight()` confirmado | `ACARS ACTIVE` | Success |
+| `OnFlightPhaseChanged(TaxiOut)` | `TAXI OUT` | Info |
+| `OnFlightPhaseChanged(TakeoffRoll)` | `TAKEOFF ROLL` | Info |
+| `OnFlightPhaseChanged(Enroute)` | `CRUISE` | Info |
+| `OnFlightPhaseChanged(Descent)` | `DESCENDING` | Info |
+| `OnFlightPhaseChanged(Approach)` | `APPROACH` | Info |
+| `OnFlightPhaseChanged(OnBlock)` | `ON BLOCK` | Info |
+| Touchdown detectado | `<calificación>  −XXX fpm  X.Xg` | varía por fpm |
+| Touch-and-go | `TOUCH AND GO` | Warning |
+| `SendPirep()` exitoso | `PIREP FILED — SCORE: XX/100` | Success |
+
+**Integración en MainForm:**
+
+```csharp
+_viewModel.OnOsdMessage += (text, severity) =>
+    _osd.ShowMessage(text, severity, AppConfig.OsdDurationMs);
+```
+
+---
+
 ### AircraftPerformanceTable y Detección de Overspeed
 
 #### ¿Qué es Vmo?
@@ -661,6 +724,10 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 | `simbrief_units` | lbs | Unidades combustible SimBrief |
 | `lnm_db_path` | _(vacío)_ | Ruta al `airports.sqlite` de LittleNavMap |
 | `landing_log_path` | _(vacío)_ | Ruta al archivo `landing_log.sqlite` |
+| `osd_enabled` | true | Activa el overlay OSD |
+| `osd_duration_seconds` | 4 | Tiempo de visualización por notificación (s) |
+| `osd_screen_index` | 0 | Índice de pantalla para el OSD (0 = primaria) |
+| `osd_opacity` | 90 | Opacidad del OSD (10–100 %) |
 
 ---
 

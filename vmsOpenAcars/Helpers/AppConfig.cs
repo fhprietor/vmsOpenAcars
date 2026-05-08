@@ -36,6 +36,13 @@ namespace vmsOpenAcars.Helpers
         /// <summary>Full path to the landing-log SQLite database (e.g. landing_log.sqlite).</summary>
         public static string LandingLogPath => ConfigurationManager.AppSettings["landing_log_path"] ?? "";
 
+        // OSD Overlay
+        public static bool OsdEnabled => GetBool("osd_enabled", true);
+        public static int OsdDurationSeconds => GetInt("osd_duration_seconds", 4);
+        public static int OsdScreenIndex => GetInt("osd_screen_index", 1);
+        /// <summary>OSD opacity as integer percentage 10–100 (e.g. 90 = 90%).</summary>
+        public static int OsdOpacity => GetInt("osd_opacity", 90);
+
         private static int GetInt(string key, int defaultValue)
         {
             string value = ConfigurationManager.AppSettings[key];
