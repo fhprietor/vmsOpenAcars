@@ -1369,8 +1369,9 @@ namespace vmsOpenAcars.Services
                 PitchDeg = CurrentPitch,
                 BankDeg = CurrentBank,
 
-                // ← G pico del approach completo
-                GForcePeak = _peakGforceApproach,
+                // ← G pico del approach completo; Math.Max incluye el frame de impacto
+                // en caso de que el pico ocurra exactamente en la transición OnGround
+                GForcePeak = Math.Max(_peakGforceApproach, CurrentGForce),
                 GForceAtTouch = CurrentGForce,
 
                 FlapsPosition = CurrentFlapsPercent / 100.0,

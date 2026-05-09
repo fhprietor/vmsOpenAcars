@@ -220,10 +220,11 @@ namespace vmsOpenAcars.ViewModels
                         _approachThreshold.ThresholdHeading,
                         e.Latitude, e.Longitude);
 
-                    // Re-evaluate runway once when within 6 NM.
-                    // Prevents wrong parallel-runway identification made at long range (>6 NM)
-                    // when the aircraft was still on a heading intercepting the approach.
-                    if (!_approachThresholdLocked && distNm < 6.0 && _runwayService.IsAvailable)
+                    // Re-evaluate runway once when within 5 NM.
+                    // At 5 NM the aircraft should be established on final and clearly within
+                    // one runway's lateral footprint, which eliminates ambiguity between
+                    // parallel runways captured at long range (>5 NM) during an intercept turn.
+                    if (!_approachThresholdLocked && distNm < 5.0 && _runwayService.IsAvailable)
                     {
                         _approachThresholdLocked = true;
                         string destRef = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
@@ -241,9 +242,9 @@ namespace vmsOpenAcars.ViewModels
                                 e.Latitude, e.Longitude);
                         }
                     }
-                    else if (!_approachThresholdLocked && distNm >= 6.0)
+                    else if (!_approachThresholdLocked && distNm >= 5.0)
                     {
-                        _approachThresholdLocked = false; // keep unlocked until within 6 NM
+                        _approachThresholdLocked = false; // keep unlocked until within 5 NM
                     }
 
                     // First capture point — log runway, AGL, distance
@@ -646,10 +647,10 @@ namespace vmsOpenAcars.ViewModels
 
         private void OnTouchdownDetectedEvent(object sender, TouchdownData data)
         {
-            string rating = data.GForceAtTouch < 1.3 ? "Perfect" : (data.GForceAtTouch < 1.8 ? "Normal" : (data.GForceAtTouch < 2.5 ? "Hard" : "Crash"));
+            string rating = data.GForcePeak < 1.3 ? "Perfect" : (data.GForcePeak < 1.8 ? "Normal" : (data.GForcePeak < 2.5 ? "Hard" : "Crash"));
             OnLog?.Invoke($"🛬 ACCURATE TOUCHDOWN DATA:", Theme.Success);
             OnLog?.Invoke($"   VS: {data.VerticalSpeedFpm:F0} fpm", Theme.MainText);
-            OnLog?.Invoke($"   G-Force: {data.GForceAtTouch:F2}g ({rating})", Theme.MainText);
+            OnLog?.Invoke($"   G-Force: {data.GForcePeak:F2}g ({rating})", Theme.MainText);
             OnLog?.Invoke($"   Speed: {data.IasKt:F0} kts (IAS) / {data.GroundSpeedKt:F0} kts (GS)", Theme.MainText);
             OnLog?.Invoke($"   Pitch: {data.PitchDeg:F1}° | Bank: {data.BankDeg:F1}°", Theme.MainText);
             OnLog?.Invoke($"   Flaps: {data.FlapsPosition * 100:F0}% | Spoilers: {data.SpoilersPosition * 100:F0}%", Theme.MainText);

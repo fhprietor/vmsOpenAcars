@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using vmsOpenAcars.Core.Helpers;
 using vmsOpenAcars.Db;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
@@ -980,7 +981,7 @@ namespace vmsOpenAcars.Core.Flight
                 }
 
                 await Task.Run(() => UpdatePirepStatus("BST"));
-                OnLog?.Invoke($"⏱️ PIREP created at: {_serverCreatedAt:HH:mm:ss} UTC", Theme.MainText);
+                OnLog?.Invoke($"⏱️ PIREP created at: {_serverCreatedAt:HH:mm:ss} UTC (v{AppInfo.Version})", Theme.MainText);
                 OnLog?.Invoke($"📊 Flight timer started (server time)", Theme.Success);
                 OnLog?.Invoke($"⛽ Initial fuel recorded: {_initialFuel:F0} kg", Theme.Success);
                 // Resolver Vmo según tipo de avión del plan

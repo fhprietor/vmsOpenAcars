@@ -2,6 +2,19 @@
 
 ---
 
+## [0.4.7] — 2026-05-09
+
+### Added
+
+- **Versión en log de inicio de PIREP** — la línea `⏱️ PIREP created at: HH:mm:ss UTC` ahora incluye la versión del cliente: `(v0.4.7)`. La versión se lee desde `AssemblyInformationalVersionAttribute` via `AppInfo.Version`.
+
+### Fixed
+
+- **Pista paralela incorrecta en trayectoria de aproximación** — el threshold de re-evaluación para pistas paralelas bajó de 6 NM a **5 NM**. A 5 NM el avión ya está establecido en final y su posición lateral discrimina correctamente entre 14L/14R (o cualquier par paralelo), eliminando el falso offset de ~4 500 ft en la desviación de centreline del logbook.
+- **G-Force log mostraba valor post-impacto ("1.02g Perfect")** — el sensor FSUIPC `0x11BA` ya ha decaído a ~1.0g cuando el evento `TouchdownDetected` se procesa. El log de touchdown ahora usa `GForcePeak` (`Math.Max(_peakGforceApproach, CurrentGForce)`) en lugar de `GForceAtTouch`, mostrando el pico real capturado durante el approach/impacto. La calificación cualitativa (Perfect/Normal/Hard/Crash) usa el mismo valor.
+
+---
+
 ## [0.4.6] — 2026-05-08
 
 ### Added
