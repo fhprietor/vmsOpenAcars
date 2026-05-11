@@ -2,6 +2,24 @@
 
 ---
 
+## [0.4.9] — 2026-05-11
+
+### Fixed
+
+- **Detección errónea de pista en aproximación con giros base→final** — `RunwayService.GetRunwayThreshold` rediseñado: ya no acepta cualquier pista con heading delta < 45°. Ahora exige **simultáneamente** heading delta ≤ 15°, desviación lateral al eje extendido ≤ 2 NM, y posición *antes* del umbral. Si ninguna pista cumple, devuelve null y la captura se difiere. En SKCC (RWY 16, llegada con giro 355°→159°) ya no se selecciona la pista 03 durante el giro de base.
+- **Captura de aproximación no se reevaluaba** — la adquisición del threshold se hacía una sola vez al entrar en fase Approach, fijando una pista posiblemente incorrecta. Ahora `OnRawDataUpdated` llama a `GetRunwayThreshold` cada ciclo mientras `_approachThreshold == null`, garantizando que se adquiere solo cuando el avión está alineado y lateralmente cercano. Eliminado el bloque de "refinamiento a 5 NM" y el flag `_approachThresholdLocked`, ahora innecesarios.
+- **Logs de diagnóstico en `SaveLandingRecord`** — antes fallaba silenciosamente (`Debug.WriteLine` solamente). Ahora emite eventos `OnLog` con detalle: servicio no disponible, buffer insuficiente (<3 puntos), excepción en `SaveFlight`, o éxito con número de vuelo y conteo de puntos.
+
+---
+
+## [0.4.8] — 2026-05-10
+
+### Fixed
+
+- **"Collection was modified" al salir** — race condition en `FsuipcService.Stop()`: el timer de polling se destruía y se llamaba a `Disconnect()` → `FSUIPCConnection.Close()` inmediatamente, sin esperar a que un callback `OnPollingTick` ya en vuelo (ThreadPool) terminara su `FSUIPCConnection.Process()`. La librería FSUIPC itera internamente su lista de offsets con `foreach` en `Process()`; `Close()` la modificaba concurrentemente → `InvalidOperationException: Collection was modified`. **Fix:** spin-wait con `Volatile.Read(ref _isPolling)` antes de `Disconnect()`, usando el flag de reentrancia ya existente.
+
+---
+
 ## [0.4.7] — 2026-05-09
 
 ### Added

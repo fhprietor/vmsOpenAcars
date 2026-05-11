@@ -394,6 +394,11 @@ namespace vmsOpenAcars.Services
             _isRunning = false;
             _pollingTimer?.Dispose();
             _pollingTimer = null;
+            // Wait for any in-flight OnPollingTick to finish before closing the FSUIPC
+            // connection. Without this, Process() and Close() could race on the DLL's
+            // internal offset list, causing "Collection was modified" at exit.
+            while (Volatile.Read(ref _isPolling) != 0)
+                Thread.SpinWait(10);
             Disconnect();
             Debug.WriteLine("FsuipcService: polling stopped.");
         }

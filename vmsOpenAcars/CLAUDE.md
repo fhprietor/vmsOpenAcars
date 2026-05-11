@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.4.7  
+**Versión actual:** v0.4.9  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -71,7 +71,7 @@ RunwayEntry           FindRunwayEntry(airport, lat, lon, heading)
 string                FindNearestTaxiway(airport, lat, lon)
 HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)
 ParkingSpot           FindNearestParking(airport, lat, lon)
-RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading) // para captura de aproximación — lat/lon desambiguan pistas paralelas
+RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading) // captura de aproximación — exige heading-delta ≤15°, |cross| ≤2 NM, along<0 (avión antes del umbral). Devuelve null si ninguna cumple → captura se difiere
 (double DistNm, double LateralFt) ComputeApproachMetrics(...)       // public static
 // ILS / Approach (v0.4.4)
 IlsData              GetIlsForRunway(airport, runwayName)   // frecuencia MHz, curso, gs_pitch; null si no existe o no es ILS
@@ -181,12 +181,16 @@ En SettingsForm sección "Landing Log": usa `OpenFileDialog` con `CheckFileExist
 
 ```
 Phase → Approach
-    → RunwayService.GetRunwayThreshold(dest, lat, lon, heading) → _approachThreshold
-    → _approachBuffer.Clear()
-OnRawDataUpdated (cada 50 ms)
-    → si phase=Approach && AGL<3000 ft && ≥2 s elapsed
-    → ComputeApproachMetrics(threshold, lat, lon) → distNm, lateralFt
-    → _approachBuffer.Add(ApproachTrackPoint)
+    → _approachBuffer.Clear(), _approachThreshold = null
+OnRawDataUpdated (cada 50 ms, fase = Approach)
+    → si _approachThreshold == null:
+         GetRunwayThreshold(dest, lat, lon, hdg)
+         requiere heading-delta ≤15° AND |cross| ≤2 NM AND along<0
+         si null → no captura, reintenta el siguiente ciclo
+    → al adquirir pista: Task.Run(LoadApproachData(dest, runway))
+    → si AGL<3000 ft && ≥2 s elapsed:
+         ComputeApproachMetrics(threshold, lat, lon) → distNm, lateralFt
+         _approachBuffer.Add(ApproachTrackPoint)
 SendPirep()
     → SnapshotLandingRecord()          ← captura plan + touchdown ANTES de FilePirep
     → FilePirep() → ResetFlightState() ← aquí se borran _activePlan y touchdown data
@@ -194,6 +198,7 @@ SendPirep()
         → record.Score = LastFlightScore  ← LastFlightScore NO se resetea en ResetFlightState
         → LandingLogService.SaveFlight(record, _approachBuffer)
         → _approachBuffer.Clear()
+        → log de diagnóstico (éxito o motivo de fallo)
 ```
 
 > **Importante:** `FilePirep()` llama internamente a `ResetFlightState()`, que pone `_activePlan = null`

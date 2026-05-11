@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.4.7  
-> Última actualización: 2026-05-09
+> Versión del documento: 0.4.9  
+> Última actualización: 2026-05-10
 
 ---
 
@@ -258,7 +258,7 @@ RunwayEntry           FindRunwayEntry(airport, lat, lon, heading)      // entrad
 string                FindNearestTaxiway(airport, lat, lon)            // taxiway más cercano
 HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)     // holding short
 ParkingSpot           FindNearestParking(airport, lat, lon)            // gate / parking
-RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading)   // umbral para captura de aproximación — lat/lon desambiguan pistas paralelas
+RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading)   // umbral para captura de aproximación — exige heading-delta ≤15°, |cross| ≤2 NM, along<0; null si ninguna pista cumple (captura se difiere) (v0.4.9)
 (double DistNm, double LateralFt) ComputeApproachMetrics(...)         // proyección flat-earth (static)
 // ILS / Approach (v0.4.4)
 IlsData              GetIlsForRunway(airport, runwayName)             // frecuencia MHz, curso ILS, gs_pitch; null si no existe o no es ILS
@@ -377,15 +377,18 @@ void SeedMockData()             // solo disponible en #if DEBUG — 5 vuelos SKR
 
 ```
 Phase → Approach
-    → RunwayService.GetRunwayThreshold(dest, lat, lon, heading) → _approachThreshold
-    → Task.Run(LoadApproachData)                                              // v0.4.4
-        → GetIlsForRunway() + GetApproachType() + GetApproachFixes()
-        → _flightManager.SetApproachData(ils, approach, fixes)
-    → _approachBuffer.Clear()
-OnRawDataUpdated (cada 50 ms)
-    → si phase=Approach && AGL < 3000 ft && ≥ 2 s desde último punto
-    → ComputeApproachMetrics(threshold, lat, lon) → (distNm, lateralFt)
-    → _approachBuffer.Add(ApproachTrackPoint)
+    → _approachBuffer.Clear(); _approachThreshold = null
+OnRawDataUpdated (cada 50 ms, fase = Approach)
+    → si _approachThreshold == null:
+         RunwayService.GetRunwayThreshold(dest, lat, lon, hdg)
+            requiere heading-delta ≤15° AND |cross| ≤2 NM AND along<0
+            si null → no captura, reintenta el siguiente ciclo
+         al adquirir → Task.Run(LoadApproachData(dest, runway))         // v0.4.4
+            → GetIlsForRunway() + GetApproachType() + GetApproachFixes()
+            → _flightManager.SetApproachData(ils, approach, fixes)
+    → si AGL < 3000 ft && ≥ 2 s desde último punto:
+         ComputeApproachMetrics(threshold, lat, lon) → (distNm, lateralFt)
+         _approachBuffer.Add(ApproachTrackPoint)
 SendPirep()
     → SnapshotLandingRecord()          ← captura plan + touchdown ANTES de FilePirep
     → FilePirep() → ResetFlightState() ← borra _activePlan y touchdown data
@@ -393,6 +396,7 @@ SendPirep()
         → record.Score = LastFlightScore  ← no se resetea en ResetFlightState
         → LandingLogService.SaveFlight(record, _approachBuffer)
         → _approachBuffer.Clear()
+        → log de diagnóstico (éxito o motivo de fallo) (v0.4.9)
 ```
 
 > `SnapshotLandingRecord()` debe ejecutarse **antes** de awaitar `FilePirep()`. `LastFlightScore`

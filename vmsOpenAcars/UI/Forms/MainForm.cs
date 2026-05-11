@@ -1831,7 +1831,7 @@ namespace vmsOpenAcars.UI.Forms
 
                 if (result == DialogResult.Yes)
                 {
-                    Application.Exit();
+                    Close();
                 }
             }
         }
@@ -2081,7 +2081,17 @@ namespace vmsOpenAcars.UI.Forms
                             await _viewModel.CancelFlight();
                             _viewModel.Stop();
                         }
-                        Application.Exit();
+                        // Volver al hilo UI y cerrar el form principal limpiamente
+                        if (!IsDisposed)
+                        {
+                            BeginInvoke((Action)(() =>
+                            {
+                                _osd?.Close();
+                                _osd = null;
+                                _isFlightActive = false; // evitar reentrada en OnFormClosing
+                                Close();
+                            }));
+                        }
                     });
                     e.Cancel = true; // Cancelamos el cierre inmediato, lo hacemos manual
                 }

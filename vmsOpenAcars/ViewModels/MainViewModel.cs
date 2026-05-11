@@ -39,7 +39,6 @@ namespace vmsOpenAcars.ViewModels
         private List<ApproachTrackPoint> _approachBuffer    = new List<ApproachTrackPoint>();
         private RunwayTouchdownResult    _approachThreshold = null;
         private DateTime                 _lastApproachCapture = DateTime.MinValue;
-        private bool                     _approachThresholdLocked = false;
 
         private DateTime _lastPositionUpdate = DateTime.MinValue;
         private AcarsPosition _lastSentPosition = null;
@@ -201,10 +200,18 @@ namespace vmsOpenAcars.ViewModels
             // Approach track capture — every 2 s when in approach phase, AGL < 3000 ft
             if (_flightManager?.CurrentPhase == FlightPhase.Approach)
             {
+                // Threshold acquisition: keep retrying every cycle until a runway
+                // is found that satisfies heading-alignment AND lateral-proximity.
+                // This avoids latching onto a runway during a base-to-final turn
+                // when heading is closer to a different runway than the actual target.
                 if (_approachThreshold == null && _runwayService.IsAvailable)
                 {
                     string dest = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
                     _approachThreshold = _runwayService.GetRunwayThreshold(dest, e.Latitude, e.Longitude, e.HeadingDeg);
+                    if (_approachThreshold != null)
+                    {
+                        Task.Run(() => LoadApproachData(dest, _approachThreshold.RunwayName));
+                    }
                 }
 
                 double computedAgl = _flightManager.CurrentAGL;
@@ -219,33 +226,6 @@ namespace vmsOpenAcars.ViewModels
                         _approachThreshold.ThresholdLon,
                         _approachThreshold.ThresholdHeading,
                         e.Latitude, e.Longitude);
-
-                    // Re-evaluate runway once when within 5 NM.
-                    // At 5 NM the aircraft should be established on final and clearly within
-                    // one runway's lateral footprint, which eliminates ambiguity between
-                    // parallel runways captured at long range (>5 NM) during an intercept turn.
-                    if (!_approachThresholdLocked && distNm < 5.0 && _runwayService.IsAvailable)
-                    {
-                        _approachThresholdLocked = true;
-                        string destRef = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
-                        var refined = _runwayService.GetRunwayThreshold(destRef, e.Latitude, e.Longitude, e.HeadingDeg);
-                        if (refined != null && refined.RunwayName != _approachThreshold.RunwayName)
-                        {
-                            OnLog?.Invoke($"📍 Pista corregida: {_approachThreshold.RunwayName} → {refined.RunwayName}", Theme.Warning);
-                            _approachThreshold = refined;
-                            _approachBuffer.Clear();
-                            Task.Run(() => LoadApproachData(destRef, refined.RunwayName));
-                            (distNm, lateralFt) = RunwayService.ComputeApproachMetrics(
-                                _approachThreshold.ThresholdLat,
-                                _approachThreshold.ThresholdLon,
-                                _approachThreshold.ThresholdHeading,
-                                e.Latitude, e.Longitude);
-                        }
-                    }
-                    else if (!_approachThresholdLocked && distNm >= 5.0)
-                    {
-                        _approachThresholdLocked = false; // keep unlocked until within 5 NM
-                    }
 
                     // First capture point — log runway, AGL, distance
                     if (_approachBuffer.Count == 0)
@@ -358,23 +338,18 @@ namespace vmsOpenAcars.ViewModels
                 Task.Run(() => LookupArrivalParking(arrAp, aLat, aLon));
             }
 
-            // Approach capture: set up threshold reference when entering approach
+            // Approach capture: reset state on entering approach. Threshold is
+            // acquired lazily in OnRawDataUpdated when the aircraft is aligned with
+            // a runway and laterally close to its extended centreline.
             if (phase == FlightPhase.Approach && _runwayService.IsAvailable)
             {
                 _approachBuffer.Clear();
                 _lastApproachCapture = DateTime.MinValue;
-                _approachThresholdLocked = false;
-                string dest = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
-                double hdg  = _flightManager.CurrentHeading;
-                _approachThreshold = _runwayService.GetRunwayThreshold(dest, _flightManager.CurrentLat, _flightManager.CurrentLon, hdg);
-                // Load ILS and approach procedure data for scoring / waypoint sequencing
-                string rwyName = _approachThreshold?.RunwayName;
-                Task.Run(() => LoadApproachData(dest, rwyName));
+                _approachThreshold = null;
             }
             else if (phase != FlightPhase.Approach)
             {
                 _approachThreshold = null;
-                _approachThresholdLocked = false;
             }
 
             // OSD phase notifications
@@ -1199,18 +1174,39 @@ namespace vmsOpenAcars.ViewModels
 
         private void SaveLandingRecord(FlightRecord record)
         {
-            if (!_landingLogService.IsAvailable || _approachBuffer.Count < 3) return;
+            int bufCount = _approachBuffer?.Count ?? 0;
+            bool svcOk   = _landingLogService?.IsAvailable ?? false;
+
+            if (!svcOk)
+            {
+                OnLog?.Invoke($"⚠️ Landing log: servicio no disponible (ruta no configurada)", Theme.Warning);
+                return;
+            }
+            if (bufCount < 3)
+            {
+                OnLog?.Invoke($"⚠️ Landing log no grabado: solo {bufCount} puntos en buffer (mínimo 3)", Theme.Warning);
+                return;
+            }
             try
             {
                 // Score is computed inside FilePirep and is not reset by ResetFlightState
                 record.Score = _flightManager.LastFlightScore;
 
-                _landingLogService.SaveFlight(record, _approachBuffer);
+                int newId = _landingLogService.SaveFlight(record, _approachBuffer);
+                if (newId > 0)
+                {
+                    OnLog?.Invoke($"💾 Landing log: vuelo #{newId} guardado ({bufCount} puntos, RWY {record.RunwayName})", Theme.Success);
+                }
+                else
+                {
+                    OnLog?.Invoke($"❌ Landing log: SaveFlight devolvió {newId}", Theme.Danger);
+                }
                 _approachBuffer.Clear();
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"SaveLandingRecord: {ex.Message}");
+                OnLog?.Invoke($"❌ Landing log error: {ex.Message}", Theme.Danger);
+                System.Diagnostics.Debug.WriteLine($"SaveLandingRecord: {ex}");
             }
         }
 

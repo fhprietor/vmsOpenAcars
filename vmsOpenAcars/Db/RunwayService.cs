@@ -123,30 +123,39 @@ namespace vmsOpenAcars.Db
                     long apId = GetAirportId(conn, airport);
                     if (apId < 0) return null;
 
+                    // Acceptance criteria for an "intent to land on this runway":
+                    //   1. heading aligns within HEADING_TOL_DEG with runway heading.
+                    //   2. lateral distance to extended centreline within CROSS_TOL_M.
+                    //   3. aircraft is BEFORE the threshold in landing direction (along < 0
+                    //      with our convention, i.e. on the approach side).
+                    // If multiple runways qualify, pick the one with smallest |cross|;
+                    // if still tied, smallest heading delta.
+                    const double HEADING_TOL_DEG = 15.0;
+                    const double CROSS_TOL_M     = 3704.0;   // ~2 NM
+
                     RunwayEndInfo best      = null;
-                    double        bestDelta = double.MaxValue;
                     double        bestCross = double.MaxValue;
+                    double        bestDelta = double.MaxValue;
 
                     foreach (var end in GetRunwayEnds(conn, apId))
                     {
                         double d = HeadingDelta(end.Heading, heading);
-                        if (d >= 45.0) continue;
+                        if (d > HEADING_TOL_DEG) continue;
 
-                        // Lateral distance to this runway's centreline — tiebreaker for
-                        // parallel runways whose heading deltas are nearly identical.
                         Project(lat, lon, end.Lat, end.Lon, end.Heading,
-                                out double _, out double cross);
+                                out double along, out double cross);
                         double absCross = Math.Abs(cross);
 
-                        // Prefer by heading first; fall back to lateral distance when
-                        // headings are within 2° of each other.
+                        if (absCross > CROSS_TOL_M) continue;
+                        if (along > 0) continue;     // already past the threshold
+
                         if (best == null
-                            || d < bestDelta - 2.0
-                            || (d < bestDelta + 2.0 && absCross < bestCross))
+                            || absCross < bestCross - 50.0
+                            || (absCross < bestCross + 50.0 && d < bestDelta))
                         {
                             best      = end;
-                            bestDelta = d;
                             bestCross = absCross;
+                            bestDelta = d;
                         }
                     }
 
