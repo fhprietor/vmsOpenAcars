@@ -2,6 +2,14 @@
 
 ---
 
+## [0.4.12] — 2026-05-11
+
+### Added
+
+- **Penalización por ausencia de base LNM** — si al iniciar el vuelo no está disponible la base de datos LittleNavMap, se notifica en el log inmediatamente (`⚠️ −14 pts: Base de datos LNM no disponible`) y posteriormente se aplican **14 puntos** fijos de penalización al score durante `FilePirep()` (cubre los criterios TDZ + Centreline que dependen de LNM). La penalización se calcula en `ScoringService` vía el nuevo campo `LnmDbAvailable` en `FlightScoreData`, inicializado desde `RunwayService.IsAvailable` en `StartFlight()`.
+
+---
+
 ## [0.4.10] — 2026-05-11
 
 ### Fixed

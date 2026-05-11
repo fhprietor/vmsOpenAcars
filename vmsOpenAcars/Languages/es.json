@@ -198,6 +198,7 @@
   "Score_ReasonDeparture": "salida más de 10 min fuera del horario programado",
   "Score_CritTdz": "Zona de Toma de Contacto",
   "Score_CritCentreline": "Línea Central",
+  "Score_CritLnmDb": "Base de Datos LNM",
   "Score_ReasonIvao": "vuelo iniciado sin conexión a IVAO",
   "Score_ReasonStabilized": "aproximación inestable en la compuerta de 1000 ft AGL",
 

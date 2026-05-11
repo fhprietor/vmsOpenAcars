@@ -101,7 +101,19 @@ namespace vmsOpenAcars.Services
                 LandingRating = GetLandingRating(data.LandingRate)
             };
 
-            int totalDeduction = 0;
+int totalDeduction = 0;
+
+            // ── LNM Database penalty ────────────────────────────────────────────
+            if (!data.LnmDbAvailable)
+            {
+                result.Deductions.Add(new ScoringDeduction
+                {
+                    Criterion      = "LNM Database",
+                    Reason         = "Navigation database not available — Touchdown Zone + Centreline cannot be computed",
+                    PointsDeducted = 14
+                });
+                totalDeduction += 14;
+            }
 
             // ── Landing Rate ─────────────────────────────────────────────────────
             int lrDeduction = CalcLandingRateDeduction(data.LandingRate);

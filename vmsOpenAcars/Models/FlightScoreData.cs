@@ -120,7 +120,14 @@ namespace vmsOpenAcars.Models
         /// executed when it should have been.
         /// Only evaluated when ILS data is available.
         /// </summary>
-        public bool BelowMinimums { get; set; }
+public bool BelowMinimums { get; set; }
+
+        /// <summary>
+        /// Set to false at flight start if the LittleNavMap database is not available.
+        /// When false, a flat 14-pt penalty (TDZ + Centreline) is applied since
+        /// runway distance / centreline metrics cannot be computed.
+        /// </summary>
+        public bool LnmDbAvailable { get; set; } = true;
 
         /// <summary>
         /// Resets all fields to their default (zero) values.
@@ -144,6 +151,7 @@ namespace vmsOpenAcars.Models
             IlsTunedCorrectly = true;
             LocalizerViolations = 0;
             BelowMinimums = false;
+            LnmDbAvailable = true;
         }
     }
 }

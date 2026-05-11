@@ -1085,10 +1085,15 @@ namespace vmsOpenAcars.ViewModels
                     OnLog?.Invoke($"✅ Conectado en IVAO (VID {activePilot.IvaoId})", Theme.Success);
             }
 
-            // ===== 6. INICIAR VUELO =====
+// ===== 6. INICIAR VUELO =====
             bool started = await _flightManager.StartFlight(plan, _flightManager.ActivePilot, actualFuelKg);
             if (started)
             {
+                _flightManager.LnmDbAvailable = _runwayService.IsAvailable;
+                if (!_runwayService.IsAvailable)
+                {
+                    OnLog?.Invoke("⚠️ −14 pts: Base de datos LNM no disponible — no se podrá calcular Zona de Toma ni Línea Central", Theme.Warning);
+                }
                 OnButtonStateChanged?.Invoke("ABORT", Color.Red, true);
                 LogPlanSummary(plan);
                 OnLog?.Invoke(_("FlightStarted"), Theme.Success);

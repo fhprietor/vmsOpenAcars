@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.4.10  
+**Versión actual:** v0.4.12  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -326,6 +326,10 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `Services/ScoringService.cs` | ~247 | Localizer Alignment + Minimums Compliance deductions (v0.4.4) |
 | `Models/FlightScoreData.cs` | ~85 | `TouchdownDistanceFt`, `CenterlineDeviationFt`, `RunwayName` |
 | `Core/Flight/FlightManager.cs` | ~61 | Variables privadas touchdown |
+| `Models/FlightScoreData.cs` | ~125 | `LnmDbAvailable` (v0.4.12) — penalización de 14 pts si BD LNM no disponible |
+| `Core/Flight/FlightManager.cs` | ~224 | `LnmDbAvailable` property — seteado desde MainViewModel al iniciar vuelo (v0.4.12) |
+| `Core/Flight/FlightManager.cs` | ~1679 | `FilePirep()` incluye `LnmDbAvailable` en score data (v0.4.12) |
+| `ViewModels/MainViewModel.cs` | ~1092 | `LnmDbAvailable` y log inmediato si BD LNM ausente (v0.4.12) |
 | `Core/Flight/FlightManager.cs` | ~852 | `SetRunwayTouchdownData()` |
 | `Core/Flight/FlightManager.cs` | ~870 | `SetApproachData()` — carga ILS/approach/fixes para scoring (v0.4.4) |
 | `Core/Flight/FlightManager.cs` | ~705 | `CheckApproachBelowGate()` — localizer alignment + DA check (v0.4.4) |

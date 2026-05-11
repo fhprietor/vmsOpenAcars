@@ -221,6 +221,7 @@ namespace vmsOpenAcars.Core.Flight
         public double TouchdownCenterlineFt => _touchdownCenterlineDeviationFt;
         public string TouchdownRunwayName   => _touchdownRunwayName;
         public double TouchdownGForce       => _touchdownGForce;
+        public bool   LnmDbAvailable    { get; set; } = true;
         public FlightPhase CurrentPhase { get; private set; }
         public int CurrentGroundSpeed { get; private set; }
         public double CurrentFuel { get; private set; }
@@ -952,6 +953,8 @@ namespace vmsOpenAcars.Core.Flight
             _qnhViolationCount = 0; _isOfflineFlight = false;
             _approachGateEvaluated = false; _prevApproachAgl = double.MaxValue;
             _stabilizedApproachDeductions = 0; _hasLandedThisFlight = false;
+            LnmDbAvailable = true;
+            LnmDbAvailable = true;
 
             _activePlan = plan;
             _activePilot = pilot;
@@ -1675,6 +1678,7 @@ namespace vmsOpenAcars.Core.Flight
                 IlsTunedCorrectly   = _ilsTunedCorrectly,
                 LocalizerViolations = _localizerViolations,
                 BelowMinimums       = _belowMinimums,
+                LnmDbAvailable      = LnmDbAvailable,
             };
             var scoring = new ScoringService();
             ScoringResult scoreResult = scoring.Calculate(scoreData);
@@ -1696,6 +1700,8 @@ namespace vmsOpenAcars.Core.Flight
                 { "Centreline",           "Score_CritCentreline"   },
                 { "Localizer Alignment",  "Score_CritLocalizer"    },
                 { "Minimums Compliance",  "Score_CritMinimums"     },
+                { "LNM Database",         "Score_CritLnmDb"        },
+                { "LNM Database",         "Score_CritLnmDb"        },
             };
             foreach (var ded in scoreResult.Deductions)
             {

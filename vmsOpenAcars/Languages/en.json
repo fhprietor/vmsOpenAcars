@@ -198,6 +198,7 @@
   "Score_ReasonDeparture": "departed more than 10 min from schedule",
   "Score_CritTdz": "Touchdown Zone",
   "Score_CritCentreline": "Centreline",
+  "Score_CritLnmDb": "LNM Database",
   "Score_ReasonIvao": "flight started without IVAO connection",
   "Score_ReasonStabilized": "unstabilized at 1000 ft AGL gate",
 
