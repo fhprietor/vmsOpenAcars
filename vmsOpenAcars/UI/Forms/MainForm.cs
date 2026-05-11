@@ -2010,11 +2010,11 @@ namespace vmsOpenAcars.UI.Forms
             return pnl;
         }
 
-        private void UpdateMetarPanel(MetarData[] metars)
+private void UpdateMetarPanel(MetarData[] metars)
         {
             if (InvokeRequired)
             {
-                Invoke(new Action<MetarData[]>(UpdateMetarPanel), metars);
+                BeginInvoke(new Action<MetarData[]>(UpdateMetarPanel), new object[] { metars });
                 return;
             }
             for (int i = 0; i < 4; i++)
@@ -2030,7 +2030,7 @@ namespace vmsOpenAcars.UI.Forms
 
         private void UpdateMetarPanelState(MetarFetchState state)
         {
-            if (InvokeRequired) { Invoke(new Action<MetarFetchState>(UpdateMetarPanelState), state); return; }
+            if (InvokeRequired) { BeginInvoke(new Action<MetarFetchState>(UpdateMetarPanelState), state); return; }
             if (state != MetarFetchState.Fetching) return;
             for (int i = 0; i < 4; i++)
             {

@@ -163,6 +163,7 @@ namespace vmsOpenAcars.ViewModels
 
             _metarService.OnMetarUpdated  += metars => OnMetarUpdated?.Invoke(metars);
             _metarService.OnStateChanged  += state  => OnMetarStateChanged?.Invoke(state);
+            _metarService.OnLog           += msg   => OnLog?.Invoke(msg, Theme.MainText);
         }
         private int _lastUiAltitude;
         private int _lastUiSpeed;

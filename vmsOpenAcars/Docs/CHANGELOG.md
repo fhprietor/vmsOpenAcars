@@ -2,6 +2,14 @@
 
 ---
 
+## [0.4.10] — 2026-05-11
+
+### Fixed
+
+- **Panel METAR congelado en "fetching..."** — dos bugs en cascada: (1) `MetarService.DoFetchAsync` tragaba excepciones y jamás llamaba `OnMetarUpdated` si ocurría cualquier error, dejando la UI indefinidamente en estado Fetching; (2) al corregir (1), fallaba `BeginInvoke` con `TargetParameterCountException` porque `MetarData[]`, al ser asignable a `object[]` por covarianza de arrays, se desempaquetaba como argumentos individuales en `BeginInvoke(Delegate, params object[])` en lugar de como un solo argumento. **Fix:** wrappers `SafeFetch*` independientes + `OnMetarUpdated` en `finally` + `ParseMetarToken` en try/catch + `BeginInvoke(..., new object[] { metars })` para evitar el desempaquetado de array. Añadido evento `OnLog` al servicio.
+
+---
+
 ## [0.4.9] — 2026-05-11
 
 ### Fixed

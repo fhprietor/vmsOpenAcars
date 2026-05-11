@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.4.9  
+**Versión actual:** v0.4.10  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -335,6 +335,10 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `ViewModels/MainViewModel.cs` | 620-637 | `LookupTakeoffRunwayData()` |
 | `ViewModels/MainViewModel.cs` | ~562 | `HandleTaxiPositionUpdate()` ground ops + runway exit detection for AfterLanding |
 | `ViewModels/MainViewModel.cs` | ~210 | Approach capture start log: `Lnm_ApproachCaptureStart` (pista, AGL, distancia) |
+| `Services/MetarService.cs` | ~57 | `DoFetchAsync` refactorizado v0.4.10: wrappers `SafeFetch*` independientes, `OnMetarUpdated` en finally, evento `OnLog`, `ParseMetarToken` en try/catch |
+| `Services/WeatherService.cs` | | QNH-only (usado por scoring) — independiente de MetarService (panel de METARs) |
+| `UI/Forms/MainForm.cs` | ~2013 | `UpdateMetarPanel` usa `BeginInvoke(..., new object[] {metars})` — evita covarianza de arrays en `params object[]` (v0.4.10) |
+| `UI/Forms/MainForm.cs` | ~2031 | `UpdateMetarPanelState` usa `BeginInvoke` no-bloqueante (v0.4.10) |
 | `ViewModels/MainViewModel.cs` | ~1101 | `SendPirep()` → llama `SnapshotLandingRecord()` antes de `FilePirep()` |
 | `ViewModels/MainViewModel.cs` | ~1120 | `SnapshotLandingRecord()` — captura plan+touchdown antes del reset |
 | `ViewModels/MainViewModel.cs` | ~1138 | `SaveLandingRecord(FlightRecord)` — añade Score y persiste a SQLite |

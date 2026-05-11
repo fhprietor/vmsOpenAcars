@@ -13,10 +13,10 @@ namespace vmsOpenAcars.Services
     {
         public MetarFetchState State { get; private set; } = MetarFetchState.Idle;
         public MetarData[] CurrentMetars { get; } = new MetarData[4];
-        // [0]=Origin  [1]=Dest  [2]=Alternate  [3]=Enroute nearest
 
         public event Action<MetarData[]> OnMetarUpdated;
         public event Action<MetarFetchState> OnStateChanged;
+        public event Action<string> OnLog;
 
         private static readonly HttpClient _http;
         private Timer _refreshTimer;
@@ -56,39 +56,49 @@ namespace vmsOpenAcars.Services
         private async Task DoFetchAsync()
         {
             SetState(MetarFetchState.Fetching);
+            bool anySuccess = false;
             try
             {
-                var t0 = FetchByIcaoAsync(_origin,    "ORIG");
-                var t1 = FetchByIcaoAsync(_dest,      "DEST");
-                var t2 = FetchByIcaoAsync(_alternate, "ALT");
+                var t0 = SafeFetchByIcaoAsync(_origin,    0, "ORIG");
+                var t1 = SafeFetchByIcaoAsync(_dest,      1, "DEST");
+                var t2 = SafeFetchByIcaoAsync(_alternate, 2, "ALT");
                 var t3 = _hasPosition
-                    ? FetchNearestAsync(_lat, _lon, "ENRT")
-                    : Task.FromResult<MetarData>(null);
+                    ? SafeFetchNearestAsync(_lat, _lon, 3, "ENRT")
+                    : Task.CompletedTask;
 
                 await Task.WhenAll(t0, t1, t2, t3);
 
-                CurrentMetars[0] = t0.Result;
-                CurrentMetars[1] = t1.Result;
-                CurrentMetars[2] = t2.Result;
-                CurrentMetars[3] = t3.Result;
+                for (int i = 0; i < 4; i++)
+                    if (CurrentMetars[i] != null) anySuccess = true;
 
                 _retryCount = 0;
                 SetState(MetarFetchState.Current);
-                OnMetarUpdated?.Invoke(CurrentMetars);
-                RestartTimer(RefreshMs);
             }
-            catch
+            catch (Exception ex)
             {
-                _retryCount++;
-                if (_retryCount >= MaxRetries)
+                OnLog?.Invoke($"MetarService: {ex.Message}");
+            }
+            finally
+            {
+                OnMetarUpdated?.Invoke(CurrentMetars);
+
+                if (anySuccess)
                 {
-                    _retryCount = 0;
-                    SetState(MetarFetchState.Idle);
+                    RestartTimer(RefreshMs);
                 }
                 else
                 {
-                    SetState(MetarFetchState.Error);
-                    RestartTimer(RetryMs);
+                    _retryCount++;
+                    if (_retryCount >= MaxRetries)
+                    {
+                        _retryCount = 0;
+                        SetState(MetarFetchState.Idle);
+                    }
+                    else
+                    {
+                        SetState(MetarFetchState.Error);
+                        RestartTimer(RetryMs);
+                    }
                 }
             }
         }
@@ -105,6 +115,36 @@ namespace vmsOpenAcars.Services
         {
             State = s;
             OnStateChanged?.Invoke(s);
+        }
+
+        private async Task SafeFetchByIcaoAsync(string icao, int slot, string label)
+        {
+            CurrentMetars[slot] = null;
+            try
+            {
+                var result = await FetchByIcaoAsync(icao, label);
+                if (result != null)
+                    CurrentMetars[slot] = result;
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke($"MetarService {label} ({icao}): {ex.Message}");
+            }
+        }
+
+        private async Task SafeFetchNearestAsync(double lat, double lon, int slot, string label)
+        {
+            CurrentMetars[slot] = null;
+            try
+            {
+                var result = await FetchNearestAsync(lat, lon, label);
+                if (result != null)
+                    CurrentMetars[slot] = result;
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke($"MetarService {label}: {ex.Message}");
+            }
         }
 
         private async Task<MetarData> FetchByIcaoAsync(string icao, string label)
@@ -151,53 +191,63 @@ namespace vmsOpenAcars.Services
 
         private static MetarData ParseMetarToken(JToken t, string label, string reqIcao)
         {
-            var m = new MetarData
+            try
             {
-                StationLabel  = label,
-                RequestedIcao = reqIcao,
-                FetchedIcao   = t["icaoId"]?.ToString() ?? t["stationId"]?.ToString() ?? reqIcao ?? "----",
-                Raw           = t["rawOb"]?.ToString() ?? "",
-                FetchedAt     = DateTime.UtcNow,
-                TempC         = t["temp"]?.Value<double?>(),
-                DewPointC     = t["dewp"]?.Value<double?>(),
-                QnhHpa        = t["altim"]?.Value<double?>(),
-                WxString      = t["wxString"]?.ToString(),
-            };
-
-            string wdirStr = t["wdir"]?.ToString();
-            if (!string.IsNullOrEmpty(wdirStr) && wdirStr != "VRB" &&
-                int.TryParse(wdirStr, out int wd)) m.WindDir = wd;
-            if (t["wspd"] != null && int.TryParse(t["wspd"].ToString(), out int ws)) m.WindSpeedKt = ws;
-            if (t["wgst"] != null && int.TryParse(t["wgst"].ToString(), out int wg)) m.WindGustKt  = wg;
-
-            string visStr = t["visib"]?.ToString();
-            if (!string.IsNullOrEmpty(visStr) &&
-                double.TryParse(visStr, NumberStyles.Any, CultureInfo.InvariantCulture, out double visSm))
-                m.VisibilityKm = visSm * 1.60934;
-
-            if (t["clouds"] is JArray clouds)
-            {
-                foreach (var c in clouds)
+                var m = new MetarData
                 {
-                    string cover = c["cover"]?.ToString();
-                    if (cover == "BKN" || cover == "OVC")
+                    StationLabel  = label,
+                    RequestedIcao = reqIcao,
+                    FetchedIcao   = t["icaoId"]?.ToString() ?? t["stationId"]?.ToString() ?? reqIcao ?? "----",
+                    Raw           = t["rawOb"]?.ToString() ?? "",
+                    FetchedAt     = DateTime.UtcNow,
+                    TempC         = t["temp"]?.Value<double?>(),
+                    DewPointC     = t["dewp"]?.Value<double?>(),
+                    QnhHpa        = t["altim"]?.Value<double?>(),
+                    WxString      = t["wxString"]?.ToString(),
+                };
+
+                string wdirStr = t["wdir"]?.ToString();
+                if (!string.IsNullOrEmpty(wdirStr) && wdirStr != "VRB" &&
+                    int.TryParse(wdirStr, out int wd)) m.WindDir = wd;
+                if (t["wspd"] != null && int.TryParse(t["wspd"].ToString(), out int ws)) m.WindSpeedKt = ws;
+                if (t["wgst"] != null && int.TryParse(t["wgst"].ToString(), out int wg)) m.WindGustKt  = wg;
+
+                string visStr = t["visib"]?.ToString();
+                if (!string.IsNullOrEmpty(visStr) &&
+                    double.TryParse(visStr, NumberStyles.Any, CultureInfo.InvariantCulture, out double visSm))
+                    m.VisibilityKm = visSm * 1.60934;
+
+                if (t["clouds"] is JArray clouds)
+                {
+                    foreach (var c in clouds)
                     {
-                        int? baseAlt = c["base"]?.Value<int?>();
-                        if (baseAlt.HasValue && (m.CeilingFt == null || baseAlt < m.CeilingFt))
-                            m.CeilingFt = baseAlt;
+                        string cover = c["cover"]?.ToString();
+                        if (cover == "BKN" || cover == "OVC")
+                        {
+                            int? baseAlt = c["base"]?.Value<int?>();
+                            if (baseAlt.HasValue && (m.CeilingFt == null || baseAlt < m.CeilingFt))
+                                m.CeilingFt = baseAlt;
+                        }
                     }
                 }
-            }
 
-            if (!string.IsNullOrEmpty(m.Raw))
+                if (!string.IsNullOrEmpty(m.Raw))
+                {
+                    string[] parts = m.Raw.Split(' ');
+                    if (parts.Length > 0)
+                    {
+                        string last = parts[parts.Length - 1];
+                        if (last == "NOSIG" || last == "BECMG" || last == "TEMPO") m.Trend = last;
+                    }
+                }
+
+                m.Condition = CalcCondition(m.VisibilityKm, m.CeilingFt);
+                return m;
+            }
+            catch
             {
-                string[] parts = m.Raw.Split(' ');
-                string last = parts[parts.Length - 1];
-                if (last == "NOSIG" || last == "BECMG" || last == "TEMPO") m.Trend = last;
+                return null;
             }
-
-            m.Condition = CalcCondition(m.VisibilityKm, m.CeilingFt);
-            return m;
         }
 
         public static MetarCondition CalcCondition(double? visKm, int? ceilingFt)
