@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.4.12  
+**Versión actual:** v0.4.13  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas

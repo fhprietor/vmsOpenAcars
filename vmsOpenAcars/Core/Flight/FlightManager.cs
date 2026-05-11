@@ -1700,8 +1700,7 @@ namespace vmsOpenAcars.Core.Flight
                 { "Centreline",           "Score_CritCentreline"   },
                 { "Localizer Alignment",  "Score_CritLocalizer"    },
                 { "Minimums Compliance",  "Score_CritMinimums"     },
-                { "LNM Database",         "Score_CritLnmDb"        },
-                { "LNM Database",         "Score_CritLnmDb"        },
+                { "LNM Database",         "Score_CritLnmDb"        }
             };
             foreach (var ded in scoreResult.Deductions)
             {
