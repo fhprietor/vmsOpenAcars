@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
@@ -19,16 +19,19 @@ namespace vmsOpenAcars.Services
 
         private LocalizationService()
         {
-            // Cargar idioma por defecto (español) como respaldo
+            // Cargar idioma por defecto (inglés temporalmente forzado) como respaldo
             LoadDefaultLanguage();
-            // Leer idioma de App.config, por defecto "es"
-            string langCode = ConfigurationManager.AppSettings["language"] ?? "es";
+            
+            // Forzar inglés temporalmente ignorando App.config
+            // string langCode = ConfigurationManager.AppSettings["language"] ?? "es";
+            string langCode = "en";
+            
             LoadLanguage(langCode);
         }
 
         private void LoadDefaultLanguage()
         {
-            string defaultPath = Path.Combine(Application.StartupPath, "Languages", "es.json");
+            string defaultPath = Path.Combine(Application.StartupPath, "Languages", "en.json");
             if (File.Exists(defaultPath))
             {
                 try

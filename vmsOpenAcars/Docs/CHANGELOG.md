@@ -2,6 +2,23 @@
 
 ---
 
+## [0.4.13] — 2026-05-11
+
+### Added
+
+- **Localización de logs** — Migración de mensajes hardcodeados en el log (`MainViewModel.cs`) a archivos de idioma dinámicos (`es.json` y `en.json`) usando el servicio de localización existente.
+
+### Changed
+
+- **Idioma por defecto** — La aplicación ahora ignora temporalmente la preferencia de idioma de usuario (`App.config`) y fuerza la carga del archivo de idioma `en.json` (Inglés) al iniciar.
+
+### Fixed
+
+- **Error de compilación CS1061** — Se solucionó un problema en `FlightManager.cs` al acceder a `GearIsDown` en vez de la propiedad correcta `GearDown` definida en `RawTelemetryData`.
+- **Lógica duplicada y CS0103** — Se limpió un bloque redundante no localizado en la evaluación `CheckStabilizedApproachGate` de `FlightManager.cs`, el cual incluía la variable no declarada `_isApproachUnstable`.
+
+---
+
 ## [0.4.12] — 2026-05-11
 
 ### Added

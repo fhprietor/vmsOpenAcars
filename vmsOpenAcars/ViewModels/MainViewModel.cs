@@ -148,17 +148,17 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.StrobeLightChanged += on =>
             {
                 string agl = AglSuffix();
-                OnLog?.Invoke(on ? $"💡 STROBE lights ON{agl}" : $"💡 STROBE lights OFF{agl}", Theme.MainText);
+                OnLog?.Invoke(on ? _("Log_StrobeLightsOn", agl) : _("Log_StrobeLightsOff", agl), Theme.MainText);
             };
             _fsuipc.LandingLightChanged += on =>
             {
                 string agl = AglSuffix();
-                OnLog?.Invoke(on ? $"💡 LANDING lights ON{agl}" : $"💡 LANDING lights OFF{agl}", Theme.MainText);
+                OnLog?.Invoke(on ? _("Log_LandingLightsOn", agl) : _("Log_LandingLightsOff", agl), Theme.MainText);
             };
             _fsuipc.BeaconChanged += on =>
             {
                 string agl = AglSuffix();
-                OnLog?.Invoke(on ? $"🔴 BEACON ON{agl}" : $"🔴 BEACON OFF{agl}", Theme.MainText);
+                OnLog?.Invoke(on ? _("Log_BeaconOn", agl) : _("Log_BeaconOff", agl), Theme.MainText);
             };
 
             _metarService.OnMetarUpdated  += metars => OnMetarUpdated?.Invoke(metars);
@@ -261,34 +261,32 @@ namespace vmsOpenAcars.ViewModels
             if (_aircraftInfoShown) return;
             _aircraftInfoShown = true;
 
-            // Mostrar primero el simulador (ya se muestra en OnFsuipcConnected)
-
             // Mostrar fabricante
             if (_fsuipc.AircraftManufacturer != "Unknown")
             {
-                OnLog?.Invoke($"🏭 Manufacturer: {_fsuipc.AircraftManufacturer}", Theme.SecondaryText);
+                OnLog?.Invoke(_("Log_Manufacturer", _fsuipc.AircraftManufacturer), Theme.SecondaryText);
             }
 
             // Mostrar ICAO
             if (_fsuipc.AircraftIcao != "????")
             {
-                OnLog?.Invoke($"📋 ICAO: {_fsuipc.AircraftIcao}", Theme.SecondaryText);
+                OnLog?.Invoke(_("Log_ICAO", _fsuipc.AircraftIcao), Theme.SecondaryText);
             }
 
             // Mostrar aeronave (título completo)
             if (!string.IsNullOrEmpty(_fsuipc.AircraftTitle) && _fsuipc.AircraftTitle != "Unknown")
             {
-                OnLog?.Invoke($"✈️ Aircraft: {_fsuipc.AircraftTitle}", Theme.MainText);
+                OnLog?.Invoke(_("Log_Aircraft", _fsuipc.AircraftTitle), Theme.MainText);
             }
 
             // Mostrar livery (extraída correctamente)
             string livery = _fsuipc.GetAircraftLivery();
             if (livery != "Unknown" && livery != _fsuipc.AircraftIcao)
             {
-                OnLog?.Invoke($"🎨 Livery: {livery}", Theme.SecondaryText);
+                OnLog?.Invoke(_("Log_Livery", livery), Theme.SecondaryText);
             }
             // ===== MOSTRAR ALTITUD ACTUAL =====
-            OnLog?.Invoke($"📏 XXX Altitude: {_fsuipc.CurrentAltitudeFeet:F0} ft", Theme.MainText);
+            OnLog?.Invoke(_("Log_Altitude", $"{_fsuipc.CurrentAltitudeFeet:F0}"), Theme.MainText);
         }
 
         // ========== EVENTOS DE FLIGHTMANAGER (sin cambios) ==========
@@ -383,27 +381,27 @@ namespace vmsOpenAcars.ViewModels
             bool? isOnline = await _ivaoService.IsOnlineAsync(pilot.IvaoId);
             if (isOnline == true)
             {
-                OnLog?.Invoke($"✅ Conectado en IVAO (VID {pilot.IvaoId})", Theme.Success);
+                OnLog?.Invoke(_("Ivao_Online", pilot.IvaoId), Theme.Success);
             }
             else if (isOnline == false)
             {
-                OnLog?.Invoke($"⚠️ VID {pilot.IvaoId} no detectado en IVAO — −5 pts aplicados", Theme.Warning);
+                OnLog?.Invoke(_("Ivao_OfflinePenalty", pilot.IvaoId), Theme.Warning);
                 _flightManager.MarkOfflineFlight();
             }
             else
             {
-                OnLog?.Invoke("⚠️ No se pudo verificar presencia en IVAO (feed no disponible)", Theme.Warning);
+                OnLog?.Invoke(_("Ivao_FeedUnavailable"), Theme.Warning);
             }
         }
         private void OnPositionValidated(ValidationStatus status) => OnValidationStatusChanged?.Invoke(status);
         private void OnTakeoffDetected(int speed, int altitude, int verticalSpeed)
         {
-            OnLog?.Invoke($"🛫 TAKEOFF DETECTED - Speed: {speed} kts, Alt: {altitude} ft, VS: {verticalSpeed} fpm", Theme.Success);
+            OnLog?.Invoke(_("Log_TakeoffDetected", speed, altitude, verticalSpeed), Theme.Success);
             // (opcional: crear registro ACARS)
         }
         private void OnBlockDetected()
         {
-            OnLog?.Invoke($"🅿️ ON BLOCK DETECTED", Theme.Success);
+            OnLog?.Invoke(_("Log_OnBlockDetected"), Theme.Success);
             var blockRecord = new AcarsPosition
             {
                 type = 0,
@@ -451,7 +449,7 @@ namespace vmsOpenAcars.ViewModels
             {
                 var update = new AcarsPositionUpdate { positions = new[] { landingRecord } };
                 await _apiService.SendPositionUpdate(_flightManager.ActivePirepId, update);
-                OnLog?.Invoke($"🛬 Landing recorded: {verticalSpeed} fpm, {gforce:F2} G, Heading: {(int)_fsuipc.CurrentHeading}°, Pitch: {pitch:F1}°, Bank: {bank:F1}°", Theme.Success);
+                OnLog?.Invoke(_("Log_LandingRecorded", verticalSpeed, $"{gforce:F2}", (int)_fsuipc.CurrentHeading, $"{pitch:F1}", $"{bank:F1}"), Theme.Success);
             });
 
             int absVs = Math.Abs(verticalSpeed);
@@ -598,41 +596,41 @@ namespace vmsOpenAcars.ViewModels
         }
         private void OnTakeoffDetectedEvent(object sender, TakeoffData data)
         {
-            OnLog?.Invoke($"🛫 ACCURATE TAKEOFF DATA:", Theme.Success);
-            OnLog?.Invoke($"   Rotation Speed: {data.RotationIasKt:F0} kts", Theme.MainText);
-            OnLog?.Invoke($"   Ground Speed: {data.GroundSpeedKt:F0} kts", Theme.MainText);
-            OnLog?.Invoke($"   Pitch: {data.PitchDeg:F1}° | Bank: {data.BankDeg:F1}°", Theme.MainText);
-            OnLog?.Invoke($"   Heading: {data.HeadingDeg:F0}°", Theme.MainText);
+            OnLog?.Invoke(_("Log_AccurateTakeoff"), Theme.Success);
+            OnLog?.Invoke(_("Log_TakeoffRotation", $"{data.RotationIasKt:F0}"), Theme.MainText);
+            OnLog?.Invoke(_("Log_TakeoffGroundSpeed", $"{data.GroundSpeedKt:F0}"), Theme.MainText);
+            OnLog?.Invoke(_("Log_PitchBank", $"{data.PitchDeg:F1}", $"{data.BankDeg:F1}"), Theme.MainText);
+            OnLog?.Invoke(_("Log_TakeoffHeading", $"{data.HeadingDeg:F0}"), Theme.MainText);
 
             if (data.EngineType == "N1")
             {
-                OnLog?.Invoke($"   N1: {data.Eng1N1Pct:F0}% / {data.Eng2N1Pct:F0}%", Theme.MainText);
+                OnLog?.Invoke(_("Log_TakeoffN1", $"{data.Eng1N1Pct:F0}", $"{data.Eng2N1Pct:F0}"), Theme.MainText);
             }
             else if (data.EngineType == "PROP RPM")
             {
-                OnLog?.Invoke($"   Prop RPM: {data.Eng1Rpm:F0} / {data.Eng2Rpm:F0}", Theme.MainText);
+                OnLog?.Invoke(_("Log_TakeoffPropRpm", $"{data.Eng1Rpm:F0}", $"{data.Eng2Rpm:F0}"), Theme.MainText);
             }
             else if (data.EngineType == "PISTON RPM")
             {
-                OnLog?.Invoke($"   RPM: {data.Eng1Rpm:F0} / {data.Eng2Rpm:F0}", Theme.MainText);
+                OnLog?.Invoke(_("Log_TakeoffRpm", $"{data.Eng1Rpm:F0}", $"{data.Eng2Rpm:F0}"), Theme.MainText);
             }
 
-            OnLog?.Invoke($"   Flaps: {data.FlapsPosition * 100:F0}%", Theme.MainText);
-            OnLog?.Invoke($"   OAT: {data.OatCelsius:F0}°C | Wind: {data.WindSpeedKt:F0}@{data.WindDirDeg:F0}°", Theme.MainText);
+            OnLog?.Invoke(_("Log_TakeoffFlaps", $"{data.FlapsPosition * 100:F0}"), Theme.MainText);
+            OnLog?.Invoke(_("Log_OatWind", $"{data.OatCelsius:F0}", $"{data.WindSpeedKt:F0}", $"{data.WindDirDeg:F0}"), Theme.MainText);
         }
 
         private void OnTouchdownDetectedEvent(object sender, TouchdownData data)
         {
-            string rating = data.GForcePeak < 1.3 ? "Perfect" : (data.GForcePeak < 1.8 ? "Normal" : (data.GForcePeak < 2.5 ? "Hard" : "Crash"));
-            OnLog?.Invoke($"🛬 ACCURATE TOUCHDOWN DATA:", Theme.Success);
-            OnLog?.Invoke($"   VS: {data.VerticalSpeedFpm:F0} fpm", Theme.MainText);
-            OnLog?.Invoke($"   G-Force: {data.GForcePeak:F2}g ({rating})", Theme.MainText);
-            OnLog?.Invoke($"   Speed: {data.IasKt:F0} kts (IAS) / {data.GroundSpeedKt:F0} kts (GS)", Theme.MainText);
-            OnLog?.Invoke($"   Pitch: {data.PitchDeg:F1}° | Bank: {data.BankDeg:F1}°", Theme.MainText);
-            OnLog?.Invoke($"   Flaps: {data.FlapsPosition * 100:F0}% | Spoilers: {data.SpoilersPosition * 100:F0}%", Theme.MainText);
-            OnLog?.Invoke($"   Reversers: {data.Eng1ReverserPct:F0}% / {data.Eng2ReverserPct:F0}%", Theme.MainText);
-            OnLog?.Invoke($"   Brakes: L={data.BrakeLeft * 100:F0}% R={data.BrakeRight * 100:F0}% | Autobrake: {GetAutobrakeName(data.AutobrakeSetting)}", Theme.MainText);
-            OnLog?.Invoke($"   OAT: {data.OatCelsius:F0}°C | Wind: {data.WindSpeedKt:F0}@{data.WindDirDeg:F0}°", Theme.MainText);
+            string rating = data.GForcePeak < 1.3 ? _("Score_Perfect") : (data.GForcePeak < 1.8 ? _("Score_Normal") : (data.GForcePeak < 2.5 ? _("Score_Hard") : _("Score_Crash")));
+            OnLog?.Invoke(_("Log_AccurateTouchdown"), Theme.Success);
+            OnLog?.Invoke(_("Log_TouchdownVs", $"{data.VerticalSpeedFpm:F0}"), Theme.MainText);
+            OnLog?.Invoke(_("Log_TouchdownGForce", $"{data.GForcePeak:F2}", rating), Theme.MainText);
+            OnLog?.Invoke(_("Log_TouchdownSpeed", $"{data.IasKt:F0}", $"{data.GroundSpeedKt:F0}"), Theme.MainText);
+            OnLog?.Invoke(_("Log_PitchBank", $"{data.PitchDeg:F1}", $"{data.BankDeg:F1}"), Theme.MainText);
+            OnLog?.Invoke(_("Log_TouchdownFlapsSpoilers", $"{data.FlapsPosition * 100:F0}", $"{data.SpoilersPosition * 100:F0}"), Theme.MainText);
+            OnLog?.Invoke(_("Log_TouchdownReversers", $"{data.Eng1ReverserPct:F0}", $"{data.Eng2ReverserPct:F0}"), Theme.MainText);
+            OnLog?.Invoke(_("Log_TouchdownBrakes", $"{data.BrakeLeft * 100:F0}", $"{data.BrakeRight * 100:F0}", GetAutobrakeName(data.AutobrakeSetting)), Theme.MainText);
+            OnLog?.Invoke(_("Log_OatWind", $"{data.OatCelsius:F0}", $"{data.WindSpeedKt:F0}", $"{data.WindDirDeg:F0}"), Theme.MainText);
 
             if (_runwayService.IsAvailable)
                 Task.Run(() => LookupRunwayData(data));
