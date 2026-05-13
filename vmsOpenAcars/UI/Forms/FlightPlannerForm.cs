@@ -424,7 +424,6 @@ namespace vmsOpenAcars.UI
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error loading bids: {ex}");
                 AppendLog($"❌ Error loading bids: {ex.Message}");
             }
         }

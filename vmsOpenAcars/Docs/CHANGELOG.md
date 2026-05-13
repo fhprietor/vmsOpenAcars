@@ -2,6 +2,31 @@
 
 ---
 
+## [0.4.15] — 2026-05-13
+
+### Added
+
+- **OSD reminder de landing lights a 10 500 ft AGL** — durante la fase **Descent**, al cruzar los 10 500 ft AGL con las landing lights apagadas, el OSD muestra `LANDING LT OFF` (Warning). Dispara una sola vez por descenso (flag `_landingLightReminderSent`); se resetea si el AGL sube por encima de 10 500 ft (go-around) o al iniciar un nuevo vuelo. No aplica penalización — es un aviso previo al check de −5 pts que sigue activo al cruzar los 10 000 ft.
+
+---
+
+## [0.4.14] — 2026-05-12
+
+### Added
+
+- **OSD — penalizaciones en tiempo real** — cada penalización de luces, QNH, overspeed y aproximación no estabilizada genera inmediatamente un mensaje OSD (`Warning` o `Critical`), sin esperar al envío del PIREP. Mensajes: `PENALTY  NAV/TAXI/STROBE/LANDING LT  −5 PTS`, `PENALTY  QNH  −5 PTS`, `OVERSPEED  XXX KTS`, `UNSTABILIZED  −N PTS`.
+- **OSD — GO AROUND** — la detección de go-around emite `GO AROUND` (Warning) en el overlay.
+- **OSD — TOUCH AND GO** — ya existía en v0.4.6; confirmado que se dispara correctamente desde `FlightManager.OnOsdMessage`.
+- **Evento `OnOsdMessage` en FlightManager** — `public event Action<string, OsdSeverity> OnOsdMessage` propagado por `MainViewModel` hacia el overlay OSD existente, sin duplicar lógica.
+
+### Removed
+
+- **Seatbelts — eliminación completa** — eliminado todo el código, offsets FSUIPC (`0x0EC6`), propiedades (`IsSeatBeltSignOn`, `SeatBeltSign`), labels UI (`_lblSeatBelt`), claves de localización (`Status_SeatbeltOn`, `Status_SeatbeltOff`) y referencias en todos los archivos.
+- **`Debug.WriteLine` — eliminación completa** — eliminadas todas las llamadas `System.Diagnostics.Debug.WriteLine` (activas y comentadas) en `ApiService`, `FsuipcService`, `FlightManager`, `MainViewModel`, `LandingLogService`, `FlightPlannerForm`, `PhpVmsFlightService`, `SimbriefEnhancedService` y `UIService`. El panel de salida de VS ya no recibe tráfico de depuración en runtime.
+- **Entradas `[[...]]` en el log de vuelo** — eliminadas todas las llamadas `OnLog?.Invoke` que usaban claves de localización inexistentes (`Log_BidRemoved`, `Log_InitialFuel`, `Log_TimerStarted`, `Log_AircraftTypeInfo`, `Log_PirepCreated`, `Log_PhaseChanged`, `Log_BlockOffPushback`, `Log_TaxiOutAfterPush`, `Log_ApproachInfo`, y otras). El log solo muestra mensajes con clave válida o hardcoded.
+
+---
+
 ## [0.4.13] — 2026-05-11
 
 ### Added

@@ -96,6 +96,7 @@ namespace vmsOpenAcars.ViewModels
         {
             // Desuscribir eventos de FlightManager
             _flightManager.OnLog -= OnFlightManagerLog;
+            _flightManager.OnOsdMessage -= OnFlightManagerOsd;
             _flightManager.PhaseChanged -= OnFlightPhaseChanged;
             _flightManager.OnPositionValidated -= OnPositionValidated;
             _flightManager.OnAirportChanged -= OnAirportChanged;
@@ -119,6 +120,7 @@ namespace vmsOpenAcars.ViewModels
 
             // Suscribir eventos de FlightManager
             _flightManager.OnLog += OnFlightManagerLog;
+            _flightManager.OnOsdMessage += OnFlightManagerOsd;
             _flightManager.PhaseChanged += OnFlightPhaseChanged;
             _flightManager.OnPositionValidated += OnPositionValidated;
             _flightManager.OnAirportChanged += OnAirportChanged;
@@ -291,6 +293,7 @@ namespace vmsOpenAcars.ViewModels
 
         // ========== EVENTOS DE FLIGHTMANAGER (sin cambios) ==========
         private void OnFlightManagerLog(string msg, Color color) => OnLog?.Invoke(msg, color);
+        private void OnFlightManagerOsd(string msg, OsdSeverity sev) => OnOsdMessage?.Invoke(msg, sev);
         private async void OnFlightPhaseChanged(FlightPhase phase)
         {
             // Verificar IVAO al iniciar TaxiOut
@@ -497,8 +500,6 @@ namespace vmsOpenAcars.ViewModels
                 return;
 
             double totalDistanceKm = _flightManager.TotalDistanceKm;
-
-            System.Diagnostics.Debug.WriteLine($"[DEBUG] PrepareTelemetry - CurrentPhase: {_flightManager.CurrentPhase}");
 
             if (_lastPosition.HasValue)
             {
@@ -1210,7 +1211,6 @@ namespace vmsOpenAcars.ViewModels
             catch (Exception ex)
             {
                 OnLog?.Invoke($"❌ Landing log error: {ex.Message}", Theme.Danger);
-                System.Diagnostics.Debug.WriteLine($"SaveLandingRecord: {ex}");
             }
         }
 

@@ -133,8 +133,6 @@
   "Status_GearUp": "GEAR: UP",
   "Status_SpoilDep": "SPOIL: DEP",
   "Status_SpoilRet": "SPOIL: RET",
-  "Status_SeatbeltOn": "🔔 SEATBELT: ON",
-  "Status_SeatbeltOff": "🔔 SEATBELT: OFF",
   "Status_ApOff": "A/P: OFF",
   "Status_Stable": "✅ STABLE",
   "Status_Unstable": "⚠️ UNSTABLE",

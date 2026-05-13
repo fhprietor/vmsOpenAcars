@@ -114,7 +114,6 @@ namespace vmsOpenAcars.UI.Forms
         private Label _lblFlaps;
         private Label _lblSpoilers;
         private Label _lblAutobrake;
-        private Label _lblSeatBelt;
         private Label _lblAutopilot;
         private Label _lblStabilized;
 
@@ -357,10 +356,7 @@ namespace vmsOpenAcars.UI.Forms
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Error cargando icono: {ex.Message}");
-            }
+            catch { }
 
             // Posición guardada
             try
@@ -812,12 +808,12 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 9,
+                RowCount = 8,
                 BackColor = Color.Transparent,
                 Padding = new Padding(3, 8, 3, 2)
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 14)); // título
-            for (int i = 0; i < 7; i++)
+            for (int i = 0; i < 6; i++)
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // espaciador
 
@@ -827,7 +823,6 @@ namespace vmsOpenAcars.UI.Forms
             _lblFlaps = MakeSysLabel("FLAPS: --");
             _lblSpoilers = MakeSysLabel("SPOIL: RET");
             _lblAutobrake = MakeSysLabel("A/BRK: ---");
-            _lblSeatBelt = MakeSysLabel("🔔 SEATBLT: OFF");
             _lblAutopilot = MakeSysLabel("A/P: OFF");
             _lblStabilized = MakeSysLabel("");
 
@@ -835,9 +830,8 @@ namespace vmsOpenAcars.UI.Forms
             layout.Controls.Add(_lblFlaps, 0, 2);
             layout.Controls.Add(_lblSpoilers, 0, 3);
             layout.Controls.Add(_lblAutobrake, 0, 4);
-            layout.Controls.Add(_lblSeatBelt, 0, 5);
-            layout.Controls.Add(_lblAutopilot, 0, 6);
-            layout.Controls.Add(_lblStabilized, 0, 7);
+            layout.Controls.Add(_lblAutopilot, 0, 5);
+            layout.Controls.Add(_lblStabilized, 0, 6);
             panel.Controls.Add(layout);
             return panel;
         }
@@ -1455,14 +1449,6 @@ namespace vmsOpenAcars.UI.Forms
                 }
                 if (_lblAutobrake != null) _lblAutobrake.Text = $"A/BRK: {fm.AutobrakeSetting}";
 
-                // Seat Belt Sign
-                if (_lblSeatBelt != null)
-                {
-                    bool sb = fm.LastRawData?.SeatBeltSign == true;
-                    _lblSeatBelt.Text = sb ? "🔔 SEATBELT: ON" : "🔔 SEATBELT: OFF";
-                    _lblSeatBelt.ForeColor = sb ? Color.Yellow : Color.Gray;
-                }
-
                 // Autopilot
                 if (_lblAutopilot != null)
                 {
@@ -1671,10 +1657,7 @@ namespace vmsOpenAcars.UI.Forms
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error en UpdateFlightInfoPanel: {ex.Message}");
-            }
+            catch { }
         }
 
         // Métodos auxiliares
@@ -2127,13 +2110,8 @@ private void UpdateMetarPanel(MetarData[] metars)
 
                     config.Save(ConfigurationSaveMode.Modified);
                     ConfigurationManager.RefreshSection("appSettings");
-
-                    Debug.WriteLine("✅ Configuración guardada correctamente");
                 }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"❌ Error guardando configuración: {ex.Message}");
-                }
+                catch { }
             }
         }
 

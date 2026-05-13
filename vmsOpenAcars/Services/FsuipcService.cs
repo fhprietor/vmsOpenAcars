@@ -192,7 +192,6 @@ namespace vmsOpenAcars.Services
         // ---- Luces ----
         private readonly Offset<short> _lightsOffset = new Offset<short>(0x0D0C);
         /// <summary>0x0EC6 · BYTE · Fasten Seat Belts sign (0 = off, non-zero = on)</summary>
-        private readonly Offset<byte> _seatBeltOffset = new Offset<byte>(0x0EC6);
 
         // ---- Aeronave ----
         private readonly Offset<string> _aircraftTitle = new Offset<string>(0x3D00, 256);
@@ -385,7 +384,6 @@ namespace vmsOpenAcars.Services
             if (_isRunning) return;
             _isRunning = true;
             _pollingTimer = new Timer(OnPollingTick, null, 500, _pollingIntervalMs);
-            Debug.WriteLine("FsuipcService: polling started.");
         }
 
         public void Stop()
@@ -400,7 +398,6 @@ namespace vmsOpenAcars.Services
             while (Volatile.Read(ref _isPolling) != 0)
                 Thread.SpinWait(10);
             Disconnect();
-            Debug.WriteLine("FsuipcService: polling stopped.");
         }
 
         public void Dispose() => Stop();
@@ -475,9 +472,8 @@ namespace vmsOpenAcars.Services
                     EmitRawData();
                     SendTelemetry();
                 }
-                catch (Exception ex)
+                catch
                 {
-                    Debug.WriteLine($"FsuipcService: Process error — {ex.Message}");
                     _connectionState = ConnectionState.Disconnected;
                     SimulatorName = "Desconocido";
                     Disconnected?.Invoke(this, EventArgs.Empty);
@@ -501,8 +497,6 @@ namespace vmsOpenAcars.Services
             bool strobeRaw = (lights & 0x10) != 0;  // bit 4: STROBE
             // B737/B38M: switch NAV+STROBE combinado → strobe real solo si beacon ON
             bool strobeLightOn = strobeRaw && (beaconLightOn || navLightOn);
-            bool seatBeltSign = _seatBeltOffset.Value != 0;  // 0x0EC6: Fasten Seat Belts sign
-
             // ── Autopilot (0x07BC + 0x07CC fallback for MSFS) ─────────────────
             // In MSFS/FSUIPC7, 0x07BC is master-only (0 or 1); mode bits 2-5 are
             // FSX/P3D only and are never set. Many MSFS add-ons (PMDG, FBW) don't
@@ -629,7 +623,6 @@ namespace vmsOpenAcars.Services
                 LandingLightOn = landingLightOn,
                 TaxiLightOn = taxiLightOn,
                 StrobeLightOn = strobeLightOn,
-                SeatBeltSign = seatBeltSign,
 
                 // ── Autopilot ─────────────────────────────────────────────────
                 AutopilotEngaged = apMaster,
@@ -1490,10 +1483,9 @@ namespace vmsOpenAcars.Services
                 _isReconnecting = false;
                 _lastTelemetrySend = DateTime.MinValue;
 
-                Debug.WriteLine($"FsuipcService: connected to {SimulatorName}");
                 Connected?.Invoke(this, EventArgs.Empty);
             }
-            catch (Exception ex)
+            catch
             {
                 _connectionState = ConnectionState.Disconnected;
                 _isReconnecting = false;
@@ -1502,10 +1494,6 @@ namespace vmsOpenAcars.Services
                 _currentBackoffMs = Math.Min(
                     30000,
                     1000 * (int)Math.Pow(2, Math.Min(5, _connectionRetryCount)));
-
-                Debug.WriteLine(string.Format(CultureInfo.InvariantCulture,
-                    "FsuipcService: connection failed ({0}). Retry in {1} ms",
-                    ex.Message, _currentBackoffMs));
 
                 _pollingTimer?.Change(_currentBackoffMs, _pollingIntervalMs);
             }
@@ -1541,7 +1529,6 @@ namespace vmsOpenAcars.Services
                 if (!string.IsNullOrWhiteSpace(title) && title != "\0")
                 {
                     AircraftTitle = title.Trim();
-                    Debug.WriteLine($"FsuipcService: aircraft title = '{AircraftTitle}'");
                 }
 
                 TryReadStringOffset(() => _icaoDesignator.Value,
@@ -1556,10 +1543,7 @@ namespace vmsOpenAcars.Services
 
                 OnAircraftInfoReady?.Invoke();
             }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"FsuipcService: error reading aircraft info — {ex.Message}");
-            }
+            catch { }
         }
 
         private static void TryReadStringOffset(Func<string> reader, Action<string> setter)
@@ -1799,8 +1783,6 @@ namespace vmsOpenAcars.Services
         public float OilPress_2 { get; set; }
         public float Throttle_1 { get; set; }
         public float Throttle_2 { get; set; }
-        // Seat Belt sign y AP
-        public bool SeatBeltSign { get; set; }
         /// <summary>QNH seleccionado en el altímetro del avión, en hPa. 0 si FSUIPC no conectado.</summary>
         public double AircraftQnhMb { get; set; }
         /// <summary>COM1 active frequency in MHz (e.g. 118.5). 0 when not connected.</summary>

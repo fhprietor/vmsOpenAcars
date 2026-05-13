@@ -133,8 +133,6 @@
   "Status_GearUp": "TREN: ARRIBA",
   "Status_SpoilDep": "SPOIL: DEP",
   "Status_SpoilRet": "SPOIL: RET",
-  "Status_SeatbeltOn": "🔔 CINTURÓN: ON",
-  "Status_SeatbeltOff": "🔔 CINTURÓN: OFF",
   "Status_ApOff": "A/P: OFF",
   "Status_Stable": "✅ ESTABLE",
   "Status_Unstable": "⚠️ INESTABLE",

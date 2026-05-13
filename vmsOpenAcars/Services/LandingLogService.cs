@@ -63,10 +63,7 @@ namespace vmsOpenAcars.Services
                         )");
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"LandingLogService EnsureDatabase: {ex.Message}");
-            }
+            catch { }
         }
 
         // ── Write ─────────────────────────────────────────────────────────────────
@@ -116,9 +113,8 @@ namespace vmsOpenAcars.Services
                     return flightId;
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine($"LandingLogService SaveFlight: {ex.Message}");
                 return -1;
             }
         }
@@ -198,10 +194,7 @@ namespace vmsOpenAcars.Services
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"LandingLogService GetFlights: {ex.Message}");
-            }
+            catch { }
             return list;
         }
 
@@ -244,10 +237,7 @@ namespace vmsOpenAcars.Services
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"LandingLogService GetTrackPoints: {ex.Message}");
-            }
+            catch { }
             return list;
         }
 

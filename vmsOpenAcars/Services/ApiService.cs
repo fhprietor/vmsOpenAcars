@@ -158,23 +158,15 @@ namespace vmsOpenAcars.Services
                                     FlightType = flightType,
                                 });
                             }
-                            catch (Exception ex)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"Error procesando un bid: {ex.Message}");
-                                if (flightData != null)
-                                {
-                                    System.Diagnostics.Debug.WriteLine($"Flight ID: {flightData["id"]}");
-                                }
-                            }
+                            catch { }
                         }
                     }
                     return flights;
                 }
                 return new List<Flight>();
             }
-            catch (Exception ex)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine($"Error general en GetPilotBids: {ex}");
                 return new List<Flight>();
             }
         }
@@ -206,10 +198,7 @@ namespace vmsOpenAcars.Services
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error getting bid ID for flight {flightId}: {ex.Message}");
-            }
+            catch { }
             return null;
         }
         public async Task<bool> DeleteBid(string bidId)
@@ -235,14 +224,11 @@ namespace vmsOpenAcars.Services
                 }
                 else
                 {
-                    string error = await response.Content.ReadAsStringAsync();
-                    System.Diagnostics.Debug.WriteLine($"Error deleting bid: {response.StatusCode} - {error}");
                     return false;
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine($"Exception deleting bid: {ex}");
                 return false;
             }
         }
@@ -266,17 +252,10 @@ namespace vmsOpenAcars.Services
                 var response = await _httpClient.PutAsync(
                     $"{_baseUrl}api/pireps/{pirepId}", content);
 
-                if (!response.IsSuccessStatusCode)
-                {
-                    string error = await response.Content.ReadAsStringAsync();
-                    // System.Diagnostics.Debug.WriteLine($"Error updating PIREP: {error}");
-                }
-
                 return response.IsSuccessStatusCode;
             }
-            catch (Exception ex)
+            catch
             {
-                // System.Diagnostics.Debug.WriteLine($"Exception updating PIREP: {ex}");
                 return false;
             }
         }
@@ -297,14 +276,11 @@ namespace vmsOpenAcars.Services
                 }
                 else
                 {
-                    string errorContent = await response.Content.ReadAsStringAsync();
-                    //System.Diagnostics.Debug.WriteLine($"Error canceling PIREP: {response.StatusCode} - {errorContent}");
                     return false;
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                //System.Diagnostics.Debug.WriteLine($"Exception canceling PIREP: {ex.Message}");
                 return false;
             }
         }
@@ -325,17 +301,10 @@ namespace vmsOpenAcars.Services
                 var response = await _httpClient.PostAsync(
                     $"{_baseUrl}api/pireps/{pirepId}/file", content);
 
-                if (!response.IsSuccessStatusCode)
-                {
-                    string error = await response.Content.ReadAsStringAsync();
-                    //System.Diagnostics.Debug.WriteLine($"Error filing PIREP: {response.StatusCode} - {error}");
-                }
-
                 return response.IsSuccessStatusCode;
             }
-            catch (Exception ex)
+            catch
             {
-                //System.Diagnostics.Debug.WriteLine($"Exception filing PIREP: {ex}");
                 return false;
             }
         }
@@ -443,9 +412,8 @@ namespace vmsOpenAcars.Services
                     AircraftType = item["aircraft"]?["icao"]?.ToString() ?? "",
                 };
             }
-            catch (Exception ex)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine($"Error getting pirep detail: {ex.Message}");
                 return null;
             }
         }
@@ -502,9 +470,8 @@ namespace vmsOpenAcars.Services
                 }
                 return new List<Models.Pirep>();
             }
-            catch (Exception ex)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine($"Error getting active pireps: {ex.Message}");
                 return new List<Models.Pirep>();
             }
         }
@@ -525,14 +492,11 @@ namespace vmsOpenAcars.Services
                 }
                 else
                 {
-                    string error = await response.Content.ReadAsStringAsync();
-                    System.Diagnostics.Debug.WriteLine($"Error cancelling pirep: {response.StatusCode} - {error}");
                     return false;
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine($"Exception cancelling pirep: {ex.Message}");
                 return false;
             }
         }
@@ -561,26 +525,12 @@ namespace vmsOpenAcars.Services
                     $"{_baseUrl}api/pireps/{pirepId}/acars/position", content);
 
                 if (!response.IsSuccessStatusCode)
-                {
-                    string error = await response.Content.ReadAsStringAsync();
-                    //System.Diagnostics.Debug.WriteLine($"Position Update Error: {error}");
-
-                    // Try to parse error details
-                    try
-                    {
-                        var errorJson = JObject.Parse(error);
-                        System.Diagnostics.Debug.WriteLine($"Error details: {errorJson}");
-                    }
-                    catch { }
-
                     return false;
-                }
 
                 return true;
             }
-            catch (Exception ex)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine($"Position Update Exception: {ex}");
                 return false;
             }
         }
@@ -657,7 +607,6 @@ namespace vmsOpenAcars.Services
 
                     pilot.CurrentAirportLat = airportData?["lat"]?.Value<double>();
                     pilot.CurrentAirportLon = airportData?["lon"]?.Value<double>();
-                    System.Diagnostics.Debug.WriteLine($"Coordinates loaded: {pilot.CurrentAirportLat}, {pilot.CurrentAirportLon}");
                 }
                 else
                 {
@@ -713,10 +662,7 @@ namespace vmsOpenAcars.Services
                     return data?["icao"]?.ToString();
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error getting nearest airport: {ex}");
-            }
+            catch { }
 
             return null;
         }

@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.4.13  
+**Versión actual:** v0.4.15  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -288,6 +288,12 @@ public void HideOsd()
 | Touchdown | `<calificación>  −XXX fpm  X.Xg` | Success/Info/Warning/Critical según fpm |
 | Touch-and-go | `TOUCH AND GO` | Warning |
 | PIREP filed | `PIREP FILED — SCORE: XX/100` | Success |
+| Descent ≤ 10 500 ft AGL, landing lights apagadas | `LANDING LT OFF` | Warning (solo aviso, sin penalización) — flag `_landingLightReminderSent` en FlightManager; se resetea si AGL > 10 500 ft (v0.4.15) |
+| Penalty lights (pushback/taxi/takeoff/below 10k) | `PENALTY  NAV/TAXI/STROBE/LANDING LT  −5 PTS` | Warning |
+| Penalty QNH | `PENALTY  QNH  −5 PTS` | Warning |
+| Overspeed | `OVERSPEED  XXX KTS` | Critical |
+| Unstabilized approach | `UNSTABILIZED  −N PTS` | Critical |
+| Go-around | `GO AROUND` | Warning |
 
 ### Integración en MainForm
 

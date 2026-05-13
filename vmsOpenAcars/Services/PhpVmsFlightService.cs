@@ -93,10 +93,7 @@ namespace vmsOpenAcars.Services
 
                 } while (currentPage <= lastPage);
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error getting flights: {ex.Message}");
-            }
+            catch { }
 
             return flights;
         }
@@ -122,8 +119,6 @@ namespace vmsOpenAcars.Services
             {
                 var allSubfleets = await FetchAllFleetPagesAsync();
 
-                System.Diagnostics.Debug.WriteLine(
-                    $"[Fleet] Total subfleets fetched: {allSubfleets.Count} | Airport filter: {airportCode}");
 
                 foreach (var subfleet in allSubfleets)
                 {
@@ -142,9 +137,6 @@ namespace vmsOpenAcars.Services
                         string statusRaw = ac["status"]?.ToString() ?? "?";
                         string reg = ac["registration"]?.ToString() ?? "?";
 
-                        // Log cada avión para diagnóstico
-                        System.Diagnostics.Debug.WriteLine(
-                            $"[Fleet] AC: {reg} | type: {subfleetType} | airport: {airportId} | status: {statusRaw}");
 
                         // phpVMS puede devolver status como int (0=A) o string ("A")
                         bool isActive = statusRaw == "0" || statusRaw == "A" ||
@@ -154,11 +146,7 @@ namespace vmsOpenAcars.Services
                             continue;
 
                         if (!isActive)
-                        {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"[Fleet] Skipped {reg}: status={statusRaw} (not active)");
                             continue;
-                        }
 
                         aircraftList.Add(new Aircraft
                         {
@@ -173,14 +161,8 @@ namespace vmsOpenAcars.Services
                     }
                 }
 
-                System.Diagnostics.Debug.WriteLine(
-                    $"[Fleet] Aircraft found at {airportCode}: {aircraftList.Count}");
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"Excepción en GetAvailableAircraftAtAirport: {ex.Message}");
-            }
+            catch { }
 
             return aircraftList;
         }
@@ -201,11 +183,7 @@ namespace vmsOpenAcars.Services
                 var response = await _apiService.HttpClient.GetAsync(url);
 
                 if (!response.IsSuccessStatusCode)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"Error {response.StatusCode} al obtener flota página {currentPage}");
                     break;
-                }
 
                 var json = await response.Content.ReadAsStringAsync();
                 var obj = JObject.Parse(json);

@@ -150,13 +150,10 @@ namespace vmsOpenAcars.Services
                         // URL del PDF: directory + filename
                         PdfUrl = BuildPdfUrl(json),
                 };
-                System.Diagnostics.Debug.WriteLine($"SimBrief Distance: {plan.Distance} NM");
-                System.Diagnostics.Debug.WriteLine($"SimBrief EstTimeEnroute: {plan.EstTimeEnroute} seconds ({plan.EstTimeEnroute / 60} minutes)");
                 return plan;
             }
-            catch (Exception ex)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine($"Simbrief fetch error: {ex}");
                 return null;
             }
         }

@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.4.12**
+**Versión 0.4.15**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -452,4 +452,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.4.12 — que tengas buen vuelo.*
+*vmsOpenAcars v0.4.15 — que tengas buen vuelo.*

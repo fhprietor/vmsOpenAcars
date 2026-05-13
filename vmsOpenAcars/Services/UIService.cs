@@ -114,10 +114,7 @@ namespace vmsOpenAcars.Services
                     await _apiService.SendPositionUpdate(_flightManager.ActivePirepId, update);
                 });
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error sending log to ACARS: {ex.Message}");
-            }
+            catch { }
         }
 
         public void UpdatePosition(string positionText)
@@ -224,10 +221,6 @@ namespace vmsOpenAcars.Services
             // - El simulador está conectado
             bool shouldEnable = status.IcaoMatch && status.GpsValid && _flightManager?.IsSimulatorConnected == true;
 
-            // Logs para depuración
-#if DEBUG
-          //  System.Diagnostics.Debug.WriteLine($"UpdateStartButtonState - ICAO: {status.IcaoMatch}, GPS: {status.GpsValid}, Sim: {_flightManager?.IsSimulatorConnected}, Enable: {shouldEnable}");
-#endif
             if (_form.btnStartStop.InvokeRequired)
             {
                 _form.btnStartStop.Invoke(new Action(() => {
