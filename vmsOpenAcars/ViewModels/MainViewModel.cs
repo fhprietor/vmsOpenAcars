@@ -177,6 +177,8 @@ namespace vmsOpenAcars.ViewModels
         private string _lastLoggedTaxiway    = null;
         private string _lastHoldingShortRwy  = null;
         private string _lastTaxiPositionMsg  = null;
+        private string _pendingTaxiway       = null;
+        private int    _pendingTaxiwayCount  = 0;
 
         private void OnRawDataUpdated(object sender, RawTelemetryData e)
         {
@@ -318,6 +320,8 @@ namespace vmsOpenAcars.ViewModels
                 _lastLoggedTaxiway   = null;
                 _lastHoldingShortRwy = null;
                 _lastTaxiPositionMsg = null;
+                _pendingTaxiway      = null;
+                _pendingTaxiwayCount = 0;
                 if (_runwayService.IsAvailable)
                 {
                     double lat = _flightManager.CurrentLat;
@@ -331,6 +335,8 @@ namespace vmsOpenAcars.ViewModels
             {
                 _lastLoggedTaxiway   = null;
                 _lastTaxiPositionMsg = null;
+                _pendingTaxiway      = null;
+                _pendingTaxiwayCount = 0;
             }
             else if (phase == FlightPhase.OnBlock && _runwayService.IsAvailable)
             {
@@ -685,6 +691,8 @@ namespace vmsOpenAcars.ViewModels
                         _lastLoggedTaxiway   = null;
                         _lastHoldingShortRwy = null;
                         _lastTaxiPositionMsg = null;
+                        _pendingTaxiway      = null;
+                        _pendingTaxiwayCount = 0;
                         if (!string.IsNullOrEmpty(entry.TaxiwayName))
                             OnLog?.Invoke(string.Format(_("Lnm_RunwayEntered"), entry.RunwayName, entry.TaxiwayName), Theme.Takeoff);
                         else
@@ -697,7 +705,7 @@ namespace vmsOpenAcars.ViewModels
                     // Arrival: runway exit — log taxiway when leaving runway
                     if (!onRunway && _wasOnRunwayForExit)
                     {
-                        string twy = _runwayService.FindNearestTaxiway(airport, lat, lon);
+                        string twy = _runwayService.FindNearestTaxiway(airport, lat, lon, heading);
                         if (!string.IsNullOrEmpty(twy))
                             OnLog?.Invoke(string.Format(_("Lnm_RunwayVacated"), twy), Theme.Success);
                         else
@@ -709,22 +717,51 @@ namespace vmsOpenAcars.ViewModels
                 if (!onRunway)
                 {
                     // ── Taxi position: current taxiway + next intersection ──────
-                    string twy  = _runwayService.FindNearestTaxiway(airport, lat, lon);
+                    string twy  = _runwayService.FindNearestTaxiway(airport, lat, lon, heading);
                     string next = _runwayService.FindNextIntersection(airport, lat, lon, heading);
 
                     if (!string.IsNullOrEmpty(twy))
                     {
-                        string msg;
-                        if (!string.IsNullOrEmpty(next))
-                            msg = string.Format(_("Lnm_TaxiPosition"), twy, next);
-                        else
-                            msg = string.Format(_("Lnm_TaxiwayChange"), twy);
-
-                        if (msg != _lastTaxiPositionMsg)
+                        if (twy != _lastLoggedTaxiway)
                         {
-                            _lastTaxiPositionMsg = msg;
-                            _lastLoggedTaxiway   = twy;
-                            OnLog?.Invoke(msg, Theme.Taxi);
+                            // Require 3 consecutive detections before announcing a taxiway change
+                            // to suppress GPS jitter and spurious cross-taxiway blips at intersections.
+                            if (twy == _pendingTaxiway)
+                                _pendingTaxiwayCount++;
+                            else
+                            {
+                                _pendingTaxiway      = twy;
+                                _pendingTaxiwayCount = 1;
+                            }
+
+                            if (_pendingTaxiwayCount >= 3)
+                            {
+                                _pendingTaxiway      = null;
+                                _pendingTaxiwayCount = 0;
+                                _lastLoggedTaxiway   = twy;
+
+                                string msg = !string.IsNullOrEmpty(next)
+                                    ? string.Format(_("Lnm_TaxiPosition"), twy, next)
+                                    : string.Format(_("Lnm_TaxiwayChange"), twy);
+                                _lastTaxiPositionMsg = msg;
+                                OnLog?.Invoke(msg, Theme.Taxi);
+                            }
+                        }
+                        else
+                        {
+                            // Same taxiway — reset pending, allow next-intersection updates freely
+                            _pendingTaxiway      = null;
+                            _pendingTaxiwayCount = 0;
+
+                            string msg = !string.IsNullOrEmpty(next)
+                                ? string.Format(_("Lnm_TaxiPosition"), twy, next)
+                                : string.Format(_("Lnm_TaxiwayChange"), twy);
+
+                            if (msg != _lastTaxiPositionMsg)
+                            {
+                                _lastTaxiPositionMsg = msg;
+                                OnLog?.Invoke(msg, Theme.Taxi);
+                            }
                         }
                     }
 
@@ -1088,6 +1125,12 @@ namespace vmsOpenAcars.ViewModels
             bool started = await _flightManager.StartFlight(plan, _flightManager.ActivePilot, actualFuelKg);
             if (started)
             {
+                string acDev  = _fsuipc.GetAircraftDeveloper();
+                string acType = _fsuipc.AircraftIcao != "????" ? _fsuipc.AircraftIcao : "Unknown";
+                string acLine = string.IsNullOrEmpty(acDev) ? $"✈️ {acType}" : $"✈️ {acType}  [{acDev}]";
+                OnLog?.Invoke($"🖥️ {_fsuipc.SimulatorName}", Theme.MainText);
+                OnLog?.Invoke(acLine, Theme.MainText);
+
                 _flightManager.LnmDbAvailable = _runwayService.IsAvailable;
                 if (!_runwayService.IsAvailable)
                 {

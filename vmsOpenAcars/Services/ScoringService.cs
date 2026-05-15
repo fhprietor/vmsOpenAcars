@@ -370,7 +370,7 @@ int totalDeduction = 0;
         /// </summary>
         private static int CalcPitchDeduction(double pitch)
         {
-            if (pitch >= 1.0 && pitch <= 5.0) return 0;    // Ideal nose-up attitude
+            if (pitch >= 1.0 && pitch <= 7.0) return 0;    // Ideal nose-up attitude
             if (pitch < -2.0) return MaxPitchDeduction; // Nose-down — hard on nose gear
             if (pitch >= -2.0 && pitch < 1.0) return 5;    // Flat or slightly nose-down
             if (pitch > 8.0) return 5;    // Excessive flare

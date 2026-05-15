@@ -211,7 +211,8 @@ namespace vmsOpenAcars.Db
             catch { return null; }
         }
 
-        public string FindNearestTaxiway(string airport, double lat, double lon)
+        public string FindNearestTaxiway(string airport, double lat, double lon,
+            double heading = double.NaN)
         {
             try
             {
@@ -219,7 +220,7 @@ namespace vmsOpenAcars.Db
                 using (var conn = OpenConn())
                 {
                     long apId = GetAirportId(conn, airport);
-                    return apId < 0 ? null : NearestTaxiway(conn, apId, lat, lon);
+                    return apId < 0 ? null : NearestTaxiway(conn, apId, lat, lon, heading);
                 }
             }
             catch { return null; }
@@ -240,7 +241,7 @@ namespace vmsOpenAcars.Db
                     long apId = GetAirportId(conn, airport);
                     if (apId < 0) return null;
 
-                    string current = NearestTaxiway(conn, apId, lat, lon);
+                    string current = NearestTaxiway(conn, apId, lat, lon, heading);
                     return string.IsNullOrEmpty(current) ? null
                          : NextIntersection(conn, apId, lat, lon, heading, current);
                 }
@@ -769,8 +770,11 @@ namespace vmsOpenAcars.Db
         }
 
         // Nearest named taxiway segment within TaxiwayRadiusM metres.
+        // When heading is not NaN, segments misaligned by >50° receive a ×2.5 distance
+        // penalty so that cross-taxiways at intersections are not spuriously preferred.
         private static string NearestTaxiway(
-            SQLiteConnection conn, long airportId, double lat, double lon)
+            SQLiteConnection conn, long airportId, double lat, double lon,
+            double heading = double.NaN)
         {
             const string sql = @"
                 SELECT name, start_lonx, start_laty, end_lonx, end_laty
@@ -779,8 +783,9 @@ namespace vmsOpenAcars.Db
                   AND  type = 'T'
                   AND  name IS NOT NULL AND name != ''";
 
-            string bestName = null;
-            double bestDist = double.MaxValue;
+            string bestName  = null;
+            double bestScore = double.MaxValue;
+            bool   useHdg    = !double.IsNaN(heading);
 
             using (var cmd = new SQLiteCommand(sql, conn))
             {
@@ -789,15 +794,26 @@ namespace vmsOpenAcars.Db
                 {
                     while (rdr.Read())
                     {
-                        double d = DistToSegM(
-                            lat, lon,
-                            rdr.GetDouble(2), rdr.GetDouble(1),
-                            rdr.GetDouble(4), rdr.GetDouble(3));
+                        double sLat = rdr.GetDouble(2), sLon = rdr.GetDouble(1);
+                        double eLat = rdr.GetDouble(4), eLon = rdr.GetDouble(3);
 
-                        if (d < TaxiwayRadiusM && d < bestDist)
+                        double d = DistToSegM(lat, lon, sLat, sLon, eLat, eLon);
+                        if (d >= TaxiwayRadiusM) continue;
+
+                        double score = d;
+                        if (useHdg && d > 1.0)
                         {
-                            bestDist = d;
-                            bestName = rdr.GetString(0);
+                            // taxiways are bidirectional — use smallest of fwd/rev delta
+                            double brg   = BearingDeg(sLat, sLon, eLat, eLon);
+                            double delta = Math.Min(HeadingDelta(heading, brg),
+                                                    HeadingDelta(heading, (brg + 180.0) % 360.0));
+                            if (delta > 50.0) score *= 2.5;
+                        }
+
+                        if (score < bestScore)
+                        {
+                            bestScore = score;
+                            bestName  = rdr.GetString(0);
                         }
                     }
                 }

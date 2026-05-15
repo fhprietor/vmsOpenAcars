@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.4.15**
+**Versión 0.4.17**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -230,7 +230,7 @@ El score parte de **100 puntos** y aplica deducciones según **12 criterios**. E
 | **Landing Rate** | −40 pts | ≤ 100 fpm → 0 · ≤ 200 → −5 · ≤ 300 → −15 · ≤ 400 → −25 · ≤ 600 → −35 · > 600 → −40 |
 | **G-Force** | −15 pts | ≤ 1.3 g → 0 · ≤ 1.5 g → −7 · > 1.5 g → −15 |
 | **Bank Angle** | −10 pts | ≤ 2° → 0 · ≤ 5° → −5 · > 5° → −10 |
-| **Pitch Angle** | −10 pts | 1°–5° nose-up → 0 (ideal) · < −2° → −10 · −2° a 1° → −5 · > 8° → −5 |
+| **Pitch Angle** | −10 pts | 1°–7° nose-up → 0 (ideal) · < −2° → −10 · −2° a 1° → −5 · > 8° → −5 |
 | **Overspeed** | −15 pts | 0 eventos → 0 · 1 evento → −7 · ≥ 2 eventos → −15 |
 | **Lights Compliance** | −10 pts | −5 pts por violación (cap −10). Ver detalle abajo. |
 | **Stabilized Approach** | −15 pts | Evaluado al cruzar 1 000 ft AGL en descenso. Ver detalle abajo. |
@@ -256,7 +256,7 @@ El sistema monitoriza las luces durante todo el vuelo y penaliza cada incumplimi
 | Inicio de rodaje (TaxiOut) | NAV ON + TAXI ON |
 | TakeoffRoll | STROBE ON + LANDING ON |
 | En vuelo (cualquier fase) | BEACON ON continuo |
-| Por debajo de 10 000 ft AGL | LANDING ON |
+| Por debajo de 9 500 ft AGL | LANDING ON |
 
 > **Excepción Beacon:** en aeronaves con switch único BEACON/STROBE (como el Dash 8 / Q400), encender los Strobes apaga el Beacon automáticamente. Estas aeronaves están exentas de la penalización de Beacon.
 
@@ -452,4 +452,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.4.15 — que tengas buen vuelo.*
+*vmsOpenAcars v0.4.17 — que tengas buen vuelo.*

@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.4.15  
+**Versión actual:** v0.4.17  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -49,7 +49,7 @@ vmsOpenAcars/
 | Landing Rate | 40 pts | ≤100=0, ≤200=5, ≤300=15, ≤400=25, ≤600=35, >600=40 |
 | G-Force | 15 pts | ≤1.3g=0, ≤1.5g=7, >1.5g=15 (omitido si dato = 0) |
 | Bank Angle | 10 pts | ≤2°=0, ≤5°=5, >5°=10 |
-| Pitch Angle | 10 pts | 1°–5°=0 (ideal nose-up); <−2°=10; −2°–1°=5; >8°=5 |
+| Pitch Angle | 10 pts | 1°–7°=0 (ideal nose-up); <−2°=10; −2°–1°=5; >8°=5 |
 | Overspeed | 15 pts | 0=0, 1=7, ≥2=15 |
 | Lights Compliance | 10 pts | 5 pts por violación, cap 10; Beacon exempto en aeronaves con switch compartido beacon/strobe (ver `BeaconStrobeSharedAircraft`) |
 | Stabilized Approach (1000 ft) | 15 pts | 6 criterios al cruzar 1000 ft AGL ↓: speed fuera [Vref−Vref+X]=−5, VS<−1000=−5, VS>−100=−5, bank>7°=−3, pitch fuera [−2.5°,+10°]=−3, gear up=−5, flaps<50%=−4 |
@@ -68,7 +68,7 @@ bool IsAvailable
 RunwayTouchdownResult FindTouchdownRunway(airport, lat, lon, heading)
 RunwayTouchdownResult FindTakeoffRunway(airport, lat, lon, heading)
 RunwayEntry           FindRunwayEntry(airport, lat, lon, heading)
-string                FindNearestTaxiway(airport, lat, lon)
+string                FindNearestTaxiway(airport, lat, lon, heading)  // heading opcional; penaliza ×2,5 segmentos >50° desalineados (v0.4.17)
 HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)
 ParkingSpot           FindNearestParking(airport, lat, lon)
 RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading) // captura de aproximación — exige heading-delta ≤15°, |cross| ≤2 NM, along<0 (avión antes del umbral). Devuelve null si ninguna cumple → captura se difiere
@@ -289,7 +289,7 @@ public void HideOsd()
 | Touch-and-go | `TOUCH AND GO` | Warning |
 | PIREP filed | `PIREP FILED — SCORE: XX/100` | Success |
 | Descent ≤ 10 500 ft AGL, landing lights apagadas | `LANDING LT OFF` | Warning (solo aviso, sin penalización) — flag `_landingLightReminderSent` en FlightManager; se resetea si AGL > 10 500 ft (v0.4.15) |
-| Penalty lights (pushback/taxi/takeoff/below 10k) | `PENALTY  NAV/TAXI/STROBE/LANDING LT  −5 PTS` | Warning |
+| Penalty lights (pushback/taxi/takeoff/below 9 500 ft AGL) | `PENALTY  NAV/TAXI/STROBE/LANDING LT  −5 PTS` | Warning |
 | Penalty QNH | `PENALTY  QNH  −5 PTS` | Warning |
 | Overspeed | `OVERSPEED  XXX KTS` | Critical |
 | Unstabilized approach | `UNSTABILIZED  −N PTS` | Critical |
@@ -343,7 +343,9 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `Core/Flight/FlightManager.cs` | ~1022 | Touchdown detection con guardia de fase: solo Descent/Approach/Landing (evita falsos touchdowns en Takeoff/Climb) |
 | `ViewModels/MainViewModel.cs` | 535-560 | `LookupRunwayData()` post-touchdown |
 | `ViewModels/MainViewModel.cs` | 620-637 | `LookupTakeoffRunwayData()` |
-| `ViewModels/MainViewModel.cs` | ~562 | `HandleTaxiPositionUpdate()` ground ops + runway exit detection for AfterLanding |
+| `ViewModels/MainViewModel.cs` | ~562 | `HandleTaxiPositionUpdate()` — histéresis 3 ciclos para cambio de taxiway; pasa `heading` a `FindNearestTaxiway` (v0.4.17) |
+| `ViewModels/MainViewModel.cs` | ~177 | `_pendingTaxiway`, `_pendingTaxiwayCount` — estado de histéresis de taxiway (v0.4.17) |
+| `Services/LocalizationService.cs` | ~20 | Idioma forzado a `"es"` — ignora Settings (v0.4.17) |
 | `ViewModels/MainViewModel.cs` | ~210 | Approach capture start log: `Lnm_ApproachCaptureStart` (pista, AGL, distancia) |
 | `Services/MetarService.cs` | ~57 | `DoFetchAsync` refactorizado v0.4.10: wrappers `SafeFetch*` independientes, `OnMetarUpdated` en finally, evento `OnLog`, `ParseMetarToken` en try/catch |
 | `Services/WeatherService.cs` | | QNH-only (usado por scoring) — independiente de MetarService (panel de METARs) |

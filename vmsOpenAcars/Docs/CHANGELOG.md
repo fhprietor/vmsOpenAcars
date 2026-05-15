@@ -2,6 +2,33 @@
 
 ---
 
+## [0.4.17] — 2026-05-15
+
+### Added
+
+- **Detección de taxiway con filtro de rumbo** — `NearestTaxiway()` en `RunwayService` ahora recibe el rumbo del avión. Los segmentos cuyo bearing difiere más de 50° del rumbo del avión reciben una penalización ×2,5 en la distancia efectiva, haciendo que los taxiways transversales (ej. R al cruzar A∩R) no ganen sobre el taxiway alineado. Todos los puntos de llamada públicos (`FindNearestTaxiway`, `FindNextIntersection`) propagan el heading.
+
+- **Histéresis de cambio de taxiway (3 ciclos)** — `HandleTaxiPositionUpdate` en `MainViewModel` requiere 3 detecciones consecutivas del mismo taxiway nuevo antes de registrar el cambio en el log. Los cambios de "next intersection" dentro del mismo taxiway siguen siendo instantáneos. Elimina la oscilación A↔D al pasar por intersecciones y los blips puntuales de taxiways transversales.
+
+### Changed
+
+- **Idioma forzado a español** — `LocalizationService` carga `es.json` incondicionalmente al iniciar, ignorando la preferencia guardada en Settings. El fallback por defecto también cambia de `en.json` a `es.json`.
+
+---
+
+## [0.4.16] — 2026-05-14
+
+### Added
+
+- **Log de inicio — simulador y aeronave** — las dos primeras líneas del log al confirmar el inicio del vuelo ahora muestran el simulador en uso (`🖥️ MSFS 2020`) y el tipo de aeronave con el desarrollador del add-on si se detecta (`✈️ B738  [PMDG]`). La detección de desarrollador (`GetAircraftDeveloper()` en `FsuipcService`) cubre 33 add-ons conocidos (PMDG, ToLiss, Fenix, FlyByWire/A32NX, iniBuilds, Majestic, Leonardo, Zibo, iFly, Carenado, Aerosoft, FlightFactor, Rotate, JustFlight, Headwind, Black Square, etc.).
+
+### Changed
+
+- **Landing lights — tolerancia de 500 ft** — la penalización por landing lights apagadas se activa a **9 500 ft AGL** (antes 10 000 ft). El OSD reminder de aviso previo sigue en 10 500 ft, dejando una ventana de 1 000 ft desde el aviso hasta la penalización.
+- **Pitch Angle ideal — ampliado a 7°** — el rango sin deducción pasa de 1°–5° a **1°–7°** nose-up en touchdown. El umbral de flare excesivo (> 8° → −5 pts) no cambia.
+
+---
+
 ## [0.4.15] — 2026-05-13
 
 ### Added

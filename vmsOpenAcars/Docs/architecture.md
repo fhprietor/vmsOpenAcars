@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.4.15  
-> Última actualización: 2026-05-13
+> Versión del documento: 0.4.17  
+> Última actualización: 2026-05-15
 
 ---
 
@@ -238,7 +238,7 @@ El umbral de 600 fpm elimina falsos positivos por turbulencia o ajustes de pitch
 | Pushback | NAV encendida | −5 pts |
 | TaxiOut | NAV + TAXI encendidas | −5 pts c/u |
 | TakeoffRoll | STROBE + LANDING encendidas | −5 pts c/u |
-| Vuelo < 10 000 ft | LANDING encendida | −5 pts |
+| Vuelo < 9 500 ft AGL | LANDING encendida | −5 pts |
 | TakeoffRoll | QNH ±2 hPa vs METAR origen | −5 pts |
 | Gate 1 000 ft AGL (Approach) | QNH ±2 hPa vs METAR destino | −5 pts |
 

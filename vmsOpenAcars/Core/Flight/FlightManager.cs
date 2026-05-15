@@ -606,7 +606,7 @@ namespace vmsOpenAcars.Core.Flight
             _wasOverspeed = isNowOverspeed;
 
             // ── Landing lights por debajo de 10 000 ft AGL ────────────────────────────
-            bool lightsRequired = altitudeAgl < 10_000;
+            bool lightsRequired = altitudeAgl < 9_500;
             bool lightsViolating = lightsRequired && !landingLightOn;
 
             if (lightsViolating && !_lightsViolationActive)

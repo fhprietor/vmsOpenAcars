@@ -1685,6 +1685,51 @@ namespace vmsOpenAcars.Services
             return "Unknown";
         }
 
+        public string GetAircraftDeveloper()
+        {
+            if (string.IsNullOrEmpty(AircraftTitle)) return string.Empty;
+            string titleUp = AircraftTitle.ToUpperInvariant();
+            var map = new (string Search, string Display)[]
+            {
+                ("PMDG",          "PMDG"),
+                ("TOLISS",        "ToLiss"),
+                ("FLY BY WIRE",   "FlyByWire"),
+                ("FLYBYWISE",     "FlyByWire"),
+                ("A32NX",         "FlyByWire"),
+                ("FENIX",         "Fenix"),
+                ("INIBUILDS",     "iniBuilds"),
+                ("MAJESTIC",      "Majestic"),
+                ("LEONARDO",      "Leonardo"),
+                ("QUALITYWINGS",  "QualityWings"),
+                ("CAPTAINSIM",    "Captain Sim"),
+                ("CAPTAIN SIM",   "Captain Sim"),
+                ("AEROSOFT",      "Aerosoft"),
+                ("FLIGHTFACTOR",  "FlightFactor"),
+                ("FELIS",         "Felis"),
+                ("ZIBO",          "Zibo"),
+                ("IFLY",          "iFly"),
+                ("TFDI",          "TFDi"),
+                ("ROTATE",        "Rotate"),
+                ("AIRFOILLABS",   "Airfoillabs"),
+                ("LAMINAR",       "Laminar"),
+                ("BLACKBOX",      "BlackBox"),
+                ("JARDESIGN",     "JARDesign"),
+                ("X-CRAFTS",      "X-Crafts"),
+                ("FSLABS",        "FSLabs"),
+                ("CARENADO",      "Carenado"),
+                ("ALABEO",        "Alabeo"),
+                ("JUSTFLIGHT",    "JustFlight"),
+                ("JUST FLIGHT",   "JustFlight"),
+                ("HEADWIND",      "Headwind"),
+                ("BLACK SQUARE",  "Black Square"),
+                ("BLACKSQUARE",   "Black Square"),
+                ("SWS",           "SWS"),
+            };
+            foreach (var (search, display) in map)
+                if (titleUp.Contains(search)) return display;
+            return string.Empty;
+        }
+
         #endregion
     }
 
