@@ -32,7 +32,7 @@ namespace vmsOpenAcars.ViewModels
         private readonly SimbriefEnhancedService _simbriefEnhancedService;
         private readonly MetarService _metarService = new MetarService();
         private readonly IvaoService  _ivaoService  = new IvaoService();
-        private readonly RunwayService     _runwayService     = new RunwayService(AppConfig.LnmDbPath);
+        private readonly NavDataService    _runwayService     = new NavDataService();
         private readonly LandingLogService _landingLogService = new LandingLogService(AppConfig.LandingLogPath);
 
         // Approach track capture
@@ -145,7 +145,7 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.NavLightChanged += on =>
             {
                 string agl = AglSuffix();
-                OnLog?.Invoke(on ? $"💡 NAV lights ON{agl}" : $"💡 NAV lights OFF{agl}", Theme.MainText);
+                OnLog?.Invoke(on ? _("Log_NavLightsOn", agl) : _("Log_NavLightsOff", agl), Theme.MainText);
             };
             _fsuipc.StrobeLightChanged += on =>
             {
@@ -226,7 +226,7 @@ namespace vmsOpenAcars.ViewModels
                     && (DateTime.UtcNow - _lastApproachCapture).TotalSeconds >= 2.0)
                 {
                     _lastApproachCapture = DateTime.UtcNow;
-                    var (distNm, lateralFt) = RunwayService.ComputeApproachMetrics(
+                    var (distNm, lateralFt) = NavDataService.ComputeApproachMetrics(
                         _approachThreshold.ThresholdLat,
                         _approachThreshold.ThresholdLon,
                         _approachThreshold.ThresholdHeading,
@@ -807,11 +807,11 @@ namespace vmsOpenAcars.ViewModels
 
         private void LoadApproachData(string airport, string runwayName)
         {
-            if (!_runwayService.IsAvailable || string.IsNullOrEmpty(airport)) return;
+            if (string.IsNullOrEmpty(airport)) return;
             var ils      = _runwayService.GetIlsForRunway(airport, runwayName);
             var approach = _runwayService.GetApproachType(airport, runwayName);
             var fixes    = approach != null
-                           ? _runwayService.GetApproachFixes(approach.ApproachId)
+                           ? _runwayService.GetApproachFixes(airport, runwayName)
                            : null;
             _flightManager?.SetApproachData(ils, approach, fixes);
         }
@@ -856,7 +856,7 @@ namespace vmsOpenAcars.ViewModels
                 : (_flightManager.ActivePlan?.DestinationElevation ?? 0);
             int agl = (int)(msl - elev);
             string aglStr = agl > 50 ? $" ({agl} ft AGL)" : "";
-            OnLog?.Invoke($"🛬 Gear {status}{aglStr}", Theme.MainText);
+            OnLog?.Invoke(_("Log_GearChanged", status, aglStr), Theme.MainText);
         }
 
         private string AglSuffix()
@@ -886,26 +886,25 @@ namespace vmsOpenAcars.ViewModels
 
         private void OnFlapsChanged(double oldPercent, double newPercent)
         {
-            OnLog?.Invoke($"🛫 Flaps: {oldPercent:F0}% → {newPercent:F0}%", Theme.SecondaryText);
+            OnLog?.Invoke(_("Log_FlapsChanged", $"{oldPercent:F0}", $"{newPercent:F0}"), Theme.SecondaryText);
         }
 
         private void OnSpoilersChanged(bool deployed)
         {
-            OnLog?.Invoke($"🛫 Spoilers: {(deployed ? "DEPLOYED" : "RETRACTED")}", Theme.Warning);
+            OnLog?.Invoke(deployed ? _("Log_SpoilersDeployed") : _("Log_SpoilersRetracted"), Theme.Warning);
         }
 
         private void OnParkingBrakeChanged(bool engaged)
         {
-            string status = engaged ? "SET" : "RELEASED";
-            OnLog?.Invoke($"🅿️ Parking Brake: {status}", Theme.MainText);
+            OnLog?.Invoke(engaged ? _("Log_ParkingBrakeSet") : _("Log_ParkingBrakeReleased"), Theme.MainText);
         }
 
         private void OnEnginesChanged(bool running)
         {
             if (running)
-                OnLog?.Invoke($"🔄 Engines started", Theme.Success);
+                OnLog?.Invoke(_("Log_EnginesStarted"), Theme.Success);
             else
-                OnLog?.Invoke($"🔄 Engines shutdown", Theme.Warning);
+                OnLog?.Invoke(_("Log_EnginesShutdown"), Theme.Warning);
         }
 
         // ========== CONEXIÓN FSUIPC ==========
@@ -918,7 +917,7 @@ namespace vmsOpenAcars.ViewModels
             OnAcarsStatusChanged?.Invoke(true);
 
             // Mostrar solo el simulador por ahora
-            OnLog?.Invoke($"🛩️ Simulator: {_fsuipc.SimulatorName}", Theme.SecondaryText);
+            OnLog?.Invoke(_("Log_SimulatorConnected", _fsuipc.SimulatorName), Theme.SecondaryText);
 
             // La información del avión se mostrará cuando esté lista (evento OnAircraftInfoReady)
 
@@ -946,19 +945,40 @@ namespace vmsOpenAcars.ViewModels
 
         private void LogLnmDatabaseStatus()
         {
-            string path = AppConfig.LnmDbPath;
-            if (_runwayService.IsAvailable)
-                OnLog?.Invoke(
-                    $"🗺️ NavMap DB: {System.IO.Path.GetFileName(path)} — runway scoring enabled",
-                    Theme.Success);
-            else if (string.IsNullOrEmpty(path))
-                OnLog?.Invoke(
-                    "🗺️ NavMap DB: not configured — runway scoring disabled",
-                    Theme.Warning);
-            else
-                OnLog?.Invoke(
-                    $"🗺️ NavMap DB: file not found at configured path — runway scoring disabled",
-                    Theme.Warning);
+            Task navCheck = Task.Run(async () =>
+            {
+                var result = await NavDataClient.TestApiAsync().ConfigureAwait(false);
+                if (!result.Reachable)
+                    OnLog?.Invoke(_("Log_NavDataApiDown", AppConfig.NavDataApiUrl), Theme.Warning);
+                else if (!result.KeyValid)
+                    OnLog?.Invoke(_("Log_NavDataApiNoKey"), Theme.Warning);
+                else
+                    OnLog?.Invoke(_("Log_NavDataApiOk", AppConfig.NavDataApiUrl, result.NavStatus?.AiracCycle), Theme.Success);
+            });
+        }
+
+        private void LogNavDataPrefetch(string icao, bool isOrigin)
+        {
+            _runwayService.PrefetchAirport(icao);
+            Task t = Task.Run(() =>
+            {
+                // GetRunways/etc. block via GetResult until prefetch task completes
+                var rwys  = NavDataClient.GetRunways(icao);
+                var twys  = NavDataClient.GetTaxiways(icao);
+                var parks = NavDataClient.GetParkings(icao);
+                var apps  = NavDataClient.GetApproaches(icao);
+                var info  = NavDataClient.GetAirportInfo(icao);
+
+                if (isOrigin && info?.TransitionAltitudeFt > 0)
+                    _flightManager.SetOriginTransitionAlt(info.TransitionAltitudeFt.Value);
+                else if (!isOrigin && info?.TransitionLevelFt > 0)
+                    _flightManager.SetDestTransitionLevel(info.TransitionLevelFt.Value);
+
+                if (rwys.Count == 0 && twys.Count == 0)
+                    OnLog?.Invoke(_("Log_NavDataPrefetchEmpty", icao), Theme.Warning);
+                else
+                    OnLog?.Invoke(_("Log_NavDataPrefetchOk", icao, rwys.Count, twys.Count, parks.Count, apps.Count), Theme.Success);
+            });
         }
 
         public void Stop()
@@ -1101,14 +1121,14 @@ namespace vmsOpenAcars.ViewModels
             // ===== 4. LOGS (EN ORDEN CORRECTO) =====
             // Primero la diferencia
             string diffSymbol = diffInPlanUnits > 0 ? "+" : "";
-            OnLog?.Invoke($"ℹ️ Fuel difference from plan: {diffSymbol}{Math.Abs(diffInPlanUnits):F0} {plan.Units ?? "kg"}", Theme.MainText);
+            OnLog?.Invoke(_("Log_FuelDiff", diffSymbol, $"{Math.Abs(diffInPlanUnits):F0}", plan.Units ?? "kg"), Theme.MainText);
 
             // Luego la validación
-            OnLog?.Invoke($"✅ Fuel validation passed (tolerance: {Math.Max(50.0, plannedFuelKg * 0.05):F0} kg)", Theme.Success);
+            OnLog?.Invoke(_("Log_FuelValidOk", $"{Math.Max(50.0, plannedFuelKg * 0.05):F0}"), Theme.Success);
 
             // Luego los detalles
-            OnLog?.Invoke($"📋 Planned fuel: {plannedFuel:F0} {plan.Units} ({plannedFuelKg:F0} kg)", Theme.MainText);
-            OnLog?.Invoke($"⛽ Simulator fuel: {actualFuelLbs:F0} lbs ({actualFuelKg:F0} kg)", Theme.MainText);
+            OnLog?.Invoke(_("Log_FuelPlanned", $"{plannedFuel:F0}", plan.Units, $"{plannedFuelKg:F0}"), Theme.MainText);
+            OnLog?.Invoke(_("Log_FuelSim", $"{actualFuelLbs:F0}", $"{actualFuelKg:F0}"), Theme.MainText);
 
             // ===== 5. VERIFICAR PRESENCIA IVAO (informativo — penalización se aplica al iniciar TaxiOut) =====
             var activePilot = _flightManager.ActivePilot;
@@ -1116,9 +1136,9 @@ namespace vmsOpenAcars.ViewModels
             {
                 bool? isOnline = await _ivaoService.IsOnlineAsync(activePilot.IvaoId);
                 if (isOnline == false)
-                    OnLog?.Invoke($"⚠️ VID {activePilot.IvaoId} no detectado en IVAO — conéctate antes del taxi para evitar −5 pts", Theme.Warning);
+                    OnLog?.Invoke(_("Log_IvaoOffline", activePilot.IvaoId), Theme.Warning);
                 else if (isOnline == true)
-                    OnLog?.Invoke($"✅ Conectado en IVAO (VID {activePilot.IvaoId})", Theme.Success);
+                    OnLog?.Invoke(_("Log_IvaoOnline", activePilot.IvaoId), Theme.Success);
             }
 
 // ===== 6. INICIAR VUELO =====
@@ -1128,14 +1148,12 @@ namespace vmsOpenAcars.ViewModels
                 string acDev  = _fsuipc.GetAircraftDeveloper();
                 string acType = _fsuipc.AircraftIcao != "????" ? _fsuipc.AircraftIcao : "Unknown";
                 string acLine = string.IsNullOrEmpty(acDev) ? $"✈️ {acType}" : $"✈️ {acType}  [{acDev}]";
-                OnLog?.Invoke($"🖥️ {_fsuipc.SimulatorName}", Theme.MainText);
+                OnLog?.Invoke(_("Log_SimRunning", _fsuipc.SimulatorName), Theme.MainText);
                 OnLog?.Invoke(acLine, Theme.MainText);
 
-                _flightManager.LnmDbAvailable = _runwayService.IsAvailable;
-                if (!_runwayService.IsAvailable)
-                {
-                    OnLog?.Invoke("⚠️ −14 pts: Base de datos LNM no disponible — no se podrá calcular Zona de Toma ni Línea Central", Theme.Warning);
-                }
+                _flightManager.LnmDbAvailable = NavDataClient.IsKeyValid;
+                LogNavDataPrefetch(plan.Origin,      isOrigin: true);
+                LogNavDataPrefetch(plan.Destination, isOrigin: false);
                 OnButtonStateChanged?.Invoke("ABORT", Color.Red, true);
                 LogPlanSummary(plan);
                 OnLog?.Invoke(_("FlightStarted"), Theme.Success);
@@ -1227,12 +1245,12 @@ namespace vmsOpenAcars.ViewModels
 
             if (!svcOk)
             {
-                OnLog?.Invoke($"⚠️ Landing log: servicio no disponible (ruta no configurada)", Theme.Warning);
+                OnLog?.Invoke(_("Log_LandingLogNoService"), Theme.Warning);
                 return;
             }
             if (bufCount < 3)
             {
-                OnLog?.Invoke($"⚠️ Landing log no grabado: solo {bufCount} puntos en buffer (mínimo 3)", Theme.Warning);
+                OnLog?.Invoke(_("Log_LandingLogTooFew", bufCount), Theme.Warning);
                 return;
             }
             try
@@ -1243,17 +1261,17 @@ namespace vmsOpenAcars.ViewModels
                 int newId = _landingLogService.SaveFlight(record, _approachBuffer);
                 if (newId > 0)
                 {
-                    OnLog?.Invoke($"💾 Landing log: vuelo #{newId} guardado ({bufCount} puntos, RWY {record.RunwayName})", Theme.Success);
+                    OnLog?.Invoke(_("Log_LandingLogSaved", newId, bufCount, record.RunwayName), Theme.Success);
                 }
                 else
                 {
-                    OnLog?.Invoke($"❌ Landing log: SaveFlight devolvió {newId}", Theme.Danger);
+                    OnLog?.Invoke(_("Log_LandingLogBadId", newId), Theme.Danger);
                 }
                 _approachBuffer.Clear();
             }
             catch (Exception ex)
             {
-                OnLog?.Invoke($"❌ Landing log error: {ex.Message}", Theme.Danger);
+                OnLog?.Invoke(_("Log_LandingLogError", ex.Message), Theme.Danger);
             }
         }
 
@@ -1272,7 +1290,7 @@ namespace vmsOpenAcars.ViewModels
                 if (result.Data != null)
                 {
                     _flightManager.SetActivePilot(result.Data);
-                    OnLog?.Invoke($"📍 Base actualizada: {result.Data.CurrentAirport}", Theme.Success);
+                    OnLog?.Invoke(_("Log_BaseUpdated", result.Data.CurrentAirport), Theme.Success);
                     OnAirportChanged?.Invoke(result.Data.CurrentAirport);
                     if (_fsuipc.IsConnected)
                     {
@@ -1284,7 +1302,7 @@ namespace vmsOpenAcars.ViewModels
             }
             catch (Exception ex)
             {
-                OnLog?.Invoke($"⚠️ No se pudo actualizar ubicación del piloto: {ex.Message}", Theme.Warning);
+                OnLog?.Invoke(_("Log_BaseUpdateError", ex.Message), Theme.Warning);
             }
         }
 
@@ -1327,29 +1345,29 @@ namespace vmsOpenAcars.ViewModels
                             var deleted = await _apiService.DeletePirepById(pirep.Id);
                             if (!deleted)
                             {
-                                OnLog?.Invoke($"❌ Could not delete active flight {pirep.FlightNumber}", Theme.Danger);
+                                OnLog?.Invoke(_("Log_ActiveFlightDeleteFail", pirep.FlightNumber), Theme.Danger);
                                 allDeleted = false;
                             }
                             else
                             {
-                                OnLog?.Invoke($"✅ Deleted orphaned flight: {pirep.FlightNumber}", Theme.Success);
+                                OnLog?.Invoke(_("Log_OrphanedFlightDeleted", pirep.FlightNumber), Theme.Success);
                             }
                         }
 
                         if (allDeleted)
                         {
-                            OnLog?.Invoke($"✅ All orphaned flights cleared. You can now plan a new flight.", Theme.Success);
+                            OnLog?.Invoke(_("Log_OrphansCleared"), Theme.Success);
                         }
                         else
                         {
-                            OnLog?.Invoke($"⚠️ Some flights could not be deleted. Please check manually.", Theme.Warning);
+                            OnLog?.Invoke(_("Log_OrphansPartial"), Theme.Warning);
                         }
 
                         return allDeleted;
                     }
                     else
                     {
-                        OnLog?.Invoke($"ℹ️ Flight planner cancelled due to active flights", Theme.MainText);
+                        OnLog?.Invoke(_("Log_PlannerCancelled"), Theme.MainText);
                         return false;
                     }
                 }
@@ -1358,7 +1376,7 @@ namespace vmsOpenAcars.ViewModels
             }
             catch (Exception ex)
             {
-                OnLog?.Invoke($"❌ Error checking active flights: {ex.Message}", Theme.Danger);
+                OnLog?.Invoke(_("Log_ActiveFlightsError", ex.Message), Theme.Danger);
                 return true; // En caso de error, permitir continuar
             }
         }
@@ -1422,16 +1440,16 @@ namespace vmsOpenAcars.ViewModels
                     _flightManager.ResumeFlight(detail, pilot);
                     UpdateFlightInfo();
                     OnButtonStateChanged?.Invoke("ABORT", Color.Red, true);
-                    OnLog?.Invoke("✅ Flight resumed — polling and updates restarted.", Theme.Success);
+                    OnLog?.Invoke(_("Log_FlightResumed"), Theme.Success);
                 }
                 else
                 {
-                    OnLog?.Invoke("ℹ️ Resume declined. You can start a new flight normally.", Theme.MainText);
+                    OnLog?.Invoke(_("Log_ResumeDeclined"), Theme.MainText);
                 }
             }
             catch (Exception ex)
             {
-                OnLog?.Invoke($"⚠️ Could not check for resumable flights: {ex.Message}", Theme.Warning);
+                OnLog?.Invoke(_("Log_ResumeCheckError", ex.Message), Theme.Warning);
             }
         }
         /// <summary>
@@ -1458,7 +1476,7 @@ namespace vmsOpenAcars.ViewModels
                     Pilot pilot = result.Data;
                     _flightManager.SetActivePilot(pilot);
                     OnLog?.Invoke(string.Format(L._("LoginSuccess"), pilot.Name, pilot.Rank), Theme.Success);
-                    OnLog?.Invoke($"{L._("AirportAssigned")}: {pilot.CurrentAirport}", Theme.MainText);
+                    OnLog?.Invoke(_("Log_AirportAssigned", pilot.CurrentAirport), Theme.MainText);
                     OnAirportChanged?.Invoke(pilot.CurrentAirport);
                     OnAcarsStatusChanged?.Invoke(true);
 
@@ -1466,20 +1484,20 @@ namespace vmsOpenAcars.ViewModels
                     {
                         _flightManager.UpdatePositionValidation(
                             _fsuipc.CurrentLatitude, _fsuipc.CurrentLongitude);
-                        OnLog?.Invoke($"📏 Altitude: {_fsuipc.CurrentAltitudeFeet:F0} ft", Theme.MainText);
+                        OnLog?.Invoke(_("Log_AltitudeFt", $"{_fsuipc.CurrentAltitudeFeet:F0}"), Theme.MainText);
                         OnValidationStatusChanged?.Invoke(_flightManager.PositionValidationStatus);
                     }
                     await CheckAndResumeFlight(pilot);
                     return true;
                 }
 
-                OnLog?.Invoke($"❌ Error de login: {result.Error}", Theme.Danger);
+                OnLog?.Invoke(_("Log_LoginError", result.Error), Theme.Danger);
                 OnAcarsStatusChanged?.Invoke(false);
                 return false;
             }
             catch (Exception ex)
             {
-                OnLog?.Invoke($"❌ Excepción en login: {ex.Message}", Theme.Danger);
+                OnLog?.Invoke(_("Log_LoginException", ex.Message), Theme.Danger);
                 OnAcarsStatusChanged?.Invoke(false);
                 return false;
             }
@@ -1541,7 +1559,7 @@ namespace vmsOpenAcars.ViewModels
             return tempPath;
         }
 
-        public void LogButtonPress(string buttonText) => OnLog?.Invoke($"🔘 Botón {buttonText} presionado", Theme.MainText);
+        public void LogButtonPress(string buttonText) => OnLog?.Invoke(_("Log_ButtonPress", buttonText), Theme.MainText);
 
         public void LoadFlightFromBid(Flight flight)
         {
@@ -1565,7 +1583,7 @@ namespace vmsOpenAcars.ViewModels
             };
             _flightManager.SetActivePlan(plan);
             UpdateFlightInfo();
-            OnLog?.Invoke($"📋 Flight data loaded from bid", Theme.MainText);
+            OnLog?.Invoke(_("Log_FlightFromBid"), Theme.MainText);
         }
 
         public async Task<List<Flight>> LoadPilotBids()
@@ -1574,14 +1592,14 @@ namespace vmsOpenAcars.ViewModels
             {
                 if (_flightManager.ActivePilot == null)
                 {
-                    OnLog?.Invoke("⚠️ No hay piloto activo", Theme.Warning);
+                    OnLog?.Invoke(_("Log_NoPilot"), Theme.Warning);
                     return new List<Flight>();
                 }
                 return await _apiService.GetPilotBids() ?? new List<Flight>();
             }
             catch (Exception ex)
             {
-                OnLog?.Invoke($"❌ Error cargando reservas: {ex.Message}", Theme.Danger);
+                OnLog?.Invoke(_("Log_BidsLoadError", ex.Message), Theme.Danger);
                 return new List<Flight>();
             }
         }

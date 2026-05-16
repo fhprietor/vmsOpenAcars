@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.4.17**
+**Versión 0.5.1**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -26,7 +26,7 @@ vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC b
 |---|---|
 | Simulador | Ver tabla de simuladores compatibles abajo |
 | FSUIPC | Instalado y activo (versión gratuita es suficiente) |
-| LittleNavMap | Necesario para scoring de pista (Touchdown Zone y Centreline) |
+| NavData API | API Key proporcionada por tu aerolínea virtual (para scoring de pista) |
 | Cuenta phpVMS 7 | API Key generada en tu perfil de la aerolínea virtual |
 | Cuenta SimBrief | Usuario de SimBrief (gratuito) |
 | Conexión a internet | Para comunicarse con phpVMS, SimBrief y METARs |
@@ -67,15 +67,17 @@ Haz clic en el botón **SETTINGS** para abrir el diálogo de configuración. Tod
 |---|---|
 | SimBrief User | Tu nombre de usuario de SimBrief (pilot ID o alias, no el correo) |
 
-### Sección NavMap Database
+### Sección NavData API
 
-vmsOpenAcars usa la base de datos de **LittleNavMap** para calcular con precisión la distancia al umbral de pista, la desviación de centreline, y detectar el ILS de la pista de aterrizaje. Sin esta BD el scoring básico funciona, pero los criterios **Touchdown Zone**, **Centreline Deviation**, **Localizer Alignment** y **Minimums Compliance** no se evaluarán.
+vmsOpenAcars consulta el servicio **NavData API** para calcular con precisión la distancia al umbral de pista, la desviación de centreline, y detectar el ILS de la pista de aterrizaje. Sin una API key válida el scoring básico funciona, pero los criterios **Touchdown Zone**, **Centreline Deviation**, **Localizer Alignment** y **Minimums Compliance** no se evaluarán.
 
-1. Abre LittleNavMap al menos una vez para que genere su base de datos.
-2. En Settings → **LNM DB Path**, haz clic en `[...]` y selecciona el archivo `.sqlite` de LittleNavMap. Por defecto se encuentra en:
-   ```
-   C:\Users\<TuUsuario>\AppData\Roaming\ABarthel\little_navmap_db\little_navmap_navigraph.sqlite
-   ```
+| Campo | Descripción |
+|---|---|
+| NavData API URL | URL base del servicio NavData de tu aerolínea virtual |
+| NavData API Key | Clave de acceso proporcionada por tu aerolínea virtual |
+| Origin Domain | Dominio de la aerolínea (para validación de origen HTTP) |
+
+Pulsa **TEST** para verificar la conectividad y la validez de la API key. El botón muestra en verde el ciclo AIRAC vigente si todo es correcto, en naranja si el servicio está activo pero la key es inválida, y en rojo si el servicio no es alcanzable.
 
 ### Sección Landing Log
 
@@ -242,7 +244,7 @@ El score parte de **100 puntos** y aplica deducciones según **12 criterios**. E
 | **Localizer Alignment** | −5 pts | ILS no sintonizado → −3 · desviación de rumbo > 5° (× 2 máx) → −2 ¹ |
 | **Minimums Compliance** | −5 pts | −5 si el avión descendió bajo la DA sin aterrizar ¹ |
 
-> ¹ Requiere la base de datos de LittleNavMap configurada en Settings. **Localizer Alignment** y **Minimums Compliance** además requieren que la pista tenga un procedimiento ILS en la BD. Sin ello estos criterios no se evalúan.
+> ¹ Requiere la **NavData API** configurada en Settings (URL + API Key válida). Sin ella, estos criterios no se evalúan. **Localizer Alignment** y **Minimums Compliance** además requieren que la pista tenga un procedimiento ILS en la API.
 
 ---
 
@@ -438,8 +440,8 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 - Comprueba especialmente las penalizaciones de QNH (salida y llegada), luces y la evaluación del gate de 1 000 ft AGL.
 
 **Touchdown Zone y Centreline no se evalúan**
-- La base de datos de LittleNavMap no está configurada o la ruta es incorrecta.
-- Ve a Settings → NavMap Database y selecciona el archivo `.sqlite` correcto.
+- La API key de NavData no está configurada o es inválida.
+- Ve a Settings → NavData API, introduce la key y pulsa TEST para verificarla.
 
 **El LOGBOOK no guarda los vuelos**
 - Ve a Settings → Landing Log y selecciona o crea el archivo `.sqlite`.
@@ -452,4 +454,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.4.17 — que tengas buen vuelo.*
+*vmsOpenAcars v0.5.1 — que tengas buen vuelo.*

@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.4.17  
-> Última actualización: 2026-05-15
+> Versión del documento: 0.5.1  
+> Última actualización: 2026-05-16
 
 ---
 
@@ -21,7 +21,7 @@ Cliente ACARS de escritorio para Windows que conecta un simulador de vuelo con u
 | App → VA | phpVMS v7 REST API |
 | Serialización | Newtonsoft.Json 13 |
 | Plan de vuelo | SimBrief API (JSON) |
-| BD de pista | System.Data.SQLite 1.0.119 (LittleNavMap) |
+| BD de pista | NavData API (REST, HTTP client estático con caché ICAO) |
 | BD de historial | System.Data.SQLite 1.0.119 (landing_log.sqlite) |
 | Gráficos | System.Windows.Forms.DataVisualization (incluido en .NET 4.8) |
 | PDF | PdfiumViewer 2.13 + pdfium.dll x64 |
@@ -39,7 +39,7 @@ vmsOpenAcars/
 ├── Core/
 │   ├── Flight/             FlightManager, FlightTimer
 │   └── Helpers/            AppInfo
-├── Db/                     RunwayService (LittleNavMap SQLite)
+├── Db/                     Solo tipos resultado (RunwayTouchdownResult, IlsData, ApproachInfo…)
 ├── Docs/                   BRIEFING.md (guía usuario), architecture.md
 ├── Helpers/                AppConfig, Constants, FlightPhaseHelper, L (localización), UnitConverter
 ├── Languages/              en.json, es.json
@@ -48,7 +48,8 @@ vmsOpenAcars/
 │                           FlightRecord, ApproachTrackPoint
 ├── Properties/             AssemblyInfo, Resources, Settings
 ├── Services/               ApiService, FsuipcService, ScoringService, MetarService,
-│                           IvaoService, SimbriefEnhancedService, LandingLogService
+│                           IvaoService, SimbriefEnhancedService, LandingLogService,
+│                           NavDataService, NavDataClient
 ├── UI/
 │   ├── Forms/              MainForm, FlightPlannerForm, OFPViewerForm, SettingsForm,
 │   │                       MetarDecodeForm, EcamDialog,
@@ -244,44 +245,34 @@ El umbral de 600 fpm elimina falsos positivos por turbulencia o ajustes de pitch
 
 ---
 
-### RunwayService — `Db/RunwayService.cs`
+### NavDataService — `Services/NavDataService.cs`
 
-Consulta la base de datos SQLite de **LittleNavMap** para cálculos precisos de posición en pista. Ruta configurada en `App.config` clave `lnm_db_path`.
+Reemplaza a `RunwayService`. Misma interfaz pública; datos vía `NavDataClient` en lugar de SQLite. Configurado en `App.config` con claves `navdata_api_url`, `navdata_api_key`, `navdata_api_domain`.
 
 **API pública:**
 
 ```csharp
-bool IsAvailable
+bool IsAvailable  // siempre true
+void PrefetchAirport(icao)  // dispara carga en caché; llamar al iniciar vuelo
 RunwayTouchdownResult FindTouchdownRunway(airport, lat, lon, heading)  // touchdown zone + centreline
 RunwayTouchdownResult FindTakeoffRunway(airport, lat, lon, heading)    // pista de despegue
 RunwayEntry           FindRunwayEntry(airport, lat, lon, heading)      // entrada a pista
-string                FindNearestTaxiway(airport, lat, lon)            // taxiway más cercano
+string                FindNearestTaxiway(airport, lat, lon, heading)   // taxiway más cercano (heading opcional; penaliza ×2,5 segmentos >50°)
 HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)     // holding short
 ParkingSpot           FindNearestParking(airport, lat, lon)            // gate / parking
-RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading)   // umbral para captura de aproximación — exige heading-delta ≤15°, |cross| ≤2 NM, along<0; null si ninguna pista cumple (captura se difiere) (v0.4.9)
+RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading)   // umbral de aproximación — exige heading-delta ≤15°, |cross| ≤2 NM, along<0
 (double DistNm, double LateralFt) ComputeApproachMetrics(...)         // proyección flat-earth (static)
-// ILS / Approach (v0.4.4)
-IlsData              GetIlsForRunway(airport, runwayName)             // frecuencia MHz, curso ILS, gs_pitch; null si no existe o no es ILS
-ApproachInfo         GetApproachType(airport, runwayName)             // mejor procedimiento (ILS > RNAV > otro)
-IList<ApproachFix>   GetApproachFixes(approachId)                     // fixes IF/FAF/MAP del procedimiento
+IlsData              GetIlsForRunway(airport, runwayName)
+ApproachInfo         GetApproachType(airport, runwayName)
+IList<ApproachFix>   GetApproachFixes(airport, runwayName)
 ```
 
 `RunwayTouchdownResult` incluye: `ThresholdDistanceFt`, `CenterlineDeviationFt`, `RunwayName`, `ThresholdLat`, `ThresholdLon`, `ThresholdHeading`.
 
-**ILS / Approach result types (v0.4.4):**
+**ILS / Approach result types:**
 - `IlsData` — `FrequencyMhz`, `Course`, `GlideSlopePitch`, `RunwayName`, `ThresholdLat/Lon/ElevFt`
 - `ApproachInfo` — `ApproachId`, `Type` ("ILS", "RNAV"…), `RunwayName`, `HasVerticalGuidance`
 - `ApproachFix` — `Name`, `FixType` ("IF", "FAF", "MAP"), `Lat`, `Lon`, `AltitudeFt`
-
-**Esquema de BD LittleNavMap** (verificado en producción):
-
-```
-airport    → airport_id, ident, lonx, laty
-runway     → runway_id, airport_id, primary_end_id, secondary_end_id, width (ft), length (ft)
-runway_end → runway_end_id, name, heading, lonx, laty, offset_threshold
-taxi_path  → taxi_path_id, airport_id, type ('T'=taxiway, 'P'=pavement), name, start_lonx/laty, end_lonx/laty
-parking    → parking_id, airport_id, type, name, number, suffix, radius, lonx, laty
-```
 
 **Geometría flat-earth:**
 
@@ -290,16 +281,33 @@ dN = (lat - thLat) × 111320
 dE = (lon - thLon) × 111320 × cos(thLat_rad)
 along = dE × sin(hdg_rad) + dN × cos(hdg_rad)   → distancia al umbral (m)
 cross = dE × cos(hdg_rad) − dN × sin(hdg_rad)   → desviación centreline (m, signed)
+ThresholdDistanceFt = Math.Max(0.0, along × 3.28084)
 ```
 
-**Radios de búsqueda:**
+---
 
-| Elemento | Radio |
-|---|---|
-| Runway footprint | 1.5× semi-ancho real + 30 m buffer longitudinal |
-| HoldingPoint | 200 m del umbral |
-| Taxiway | 300 m del segmento más cercano |
-| Parking | 200 m |
+### NavDataClient — `Services/NavDataClient.cs`
+
+Cliente HTTP estático con caché por ICAO. Configura URL/key/domain desde `AppConfig`.
+
+```csharp
+static bool IsReachable   // true tras primer fetch exitoso
+static bool IsKeyValid    // true si la key pasó el check en /airport/LEMD/runways/
+static void PrefetchAirport(icao)              // GetOrAdd en caché; no bloquea
+static List<NavRunway>    GetRunways(icao)
+static List<NavTaxiway>   GetTaxiways(icao)
+static List<NavParking>   GetParkings(icao)
+static List<NavHoldShort> GetHoldShorts(icao)
+static List<NavApproach>  GetApproaches(icao)
+static NavAirportInfo     GetAirportInfo(icao)  // transition_altitude_ft / transition_level_ft (double?, null si no disponible)
+static Task<NavApiTestResult> TestApiAsync(string apiKeyOverride = null)
+    // Paso 1: GET /status/ → reachability
+    // Paso 2: GET /airport/LEMD/runways/ con key → 401/403 = key inválida
+```
+
+- Caché: `ConcurrentDictionary<string, Task<NavAirportCache>>` — carga paralela de 6 endpoints por aeropuerto.
+- Auth: cabeceras `X-API-Key` + `X-Origin-Domain`.
+- Todos los endpoints usan la forma singular `/airport/` (no `/airports/`).
 
 ---
 
@@ -319,12 +327,12 @@ Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se
 | QNH Compliance | −10 pts | −5 pts si Δ > 2 hPa — salida (TakeoffRoll) + llegada (gate 1000 ft AGL), independientes |
 | IVAO Offline | −5 pts | −5 si el vuelo se realizó sin conexión IVAO |
 | On-Time Departure | −5 pts | −5 si Blocks Off difiere > 10 min del STD (`sched_out`) |
-| Touchdown Zone | −7 pts | ≤1500 ft = 0 / ≤2500 ft = −3 / >2500 ft = −7 · requiere LNM DB |
-| Centreline Deviation | −7 pts | ≤10 ft = 0 / ≤30 ft = −3 / >30 ft = −7 · requiere LNM DB |
-| Localizer Alignment | −5 pts | ILS not tuned −3; heading >5° x2 max −2; cap −5 · requiere LNM DB + ILS approach |
+| Touchdown Zone | −7 pts | ≤1500 ft = 0 / ≤2500 ft = −3 / >2500 ft = −7 · requiere NavData API |
+| Centreline Deviation | −7 pts | ≤10 ft = 0 / ≤30 ft = −3 / >30 ft = −7 · requiere NavData API |
+| Localizer Alignment | −5 pts | ILS not tuned −3; heading >5° x2 max −2; cap −5 · requiere NavData API + ILS approach |
 | Minimums Compliance | −5 pts | −5 si descenso bajo DA (threshold elevation + 200 ft) sin aterrizar |
 
-Los criterios **Touchdown Zone** y **Centreline Deviation** solo se evalúan si `TouchdownDistanceFt > 0` (es decir, si RunwayService pudo consultar la BD de LittleNavMap). Los criterios **Localizer Alignment** y **Minimums Compliance** solo se evalúan si se detectó un procedimiento ILS para la pista de aterrizaje.
+Los criterios **Touchdown Zone** y **Centreline Deviation** solo se evalúan si `TouchdownDistanceFt > 0` (es decir, si NavDataClient pudo obtener datos de la API). Los criterios **Localizer Alignment** y **Minimums Compliance** solo se evalúan si se detectó un procedimiento ILS para la pista de aterrizaje.
 
 **Landing ratings:** Butter (≤100 fpm) · Smooth · Normal · Hard · Very Hard · Slam (≥600 fpm)
 
@@ -380,10 +388,10 @@ Phase → Approach
     → _approachBuffer.Clear(); _approachThreshold = null
 OnRawDataUpdated (cada 50 ms, fase = Approach)
     → si _approachThreshold == null:
-         RunwayService.GetRunwayThreshold(dest, lat, lon, hdg)
+         NavDataService.GetRunwayThreshold(dest, lat, lon, hdg)
             requiere heading-delta ≤15° AND |cross| ≤2 NM AND along<0
             si null → no captura, reintenta el siguiente ciclo
-         al adquirir → Task.Run(LoadApproachData(dest, runway))         // v0.4.4
+         al adquirir → Task.Run(LoadApproachData(dest, runway))
             → GetIlsForRunway() + GetApproachType() + GetApproachFixes()
             → _flightManager.SetApproachData(ils, approach, fixes)
     → si AGL < 3000 ft && ≥ 2 s desde último punto:
@@ -726,7 +734,9 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 | `fuel_tolerance_absolute` | 50 | Tolerancia combustible (kg) |
 | `simbrief_civalue` | 30 | Cost Index para SimBrief |
 | `simbrief_units` | lbs | Unidades combustible SimBrief |
-| `lnm_db_path` | _(vacío)_ | Ruta al `airports.sqlite` de LittleNavMap |
+| `navdata_api_url` | _(vacío)_ | URL base del servicio NavData API |
+| `navdata_api_key` | _(vacío)_ | API key del servicio NavData |
+| `navdata_api_domain` | _(vacío)_ | Dominio de la aerolínea (cabecera `X-Origin-Domain`) |
 | `landing_log_path` | _(vacío)_ | Ruta al archivo `landing_log.sqlite` |
 | `osd_enabled` | true | Activa el overlay OSD |
 | `osd_duration_seconds` | 4 | Tiempo de visualización por notificación (s) |

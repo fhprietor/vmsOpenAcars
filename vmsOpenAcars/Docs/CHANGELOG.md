@@ -2,6 +2,40 @@
 
 ---
 
+## [0.5.1] — 2026-05-16
+
+### Added
+
+- **Migración NavData API** — la dependencia de la base de datos local de LittleNavMap se reemplaza por un servicio REST alojado (`https://navdata.vholar.co/api/v1/`). El nuevo `NavDataService` (`Services/`) implementa la misma interfaz pública que el anterior `RunwayService`. La geometría flat-earth y la lógica de scoring se conservan intactas.
+- **NavDataClient** — cliente HTTP estático con caché por ICAO (`ConcurrentDictionary`). Prefetch paralelo de 6 endpoints por aeropuerto (runways, taxiways, parkings, holdshort, approaches, info). Acceso síncrono thread-safe para uso desde `Task.Run`. Expone `IsReachable` e `IsKeyValid`.
+- **NavAirportInfo** — endpoint `/airport/{icao}/` cargado durante el prefetch. Proporciona `transition_altitude_ft` y `transition_level_ft` (ambos `double?`, null cuando el aeropuerto no tiene el dato).
+- **Transition Altitude OSD** — al ascender a través de la TA del aeropuerto de origen, el OSD muestra `TRANS ALT  SET STD 1013` (Warning). Dispara una sola vez por vuelo; se resetea en touch-and-go.
+- **Transition Level OSD** — al descender a través del TL del aeropuerto de destino, el OSD muestra `TRANS LEVEL  SET QNH` (Warning). Dispara una sola vez por vuelo.
+- **Penalización QNH en climb (STD)** — 1 000 ft por encima de la TA, se comprueba si el altímetro está en estándar (1 013 ±2 hPa). Si no, aplica penalización de QNH (−5 pts) con OSD `PENALTY  QNH  −5 PTS`. Comparación directa contra 1 013,25 hPa; no requiere METAR.
+- **Diagnóstico de prefetch NavData** — al iniciar el vuelo, `LogNavDataPrefetch` registra en el log el conteo de pistas, calles, gates y aproximaciones por aeropuerto. Si todos los conteos son cero, avisa con `⚠️ NavData {ICAO}: sin datos`.
+- **API key por defecto** — si `navdata_api_key` está vacía o ausente, `AppConfig` usa `vhr-1c4c4be385814eed` como fallback; `App.Release.config` la incluye preconfigurada para nuevas instalaciones.
+- **Localización completa de mensajes de log** — todos los mensajes hardcodeados en `FlightManager.cs` y `MainViewModel.cs` migrados a claves de localización en `es.json` / `en.json` (70+ claves nuevas). Cubre: luces, fases, scoring, combustible, ILS, IVAO, NavData API, landing log, login, equipamiento del avión y gestión de PIREPs activos.
+
+### Changed
+
+- **QNH de llegada — gate basado en Transition Level** — si NavData provee el TL del destino, la comprobación de QNH de llegada se traslada a TL−1 000 ft MSL. Sin datos de TL, el fallback sigue siendo 1 000 ft AGL en `CheckStabilizedApproachGate`.
+- **Validación de API key NavData (dos pasos)** — TEST en SettingsForm y comprobación al iniciar ACARS: (1) `/status/` verifica alcanzabilidad; (2) `/airport/LEMD/runways/` con key verifica validez (401/403 = rechazada). `LnmDbAvailable` se inicializa con `NavDataClient.IsKeyValid`.
+- **`GetApproachFixes`** — firma cambiada de `(int approachId)` a `(string airport, string runway)` acorde a la API REST.
+- **`RunwayService.cs`** — reducido a solo los tipos resultado (`RunwayTouchdownResult`, `RunwayEntry`, `HoldingPoint`, `ParkingSpot`, `IlsData`, `ApproachInfo`, `ApproachFix`). El código SQLite ha sido eliminado.
+- **SettingsForm** — sección "NavMap Database" (SQLite) reemplazada por "NavData API" con label de estado y botón TEST con resultado de conectividad y AIRAC vigente.
+- **AppConfig** — claves nuevas: `navdata_api_url`, `navdata_api_key`. Fallback hardcodeado en `??` para garantizar operación sin entrada de configuración.
+- **Idioma desbloqueado** — `LocalizationService` respeta la preferencia de idioma configurada en `App.config`. La versión anterior forzaba `es` incondicionalmente.
+
+### Fixed
+
+- **Decodificación BCD de frecuencias de radio (NAV1 / COM1)** — `DecodeNav1Bcd()` usaba la fórmula incorrecta `d3×100 + d2×10 + d1 + d0×0.1`, que leía 110.70 MHz como 107.00 MHz. Fórmula corregida: `100 + d3×10 + d2 + d1×0.1 + d0×0.01`. El formato real de FSUIPC es `(freq − 100) × 100` como número BCD de 4 dígitos. El error provocaba que la comprobación de ILS penalizara con −3 pts incluso con el ILS correctamente sintonizado.
+- **Penalización "Below Minimums" falsa positiva** — `_belowMinimums` se activaba al cruzar la DA/DH pero nunca se limpiaba cuando el avión finalmente aterrizaba. Todo aterrizaje normal (que cruza la DA y aterriza) era penalizado. Corregido: `RegisterTouchdown()` establece `_belowMinimums = false`. La penalización solo se aplica si el avión cruzó la DA sin hacer un touchdown posterior.
+- **`[[Score_CritMinimums]]` y `[[Score_CritLocalizer]]` en el desglose del score** — ambas claves de localización faltaban en `es.json` y `en.json`. Añadidas: `Score_CritMinimums` y `Score_CritLocalizer`.
+- **Criterio "On-Time Departure" sin traducir** — faltaba la entrada en el mapa de criterios → claves de FlightManager. Añadido `"On-Time Departure" → "Score_CritDeparture"`.
+- **Endpoints NavData en plural** — todos los fetch usaban la forma `/airports/` (que devolvía cuerpo vacío). Corregidos a la forma singular `/airport/` en los 6 endpoints.
+
+---
+
 ## [0.4.17] — 2026-05-15
 
 ### Added

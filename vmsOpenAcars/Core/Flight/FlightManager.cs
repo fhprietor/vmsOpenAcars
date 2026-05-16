@@ -80,6 +80,14 @@ namespace vmsOpenAcars.Core.Flight
         private bool _departedLate = false;
         private int _vmoKts = 320;
 
+        // ── Transition Altitude / Level ───────────────────────────────────────────
+        private double _originTransitionAltFt  = 0;
+        private double _destTransitionLevelFt  = 0;
+        private bool   _taOsdSent              = false;
+        private bool   _tlOsdSent              = false;
+        private bool   _destQnhChecked         = false;
+        private bool   _originQnhChecked       = false;
+
         // ── ILS / Approach tracking ──────────────────────────────────────────────
         private IlsData _expectedIls;
         private ApproachInfo _expectedApproach;
@@ -437,6 +445,21 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
+        private void CheckStdPressure()
+        {
+            const double stdMb = 1013.25;
+            double diff = Math.Abs(AircraftQnhMb - stdMb);
+            string label = $"STD | Avión: {AircraftQnhMb:F0} hPa  STD: 1013 hPa  Δ{diff:F0} hPa";
+            if (diff <= 2.0)
+                OnLog?.Invoke(_("Log_QnhOk", label), Theme.Success);
+            else
+            {
+                _qnhViolationCount++;
+                OnLog?.Invoke(_("Log_QnhPenalty", label), Theme.Warning);
+                OnOsdMessage?.Invoke("PENALTY  QNH  −5 PTS", OsdSeverity.Warning);
+            }
+        }
+
         /// <summary>
         /// Convierte el código de status de phpVMS al FlightPhase interno más apropiado
         /// para retomar un vuelo interrumpido.
@@ -488,9 +511,9 @@ namespace vmsOpenAcars.Core.Flight
             try
             {
                 bool success = await _apiService.UpdatePirep(ActivePirepId, new { status = statusCode });
-                if (success) OnLog?.Invoke($"📊 PIREP Status: {statusCode}", Theme.MainText);
+                if (success) OnLog?.Invoke(_("Log_PirepStatus", statusCode), Theme.MainText);
             }
-            catch (Exception ex) { OnLog?.Invoke($"❌ Error updating status: {ex.Message}", Theme.Danger); }
+            catch (Exception ex) { OnLog?.Invoke(_("Log_ErrorPirepStatus", ex.Message), Theme.Danger); }
         }
 
         private async Task UpdateBlockOffTime()
@@ -505,7 +528,7 @@ namespace vmsOpenAcars.Core.Flight
                 {
                     _blockOffRecorded = true;
                     _serverBlockOffTime = DateTime.UtcNow;
-                    OnLog?.Invoke($"⏱️ Block Off recorded at {_serverBlockOffTime:HH:mm:ss} UTC", Theme.MainText);
+                    OnLog?.Invoke(_("Log_BlockOff", _serverBlockOffTime.ToString("HH:mm:ss")), Theme.MainText);
 
                     if (_activePlan?.ScheduledOutTime > 0)
                     {
@@ -514,22 +537,18 @@ namespace vmsOpenAcars.Core.Flight
                         if (Math.Abs(deltaMins) > 10)
                         {
                             _departedLate = true;
-                            string earlyLate = deltaMins > 0 ? "late" : "early";
-                            OnLog?.Invoke(
-                                $"⚠️ PENALTY: Departed {Math.Abs(deltaMins):F0} min {earlyLate} (STD {std:HH:mm} UTC) — −5 pts",
-                                Theme.Warning);
+                            string deptKey = deltaMins > 0 ? "Log_DepartedTooLate" : "Log_DepartedTooEarly";
+                            OnLog?.Invoke(_( deptKey, (int)Math.Abs(deltaMins), std.ToString("HH:mm")), Theme.Warning);
                         }
                         else
                         {
-                            OnLog?.Invoke(
-                                $"✅ On-time departure (Δ{deltaMins:+0;-0} min, STD {std:HH:mm} UTC)",
-                                Theme.Success);
+                            OnLog?.Invoke(_("Log_DepartedOnTime", $"{deltaMins:+0;-0}", std.ToString("HH:mm")), Theme.Success);
                         }
                     }
                 }
-                else OnLog?.Invoke($"⚠️ Could not record block_off_time", Theme.Warning);
+                else OnLog?.Invoke(_("Log_BlockOffError"), Theme.Warning);
             }
-            catch (Exception ex) { OnLog?.Invoke($"❌ Error recording block_off_time: {ex.Message}", Theme.Danger); }
+            catch (Exception ex) { OnLog?.Invoke(_("Log_BlockOffSaveError", ex.Message), Theme.Danger); }
         }
 
         private async Task UpdateBlockOnTime()
@@ -543,11 +562,11 @@ namespace vmsOpenAcars.Core.Flight
                 if (response.IsSuccessStatusCode)
                 {
                     _serverBlockOnTime = DateTime.UtcNow;
-                    OnLog?.Invoke($"⏱️ Block On recorded at {_serverBlockOnTime:HH:mm:ss} UTC", Theme.MainText);
+                    OnLog?.Invoke(_("Log_BlockOn", _serverBlockOnTime.ToString("HH:mm:ss")), Theme.MainText);
                 }
-                else OnLog?.Invoke($"⚠️ Could not record block_on_time", Theme.Warning);
+                else OnLog?.Invoke(_("Log_BlockOnError"), Theme.Warning);
             }
-            catch (Exception ex) { OnLog?.Invoke($"❌ Error recording block_on_time: {ex.Message}", Theme.Danger); }
+            catch (Exception ex) { OnLog?.Invoke(_("Log_BlockOnSaveError", ex.Message), Theme.Danger); }
         }
 
         private void ValidateAirportMatch()
@@ -581,6 +600,7 @@ namespace vmsOpenAcars.Core.Flight
             _touchdownCaptured = true;
             _touchdownTimestamp = DateTime.UtcNow;
             _hasLandedThisFlight = true;
+            _belowMinimums = false;
             double gforce = CalculateGForce(verticalSpeed);
             _touchdownPitch = _currentPitch;
             _touchdownBank = _currentBank;
@@ -594,7 +614,7 @@ namespace vmsOpenAcars.Core.Flight
         /// Monitors overspeed and lights compliance violations while a PIREP is active.
         /// Call once per telemetry cycle, airborne only.
         /// </summary>
-        private void CheckViolations(int ias, int altitudeAgl, bool landingLightOn, bool beaconLightOn)
+        private void CheckViolations(int ias, int altitudeAgl, int altitudeMsl, bool landingLightOn, bool beaconLightOn)
         {
             bool isNowOverspeed = ias > _vmoKts;
             if (isNowOverspeed && !_wasOverspeed)
@@ -644,6 +664,50 @@ namespace vmsOpenAcars.Core.Flight
             else if (beaconLightOn || beaconExempt)
             {
                 _beaconViolationActive = false;
+            }
+
+            // ── Transition Altitude (origen → en climb, ajustar a STD 1013) ────────
+            if (_originTransitionAltFt > 0
+                && CurrentPhase == FlightPhase.Climb
+                && altitudeMsl >= (int)_originTransitionAltFt
+                && !_taOsdSent)
+            {
+                _taOsdSent = true;
+                OnLog?.Invoke(_("Log_TransitionAlt", (int)_originTransitionAltFt), Theme.MainText);
+                OnOsdMessage?.Invoke("TRANS ALT  SET STD 1013", OsdSeverity.Warning);
+            }
+
+            // ── STD pressure check (1000 ft sobre TA — penaliza si no es 1013) ───
+            if (_originTransitionAltFt > 0
+                && CurrentPhase == FlightPhase.Climb
+                && altitudeMsl >= (int)(_originTransitionAltFt + 1000)
+                && !_originQnhChecked)
+            {
+                _originQnhChecked = true;
+                CheckStdPressure();
+            }
+
+            // ── Transition Level (destino → en descenso, ajustar a QNH) ──────────
+            if (_destTransitionLevelFt > 0
+                && (CurrentPhase == FlightPhase.Descent || CurrentPhase == FlightPhase.Approach)
+                && altitudeMsl <= (int)_destTransitionLevelFt
+                && !_tlOsdSent)
+            {
+                _tlOsdSent = true;
+                int fl = (int)Math.Round(_destTransitionLevelFt / 100.0);
+                OnLog?.Invoke(_("Log_TransitionLevel", $"{fl:D3}"), Theme.MainText);
+                OnOsdMessage?.Invoke("TRANS LEVEL  SET QNH", OsdSeverity.Warning);
+            }
+
+            // ── QNH destino basado en TL (500 ft bajo el TL, dar tiempo al piloto) ──
+            if (_destTransitionLevelFt > 0
+                && (CurrentPhase == FlightPhase.Descent || CurrentPhase == FlightPhase.Approach)
+                && altitudeMsl <= (int)(_destTransitionLevelFt - 1000)
+                && !_destQnhChecked
+                && !string.IsNullOrEmpty(_activePlan?.Destination))
+            {
+                _destQnhChecked = true;
+                CheckQnhAsync(_activePlan.Destination, AircraftQnhMb).ConfigureAwait(false);
             }
         }
 
@@ -739,23 +803,22 @@ namespace vmsOpenAcars.Core.Flight
                     {
                         _ilsTunedCorrectly = false;
                         _localizerViolations++;
-                        OnLog?.Invoke(
-                            $"⚠️ ILS NOT TUNED: NAV1 {data.Nav1FrequencyMhz:F2} MHz, expected {_expectedIls.FrequencyMhz:F2} MHz (−3)",
-                            Theme.Warning);
+                        OnLog?.Invoke(_("Log_IlsNotTuned", $"{data.Nav1FrequencyMhz:F2}", $"{_expectedIls.FrequencyMhz:F2}"), Theme.Warning);
                     }
                     else
                     {
-                        OnLog?.Invoke(
-                            $"✅ ILS correctly tuned: {data.Nav1FrequencyMhz:F2} MHz / CRS {_expectedIls.Course:F0}°",
-                            Theme.Success);
+                        OnLog?.Invoke(_("Log_IlsTunedOk", $"{data.Nav1FrequencyMhz:F2}", $"{_expectedIls.Course:F0}"), Theme.Success);
                     }
                 }
 
-                // 9. QNH de destino — comprobado en el gate de 1000 ft, igual que la salida
-                //    se comprueba en TakeoffRoll. A esta altitud el piloto ya debe haber
-                //    recibido el ATIS y sintonizado el QNH local.
-                if (!string.IsNullOrEmpty(_activePlan?.Destination))
+                // 9. QNH de destino — si hay Transition Level de NavData, ya se comprobó
+                //    500 ft bajo el TL (CheckViolations). Sin TL, fallback a este gate.
+                if (_destTransitionLevelFt <= 0 && !_destQnhChecked
+                    && !string.IsNullOrEmpty(_activePlan?.Destination))
+                {
+                    _destQnhChecked = true;
                     CheckQnhAsync(_activePlan.Destination, AircraftQnhMb).ConfigureAwait(false);
+                }
             }
 
             _prevApproachAgl = agl;
@@ -777,9 +840,7 @@ namespace vmsOpenAcars.Core.Flight
                 if (Math.Abs(hdgDelta) > 5.0 && _localizerViolations < 2)
                 {
                     _localizerViolations++;
-                    OnLog?.Invoke(
-                        $"⚠️ LOCALIZER: heading {CurrentHeading:F0}° deviates {hdgDelta:+0.0;-0.0}° from ILS CRS {_expectedIls.Course:F0}°",
-                        Theme.Warning);
+                    OnLog?.Invoke(_("Log_LocalizerDeviation", $"{CurrentHeading:F0}", $"{hdgDelta:+0.0;-0.0}", $"{_expectedIls.Course:F0}"), Theme.Warning);
                 }
             }
 
@@ -787,9 +848,7 @@ namespace vmsOpenAcars.Core.Flight
             if (_daAltitudeFt > 0 && CurrentAltitude < _daAltitudeFt && !IsOnGround && !_belowMinimums)
             {
                 _belowMinimums = true;
-                OnLog?.Invoke(
-                    $"⚠️ BELOW MINIMUMS: {CurrentAltitude} ft MSL < DA {_daAltitudeFt:F0} ft",
-                    Theme.Warning);
+                OnLog?.Invoke(_("Log_BelowMinimums", (int)CurrentAltitude, $"{_daAltitudeFt:F0}"), Theme.Warning);
             }
 
             // Waypoint sequencing — advance when within 0.5 NM of next fix
@@ -805,7 +864,7 @@ namespace vmsOpenAcars.Core.Flight
                     string fixLabel = string.IsNullOrEmpty(fix.FixType)
                         ? fix.Name
                         : $"{fix.Name} ({fix.FixType})";
-                    OnLog?.Invoke($"📍 {fixLabel} at {(int)agl} ft AGL", Theme.MainText);
+                    OnLog?.Invoke(_("Log_ApproachFix", fixLabel, (int)agl), Theme.MainText);
                     _nextFixIndex++;
                 }
             }
@@ -866,6 +925,8 @@ namespace vmsOpenAcars.Core.Flight
             _approachGateEvaluated = false;
             _prevApproachAgl = double.MaxValue;
             _stabilizedApproachDeductions = 0;
+            _taOsdSent = false; _tlOsdSent = false; _destQnhChecked = false; _originQnhChecked = false;
+            _originTransitionAltFt = 0; _destTransitionLevelFt = 0;
             OnPhaseChanged?.Invoke(CurrentPhase.ToString());
             PhaseChanged?.Invoke(CurrentPhase);
         }
@@ -895,7 +956,7 @@ namespace vmsOpenAcars.Core.Flight
         {
             if (string.IsNullOrEmpty(ActivePirepId)) return false;
             bool success = await _apiService.DeletePirep(ActivePirepId);
-            if (success) { OnLog?.Invoke("✖️ Flight cancelled on server", Theme.Warning); ResetFlightState(); }
+            if (success) { OnLog?.Invoke(_("Log_FlightCancelled"), Theme.Warning); ResetFlightState(); }
             return success;
         }
 
@@ -912,7 +973,7 @@ namespace vmsOpenAcars.Core.Flight
             if (plan != null)
             {
                 _destinationElevation = plan.DestinationElevation;
-                OnLog?.Invoke($"📊 Plan loaded. Destination: {plan.Destination} (elevation: {_destinationElevation} ft)", Theme.MainText);
+                OnLog?.Invoke(_("Log_PlanDestination", plan.Destination, _destinationElevation), Theme.MainText);
             }
             ValidateAirportMatch();
             if (CurrentLat != 0 && CurrentLon != 0) UpdatePositionValidation(CurrentLat, CurrentLon);
@@ -1043,6 +1104,9 @@ namespace vmsOpenAcars.Core.Flight
 
         }
 
+        public void SetOriginTransitionAlt(double ft)  { if (ft > 0) _originTransitionAltFt = ft; }
+        public void SetDestTransitionLevel(double ft)   { if (ft > 0) _destTransitionLevelFt  = ft; }
+
         public bool CanStartFlight()
         {
             if (_activePilot == null) return false;
@@ -1127,11 +1191,9 @@ namespace vmsOpenAcars.Core.Flight
             _landingLightReminderSent = false;
             _qnhViolationCount = 0;
             _isOfflineFlight = false;
-            _departedLate = false;
-            _approachGateEvaluated = false;
-            _prevApproachAgl = double.MaxValue;
-            _stabilizedApproachDeductions = 0;
-            _hasLandedThisFlight = false;
+            _approachGateEvaluated = false; _prevApproachAgl = double.MaxValue;
+            _stabilizedApproachDeductions = 0; _hasLandedThisFlight = false;
+            _taOsdSent = false; _tlOsdSent = false; _destQnhChecked = false; _originQnhChecked = false;
 
         }
         /// <summary>
@@ -1403,7 +1465,7 @@ namespace vmsOpenAcars.Core.Flight
                         {
                             if (canChangePhase)
                             {
-                                OnLog?.Invoke($"🛬 Approach started", Theme.Approach);
+                                OnLog?.Invoke(_("Log_ApproachStarted"), Theme.Approach);
                                 TransitionTo(FlightPhase.Approach, previousPhase);
                             }
                             _descentToClimbStart = DateTime.MinValue;
@@ -1418,7 +1480,7 @@ namespace vmsOpenAcars.Core.Flight
                             else if ((DateTime.UtcNow - _descentToClimbStart).TotalSeconds >= 20)
                             {
                                 _descentToClimbStart = DateTime.MinValue;
-                                OnLog?.Invoke($"✈️ Resuming climb from {altitude} ft", Theme.MainText);
+                                OnLog?.Invoke(_("Log_ResumingClimb", altitude), Theme.MainText);
                                 TransitionTo(FlightPhase.Climb, previousPhase);
                             }
                         }
@@ -1444,7 +1506,7 @@ namespace vmsOpenAcars.Core.Flight
                             else if ((DateTime.UtcNow - _goAroundStart).TotalSeconds >= 8)
                             {
                                 _goAroundStart = DateTime.MinValue;
-                                OnLog?.Invoke($"✈️ Go-around at {(int)altitudeAboveDest} ft AGL, VS +{verticalSpeed} fpm", Theme.Warning);
+                                OnLog?.Invoke(_("Log_GoAround", (int)altitudeAboveDest, verticalSpeed), Theme.Warning);
                                 OnOsdMessage?.Invoke("GO AROUND", OsdSeverity.Warning);
                                 TransitionTo(FlightPhase.Climb, previousPhase);
                             }
@@ -1461,7 +1523,7 @@ namespace vmsOpenAcars.Core.Flight
                         if (groundSpeed > 60 &&
                             (DateTime.UtcNow - _touchdownTimestamp).TotalSeconds >= 5.0)
                         {
-                            OnLog?.Invoke($"✈️ Touch and go detected (GS {groundSpeed} kt) — resetting for new approach", Theme.Warning);
+                            OnLog?.Invoke(_("Log_TouchAndGo", groundSpeed), Theme.Warning);
                             _touchdownCaptured = false;
                             _approachGateEvaluated = false;
                             _prevApproachAgl = double.MaxValue;
@@ -1477,6 +1539,8 @@ namespace vmsOpenAcars.Core.Flight
                             _daAltitudeFt      = 0;
                             _ilsGateChecked    = false;
                             _ilsTunedCorrectly = true;
+                            _taOsdSent = false; _tlOsdSent = false;
+                            _destQnhChecked = false; _originQnhChecked = false;
                             TransitionTo(FlightPhase.Climb, previousPhase);
                         }
                         break;
@@ -1526,9 +1590,9 @@ namespace vmsOpenAcars.Core.Flight
             {
                 AutopilotEngaged = data.AutopilotEngaged;
                 if (AutopilotEngaged)
-                    OnLog?.Invoke($"🤖 A/P ENGAGED — {data.ApNavMode}/{data.ApVertMode}", Theme.MainText);
+                    OnLog?.Invoke(_("Log_AutopilotEngaged", data.ApNavMode, data.ApVertMode), Theme.MainText);
                 else
-                    OnLog?.Invoke("🤖 A/P DISENGAGED", Theme.Warning);
+                    OnLog?.Invoke(_("Log_AutopilotDisengaged"), Theme.Warning);
             }
             else
             {
@@ -1545,13 +1609,13 @@ namespace vmsOpenAcars.Core.Flight
                 if (!_isBeaconOn)
                 {
                     _lightsViolationCount++;
-                    OnLog?.Invoke("⚠️ PENALTY: BEACON OFF at engine start (-5 pts)", Theme.Warning);
+                    OnLog?.Invoke(_("Log_PenaltyBeacon"), Theme.Warning);
                 }
 
                 // Blocks Off al encender motores en Boarding (aviones que no necesitan pushback)
                 if (CurrentPhase == FlightPhase.Boarding && !_blockOffRecorded)
                 {
-                    OnLog?.Invoke($"🛫 Block Off (engines started in Boarding)", Theme.MainText);
+                    OnLog?.Invoke(_("Log_BlockOffEngines"), Theme.MainText);
                     Task.Run(() => UpdateBlockOffTime());
                 }
             }
@@ -1609,7 +1673,7 @@ namespace vmsOpenAcars.Core.Flight
                 // Monitoreo de violaciones para scoring (solo en vuelo)
                 if (!data.IsOnGround)
                 {
-                    CheckViolations(CurrentIndicatedAirspeed, (int)CurrentAGL, data.LandingLightOn, _isBeaconOn);
+                    CheckViolations(CurrentIndicatedAirspeed, (int)CurrentAGL, (int)CurrentAltitude, data.LandingLightOn, _isBeaconOn);
                     if (CurrentPhase == FlightPhase.Approach)
                     {
                         CheckStabilizedApproachGate(data);
@@ -1622,7 +1686,7 @@ namespace vmsOpenAcars.Core.Flight
         {
             if (string.IsNullOrEmpty(ActivePirepId)) return false;
             bool success = await _apiService.DeletePirep(ActivePirepId);
-            if (success) { OnLog?.Invoke("✖️ Flight aborted on server", Theme.Warning); ResetFlightState(); }
+            if (success) { OnLog?.Invoke(_("Log_FlightAborted"), Theme.Warning); ResetFlightState(); }
             return success;
         }
 
@@ -1645,11 +1709,11 @@ namespace vmsOpenAcars.Core.Flight
             int plannedFlightTimeMinutes = (_activePlan?.EstTimeEnroute ?? 0) / 60;
             double blockFuel = _activePlan?.BlockFuel ?? 0;
 
-            OnLog?.Invoke($"📊 Planned Distance: {plannedDistance:F1} NM", Theme.MainText);
-            OnLog?.Invoke($"📊 Planned Flight Time: {plannedFlightTimeMinutes} min", Theme.MainText);
-            OnLog?.Invoke($"📊 Actual Distance: {totalDistanceNm:F1} NM", Theme.MainText);
-            OnLog?.Invoke($"📊 Actual Flight Time: {actualFlightTimeMinutes} min", Theme.MainText);
-            OnLog?.Invoke($"⛽ Fuel Used: {fuelUsed:F0} kg", Theme.MainText);
+            OnLog?.Invoke(_("Log_PlannedDistance", $"{plannedDistance:F1}"), Theme.MainText);
+            OnLog?.Invoke(_("Log_PlannedTime", plannedFlightTimeMinutes), Theme.MainText);
+            OnLog?.Invoke(_("Log_ActualDistance", $"{totalDistanceNm:F1}"), Theme.MainText);
+            OnLog?.Invoke(_("Log_ActualTime", actualFlightTimeMinutes), Theme.MainText);
+            OnLog?.Invoke(_("Log_FuelUsed", $"{fuelUsed:F0}"), Theme.MainText);
             // ── Calcular score ────────────────────────────────────────────────────────
             var scoreData = new FlightScoreData
             {
@@ -1687,6 +1751,7 @@ namespace vmsOpenAcars.Core.Flight
                 { "Stabilized Approach", "Score_CritStabilized"   },
                 { "QNH Compliance",      "Score_CritQnh"          },
                 { "IVAO Presence",       "Score_CritIvao"         },
+                { "On-Time Departure",   "Score_CritDeparture"    },
                 { "Touchdown Zone",       "Score_CritTdz"          },
                 { "Centreline",           "Score_CritCentreline"   },
                 { "Localizer Alignment",  "Score_CritLocalizer"    },
@@ -1717,7 +1782,7 @@ namespace vmsOpenAcars.Core.Flight
             bool success = await _apiService.FilePirep(ActivePirepId, finalData);
             if (success)
             {
-                OnLog?.Invoke($"✅ PIREP filed successfully", Theme.Success);
+                OnLog?.Invoke(_("Log_PirepFiled"), Theme.Success);
                 ResetFlightState();
                 return true;
             }
@@ -1744,7 +1809,7 @@ namespace vmsOpenAcars.Core.Flight
                     _lastDistanceLogged = currentDistance;
                 }
             }
-            catch (Exception ex) { OnLog?.Invoke($"❌ Error updating flight progress: {ex.Message}", Theme.Danger); }
+            catch (Exception ex) { OnLog?.Invoke(_("Log_ErrorFlightProgress", ex.Message), Theme.Danger); }
         }
 
         #endregion

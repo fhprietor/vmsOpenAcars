@@ -28,8 +28,28 @@ namespace vmsOpenAcars.Helpers
         public static double FuelTolerancePercent => GetDouble("fuel_tolerance_percent", 10.0);
         public static double FuelToleranceAbsolute => GetDouble("fuel_tolerance_absolute", 50);
 
-        // LittleNavMap database
-        /// <summary>Full path to the LittleNavMap SQLite database (e.g. little_navmap_msfs24.sqlite).</summary>
+        // phpVMS API
+        public static string VmsApiUrl => ConfigurationManager.AppSettings["vms_api_url"] ?? "";
+
+        // NavData API
+        public static string NavDataApiUrl => ConfigurationManager.AppSettings["navdata_api_url"] ?? "https://navdata.vholar.co/api/v1/";
+        public static string NavDataApiKey => ConfigurationManager.AppSettings["navdata_api_key"] ?? "vhr-1c4c4be385814eed";
+
+        // X-Origin-Domain derived from the configured phpVMS URL (e.g. "vholar.co")
+        public static string NavDataApiDomain
+        {
+            get
+            {
+                try
+                {
+                    string url = VmsApiUrl;
+                    return string.IsNullOrWhiteSpace(url) ? "" : new System.Uri(url).Host;
+                }
+                catch { return ""; }
+            }
+        }
+
+        // LittleNavMap database (deprecated — kept for settings migration)
         public static string LnmDbPath => ConfigurationManager.AppSettings["lnm_db_path"] ?? "";
 
         // Landing log database

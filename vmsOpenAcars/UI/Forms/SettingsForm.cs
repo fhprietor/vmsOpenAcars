@@ -4,6 +4,8 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
+using System.Threading.Tasks;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Services;
 using static vmsOpenAcars.Helpers.L;
 
@@ -29,8 +31,9 @@ namespace vmsOpenAcars.UI.Forms
         private TextBox txtSimbriefCi;
         private TextBox txtSimbriefExtraRmk;
 
-        // NavMap database
-        private TextBox txtLnmDbPath;
+        // NavData API
+        private TextBox txtNavDataApiKey;
+        private Label   lblNavDataStatus;
 
         // Landing log database
         private TextBox txtLandingLogPath;
@@ -137,13 +140,13 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 18,
+                RowCount = 19,
                 BackColor = Color.Transparent
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68F));
 
-            for (int i = 0; i < 17; i++)
+            for (int i = 0; i < 18; i++)
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F)); // fila botones
 
@@ -215,68 +218,84 @@ namespace vmsOpenAcars.UI.Forms
             txtSimbriefExtraRmk = CreateTextBox();
             layout.Controls.Add(txtSimbriefExtraRmk, 1, 8);
 
-            // Fila 9 — Separador NavMap
-            var sepNavMap = new Label
+            // Fila 9 — Separador NavData API
+            var sepNavData = new Label
             {
                 Dock = DockStyle.Fill,
-                Text = "── NavMap Database ──",
+                Text = "── NavData API ──",
                 ForeColor = Color.FromArgb(80, 160, 220),
                 Font = new Font("Consolas", 8, FontStyle.Italic),
                 TextAlign = ContentAlignment.MiddleCenter
             };
-            layout.SetColumnSpan(sepNavMap, 2);
-            layout.Controls.Add(sepNavMap, 0, 9);
+            layout.SetColumnSpan(sepNavData, 2);
+            layout.Controls.Add(sepNavData, 0, 9);
 
-            // Fila 10 — LNM DB path
-            layout.Controls.Add(CreateLabel("LNM DB"), 0, 10);
-            var lnmPanel = new Panel { Dock = DockStyle.Fill };
-            txtLnmDbPath = new TextBox
+            // Fila 10 — NavData API Key
+            layout.Controls.Add(CreateLabel("NavDataKey"), 0, 10);
+            txtNavDataApiKey = CreateTextBox();
+            txtNavDataApiKey.UseSystemPasswordChar = true;
+            layout.Controls.Add(txtNavDataApiKey, 1, 10);
+
+            // Fila 11 — NavData API status + TEST
+            layout.Controls.Add(CreateLabel("NavData"), 0, 11);
+            var navDataPanel = new Panel { Dock = DockStyle.Fill };
+            lblNavDataStatus = new Label
             {
-                BackColor = Color.FromArgb(50, 50, 60),
-                ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Consolas", 10),
+                Text = AppConfig.NavDataApiUrl,
+                ForeColor = Color.FromArgb(160, 200, 160),
+                Font = new Font("Consolas", 9),
                 Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
                 Left = 0,
-                Height = 22
+                Height = 22,
+                TextAlign = ContentAlignment.MiddleLeft
             };
-            var btnBrowse = new Button
+            var btnTestApi = new Button
             {
-                Text = "...",
-                Width = 28,
+                Text = "TEST",
+                Width = 46,
                 Height = 22,
                 Anchor = AnchorStyles.Right | AnchorStyles.Top,
                 BackColor = Color.FromArgb(50, 70, 90),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
-                Font = new Font("Consolas", 9)
+                Font = new Font("Consolas", 8)
             };
-            btnBrowse.FlatAppearance.BorderSize = 0;
-            btnBrowse.Click += (s, ev) =>
+            btnTestApi.FlatAppearance.BorderSize = 0;
+            btnTestApi.Click += async (s, ev) =>
             {
-                using (var ofd = new OpenFileDialog
+                btnTestApi.Enabled = false;
+                lblNavDataStatus.Text = "Connecting...";
+                lblNavDataStatus.ForeColor = Color.FromArgb(200, 200, 100);
+                var result = await NavDataClient.TestApiAsync(txtNavDataApiKey.Text.Trim()).ConfigureAwait(true);
+                if (!result.Reachable)
                 {
-                    Title  = "Select LittleNavMap database",
-                    Filter = "SQLite DB (*.sqlite)|*.sqlite|All files (*.*)|*.*",
-                    FileName = txtLnmDbPath.Text
-                })
-                {
-                    if (ofd.ShowDialog() == DialogResult.OK)
-                        txtLnmDbPath.Text = ofd.FileName;
+                    lblNavDataStatus.Text = _("Stg_ConnFailed");
+                    lblNavDataStatus.ForeColor = Color.FromArgb(220, 80, 80);
                 }
+                else if (!result.KeyValid)
+                {
+                    lblNavDataStatus.Text = _("Stg_NavDataKeyInvalid");
+                    lblNavDataStatus.ForeColor = Color.FromArgb(220, 140, 0);
+                }
+                else
+                {
+                    lblNavDataStatus.Text = $"AIRAC {result.NavStatus?.AiracCycle}  until {result.NavStatus?.AiracValidUntil}";
+                    lblNavDataStatus.ForeColor = Color.FromArgb(100, 220, 100);
+                }
+                btnTestApi.Enabled = true;
             };
-            lnmPanel.Controls.Add(txtLnmDbPath);
-            lnmPanel.Controls.Add(btnBrowse);
-            lnmPanel.Resize += (s, ev) =>
+            navDataPanel.Controls.Add(lblNavDataStatus);
+            navDataPanel.Controls.Add(btnTestApi);
+            navDataPanel.Resize += (s, ev) =>
             {
-                btnBrowse.Left  = lnmPanel.Width - btnBrowse.Width;
-                btnBrowse.Top   = (lnmPanel.Height - btnBrowse.Height) / 2;
-                txtLnmDbPath.Width = lnmPanel.Width - btnBrowse.Width - 2;
-                txtLnmDbPath.Top   = (lnmPanel.Height - txtLnmDbPath.Height) / 2;
+                btnTestApi.Left  = navDataPanel.Width - btnTestApi.Width;
+                btnTestApi.Top   = (navDataPanel.Height - btnTestApi.Height) / 2;
+                lblNavDataStatus.Width = navDataPanel.Width - btnTestApi.Width - 4;
+                lblNavDataStatus.Top   = (navDataPanel.Height - lblNavDataStatus.Height) / 2;
             };
-            layout.Controls.Add(lnmPanel, 1, 10);
+            layout.Controls.Add(navDataPanel, 1, 11);
 
-            // Fila 11 — Separador Landing Log
+            // Fila 12 — Separador Landing Log
             var sepLog = new Label
             {
                 Dock = DockStyle.Fill,
@@ -286,10 +305,10 @@ namespace vmsOpenAcars.UI.Forms
                 TextAlign = ContentAlignment.MiddleCenter
             };
             layout.SetColumnSpan(sepLog, 2);
-            layout.Controls.Add(sepLog, 0, 11);
+            layout.Controls.Add(sepLog, 0, 12);
 
-            // Fila 12 — Landing log DB path
-            layout.Controls.Add(CreateLabel("Landing DB"), 0, 12);
+            // Fila 13 — Landing log DB path
+            layout.Controls.Add(CreateLabel("Landing DB"), 0, 13);
             var logPanel = new Panel { Dock = DockStyle.Fill };
             txtLandingLogPath = new TextBox
             {
@@ -338,9 +357,9 @@ namespace vmsOpenAcars.UI.Forms
                 txtLandingLogPath.Width  = logPanel.Width - btnBrowseLog.Width - 2;
                 txtLandingLogPath.Top    = (logPanel.Height - txtLandingLogPath.Height) / 2;
             };
-            layout.Controls.Add(logPanel, 1, 12);
+            layout.Controls.Add(logPanel, 1, 13);
 
-            // Fila 13 — Separador OSD
+            // Fila 14 — Separador OSD
             var sepOsd = new Label
             {
                 Dock = DockStyle.Fill,
@@ -350,10 +369,10 @@ namespace vmsOpenAcars.UI.Forms
                 TextAlign = ContentAlignment.MiddleCenter
             };
             layout.SetColumnSpan(sepOsd, 2);
-            layout.Controls.Add(sepOsd, 0, 13);
+            layout.Controls.Add(sepOsd, 0, 14);
 
-            // Fila 14 — OSD Enabled
-            layout.Controls.Add(CreateLabel("OSD"), 0, 14);
+            // Fila 15 — OSD Enabled
+            layout.Controls.Add(CreateLabel("OSD"), 0, 15);
             chkOsdEnabled = new CheckBox
             {
                 Dock = DockStyle.Fill,
@@ -361,10 +380,10 @@ namespace vmsOpenAcars.UI.Forms
                 ForeColor = Color.White,
                 Font = new Font("Consolas", 10)
             };
-            layout.Controls.Add(chkOsdEnabled, 1, 14);
+            layout.Controls.Add(chkOsdEnabled, 1, 15);
 
-            // Fila 15 — OSD Duration
-            layout.Controls.Add(CreateLabel("Duration (s)"), 0, 15);
+            // Fila 16 — OSD Duration
+            layout.Controls.Add(CreateLabel("Duration (s)"), 0, 16);
             nudOsdDuration = new NumericUpDown
             {
                 Dock = DockStyle.Fill,
@@ -375,10 +394,10 @@ namespace vmsOpenAcars.UI.Forms
                 ForeColor = Color.White,
                 Font = new Font("Consolas", 10)
             };
-            layout.Controls.Add(nudOsdDuration, 1, 15);
+            layout.Controls.Add(nudOsdDuration, 1, 16);
 
-            // Fila 16 — OSD Opacity
-            layout.Controls.Add(CreateLabel("Opacity (%)"), 0, 16);
+            // Fila 17 — OSD Opacity
+            layout.Controls.Add(CreateLabel("Opacity (%)"), 0, 17);
             nudOsdOpacity = new NumericUpDown
             {
                 Dock = DockStyle.Fill,
@@ -390,9 +409,9 @@ namespace vmsOpenAcars.UI.Forms
                 ForeColor = Color.White,
                 Font = new Font("Consolas", 10)
             };
-            layout.Controls.Add(nudOsdOpacity, 1, 16);
+            layout.Controls.Add(nudOsdOpacity, 1, 17);
 
-            // Fila 17 — Botones (ocupa las 2 columnas, alineados a la derecha)
+            // Fila 18 — Botones (ocupa las 2 columnas, alineados a la derecha)
             var btnPanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -429,7 +448,7 @@ namespace vmsOpenAcars.UI.Forms
             btnPanel.Controls.Add(btnCancel);
 
             layout.SetColumnSpan(btnPanel, 2);
-            layout.Controls.Add(btnPanel, 0, 17);
+            layout.Controls.Add(btnPanel, 0, 18);
 
             contentPanel.Controls.Add(layout);
             this.Controls.Add(contentPanel);
@@ -481,7 +500,8 @@ namespace vmsOpenAcars.UI.Forms
 
             txtSimbriefCi.Text = ConfigurationManager.AppSettings["simbrief_civalue"] ?? "30";
             txtSimbriefExtraRmk.Text = ConfigurationManager.AppSettings["simbrief_extrarmk"] ?? "";
-            txtLnmDbPath.Text      = ConfigurationManager.AppSettings["lnm_db_path"]      ?? "";
+            txtNavDataApiKey.Text = ConfigurationManager.AppSettings["navdata_api_key"] ?? "";
+            lblNavDataStatus.Text = AppConfig.NavDataApiUrl;
             txtLandingLogPath.Text = ConfigurationManager.AppSettings["landing_log_path"] ?? "";
 
             bool osdEnabled = true;
@@ -529,7 +549,7 @@ namespace vmsOpenAcars.UI.Forms
                 (cmbSimbriefUnits.SelectedItem?.ToString() ?? "")  != Cfg("simbrief_units", "lbs") ||
                 txtSimbriefCi.Text.Trim()                          != Cfg("simbrief_civalue", "30")||
                 txtSimbriefExtraRmk.Text.Trim()                    != Cfg("simbrief_extrarmk")     ||
-                txtLnmDbPath.Text.Trim()                           != Cfg("lnm_db_path")      ||
+                txtNavDataApiKey.Text.Trim()                       != Cfg("navdata_api_key")        ||
                 txtLandingLogPath.Text.Trim()                      != Cfg("landing_log_path")  ||
                 chkOsdEnabled.Checked.ToString().ToLower()         != Cfg("osd_enabled", "true").ToLower() ||
                 ((int)nudOsdDuration.Value).ToString()             != Cfg("osd_duration_seconds", "4") ||
@@ -556,7 +576,7 @@ namespace vmsOpenAcars.UI.Forms
                     SetValue(config, "simbrief_units", cmbSimbriefUnits.SelectedItem.ToString());
                 SetValue(config, "simbrief_civalue",  txtSimbriefCi.Text.Trim());
                 SetValue(config, "simbrief_extrarmk", txtSimbriefExtraRmk.Text.Trim());
-                SetValue(config, "lnm_db_path",       txtLnmDbPath.Text.Trim());
+                SetValue(config, "navdata_api_key",   txtNavDataApiKey.Text.Trim());
                 SetValue(config, "landing_log_path",  txtLandingLogPath.Text.Trim());
                 SetValue(config, "osd_enabled",          chkOsdEnabled.Checked.ToString().ToLower());
                 SetValue(config, "osd_duration_seconds", ((int)nudOsdDuration.Value).ToString());

@@ -135,6 +135,7 @@
     <Compile Include="Models\MetarData.cs" />
     <Compile Include="Models\SimbriefPlan.cs" />
     <Compile Include="Models\TakeoffData.cs" />
+    <Compile Include="Models\NavData.cs" />
     <Compile Include="Models\TouchdownData.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="ProgressForm.cs">
@@ -152,6 +153,8 @@
     <Compile Include="Services\IvaoService.cs" />
     <Compile Include="Services\MetarService.cs" />
     <Compile Include="Services\LandingLogService.cs" />
+    <Compile Include="Services\NavDataClient.cs" />
+    <Compile Include="Services\NavDataService.cs" />
     <Compile Include="Services\UIService.cs" />
     <Compile Include="Services\Weatherservice.cs" />
     <Compile Include="UI\Forms\EcamDialog.cs">

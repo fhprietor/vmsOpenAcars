@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.4.17  
+**Versión actual:** v0.5.1  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -13,7 +13,7 @@ Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simula
 vmsOpenAcars/
 ├── Core/Flight/          → FlightManager.cs  (máquina de estados de vuelo)
 │   └── FlightTimer.cs
-├── Db/                   → RunwayService.cs
+├── Db/                   → RunwayService.cs  (solo tipos resultado — RunwayTouchdownResult, IlsData, ApproachInfo…)
 ├── Helpers/              → AppConfig, Constants, UnitConverter, L (localización)
 ├── Models/               → Aircraft, Flight, FlightScoreData, TouchdownData, TakeoffData,
 │                           SimbriefPlan, Pirep, FlightRecord, ApproachTrackPoint
@@ -53,7 +53,7 @@ vmsOpenAcars/
 | Overspeed | 15 pts | 0=0, 1=7, ≥2=15 |
 | Lights Compliance | 10 pts | 5 pts por violación, cap 10; Beacon exempto en aeronaves con switch compartido beacon/strobe (ver `BeaconStrobeSharedAircraft`) |
 | Stabilized Approach (1000 ft) | 15 pts | 6 criterios al cruzar 1000 ft AGL ↓: speed fuera [Vref−Vref+X]=−5, VS<−1000=−5, VS>−100=−5, bank>7°=−3, pitch fuera [−2.5°,+10°]=−3, gear up=−5, flaps<50%=−4 |
-| QNH Compliance | 10 pts | 5 pts si Δ>2 hPa — salida: TakeoffRoll; llegada: gate 1000 ft AGL (mismo momento que Stabilized, contador independiente) |
+| QNH Compliance | 10 pts | 5 pts si Δ>2 hPa — salida: TakeoffRoll (vs METAR origen); climb: TA+1000 ft (vs STD 1013); llegada: TL−1000 ft MSL si NavData tiene TL, si no 1000 ft AGL |
 | IVAO Offline | 5 pts | −5 si piloto no conectado a IVAO al iniciar TaxiOut |
 | On-Time Departure | 5 pts | −5 si Blocks Off difiere >10 min del STD (`sched_out`) |
 | Touchdown Zone | 7 pts | ≤1500 ft=0, ≤2500=3, >2500=7 — activo solo si `TouchdownDistanceFt > 0` (requiere LNM DB) |
@@ -61,43 +61,61 @@ vmsOpenAcars/
 | Localizer Alignment | 5 pts | activo si ILS detectado. ILS not tuned=−3; heading >5° (x2 max)=−1 each; cap 5 |
 | Minimums Compliance | 5 pts | −5 si `BelowMinimums = true` (descendió bajo DA sin aterrizar) |
 
-### RunwayService — `Db/RunwayService.cs`
+### NavDataService — `Services/NavDataService.cs` (v0.4.18+)
+
+Reemplaza a `RunwayService`. Misma interfaz pública; datos vía `NavDataClient` en lugar de SQLite.
 
 ```csharp
-bool IsAvailable
+bool IsAvailable  // siempre true
+void PrefetchAirport(icao)  // dispara carga en caché; llamar al iniciar vuelo
 RunwayTouchdownResult FindTouchdownRunway(airport, lat, lon, heading)
 RunwayTouchdownResult FindTakeoffRunway(airport, lat, lon, heading)
 RunwayEntry           FindRunwayEntry(airport, lat, lon, heading)
-string                FindNearestTaxiway(airport, lat, lon, heading)  // heading opcional; penaliza ×2,5 segmentos >50° desalineados (v0.4.17)
-HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)
+string                FindNearestTaxiway(airport, lat, lon, heading)  // heading opcional; penaliza ×2,5 segmentos >50° (v0.4.17)
+HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)    // usa datos holdshort de la API
 ParkingSpot           FindNearestParking(airport, lat, lon)
-RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading) // captura de aproximación — exige heading-delta ≤15°, |cross| ≤2 NM, along<0 (avión antes del umbral). Devuelve null si ninguna cumple → captura se difiere
-(double DistNm, double LateralFt) ComputeApproachMetrics(...)       // public static
-// ILS / Approach (v0.4.4)
-IlsData              GetIlsForRunway(airport, runwayName)   // frecuencia MHz, curso, gs_pitch; null si no existe o no es ILS
-ApproachInfo         GetApproachType(airport, runwayName)   // mejor procedimiento (ILS>RNAV>otro); fallback via runway_end_id
-IList<ApproachFix>   GetApproachFixes(approachId)           // fixes IF/FAF/MAP del procedimiento
+RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading)
+(double DistNm, double LateralFt) ComputeApproachMetrics(...)        // public static
+IlsData              GetIlsForRunway(airport, runwayName)
+ApproachInfo         GetApproachType(airport, runwayName)
+IList<ApproachFix>   GetApproachFixes(airport, runwayName)           // firma cambiada desde v0.4.18 (antes int approachId)
 ```
+
+### NavDataClient — `Services/NavDataClient.cs` (v0.4.19)
+
+Cliente HTTP estático con caché por ICAO:
+
+```csharp
+static bool IsReachable  // true tras primer fetch exitoso
+static bool IsKeyValid   // true si la key pasó el check en /airport/LEMD/runways/
+static void PrefetchAirport(icao)  // GetOrAdd en caché; no bloquea
+static List<NavRunway>    GetRunways(icao)
+static List<NavTaxiway>   GetTaxiways(icao)
+static List<NavParking>   GetParkings(icao)
+static List<NavHoldShort> GetHoldShorts(icao)
+static List<NavApproach>  GetApproaches(icao)
+static NavAirportInfo     GetAirportInfo(icao)   // transition_altitude_ft / transition_level_ft — double?, null si no disponible
+static Task<NavApiTestResult> TestApiAsync(string apiKeyOverride = null)
+    // Paso 1: GET /status/ → reachability
+    // Paso 2: GET /airport/LEMD/runways/ con key → 401/403 = key inválida
+    // NavApiTestResult { bool Reachable, bool KeyValid, NavStatusResponse NavStatus }
+```
+
+- Caché: `ConcurrentDictionary<string, Task<NavAirportCache>>` — `GetOrAdd` + `GetAwaiter().GetResult()` (seguro en `Task.Run`).
+- Carga paralela: `Task.WhenAll` de **6** endpoints por aeropuerto (añadido `/airport/{icao}/` para `NavAirportInfo`).
+- Todos los endpoints usan la forma singular `/airport/` (no `/airports/`).
+- Auth: `X-API-Key` + `X-Origin-Domain` de `AppConfig.NavDataApiKey/Domain`.
+- Configuración en `App.config`: `navdata_api_url`, `navdata_api_key`, `navdata_api_domain`.
 
 `RunwayTouchdownResult` incluye: `ThresholdDistanceFt`, `CenterlineDeviationFt`, `RunwayName`, `ThresholdLat`, `ThresholdLon`, `ThresholdHeading`.
 
-**BD LittleNavMap** — ruta configurada en `App.config` clave `lnm_db_path`. Usuario la cambia desde SettingsForm sección "NavMap Database".
-
-**Esquema BD** (verificado en producción):
-```
-airport    → airport_id, ident, lonx, laty
-runway     → runway_id, airport_id, primary_end_id, secondary_end_id, width (ft), length (ft)
-runway_end → runway_end_id, name, heading, lonx, laty, offset_threshold
-taxi_path  → taxi_path_id, airport_id, type ('T'=taxiway, 'P'=pavement), name, start_lonx/laty, end_lonx/laty
-parking    → parking_id, airport_id, type, name, number, suffix, radius, lonx, laty
-```
-
-**Geometría flat-earth:**
+**Geometría flat-earth** (preservada sin cambios en NavDataService):
 ```
 dN = (lat - thLat) * 111320
 dE = (lon - thLon) * 111320 * cos(thLat_rad)
 along = dE * sin(heading_rad) + dN * cos(heading_rad)   → dist al umbral (metros)
 cross = dE * cos(heading_rad) - dN * sin(heading_rad)   → desviación centreline (metros)
+ThresholdDistanceFt = Math.Max(0.0, along * 3.28084)    // ← Math.Max(0,...) es crítico
 ```
 
 ---
@@ -219,7 +237,7 @@ public void SetApproachData(IlsData ils, ApproachInfo approach, IList<ApproachFi
 
 ### ILS / Approach Detection — v0.4.4
 
-**New result types in `Db/RunwayService.cs`:**
+**Result types (en `Db/RunwayService.cs`):**
 
 | Clase | Propiedades clave |
 |---|---|
@@ -244,7 +262,7 @@ OnFlightPhaseChanged(Approach)
 - Secuenciación de fixes: avanza `_nextFixIndex` cuando la aeronave está a <0.5 NM del siguiente fix.
 
 **FsuipcService — nuevos offsets:**
-- `0x0350 · INT16` — NAV1 active frequency (BCD). Decode: cada nibble = un dígito decimal → MHz (e.g. `0x1113` = 111.3 MHz)
+- `0x0350 · INT16` — NAV1 active frequency (BCD). Formato: `(freq − 100) × 100` como 4 dígitos BCD → `100 + d3×10 + d2 + d1×0.1 + d0×0.01` (e.g. `0x1070` = 110.70 MHz, `0x1130` = 111.30 MHz)
 - `0x0C4E · INT16` — NAV1 OBS / ILS course (0–359°)
 
 ---
@@ -290,6 +308,8 @@ public void HideOsd()
 | PIREP filed | `PIREP FILED — SCORE: XX/100` | Success |
 | Descent ≤ 10 500 ft AGL, landing lights apagadas | `LANDING LT OFF` | Warning (solo aviso, sin penalización) — flag `_landingLightReminderSent` en FlightManager; se resetea si AGL > 10 500 ft (v0.4.15) |
 | Penalty lights (pushback/taxi/takeoff/below 9 500 ft AGL) | `PENALTY  NAV/TAXI/STROBE/LANDING LT  −5 PTS` | Warning |
+| Transition Altitude (climb) | `TRANS ALT  SET STD 1013` | Warning — solo si `transition_altitude_ft` no es null en NavData (v0.4.19) |
+| Transition Level (descent) | `TRANS LEVEL  SET QNH` | Warning — solo si `transition_level_ft` no es null en NavData (v0.4.19) |
 | Penalty QNH | `PENALTY  QNH  −5 PTS` | Warning |
 | Overspeed | `OVERSPEED  XXX KTS` | Critical |
 | Unstabilized approach | `UNSTABILIZED  −N PTS` | Critical |
@@ -311,7 +331,7 @@ MENU button (antes del botón START) → submenú "Test OSD" con 4 opciones (Inf
 ```
 FSUIPC → TouchdownDetected(lat, lon, heading)
     → MainViewModel.LookupRunwayData()  [Task.Run]
-    → RunwayService.FindTouchdownRunway()
+    → NavDataService.FindTouchdownRunway()
     → FlightManager.SetRunwayTouchdownData(distFt, clFt, rwyName)
 FilePirep() → ScoringService.Calculate(FlightScoreData)
     → TDZ y CL activos si dist/cl > 0
@@ -325,27 +345,34 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 
 | Archivo | Línea aprox. | Contenido |
 |---|---|---|
-| `Db/RunwayService.cs` | ~267 | `SafeProjectOnRunway()` con `WithinFootprint` para desambiguar pistas paralelas |
-| `Db/RunwayService.cs` | ~175 | `FindNextIntersection()` — próxima intersección de calle de rodaje adelante |
+| `Services/NavDataService.cs` | — | `ProjectOnRunway()` con `WithinFootprint` para desambiguar pistas paralelas (v0.4.18) |
+| `Services/NavDataService.cs` | — | `NextIntersection()` — próxima intersección de calle de rodaje adelante (v0.4.18) |
+| `Services/NavDataClient.cs` | — | HTTP client estático con caché ICAO; 6 endpoints por aeropuerto; `TestApiAsync` (v0.4.19) |
+| `Models/NavData.cs` | — | DTOs de la API NavData (NavRunway, NavTaxiway, NavApproach, NavAirportInfo, etc.) (v0.4.18/19) |
 | `Models/SimbriefPlan.cs` | ~119 | `BlockFuel`, `TripFuel` |
 | `Services/ScoringService.cs` | ~213 | Touchdown Zone + Centreline deductions |
 | `Services/ScoringService.cs` | ~247 | Localizer Alignment + Minimums Compliance deductions (v0.4.4) |
 | `Models/FlightScoreData.cs` | ~85 | `TouchdownDistanceFt`, `CenterlineDeviationFt`, `RunwayName` |
 | `Core/Flight/FlightManager.cs` | ~61 | Variables privadas touchdown |
-| `Models/FlightScoreData.cs` | ~125 | `LnmDbAvailable` (v0.4.12) — penalización de 14 pts si BD LNM no disponible |
-| `Core/Flight/FlightManager.cs` | ~224 | `LnmDbAvailable` property — seteado desde MainViewModel al iniciar vuelo (v0.4.12) |
-| `Core/Flight/FlightManager.cs` | ~1679 | `FilePirep()` incluye `LnmDbAvailable` en score data (v0.4.12) |
-| `ViewModels/MainViewModel.cs` | ~1092 | `LnmDbAvailable` y log inmediato si BD LNM ausente (v0.4.12) |
+| `Models/FlightScoreData.cs` | ~125 | `LnmDbAvailable` (v0.4.12) — penalización de 14 pts si NavData no disponible |
+| `Core/Flight/FlightManager.cs` | ~224 | `LnmDbAvailable` property — seteado con `NavDataClient.IsKeyValid` al iniciar vuelo (v0.4.19) |
+| `Core/Flight/FlightManager.cs` | ~1679 | `FilePirep()` incluye `LnmDbAvailable` en score data |
+| `ViewModels/MainViewModel.cs` | ~1092 | `LnmDbAvailable` y log inmediato si NavData no disponible |
+| `Core/Flight/FlightManager.cs` | ~83 | `_originTransitionAltFt`, `_destTransitionLevelFt`, `_taOsdSent`, `_tlOsdSent`, `_originQnhChecked`, `_destQnhChecked` (v0.4.19) |
+| `Core/Flight/FlightManager.cs` | ~672 | `CheckViolations()` — bloques TA OSD, STD pressure check, TL OSD, QNH destino (v0.4.19) |
+| `Core/Flight/FlightManager.cs` | ~448 | `CheckStdPressure()` — compara altímetro vs 1013.25, penaliza si Δ>2 hPa (v0.4.19) |
 | `Core/Flight/FlightManager.cs` | ~852 | `SetRunwayTouchdownData()` |
 | `Core/Flight/FlightManager.cs` | ~870 | `SetApproachData()` — carga ILS/approach/fixes para scoring (v0.4.4) |
+| `Core/Flight/FlightManager.cs` | ~870 | `SetOriginTransitionAlt()`, `SetDestTransitionLevel()` — inyectados desde LogNavDataPrefetch (v0.4.19) |
 | `Core/Flight/FlightManager.cs` | ~705 | `CheckApproachBelowGate()` — localizer alignment + DA check (v0.4.4) |
 | `Core/Flight/FlightManager.cs` | ~580 | `CheckViolations()` beacon exemption: `BeaconStrobeSharedAircraft` (DH8D) |
 | `Core/Flight/FlightManager.cs` | ~1022 | Touchdown detection con guardia de fase: solo Descent/Approach/Landing (evita falsos touchdowns en Takeoff/Climb) |
 | `ViewModels/MainViewModel.cs` | 535-560 | `LookupRunwayData()` post-touchdown |
 | `ViewModels/MainViewModel.cs` | 620-637 | `LookupTakeoffRunwayData()` |
+| `ViewModels/MainViewModel.cs` | — | `LogNavDataPrefetch(icao, isOrigin)` — prefetch + diagnóstico + inyección TA/TL en FlightManager (v0.4.19) |
 | `ViewModels/MainViewModel.cs` | ~562 | `HandleTaxiPositionUpdate()` — histéresis 3 ciclos para cambio de taxiway; pasa `heading` a `FindNearestTaxiway` (v0.4.17) |
 | `ViewModels/MainViewModel.cs` | ~177 | `_pendingTaxiway`, `_pendingTaxiwayCount` — estado de histéresis de taxiway (v0.4.17) |
-| `Services/LocalizationService.cs` | ~20 | Idioma forzado a `"es"` — ignora Settings (v0.4.17) |
+| `Services/LocalizationService.cs` | ~20 | Respeta idioma configurado en `App.config` (v0.4.19); antes forzaba `"es"` |
 | `ViewModels/MainViewModel.cs` | ~210 | Approach capture start log: `Lnm_ApproachCaptureStart` (pista, AGL, distancia) |
 | `Services/MetarService.cs` | ~57 | `DoFetchAsync` refactorizado v0.4.10: wrappers `SafeFetch*` independientes, `OnMetarUpdated` en finally, evento `OnLog`, `ParseMetarToken` en try/catch |
 | `Services/WeatherService.cs` | | QNH-only (usado por scoring) — independiente de MetarService (panel de METARs) |
@@ -386,6 +413,6 @@ Los umbrales elevados (−500 fpm, 20 s) evitan que cambios de QNH o turbulencia
 
 - **Touch-and-go real** — el guard de 5 s filtra rebotes, pero un T&G real reinicia el estado ILS/approach. Verificar que scoring y approach buffer se resetean correctamente para el segundo aterrizaje.
 - **MetarRaw en logbook** — `FlightRecord.MetarRaw` existe en el esquema pero no se popula en `SnapshotLandingRecord()`; el METAR de destino podría obtenerse de `MetarService` en ese momento.
-- **ILS - aeropuertos sin `runway_name` en `approach`** — `GetApproachType` ya tiene fallback via `runway_end_id`, pero algunos aeropuertos pueden no tener filas en `approach` para ILS (solo en tabla `ils`). En esos casos `ApproachInfo` será null aunque `IlsData` sea válido.
-- **DA calculada** — actualmente DA = threshold elevation + 200 ft (constante conservadora). Podría calcularse dinámicamente desde el `approach_leg` runway threshold fix (`altitude1`) cuando esté disponible.
-- **OSD en go-around** — actualmente no hay mensaje OSD al detectar go-around. Podría añadirse `GO AROUND` (Warning) en `OnFlightPhaseChanged` cuando la fase vuelve a Climb desde Approach.
+- **ILS - aeropuertos sin ILS en NavData** — si la API no devuelve ILS para una pista concreta, `ApproachInfo` será null aunque la pista tenga ILS físico. El scoring de Localizer Alignment y Minimums no se evaluará en esos casos.
+- **DA calculada** — actualmente DA = threshold elevation + 200 ft (constante conservadora). Podría calcularse dinámicamente desde el `approach_leg` runway threshold fix cuando esté disponible en la API.
+- **TA/TL null en NavData** — la API devuelve `transition_altitude_ft` y `transition_level_ft` como `null` cuando el aeropuerto no tiene ese dato. Ambos campos son `double?` en `NavAirportInfo`; la guarda `info?.TransitionAltitudeFt > 0` evalúa a `false` cuando es null, así que los OSD de TA/TL y el check de STD pressure simplemente no se activan. Podría añadirse un fallback basado en valores regionales estándar.

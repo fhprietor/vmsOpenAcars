@@ -22,8 +22,8 @@ namespace vmsOpenAcars.Services
             // Cargar idioma por defecto (español) como respaldo
             LoadDefaultLanguage();
 
-            // Español forzado — ignora la selección en Settings
-            LoadLanguage("es");
+            string configured = ConfigurationManager.AppSettings["language"] ?? "es";
+            LoadLanguage(configured);
         }
 
         private void LoadDefaultLanguage()

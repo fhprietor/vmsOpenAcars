@@ -1032,8 +1032,10 @@ namespace vmsOpenAcars.Services
             => raw * 360.0 / (65536.0 * 65536.0);
 
         /// <summary>
-        /// Decodes a BCD-encoded NAV1 frequency (FSUIPC 0x0350) to MHz.
-        /// Each nibble encodes a decimal digit: D3 D2 D1 . D0 (e.g. 0x1113 → 111.3 MHz).
+        /// Decodes a BCD-encoded VHF radio frequency (FSUIPC 0x034E/0x0350) to MHz.
+        /// Format: (freq - 100) × 100 stored as 4 BCD digits D3 D2 D1 D0.
+        /// e.g. 110.70 MHz → 1070 → 0x1070 → 100 + 1×10 + 0 + 7×0.1 + 0×0.01 = 110.70
+        ///      111.30 MHz → 1130 → 0x1130 → 100 + 1×10 + 1 + 3×0.1 + 0×0.01 = 111.30
         /// </summary>
         private static double DecodeNav1Bcd(short raw)
         {
@@ -1042,7 +1044,7 @@ namespace vmsOpenAcars.Services
             int d2 = (raw >>  8) & 0xF;
             int d1 = (raw >>  4) & 0xF;
             int d0 =  raw        & 0xF;
-            return d3 * 100.0 + d2 * 10.0 + d1 + d0 * 0.1;
+            return 100.0 + d3 * 10.0 + d2 + d1 * 0.1 + d0 * 0.01;
         }
 
         /// <summary>
