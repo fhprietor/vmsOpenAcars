@@ -687,6 +687,7 @@ namespace vmsOpenAcars.UI
 
         private void AppendLog(string message, Color? color = null)
         {
+            if (IsDisposed || !IsHandleCreated) return;
             if (txtOFPPreview.InvokeRequired)
             {
                 txtOFPPreview.Invoke(new Action(() =>

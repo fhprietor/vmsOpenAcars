@@ -16,6 +16,8 @@ namespace vmsOpenAcars.Db
     {
         public string RunwayName  { get; set; }
         public string TaxiwayName { get; set; }
+        /// <summary>True when the aircraft entered the runway heading toward the opposite threshold.</summary>
+        public bool IsBacktrack { get; set; }
     }
 
     public class HoldingPoint

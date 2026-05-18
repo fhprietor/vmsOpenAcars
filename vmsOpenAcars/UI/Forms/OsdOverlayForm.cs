@@ -84,19 +84,36 @@ namespace vmsOpenAcars.UI.Forms
 
             PositionOnScreen(AppConfig.OsdScreenIndex);
 
-            _animTimer.Stop();
-            _flashTimer.Stop();
-            _state      = AnimState.Idle;
-            _flashPhase = 0;
-
             _label.Text      = text;
             _label.ForeColor = TextColors[(int)severity];
-
-            // Hold ticks = total time minus ~650 ms for fade in/out
-            _holdTicks      = Math.Max(1, (int)((durationMs - 650.0) / 16));
-            _targetOpacity  = Math.Max(0.10, Math.Min(1.0, AppConfig.OsdOpacity / 100.0));
+            _holdTicks       = Math.Max(1, (int)((durationMs - 650.0) / 16));
+            _targetOpacity   = Math.Max(0.10, Math.Min(1.0, AppConfig.OsdOpacity / 100.0));
 
             if (!Visible) Show();
+
+            // If already animating: update content and reset hold timer without visual restart.
+            // This prevents rapid-fire messages from tripling the perceived display time.
+            if (_state == AnimState.FadeIn || _state == AnimState.Hold)
+            {
+                _flashTimer.Stop();
+                BackColor = BgNormal;
+                // Force at least a Hold after FadeIn completes; no opacity reset.
+                return;
+            }
+
+            // FadeOut in progress: reverse to FadeIn with current opacity so the message
+            // smoothly returns to full brightness instead of starting from 0.
+            if (_state == AnimState.FadeOut)
+            {
+                BackColor = BgNormal;
+                _state    = AnimState.FadeIn;
+                return;
+            }
+
+            // Idle: full fresh start.
+            _animTimer.Stop();
+            _flashTimer.Stop();
+            _flashPhase = 0;
 
             if (severity == OsdSeverity.Critical)
             {

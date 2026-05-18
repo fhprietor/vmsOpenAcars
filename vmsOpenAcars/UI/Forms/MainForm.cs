@@ -256,6 +256,7 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel.OnMetarStateChanged += UpdateMetarPanelState;
             _viewModel.OnOsdMessage += (msg, sev) =>
             {
+                OsdAudio.Play(sev);
                 if (AppConfig.OsdEnabled)
                     _osd?.ShowMessage(msg, sev, AppConfig.OsdDurationSeconds * 1000);
             };
@@ -544,9 +545,23 @@ namespace vmsOpenAcars.UI.Forms
             btnSettings.FlatAppearance.BorderSize = 0;
             btnSettings.Click += BtnSettings_Click;
 
+            // ===== BOTÓN DE MINIMIZAR =====
+            Button btnMinimize = new Button
+            {
+                Text = "─",
+                Font = new Font("Consolas", 14, FontStyle.Bold),
+                Size = new Size(40, 40),
+                BackColor = Color.Transparent,
+                ForeColor = Color.FromArgb(180, 180, 180),
+                FlatStyle = FlatStyle.Flat,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            btnMinimize.FlatAppearance.BorderSize = 0;
+            btnMinimize.Click += (s, e) => this.WindowState = FormWindowState.Minimized;
+
             // Agregar controles al panel
             pnlHeader.Controls.AddRange(new Control[] {
-        pbLogo, lblTitle, lblSubTitle, lblVersion, btnSettings
+        pbLogo, lblTitle, lblSubTitle, lblVersion, btnSettings, btnMinimize
     });
 
             mainLayout.Controls.Add(pnlHeader, 0, 0);
@@ -555,16 +570,17 @@ namespace vmsOpenAcars.UI.Forms
             pnlHeader.Resize += (s, e) =>
             {
                 int rightMargin = 10;
-                int settingsWidth = 40;
-                int spacing = 8;
+                int btnWidth = 40;
+                int spacing = 4;
 
-                // Posicionar el botón de configuración
-                btnSettings.Location = new Point(pnlHeader.Width - settingsWidth - rightMargin, 10);
+                // Posicionar: [lblVersion] [btnSettings] [btnMinimize]
+                btnMinimize.Location = new Point(pnlHeader.Width - btnWidth - rightMargin, 10);
+                btnSettings.Location = new Point(btnMinimize.Left - btnWidth - spacing, 10);
 
                 // Calcular el centro vertical del botón
                 int buttonCenterY = btnSettings.Top + (btnSettings.Height / 2);
 
-                // Posicionar la versión a la izquierda del botón, centrada verticalmente
+                // Posicionar la versión a la izquierda del botón de ajustes, centrada verticalmente
                 lblVersion.Location = new Point(
                     btnSettings.Left - lblVersion.Width - spacing,
                     buttonCenterY - (lblVersion.Height / 2)
@@ -603,6 +619,8 @@ namespace vmsOpenAcars.UI.Forms
         {
             using (var settingsForm = new SettingsForm())
             {
+                settingsForm.TestOsdCallback = (msg, sev) =>
+                    _osd?.ShowMessage(msg, sev, AppConfig.OsdDurationSeconds * 1000);
                 if (settingsForm.ShowDialog(this) == DialogResult.OK)
                 {
                     string airline = ConfigurationManager.AppSettings["airline"] ?? "vmsOpenAcars";
@@ -1876,10 +1894,10 @@ namespace vmsOpenAcars.UI.Forms
             {
                 menu.Items.Add(new ToolStripSeparator());
                 var osdSub = new ToolStripMenuItem("Test OSD");
-                osdSub.DropDownItems.Add("Info",     null, (s, ev) => _osd.ShowMessage("OSD TEST  —  INFO",     OsdSeverity.Info,     5000));
-                osdSub.DropDownItems.Add("Success",  null, (s, ev) => _osd.ShowMessage("OSD TEST  —  SUCCESS",  OsdSeverity.Success,  5000));
-                osdSub.DropDownItems.Add("Warning",  null, (s, ev) => _osd.ShowMessage("OSD TEST  —  WARNING",  OsdSeverity.Warning,  5000));
-                osdSub.DropDownItems.Add("Critical", null, (s, ev) => _osd.ShowMessage("OSD TEST  —  CRITICAL", OsdSeverity.Critical, 5000));
+                osdSub.DropDownItems.Add("Info",     null, (s, ev) => { OsdAudio.Play(OsdSeverity.Info);     _osd.ShowMessage("OSD TEST  —  INFO",     OsdSeverity.Info,     5000); });
+                osdSub.DropDownItems.Add("Success",  null, (s, ev) => { OsdAudio.Play(OsdSeverity.Success);  _osd.ShowMessage("OSD TEST  —  SUCCESS",  OsdSeverity.Success,  5000); });
+                osdSub.DropDownItems.Add("Warning",  null, (s, ev) => { OsdAudio.Play(OsdSeverity.Warning);  _osd.ShowMessage("OSD TEST  —  WARNING",  OsdSeverity.Warning,  5000); });
+                osdSub.DropDownItems.Add("Critical", null, (s, ev) => { OsdAudio.Play(OsdSeverity.Critical); _osd.ShowMessage("OSD TEST  —  CRITICAL", OsdSeverity.Critical, 5000); });
                 menu.Items.Add(osdSub);
             }
 

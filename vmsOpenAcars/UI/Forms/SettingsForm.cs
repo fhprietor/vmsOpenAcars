@@ -40,8 +40,13 @@ namespace vmsOpenAcars.UI.Forms
 
         // OSD Overlay
         private CheckBox chkOsdEnabled;
+        private CheckBox chkOsdSound;
+        private Button btnTestOsd;
         private NumericUpDown nudOsdDuration;
         private NumericUpDown nudOsdOpacity;
+
+        /// <summary>Set by MainForm to route TEST OSD clicks to the live OSD overlay.</summary>
+        public Action<string, OsdSeverity> TestOsdCallback { get; set; }
 
         private Button btnSave;
         private Button btnCancel;
@@ -56,7 +61,7 @@ namespace vmsOpenAcars.UI.Forms
         private void InitializeForm()
         {
             // 17 filas de datos + 1 fila de botones = 18 filas × 35px + título 35px + padding
-            this.Size = new Size(500, 725);
+            this.Size = new Size(500, 760);
             this.MinimumSize = new Size(460, 400);
             this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.None;
@@ -140,13 +145,13 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 19,
+                RowCount = 20,
                 BackColor = Color.Transparent
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68F));
 
-            for (int i = 0; i < 18; i++)
+            for (int i = 0; i < 19; i++)
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F)); // fila botones
 
@@ -411,7 +416,41 @@ namespace vmsOpenAcars.UI.Forms
             };
             layout.Controls.Add(nudOsdOpacity, 1, 17);
 
-            // Fila 18 — Botones (ocupa las 2 columnas, alineados a la derecha)
+            // Fila 18 — OSD Sound + TEST button
+            layout.Controls.Add(CreateLabel("Chimes"), 0, 18);
+            var chimesPanel = new FlowLayoutPanel
+            {
+                Dock         = DockStyle.Fill,
+                BackColor    = Color.Transparent,
+                WrapContents = false,
+                Padding      = new Padding(0)
+            };
+            chkOsdSound = new CheckBox
+            {
+                Text      = "Play cockpit chimes",
+                ForeColor = Color.White,
+                Font      = new Font("Consolas", 10),
+                AutoSize  = true,
+                Checked   = true,
+                Margin    = new Padding(0, 6, 8, 0)
+            };
+            btnTestOsd = new Button
+            {
+                Text      = "TEST ▾",
+                Font      = new Font("Consolas", 9, FontStyle.Bold),
+                BackColor = Color.FromArgb(30, 60, 90),
+                ForeColor = Color.Cyan,
+                FlatStyle = FlatStyle.Flat,
+                Size      = new Size(72, 24),
+                Margin    = new Padding(0, 4, 0, 0)
+            };
+            btnTestOsd.FlatAppearance.BorderColor = Color.FromArgb(60, 120, 180);
+            btnTestOsd.Click += BtnTestOsd_Click;
+            chimesPanel.Controls.Add(chkOsdSound);
+            chimesPanel.Controls.Add(btnTestOsd);
+            layout.Controls.Add(chimesPanel, 1, 18);
+
+            // Fila 19 — Botones (ocupa las 2 columnas, alineados a la derecha)
             var btnPanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -448,7 +487,7 @@ namespace vmsOpenAcars.UI.Forms
             btnPanel.Controls.Add(btnCancel);
 
             layout.SetColumnSpan(btnPanel, 2);
-            layout.Controls.Add(btnPanel, 0, 18);
+            layout.Controls.Add(btnPanel, 0, 19);
 
             contentPanel.Controls.Add(layout);
             this.Controls.Add(contentPanel);
@@ -509,6 +548,11 @@ namespace vmsOpenAcars.UI.Forms
                 osdEnabled = osdParsed;
             chkOsdEnabled.Checked = osdEnabled;
 
+            bool osdSound = true;
+            if (bool.TryParse(ConfigurationManager.AppSettings["osd_sound_enabled"], out bool osdSoundParsed))
+                osdSound = osdSoundParsed;
+            chkOsdSound.Checked = osdSound;
+
             int osdDuration = 4;
             if (int.TryParse(ConfigurationManager.AppSettings["osd_duration_seconds"], out int durParsed))
                 osdDuration = durParsed;
@@ -552,8 +596,36 @@ namespace vmsOpenAcars.UI.Forms
                 txtNavDataApiKey.Text.Trim()                       != Cfg("navdata_api_key")        ||
                 txtLandingLogPath.Text.Trim()                      != Cfg("landing_log_path")  ||
                 chkOsdEnabled.Checked.ToString().ToLower()         != Cfg("osd_enabled", "true").ToLower() ||
+                chkOsdSound.Checked.ToString().ToLower()           != Cfg("osd_sound_enabled", "true").ToLower() ||
                 ((int)nudOsdDuration.Value).ToString()             != Cfg("osd_duration_seconds", "4") ||
                 ((int)nudOsdOpacity.Value).ToString()              != Cfg("osd_opacity", "90");
+        }
+
+        private void BtnTestOsd_Click(object sender, EventArgs e)
+        {
+            var menu = new ContextMenuStrip
+            {
+                BackColor = Color.FromArgb(20, 30, 40),
+                ForeColor = Color.White,
+                Font      = new Font("Consolas", 10)
+            };
+            foreach (OsdSeverity sev in Enum.GetValues(typeof(OsdSeverity)))
+            {
+                var s = sev;
+                string label = "TEST  —  " + s.ToString().ToUpper();
+                var item = new ToolStripMenuItem(s.ToString())
+                {
+                    BackColor = Color.FromArgb(20, 30, 40),
+                    ForeColor = Color.White
+                };
+                item.Click += (o, a) =>
+                {
+                    OsdAudio.Play(s, forcePlay: chkOsdSound.Checked);
+                    TestOsdCallback?.Invoke(label, s);
+                };
+                menu.Items.Add(item);
+            }
+            menu.Show(btnTestOsd, new Point(0, btnTestOsd.Height));
         }
 
         private void BtnSave_Click(object sender, EventArgs e)
@@ -579,6 +651,7 @@ namespace vmsOpenAcars.UI.Forms
                 SetValue(config, "navdata_api_key",   txtNavDataApiKey.Text.Trim());
                 SetValue(config, "landing_log_path",  txtLandingLogPath.Text.Trim());
                 SetValue(config, "osd_enabled",          chkOsdEnabled.Checked.ToString().ToLower());
+                SetValue(config, "osd_sound_enabled",    chkOsdSound.Checked.ToString().ToLower());
                 SetValue(config, "osd_duration_seconds", ((int)nudOsdDuration.Value).ToString());
                 SetValue(config, "osd_opacity",          ((int)nudOsdOpacity.Value).ToString());
 

@@ -90,10 +90,12 @@ namespace vmsOpenAcars.Services
                 var runways = NavDataClient.GetRunways(airport);
                 foreach (var rwy in runways)
                 {
-                    if (HeadingDelta(rwy.Heading, heading) > 45.0) continue;
+                    double hdgDelta = HeadingDelta(rwy.Heading, heading);
+                    // Skip pure transversal crossings; accept normal entries (≤45°) and backtracks (≥135°)
+                    if (hdgDelta > 45.0 && hdgDelta < 135.0) continue;
                     if (!WithinFootprint(lat, lon, rwy)) continue;
                     string twy = NearestTaxiway(NavDataClient.GetTaxiways(airport), lat, lon);
-                    return new RunwayEntry { RunwayName = rwy.Name, TaxiwayName = twy };
+                    return new RunwayEntry { RunwayName = rwy.Name, TaxiwayName = twy, IsBacktrack = hdgDelta >= 135.0 };
                 }
                 return null;
             }
@@ -304,7 +306,17 @@ namespace vmsOpenAcars.Services
                     if (alt != null) best = alt;
                 }
 
-                Project(lat, lon, best.ThresholdLat, best.ThresholdLon, best.Heading,
+                // Project on the runway's TRUE geographic bearing (computed from endpoint
+                // coordinates) rather than rwy.Heading (magnetic) or the aircraft heading.
+                // rwy.Heading is magnetic and produces a projection-axis error of
+                //   along × sin(magvar) — up to 600 ft at airports with variation ≥ 13°.
+                // The aircraft heading at touchdown approximates the runway axis but includes
+                // any crosswind crab angle, which is irrelevant to centreline deviation and
+                // introduces errors proportional to sin(crab) × distance from threshold.
+                // TrueRunwayBearing() derives the geographic bearing directly from the
+                // NavData endpoint coordinates, which are WGS-84 and free of magnetic effects.
+                double trueBrg = TrueRunwayBearing(best);
+                Project(lat, lon, best.ThresholdLat, best.ThresholdLon, trueBrg,
                         out double along, out double cross);
 
                 return new RunwayTouchdownResult
@@ -336,13 +348,28 @@ namespace vmsOpenAcars.Services
 
         private static bool WithinFootprint(double lat, double lon, NavRunway rwy)
         {
-            Project(lat, lon, rwy.ThresholdLat, rwy.ThresholdLon, rwy.Heading,
+            // Use the geographic (true) bearing computed from the runway's endpoint
+            // coordinates rather than rwy.Heading (which is magnetic). At airports with
+            // significant magnetic variation (e.g. TJSJ ≈ −14°, KEWR ≈ −13°) using the
+            // magnetic heading as a geographic axis produces hundreds of feet of spurious
+            // cross-track offset, causing taxiways parallel to the runway to appear inside
+            // the footprint.
+            double trueBearing = TrueRunwayBearing(rwy);
+            Project(lat, lon, rwy.ThresholdLat, rwy.ThresholdLon, trueBearing,
                     out double along, out double cross);
             double halfW = rwy.WidthFt / FtPerMeter / 2.0 * RunwayWidthScale;
             double lenM  = rwy.LengthFt / FtPerMeter;
             return along >= -RunwayBufferM
                 && along <= lenM + RunwayBufferM
                 && Math.Abs(cross) <= halfW;
+        }
+
+        private static double TrueRunwayBearing(NavRunway rwy)
+        {
+            double cosLat = Math.Cos(rwy.ThresholdLat * Math.PI / 180.0);
+            double dN = (rwy.EndLat - rwy.ThresholdLat) * MetersPerDegLat;
+            double dE = (rwy.EndLon - rwy.ThresholdLon) * MetersPerDegLat * cosLat;
+            return (Math.Atan2(dE, dN) * 180.0 / Math.PI + 360.0) % 360.0;
         }
 
         private static double DistM(double lat1, double lon1, double lat2, double lon2)

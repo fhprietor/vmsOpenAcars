@@ -56,6 +56,8 @@ namespace vmsOpenAcars.Core.Flight
         private double _initialFuel = 0;
         private double _lastFuelUpdate = 0;
         private double _totalFuelUsed = 0;
+        private double _fuelAtTakeoffRoll = 0;
+        private double _fuelAtTaxiInStart = 0;
 
         // ── Scoring ──────────────────────────────────────────────────────────────────
         private double _touchdownPitch = 0;
@@ -75,10 +77,20 @@ namespace vmsOpenAcars.Core.Flight
         private bool _lightsViolationActive = false;
         private bool _beaconViolationActive = false;
         private bool _landingLightReminderSent = false;
+        private bool _passing10kFtSent = false;
         private int _qnhViolationCount = 0;
         private bool _isOfflineFlight = false;
         private bool _departedLate = false;
         private int _vmoKts = 320;
+        private int _apEngagedCounter = 0;
+        private const int ApEngageDebounce = 6; // 6 × 50 ms = 300 ms
+        private bool _singleEngineTaxiDetected = false;
+        private bool _bothEnginesRunning = false;
+        private int  _taxiOutMovingCycles = 0;
+        private int  _taxiOutSingleEngineCycles = 0;
+        private int  _taxiInMovingCycles = 0;
+        private int  _taxiInSingleEngineCycles = 0;
+        private const double SingleEngineTaxiMinRatio = 0.5; // ≥ 50 % del tiempo en movimiento
 
         // ── Transition Altitude / Level ───────────────────────────────────────────
         private double _originTransitionAltFt  = 0;
@@ -230,7 +242,6 @@ namespace vmsOpenAcars.Core.Flight
         public double TouchdownCenterlineFt => _touchdownCenterlineDeviationFt;
         public string TouchdownRunwayName   => _touchdownRunwayName;
         public double TouchdownGForce       => _touchdownGForce;
-        public bool   LnmDbAvailable    { get; set; } = true;
         public FlightPhase CurrentPhase { get; private set; }
         public int CurrentGroundSpeed { get; private set; }
         public double CurrentFuel { get; private set; }
@@ -352,6 +363,8 @@ namespace vmsOpenAcars.Core.Flight
             }
             CurrentPhase = newPhase;
             _phaseStartTime = DateTime.UtcNow;
+            if (newPhase != FlightPhase.Idle)
+                OnLog?.Invoke(_("Log_Phase" + newPhase), Theme.MainText);
             PhaseChanged?.Invoke(newPhase);
         }
 
@@ -392,6 +405,7 @@ namespace vmsOpenAcars.Core.Flight
 
                 // ── Takeoff roll: Strobe + Landing lights obligatorias ─────────
                 case FlightPhase.TakeoffRoll:
+                    _apEngagedCounter = 0; // discard any pre-accumulated ground AP signal
                     if (!_isStrobeOn)
                     {
                         _lightsViolationCount++;
@@ -403,6 +417,20 @@ namespace vmsOpenAcars.Core.Flight
                         _lightsViolationCount++;
                         OnLog?.Invoke(_("Log_PenaltyLanding"), Theme.Warning);
                         OnOsdMessage?.Invoke("PENALTY  LANDING LT  −5 PTS", OsdSeverity.Warning);
+                    }
+                    // Combustible consumido en taxi-out
+                    _fuelAtTakeoffRoll = CurrentFuel;
+                    double taxiOutFuel = _initialFuel - CurrentFuel;
+                    if (taxiOutFuel > 0)
+                        OnLog?.Invoke(_("Log_FuelTaxiOut", (int)Math.Round(taxiOutFuel)), Theme.MainText);
+                    // Single-engine TaxiOut evaluation
+                    if (!_singleEngineTaxiDetected && _bothEnginesRunning &&
+                        _taxiOutMovingCycles > 0 &&
+                        (double)_taxiOutSingleEngineCycles / _taxiOutMovingCycles >= SingleEngineTaxiMinRatio)
+                    {
+                        _singleEngineTaxiDetected = true;
+                        OnLog?.Invoke(_("Log_SingleEngineTaxiOut"), Theme.MainText);
+                        OnOsdMessage?.Invoke("SINGLE ENGINE TAXI  +5 PTS", OsdSeverity.Success);
                     }
                     // Verificar QNH antes de despegar
                     if (!string.IsNullOrEmpty(_activePlan?.Origin))
@@ -652,6 +680,13 @@ namespace vmsOpenAcars.Core.Flight
                 _landingLightReminderSent = false;
             }
 
+            // ── 10 000 ft callout (ascenso) ──────────────────────────────────────────
+            if (CurrentPhase == FlightPhase.Climb && altitudeAgl >= 10_000 && !_passing10kFtSent)
+            {
+                _passing10kFtSent = true;
+                OnOsdMessage?.Invoke("10 000 FT", OsdSeverity.Info);
+            }
+
             // ── Beacon light (siempre debe estar encendida en vuelo) ────────────────────────────
             // Excepción: aeronaves con switch compartido beacon/strobe (ej: Q400),
             // donde encender strobes apaga automáticamente el beacon
@@ -735,14 +770,33 @@ namespace vmsOpenAcars.Core.Flight
                 var (vappMin, vappMax) = AircraftPerformanceTable.GetApproachSpeedRange(_activePlan?.AircraftIcao);
                 int deductions = 0;
 
-                // 1. Speed
+                // 1. ILS tuning check — must run FIRST so subsequent criteria know the approach type.
+                // If NAV1 doesn't match the expected ILS, the pilot is flying RNP/visual:
+                // null _expectedIls so that bank-angle and Localizer/DA checks are skipped.
+                if (_expectedIls != null && !_ilsGateChecked)
+                {
+                    _ilsGateChecked = true;
+                    double freqDelta = Math.Abs(data.Nav1FrequencyMhz - _expectedIls.FrequencyMhz);
+                    if (freqDelta > 0.05)
+                    {
+                        OnLog?.Invoke(_("Log_IlsApproachSkipped", $"{data.Nav1FrequencyMhz:F2}", $"{_expectedIls.FrequencyMhz:F2}"), Theme.MainText);
+                        _expectedIls  = null;
+                        _daAltitudeFt = 0;
+                    }
+                    else
+                    {
+                        OnLog?.Invoke(_("Log_IlsTunedOk", $"{data.Nav1FrequencyMhz:F2}", $"{_expectedIls.Course:F0}"), Theme.Success);
+                    }
+                }
+
+                // 2. Speed
                 if (CurrentIndicatedAirspeed < vappMin || CurrentIndicatedAirspeed > vappMax)
                 {
                     deductions += 5;
                     OnLog?.Invoke(_("Log_ApproachGateSpeed", CurrentIndicatedAirspeed, vappMin, vappMax), Theme.Warning);
                 }
 
-                // 2. Descent rate: must be between -1000 and -100 fpm
+                // 3. Descent rate: must be between -1000 and -100 fpm
                 if (CurrentVerticalSpeed < -1000)
                 {
                     deductions += 5;
@@ -754,28 +808,29 @@ namespace vmsOpenAcars.Core.Flight
                     OnLog?.Invoke(_("Log_ApproachGateVsLow", CurrentVerticalSpeed), Theme.Warning);
                 }
 
-                // 3. Bank angle
-                if (Math.Abs(_currentBank) > 7.0)
+                // 4. Bank angle — only for ILS approaches. On RNP/visual, the final turn
+                // to align with the runway may legitimately exceed 7° at 1000 ft AGL.
+                if (_expectedIls != null && Math.Abs(_currentBank) > 7.0)
                 {
                     deductions += 3;
                     OnLog?.Invoke(_("Log_ApproachGateBank", _currentBank.ToString("F1")), Theme.Warning);
                 }
 
-                // 4. Pitch angle
+                // 5. Pitch angle
                 if (_currentPitch < -2.5 || _currentPitch > 10.0)
                 {
                     deductions += 3;
                     OnLog?.Invoke(_("Log_ApproachGatePitch", _currentPitch.ToString("F1")), Theme.Warning);
                 }
 
-                // 5. Gear
+                // 6. Gear
                 if (!data.GearDown)
                 {
                     deductions += 5;
                     OnLog?.Invoke(_("Log_ApproachGateGear"), Theme.Warning);
                 }
 
-                // 6. Flaps
+                // 7. Flaps
                 if (CurrentFlapsPosition < 50)
                 {
                     deductions += 4;
@@ -792,23 +847,6 @@ namespace vmsOpenAcars.Core.Flight
                 {
                     OnLog?.Invoke(_("Log_ApproachGateUnstable", (int)agl, deductions), Theme.Warning);
                     OnOsdMessage?.Invoke($"UNSTABILIZED  −{deductions} PTS", OsdSeverity.Critical);
-                }
-
-                // 7. ILS tuning check — verify NAV1 is tuned to the expected localizer
-                if (_expectedIls != null && !_ilsGateChecked)
-                {
-                    _ilsGateChecked = true;
-                    double freqDelta = Math.Abs(data.Nav1FrequencyMhz - _expectedIls.FrequencyMhz);
-                    if (freqDelta > 0.05)
-                    {
-                        _ilsTunedCorrectly = false;
-                        _localizerViolations++;
-                        OnLog?.Invoke(_("Log_IlsNotTuned", $"{data.Nav1FrequencyMhz:F2}", $"{_expectedIls.FrequencyMhz:F2}"), Theme.Warning);
-                    }
-                    else
-                    {
-                        OnLog?.Invoke(_("Log_IlsTunedOk", $"{data.Nav1FrequencyMhz:F2}", $"{_expectedIls.Course:F0}"), Theme.Success);
-                    }
                 }
 
                 // 9. QNH de destino — si hay Transition Level de NavData, ya se comprobó
@@ -887,6 +925,8 @@ namespace vmsOpenAcars.Core.Flight
             _blockOffRecorded = false;
             _initialFuel = 0;
             _totalFuelUsed = 0;
+            _fuelAtTakeoffRoll = 0;
+            _fuelAtTaxiInStart = 0;
             CurrentFuel = 0;
             _hasLandedThisFlight = false;
             _climbStableStart    = DateTime.MinValue;
@@ -919,6 +959,7 @@ namespace vmsOpenAcars.Core.Flight
             _lightsViolationCount = 0;
             _lightsViolationActive = false;
             _landingLightReminderSent = false;
+            _passing10kFtSent = false;
             _qnhViolationCount = 0;
             _isOfflineFlight = false;
             _departedLate = false;
@@ -1033,12 +1074,14 @@ namespace vmsOpenAcars.Core.Flight
             _touchdownLatSaved = 0; _touchdownLonSaved = 0; _touchdownHeadingDeg = 0;
             _touchdownDistanceFt = 0; _touchdownCenterlineDeviationFt = 0; _touchdownRunwayName = null;
             _overspeedCount = 0; _wasOverspeed = false;
-            _lightsViolationCount = 0; _lightsViolationActive = false; _landingLightReminderSent = false;
+            _apEngagedCounter = 0;
+            _singleEngineTaxiDetected = false; _bothEnginesRunning = false;
+            _taxiOutMovingCycles = 0; _taxiOutSingleEngineCycles = 0;
+            _taxiInMovingCycles  = 0; _taxiInSingleEngineCycles  = 0;
+            _lightsViolationCount = 0; _lightsViolationActive = false; _landingLightReminderSent = false; _passing10kFtSent = false;
             _qnhViolationCount = 0; _isOfflineFlight = false;
             _approachGateEvaluated = false; _prevApproachAgl = double.MaxValue;
             _stabilizedApproachDeductions = 0; _hasLandedThisFlight = false;
-            LnmDbAvailable = true;
-            LnmDbAvailable = true;
 
             _activePlan = plan;
             _activePilot = pilot;
@@ -1189,6 +1232,7 @@ namespace vmsOpenAcars.Core.Flight
             _lightsViolationActive = false;
             _beaconViolationActive = false;
             _landingLightReminderSent = false;
+            _passing10kFtSent = false;
             _qnhViolationCount = 0;
             _isOfflineFlight = false;
             _approachGateEvaluated = false; _prevApproachAgl = double.MaxValue;
@@ -1337,7 +1381,16 @@ namespace vmsOpenAcars.Core.Flight
                                 _activePlan?.Destination ?? _currentAirport, true);
                         }
                         if (groundSpeed < 40)
+                        {
+                            if (_fuelAtTakeoffRoll > 0)
+                            {
+                                double tripFuel = _fuelAtTakeoffRoll - CurrentFuel;
+                                if (tripFuel > 0)
+                                    OnLog?.Invoke(_("Log_FuelTrip", (int)Math.Round(tripFuel)), Theme.MainText);
+                            }
+                            _fuelAtTaxiInStart = CurrentFuel;
                             TransitionTo(FlightPhase.TaxiIn, previousPhase);
+                        }
                         break;
 
                     case FlightPhase.TaxiIn:
@@ -1356,6 +1409,21 @@ namespace vmsOpenAcars.Core.Flight
                                     !_areEnginesOn)
                                 {
                                     _stoppedStartTime = DateTime.MinValue;
+                                    if (_fuelAtTaxiInStart > 0)
+                                    {
+                                        double taxiInFuel = _fuelAtTaxiInStart - CurrentFuel;
+                                        if (taxiInFuel > 0)
+                                            OnLog?.Invoke(_("Log_FuelTaxiIn", (int)Math.Round(taxiInFuel)), Theme.MainText);
+                                    }
+                                    // Single-engine TaxiIn evaluation
+                                    if (!_singleEngineTaxiDetected && _bothEnginesRunning &&
+                                        _taxiInMovingCycles > 0 &&
+                                        (double)_taxiInSingleEngineCycles / _taxiInMovingCycles >= SingleEngineTaxiMinRatio)
+                                    {
+                                        _singleEngineTaxiDetected = true;
+                                        OnLog?.Invoke(_("Log_SingleEngineTaxiIn"), Theme.MainText);
+                                        OnOsdMessage?.Invoke("SINGLE ENGINE TAXI  +5 PTS", OsdSeverity.Success);
+                                    }
                                     OnBlockDetected?.Invoke();
                                     Task.Run(() => UpdateBlockOnTime());
                                     TransitionTo(FlightPhase.OnBlock, previousPhase);
@@ -1586,17 +1654,29 @@ namespace vmsOpenAcars.Core.Flight
                                            : (int)data.GroundSpeedKt;
             CurrentFuel = data.FuelLbs * 0.453592; ;
             CurrentTransponder = data.Transponder;
-            if (data.AutopilotEngaged != AutopilotEngaged)
+            if (data.AutopilotEngaged)
             {
-                AutopilotEngaged = data.AutopilotEngaged;
-                if (AutopilotEngaged)
-                    OnLog?.Invoke(_("Log_AutopilotEngaged", data.ApNavMode, data.ApVertMode), Theme.MainText);
-                else
-                    OnLog?.Invoke(_("Log_AutopilotDisengaged"), Theme.Warning);
+                _apEngagedCounter = Math.Min(_apEngagedCounter + 1, ApEngageDebounce);
+                if (_apEngagedCounter >= ApEngageDebounce && !AutopilotEngaged)
+                {
+                    bool isAirbornePhase = CurrentPhase == FlightPhase.Takeoff  ||
+                                          CurrentPhase == FlightPhase.Climb     ||
+                                          CurrentPhase == FlightPhase.Enroute   ||
+                                          CurrentPhase == FlightPhase.Descent   ||
+                                          CurrentPhase == FlightPhase.Approach;
+                    if (isAirbornePhase)
+                    {
+                        AutopilotEngaged = true;
+                        OnLog?.Invoke(_("Log_AutopilotEngaged", data.ApNavMode, data.ApVertMode, (int)CurrentAGL), Theme.MainText);
+                    }
+                }
             }
             else
             {
-                AutopilotEngaged = data.AutopilotEngaged;
+                if (AutopilotEngaged)
+                    OnLog?.Invoke(_("Log_AutopilotDisengaged", (int)CurrentAGL), Theme.Warning);
+                AutopilotEngaged = false;
+                _apEngagedCounter = 0;
             }
             SimTime = DateTime.UtcNow;
             RadarAltitude = data.RadarAltitudeFeet;
@@ -1621,6 +1701,26 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             _areEnginesOn = data.EnginesRunning;
+
+            // ── Detección de taxi con un solo motor ───────────────────────────────
+            if (data.Eng1Running && data.Eng2Running)
+                _bothEnginesRunning = true;
+
+            if (!string.IsNullOrEmpty(ActivePirepId))
+            {
+                bool oneEngineOnly = data.Eng1Running ^ data.Eng2Running;
+                bool moving = CurrentGroundSpeed > 3;
+                if (CurrentPhase == FlightPhase.TaxiOut)
+                {
+                    if (moving) _taxiOutMovingCycles++;
+                    if (moving && oneEngineOnly) _taxiOutSingleEngineCycles++;
+                }
+                else if (CurrentPhase == FlightPhase.TaxiIn)
+                {
+                    if (moving) _taxiInMovingCycles++;
+                    if (moving && oneEngineOnly) _taxiInSingleEngineCycles++;
+                }
+            }
 
             // Sistemas
             IsGearDown = data.GearDown;
@@ -1713,7 +1813,21 @@ namespace vmsOpenAcars.Core.Flight
             OnLog?.Invoke(_("Log_PlannedTime", plannedFlightTimeMinutes), Theme.MainText);
             OnLog?.Invoke(_("Log_ActualDistance", $"{totalDistanceNm:F1}"), Theme.MainText);
             OnLog?.Invoke(_("Log_ActualTime", actualFlightTimeMinutes), Theme.MainText);
-            OnLog?.Invoke(_("Log_FuelUsed", $"{fuelUsed:F0}"), Theme.MainText);
+            if (_fuelAtTakeoffRoll > 0 && _fuelAtTaxiInStart > 0)
+            {
+                double taxiOutKg  = _initialFuel      - _fuelAtTakeoffRoll;
+                double tripKg     = _fuelAtTakeoffRoll - _fuelAtTaxiInStart;
+                double taxiInKg   = _fuelAtTaxiInStart - CurrentFuel;
+                double taxiTotalKg = Math.Max(0, taxiOutKg) + Math.Max(0, taxiInKg);
+                OnLog?.Invoke(_("Log_FuelSummary",
+                    (int)Math.Round(Math.Max(0, taxiTotalKg)),
+                    (int)Math.Round(Math.Max(0, tripKg)),
+                    (int)Math.Round(fuelUsed)), Theme.MainText);
+            }
+            else
+            {
+                OnLog?.Invoke(_("Log_FuelUsed", $"{fuelUsed:F0}"), Theme.MainText);
+            }
             // ── Calcular score ────────────────────────────────────────────────────────
             var scoreData = new FlightScoreData
             {
@@ -1733,7 +1847,7 @@ namespace vmsOpenAcars.Core.Flight
                 IlsTunedCorrectly   = _ilsTunedCorrectly,
                 LocalizerViolations = _localizerViolations,
                 BelowMinimums       = _belowMinimums,
-                LnmDbAvailable      = LnmDbAvailable,
+                SingleEngineTaxi    = _singleEngineTaxiDetected && _bothEnginesRunning,
             };
             var scoring = new ScoringService();
             ScoringResult scoreResult = scoring.Calculate(scoreData);
@@ -1755,14 +1869,15 @@ namespace vmsOpenAcars.Core.Flight
                 { "Touchdown Zone",       "Score_CritTdz"          },
                 { "Centreline",           "Score_CritCentreline"   },
                 { "Localizer Alignment",  "Score_CritLocalizer"    },
-                { "Minimums Compliance",  "Score_CritMinimums"     },
-                { "LNM Database",         "Score_CritLnmDb"        }
+                { "Minimums Compliance",  "Score_CritMinimums"     }
             };
             foreach (var ded in scoreResult.Deductions)
             {
                 string critLabel = critKeyMap.TryGetValue(ded.Criterion, out string ck) ? _(ck) : ded.Criterion;
                 OnLog?.Invoke(string.Format(_("Score_Deduction"), ded.PointsDeducted, critLabel, ded.Reason), Theme.Warning);
             }
+            if (scoreResult.SingleEngineTaxiBonus > 0)
+                OnLog?.Invoke(_("Log_BonusSingleEngine", scoreResult.SingleEngineTaxiBonus), Theme.Success);
 
             var finalData = new
             {

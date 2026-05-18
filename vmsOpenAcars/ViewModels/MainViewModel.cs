@@ -174,6 +174,7 @@ namespace vmsOpenAcars.ViewModels
         private FlightPhase _prevPhase = FlightPhase.Idle;
         private bool   _wasOnRunwayForEntry  = false;
         private bool   _wasOnRunwayForExit   = false;
+        private int    _pendingRunwayOnCount = 0;
         private string _lastLoggedTaxiway    = null;
         private string _lastHoldingShortRwy  = null;
         private string _lastTaxiPositionMsg  = null;
@@ -315,13 +316,14 @@ namespace vmsOpenAcars.ViewModels
 
             if (phase == FlightPhase.TakeoffRoll)
             {
-                _wasOnRunwayForEntry = false;
-                _wasOnRunwayForExit  = false;
-                _lastLoggedTaxiway   = null;
-                _lastHoldingShortRwy = null;
-                _lastTaxiPositionMsg = null;
-                _pendingTaxiway      = null;
-                _pendingTaxiwayCount = 0;
+                _wasOnRunwayForEntry  = false;
+                _wasOnRunwayForExit   = false;
+                _pendingRunwayOnCount = 0;
+                _lastLoggedTaxiway    = null;
+                _lastHoldingShortRwy  = null;
+                _lastTaxiPositionMsg  = null;
+                _pendingTaxiway       = null;
+                _pendingTaxiwayCount  = 0;
                 if (_runwayService.IsAvailable)
                 {
                     double lat = _flightManager.CurrentLat;
@@ -333,10 +335,11 @@ namespace vmsOpenAcars.ViewModels
             }
             else if (phase == FlightPhase.TaxiIn && _prevPhase == FlightPhase.AfterLanding)
             {
-                _lastLoggedTaxiway   = null;
-                _lastTaxiPositionMsg = null;
-                _pendingTaxiway      = null;
-                _pendingTaxiwayCount = 0;
+                _lastLoggedTaxiway    = null;
+                _lastTaxiPositionMsg  = null;
+                _pendingTaxiway       = null;
+                _pendingTaxiwayCount  = 0;
+                _pendingRunwayOnCount = 0;
             }
             else if (phase == FlightPhase.OnBlock && _runwayService.IsAvailable)
             {
@@ -363,12 +366,12 @@ namespace vmsOpenAcars.ViewModels
             // OSD phase notifications
             switch (phase)
             {
-                case FlightPhase.TaxiOut:     OnOsdMessage?.Invoke("TAXI OUT",     OsdSeverity.Info);    break;
-                case FlightPhase.TakeoffRoll: OnOsdMessage?.Invoke("TAKEOFF ROLL", OsdSeverity.Warning); break;
-                case FlightPhase.Enroute:     OnOsdMessage?.Invoke("CRUISE",       OsdSeverity.Info);    break;
-                case FlightPhase.Descent:     OnOsdMessage?.Invoke("DESCENDING",   OsdSeverity.Info);    break;
-                case FlightPhase.Approach:    OnOsdMessage?.Invoke("APPROACH",     OsdSeverity.Warning); break;
-                case FlightPhase.OnBlock:     OnOsdMessage?.Invoke("ON BLOCK",     OsdSeverity.Success); break;
+                case FlightPhase.TaxiOut:     OnOsdMessage?.Invoke("TAXI OUT",     OsdSeverity.Info); break;
+                case FlightPhase.TakeoffRoll: OnOsdMessage?.Invoke("TAKEOFF ROLL", OsdSeverity.Info); break;
+                case FlightPhase.Enroute:     OnOsdMessage?.Invoke("CRUISE",       OsdSeverity.Info); break;
+                case FlightPhase.Descent:     OnOsdMessage?.Invoke("DESCENDING",   OsdSeverity.Info); break;
+                case FlightPhase.Approach:    OnOsdMessage?.Invoke("APPROACH",     OsdSeverity.Info); break;
+                case FlightPhase.OnBlock:     OnOsdMessage?.Invoke("ON BLOCK",     OsdSeverity.Info); break;
                 case FlightPhase.Climb:
                     if (_prevPhase == FlightPhase.AfterLanding)
                         OnOsdMessage?.Invoke("TOUCH AND GO", OsdSeverity.Warning);
@@ -542,7 +545,7 @@ namespace vmsOpenAcars.ViewModels
                 status = FlightPhaseHelper.GetStatusCode(_flightManager.CurrentPhase),
                 lat = e.Latitude,
                 lon = e.Longitude,
-                distance = Math.Round(totalDistanceKm, 2),
+                distance = Math.Round(totalDistanceKm * 0.539957, 2),
                 heading = (int)Math.Round(e.HeadingDeg, 0),
 
                 // altitude     = MSL en feet (lo que phpVMS llama "altitude")
@@ -683,35 +686,63 @@ namespace vmsOpenAcars.ViewModels
                 var entry = _runwayService.FindRunwayEntry(airport, lat, lon, heading);
                 onRunway  = entry != null;
 
+                // Debounce: require 2 consecutive detections to confirm runway presence,
+                // preventing GPS jitter on parallel taxiways from firing false entries.
+                if (onRunway) _pendingRunwayOnCount++;
+                else          _pendingRunwayOnCount = 0;
+                bool confirmedOnRunway = onRunway && _pendingRunwayOnCount >= 2;
+
                 if (!isTaxiIn)
                 {
                     // Departure: runway entry
-                    if (onRunway && !_wasOnRunwayForEntry)
+                    if (confirmedOnRunway && !_wasOnRunwayForEntry)
                     {
                         _lastLoggedTaxiway   = null;
                         _lastHoldingShortRwy = null;
                         _lastTaxiPositionMsg = null;
                         _pendingTaxiway      = null;
                         _pendingTaxiwayCount = 0;
-                        if (!string.IsNullOrEmpty(entry.TaxiwayName))
-                            OnLog?.Invoke(string.Format(_("Lnm_RunwayEntered"), entry.RunwayName, entry.TaxiwayName), Theme.Takeoff);
+                        if (entry.IsBacktrack)
+                        {
+                            if (!string.IsNullOrEmpty(entry.TaxiwayName))
+                                OnLog?.Invoke(string.Format(_("Lnm_RunwayBacktrackTwy"), entry.RunwayName, entry.TaxiwayName), Theme.Warning);
+                            else
+                                OnLog?.Invoke(string.Format(_("Lnm_RunwayBacktrack"), entry.RunwayName), Theme.Warning);
+                            OnOsdMessage?.Invoke($"BACKTRACK  RWY {entry.RunwayName}", OsdSeverity.Warning);
+                        }
                         else
-                            OnLog?.Invoke(string.Format(_("Lnm_RunwayEnteredNoTwy"), entry.RunwayName), Theme.Takeoff);
+                        {
+                            if (!string.IsNullOrEmpty(entry.TaxiwayName))
+                                OnLog?.Invoke(string.Format(_("Lnm_RunwayEntered"), entry.RunwayName, entry.TaxiwayName), Theme.Takeoff);
+                            else
+                                OnLog?.Invoke(string.Format(_("Lnm_RunwayEnteredNoTwy"), entry.RunwayName), Theme.Takeoff);
+                            OnOsdMessage?.Invoke($"ENTERING RWY {entry.RunwayName}", OsdSeverity.Warning);
+                        }
                     }
-                    _wasOnRunwayForEntry = onRunway;
+                    _wasOnRunwayForEntry = confirmedOnRunway;
                 }
                 else
                 {
+                    // Arrival: re-entry into runway (backtrack) — only after aircraft has exited
+                    if (confirmedOnRunway && !_wasOnRunwayForExit && entry?.IsBacktrack == true)
+                    {
+                        _lastLoggedTaxiway   = null;
+                        _pendingTaxiway      = null;
+                        _pendingTaxiwayCount = 0;
+                        OnLog?.Invoke(string.Format(_("Lnm_RunwayBacktrack"), entry.RunwayName), Theme.Warning);
+                        OnOsdMessage?.Invoke($"BACKTRACK  RWY {entry.RunwayName}", OsdSeverity.Warning);
+                    }
                     // Arrival: runway exit — log taxiway when leaving runway
-                    if (!onRunway && _wasOnRunwayForExit)
+                    if (!confirmedOnRunway && _wasOnRunwayForExit)
                     {
                         string twy = _runwayService.FindNearestTaxiway(airport, lat, lon, heading);
                         if (!string.IsNullOrEmpty(twy))
                             OnLog?.Invoke(string.Format(_("Lnm_RunwayVacated"), twy), Theme.Success);
                         else
                             OnLog?.Invoke(_("Lnm_RunwayVacatedNoTwy"), Theme.Success);
+                        OnOsdMessage?.Invoke("RWY VACATED", OsdSeverity.Info);
                     }
-                    _wasOnRunwayForExit = onRunway;
+                    _wasOnRunwayForExit = confirmedOnRunway;
                 }
 
                 if (!onRunway)
@@ -1151,7 +1182,6 @@ namespace vmsOpenAcars.ViewModels
                 OnLog?.Invoke(_("Log_SimRunning", _fsuipc.SimulatorName), Theme.MainText);
                 OnLog?.Invoke(acLine, Theme.MainText);
 
-                _flightManager.LnmDbAvailable = NavDataClient.IsKeyValid;
                 LogNavDataPrefetch(plan.Origin,      isOrigin: true);
                 LogNavDataPrefetch(plan.Destination, isOrigin: false);
                 OnButtonStateChanged?.Invoke("ABORT", Color.Red, true);

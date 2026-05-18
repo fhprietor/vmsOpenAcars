@@ -2,6 +2,89 @@
 
 ---
 
+## [0.5.7] — 2026-05-18
+
+### Fixed
+
+- **`WithinFootprint` y `ProjectOnRunway` usaban heading magnético como eje de proyección geográfica** — el bug idéntico al de v0.5.6 (heading magnético ≠ bearing geográfico verdadero) afectaba a dos rutas de código adicionales: (1) `WithinFootprint`, que proyecta la posición del avión sobre el eje de pista para detectar entradas y backtracks; (2) la proyección final de touchdown en `ProjectOnRunway`, que tras el fix de 0.5.6 usaba el heading verdadero del *avión* en lugar del magnético de NavData, pero ese heading incluye el ángulo de crab de viento en cruce. Caso real: **TJSJ pista 08** (var. −14°W) con el avión rodando por la Calle S a 513 ft del centreline — el código calculaba −90 ft de desviación lateral (footprint 96 ft halfW) y disparaba un falso backtrack. **SKBO pista 14L** (var. −8.5°W), aterrizaje prácticamente en el eje del ILS, reportaba 226 ft de desviación de centreline.
+- Solución unificada: nuevo método privado `TrueRunwayBearing(NavRunway)` que calcula el bearing geográfico verdadero a partir de las coordenadas `EndLat/EndLon` → `ThresholdLat/ThresholdLon` de NavData (WGS-84, libres de variación magnética). Se usa en `WithinFootprint` (elimina falsos positivos en footprint check) y en `ProjectOnRunway` (touchdown metrics precisos independientemente del crab angle). El heading magnético de NavData (`rwy.Heading`) se conserva **únicamente** en `HeadingDelta` para la selección de pista, donde el error de ~13° no impacta la clasificación (umbrales 45°/135°).
+
+---
+
+## [0.5.6] — 2026-05-18
+
+### Fixed
+
+- **Desviación de centreline y distancia al umbral incorrectas por heading magnético vs. verdadero** — `ProjectOnRunway` usaba `rwy.Heading` (rumbo magnético publicado en el AIRAC, ej. 220° para la pista 22R de KEWR) como eje de proyección geométrica, pero FSUIPC offset `0x0580` devuelve el heading **verdadero (true)** del avión. La diferencia entre ambos es la variación magnética local; en KEWR (−13°W) eso produce un error de cross-track de `along × sin(13°)` ≈ **183 m (600 ft)** a 800 m del umbral, aunque el avión aterrice en el centro exacto de la pista. Corregido usando el heading verdadero del avión (`heading` ya disponible en el parámetro) en la llamada final a `Project()`. El heading de NavData se conserva para la selección de pista y el footprint check (donde el error angular de ~13° no afecta la desambiguación de pistas paralelas). El fix es universal: aplica a todos los aeropuertos con variación magnética significativa (Europa, Escandinavia, Alaska, América del Norte).
+
+---
+
+## [0.5.5] — 2026-05-18
+
+### Added
+
+- **Log de transiciones de fase** — cada cambio de `FlightPhase` registra una entrada en el log con el nombre de la fase nueva (formato `── FASE ──`), excepto la transición inicial a `Idle`. Implementado en `FlightManager.TransitionTo` con `OnLog?.Invoke`. Las 16 fases no-Idle tienen claves de localización en `es.json` / `en.json` (`Log_PhaseBoarding`, `Log_PhaseTaxiOut`, `Log_PhaseClimb`…).
+- **OSD callout `10 000 FT` en climb** — al superar 10 000 ft AGL durante la fase Climb, el OSD muestra `10 000 FT` (Info). Dispara una sola vez por vuelo (`_passing10kFtSent`); se resetea con el vuelo.
+- **Botón minimizar** — nueva acción `─` en el header junto al botón de ajustes ⚙️. Llama a `WindowState = FormWindowState.Minimized`. Compatible con la ventana borderless (`FormBorderStyle.None`); respeta el drag-to-reposition.
+
+### Fixed
+
+- **Falso backtrack / entrada a pista en calle de rodaje paralela** — `FindRunwayEntry` podía devolver un positivo en una calle paralela si las coordenadas de umbral o el ancho de pista en NavData eran ligeramente imprecisos (caso real: SKRG CALLE A detectada como backtrack en pista 14L durante un único ciclo de telemetría). Añadido debounce de **2 ciclos consecutivos** (`_pendingRunwayOnCount >= 2`) antes de confirmar presencia en pista, análogo al `_pendingTaxiwayCount >= 3` de los cambios de calle. Un falso positivo de 1 ciclo queda filtrado sin retardo perceptible en la detección legítima (~6 s con actualizaciones SCH).
+- **Severidades OSD incorrectas** — tres mensajes de fase tenían severidad inconsistente con la especificación: `TAKEOFF ROLL` (`Warning` → `Info`), `APPROACH` (`Warning` → `Info`), `ON BLOCK` (`Success` → `Info`).
+
+---
+
+## [0.5.4] — 2026-05-17
+
+### Added
+
+- **Alertas sonoras de cabina para mensajes OSD** — cada mensaje OSD dispara ahora un chime de cabina acorde a su severidad: Info → single chime, Success → double chime, Warning → cavalry charge (3 tonos ascendentes Airbus), Critical → master warning burst. Los cuatro sonidos se compilan como `EmbeddedResource` dentro del ejecutable (no requieren archivos sueltos en la instalación). Los players se pre-cargan en memoria al arrancar, por lo que cada reproducción es instantánea y no bloquea el hilo UI.
+- **Toggle de chimes en Settings** — nueva fila "Chimes" en la sección OSD de SettingsForm con checkbox "Play cockpit chimes" (activado por defecto). La preferencia se guarda en `App.config` como `osd_sound_enabled` y se lee vía `AppConfig.OsdSoundEnabled`.
+- **Botón TEST ▾ en Settings** — botón desplegable junto al checkbox de chimes que permite probar los cuatro tipos de mensaje (Info / Success / Warning / Critical) directamente desde la ventana de ajustes, sin necesidad de simular un vuelo. El chime respeta el estado actual del checkbox aunque el cambio no haya sido guardado todavía. El OSD visual se muestra sobre la pantalla configurada.
+
+### Changed
+
+- **`OsdAudio.Play`** acepta parámetro opcional `forcePlay = false` para que el TEST ignore `AppConfig.OsdSoundEnabled` y use en su lugar el estado del checkbox en tiempo real.
+- **Test OSD en menú MENU** — los cuatro items del submenú "Test OSD" disparan ahora también el chime correspondiente (antes solo mostraban el OSD visual).
+
+---
+
+## [0.5.3] — 2026-05-17
+
+### Fixed
+
+- **Distancia en actualizaciones de posición enviada en km en lugar de NM** — `PrepareTelemetry` en `MainViewModel` construía el campo `distance` de `AcarsPosition` con `totalDistanceKm` sin convertir. phpVMS espera millas náuticas; el valor llegaba aproximadamente 1,85× mayor de lo real. Corregido aplicando la conversión `× 0.539957`, consistente con el PIREP final y `UpdateTimerPirep`, que ya usaban NM.
+- **QNH de aeropuerto de origen — fallo silencioso en despegue si la red no responde** — `WeatherService.GetQnhMbAsync` hacía siempre un fetch en vivo y devolvía `null` en cualquier error, sin caché. Si la petición HTTP fallaba en el momento del TakeoffRoll (la ventana de QNH de salida), se registraba `⚠️ QNH {ICAO}: no se pudo obtener el METAR` aunque el METAR hubiera sido obtenido exitosamente durante el embarque. Añadida caché estática por ICAO (`ConcurrentDictionary`): cada fetch exitoso persiste el valor; en caso de error (red, timeout, array vacío, altim nulo) se devuelve el último valor cacheado para ese ICAO. Si la caché también está vacía, el comportamiento es idéntico al anterior: devuelve `null` y la penalización no se aplica.
+- **A/P ENGAGED falso al despegar** — el contador de debounce `_apEngagedCounter` se acumulaba durante la fase TakeoffRoll (fase de tierra no incluida en el guard de fases). Al producirse el liftoff y transicionar a Takeoff (`isAirbornePhase = true`), el contador ya tenía 6 ciclos y disparaba inmediatamente `A/P ENGAGED` con 0 ft AGL. Corregido reseteando `_apEngagedCounter = 0` al entrar en TakeoffRoll (`CheckProcedureAtPhaseEntry`), de modo que cualquier señal acumulada en tierra queda descartada y el counter debe acumular 6 ciclos frescos una vez en el aire.
+
+---
+
+## [0.5.2] — 2026-05-16
+
+### Added
+
+- **Detección de taxi en single-engine y bonificación +5 pts** — en aeronaves multi-motor, si el piloto rueda con un solo motor durante **≥ 50 % del tiempo de movimiento** en TaxiOut y/o TaxiIn, el sistema otorga automáticamente **+5 puntos** al score final (sin superar 100). La detección usa cuatro contadores de ciclos (`_taxiOut/InMovingCycles`, `_taxiOut/InSingleEngineCycles`) acumulados durante el rodaje. La evaluación ocurre al entrar en TakeoffRoll (TaxiOut) y al detectar OnBlock (TaxiIn). La bonificación solo aplica en aeronaves donde ambos motores corrieron simultáneamente en algún momento del vuelo (`_bothEnginesRunning`), lo que excluye aviones monomotor. El OSD muestra `SINGLE ENGINE TAXI  +5 PTS` (Success) en el momento de la detección.
+- **Log de consumo de combustible en fases clave** — tres nuevas entradas en el log de vuelo registran automáticamente el combustible consumido en cada etapa en tierra:
+  - Al entrar en **TakeoffRoll**: combustible consumido en taxi-out (bloque off → carrera).
+  - Al abandonar pista (**AfterLanding → TaxiIn**): combustible de viaje (carrera de despegue → salida de pista).
+  - Al detectar **OnBlock**: combustible consumido en taxi-in (entrada a pista de rodaje → puerta).
+
+### Changed
+
+- **AGL en mensajes de piloto automático** — los mensajes de log `A/P ENGAGED` y `A/P DISENGAGED` incluyen ahora el AGL en el momento del evento. Ejemplo: `🤖 A/P ENGAGED — HDG/ALT  2 340 ft AGL`.
+
+### Fixed
+
+- **Aproximación RNP/visual penalizada por no sintonizar ILS** — cuando una pista tiene ILS en NavData pero el piloto ejecuta una aproximación RNP, visual o de otro tipo, el sistema comprobaba si NAV1 estaba en la frecuencia del ILS y penalizaba −3 pts por no estarlo. Ahora, al cruzar el gate de 1 000 ft AGL, si NAV1 difiere de la frecuencia ILS esperada en más de 0.05 MHz, el criterio completo se omite en silencio: se anulan `_expectedIls` y `_daAltitudeFt`, lo que cancela tanto la verificación de ILS en el gate como los controles de Localizer Alignment y Minimums Compliance por debajo de 500 ft AGL.
+- **Piloto automático — falsos positivos con iFly B38M (MSFS 2024)** — al mover cualquier dial del MCP (p. ej. el selector de HDG), el offset `0x07CC` recibía un valor no nulo por 1-2 ciclos de telemetría, lo que disparaba inmediatamente "A/P ENGAGED". Añadido debounce de confirmación: la señal raw debe mantenerse `true` durante **6 ciclos consecutivos (≈ 300 ms)** antes de confirmar el engagement y registrarlo. La desconexión (`DISENGAGED`) sigue siendo inmediata.
+- **`ObjectDisposedException` en `FlightPlannerForm`** — al cerrar el planner de vuelo mientras `LoadAllDataAsync()` aún awaita la respuesta de la API, la continuación asíncrona intentaba acceder a un `RichTextBox` ya destruido. Añadida guarda `if (IsDisposed || !IsHandleCreated) return;` al inicio de `AppendLog()`.
+
+### Removed
+
+- **Penalización de 14 pts por NavData no disponible** — se elimina el criterio "LNM Database" (−14 pts aplicados cuando `NavDataClient.IsKeyValid` era `false`). La NavData API es una función premium; aerolíneas virtuales sin acceso pueden seguir obteniendo puntuaciones perfectas. Los criterios Touchdown Zone, Centreline Deviation, Localizer Alignment y Minimums Compliance simplemente no se evalúan cuando los datos no están disponibles, sin penalización adicional.
+
+---
+
 ## [0.5.1] — 2026-05-16
 
 ### Added

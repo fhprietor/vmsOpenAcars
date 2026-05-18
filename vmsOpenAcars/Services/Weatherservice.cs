@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
@@ -12,6 +13,8 @@ namespace vmsOpenAcars.Services
     public class WeatherService
     {
         private static readonly HttpClient _http = new HttpClient();
+        private static readonly ConcurrentDictionary<string, double> _qnhCache =
+            new ConcurrentDictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
         private const string MetarApiUrl =
             "https://aviationweather.gov/api/data/metar?format=json&taf=false&ids=";
@@ -25,30 +28,36 @@ namespace vmsOpenAcars.Services
         /// <summary>
         /// Obtiene el QNH real del aeropuerto desde el último METAR disponible.
         /// aviationweather.gov devuelve altim directamente en hPa — no requiere conversión.
+        /// En caso de error de red usa el último valor cacheado para el aeropuerto.
         /// </summary>
         /// <param name="icao">Código ICAO del aeropuerto (ej. "SKRG", "SKBO").</param>
         /// <returns>QNH en hPa redondeado a 1 decimal, o null si no disponible o fuera de rango.</returns>
         public async Task<double?> GetQnhMbAsync(string icao)
         {
             if (string.IsNullOrWhiteSpace(icao)) return null;
+            string key = icao.ToUpperInvariant();
             try
             {
-                string json = await _http.GetStringAsync(MetarApiUrl + icao.ToUpperInvariant());
+                string json = await _http.GetStringAsync(MetarApiUrl + key);
                 var arr = JArray.Parse(json);
-                if (arr.Count == 0) return null;
+                if (arr.Count == 0)
+                    return _qnhCache.TryGetValue(key, out double cached) ? cached : (double?)null;
 
                 // altim ya viene en hPa — NO convertir desde inHg
                 double? altimHpa = arr[0]["altim"]?.Value<double?>();
-                if (altimHpa == null) return null;
+                if (altimHpa == null)
+                    return _qnhCache.TryGetValue(key, out double cached2) ? cached2 : (double?)null;
 
                 // Sanidad: QNH válido está entre 850 y 1084 hPa
                 if (altimHpa < 850 || altimHpa > 1084) return null;
 
-                return Math.Round(altimHpa.Value, 0);
+                double result = Math.Round(altimHpa.Value, 0);
+                _qnhCache[key] = result;
+                return result;
             }
             catch
             {
-                return null;
+                return _qnhCache.TryGetValue(key, out double fallback) ? fallback : (double?)null;
             }
         }
 

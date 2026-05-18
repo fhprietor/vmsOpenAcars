@@ -7,7 +7,8 @@
       "Bash(sqlite3 airports.sqlite \".tables\")",
       "Bash(sqlite3 *)",
       "Bash(cd /d \"D:\\\\Desarrollo\\\\proyectos\\\\VMS\\\\vmsOpenAcars\\\\vmsOpenAcars\")",
-      "Bash(findstr /n \"LoadPlan\\\\|LoadSimbrief\\\\|BtnSimbrief_Click\\\\|LoadFlightPlan\\\\|StartFlight\\\\|LoadFlight\" UI\\\\Forms\\\\MainForm.cs)"
+      "Bash(findstr /n \"LoadPlan\\\\|LoadSimbrief\\\\|BtnSimbrief_Click\\\\|LoadFlightPlan\\\\|StartFlight\\\\|LoadFlight\" UI\\\\Forms\\\\MainForm.cs)",
+      "Bash(grep -n \"EmbeddedResource\\\\|Resources\\\\\\\\\\\\\\\\\" \"D:/Desarrollo/proyectos/VMS/vmsOpenAcars/vmsOpenAcars/vmsOpenAcars.csproj\")"
     ]
   }
 }

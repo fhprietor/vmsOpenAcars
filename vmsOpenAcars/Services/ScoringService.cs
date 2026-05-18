@@ -35,6 +35,9 @@ namespace vmsOpenAcars.Services
 
         /// <summary>List of all deductions applied. Empty if the flight was perfect.</summary>
         public List<ScoringDeduction> Deductions { get; set; } = new List<ScoringDeduction>();
+
+        /// <summary>Bonus points awarded for single-engine taxi (0 or 5).</summary>
+        public int SingleEngineTaxiBonus { get; set; }
     }
 
     /// <summary>
@@ -102,18 +105,6 @@ namespace vmsOpenAcars.Services
             };
 
 int totalDeduction = 0;
-
-            // ── LNM Database penalty ────────────────────────────────────────────
-            if (!data.LnmDbAvailable)
-            {
-                result.Deductions.Add(new ScoringDeduction
-                {
-                    Criterion      = "LNM Database",
-                    Reason         = "Navigation database not available — Touchdown Zone + Centreline cannot be computed",
-                    PointsDeducted = 14
-                });
-                totalDeduction += 14;
-            }
 
             // ── Landing Rate ─────────────────────────────────────────────────────
             int lrDeduction = CalcLandingRateDeduction(data.LandingRate);
@@ -319,6 +310,14 @@ int totalDeduction = 0;
             }
 
             result.TotalScore = Math.Max(0, 100 - totalDeduction);
+
+            // ── Single Engine Taxi bonus ─────────────────────────────────────────
+            if (data.SingleEngineTaxi)
+            {
+                result.SingleEngineTaxiBonus = 5;
+                result.TotalScore = Math.Min(100, result.TotalScore + 5);
+            }
+
             return result;
         }
 

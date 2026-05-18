@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.5.1**
+**Versión 0.5.7**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -223,7 +223,7 @@ A partir de **3 000 ft AGL** en fase Approach, el sistema captura un punto de tr
 
 ## 5. Scoring de vuelo
 
-El score parte de **100 puntos** y aplica deducciones según **12 criterios**. El valor final (0–100) se envía con el PIREP a phpVMS y queda registrado en el LOGBOOK.
+El score parte de **100 puntos** y aplica deducciones según **14 criterios**. Adicionalmente existe una **bonificación** por taxi en single-engine. El valor final (0–100) se envía con el PIREP a phpVMS y queda registrado en el LOGBOOK.
 
 ### Tabla de criterios
 
@@ -241,10 +241,12 @@ El score parte de **100 puntos** y aplica deducciones según **12 criterios**. E
 | **On-Time Departure** | −5 pts | −5 si el Blocks Off real difiere más de 10 min del STD programado |
 | **Touchdown Zone** | −7 pts | ≤ 1 500 ft del umbral → 0 · ≤ 2 500 ft → −3 · > 2 500 ft → −7 ¹ |
 | **Centreline Deviation** | −7 pts | ≤ 10 ft → 0 · ≤ 30 ft → −3 · > 30 ft → −7 ¹ |
-| **Localizer Alignment** | −5 pts | ILS no sintonizado → −3 · desviación de rumbo > 5° (× 2 máx) → −2 ¹ |
-| **Minimums Compliance** | −5 pts | −5 si el avión descendió bajo la DA sin aterrizar ¹ |
+| **Localizer Alignment** | −5 pts | ILS no sintonizado → −3 · desviación de rumbo > 5° (× 2 máx) → −2 ¹ ² |
+| **Minimums Compliance** | −5 pts | −5 si el avión descendió bajo la DA sin aterrizar ¹ ² |
+| **Single Engine Taxi** | **+5 pts** (bonus) | Se otorgan si ruedas ≥ 50 % del tiempo de movimiento con un solo motor en TaxiOut o TaxiIn. Solo aplica en aeronaves multi-motor. El score no puede superar 100. |
 
-> ¹ Requiere la **NavData API** configurada en Settings (URL + API Key válida). Sin ella, estos criterios no se evalúan. **Localizer Alignment** y **Minimums Compliance** además requieren que la pista tenga un procedimiento ILS en la API.
+> ¹ Requiere la **NavData API** configurada en Settings (URL + API Key válida). Sin ella, estos criterios no se evalúan.  
+> ² **Localizer Alignment** y **Minimums Compliance** también se omiten si el piloto sintoniza una frecuencia distinta a la del ILS al cruzar 1 000 ft AGL (aproximación RNP, visual u otro procedimiento). En ese caso no hay penalización.
 
 ---
 
@@ -369,6 +371,7 @@ El overlay OSD (**On-Screen Display**) muestra notificaciones superpuestas al si
 | Touch-and-go | `TOUCH AND GO` | Warning |
 | PIREP enviado | `PIREP FILED — SCORE: XX/100` | Success |
 | OnBlock | `ON BLOCK` | Info |
+| Single-engine taxi detectado | `SINGLE ENGINE TAXI  +5 PTS` | Success |
 
 > Los mensajes **Critical** parpadean en rojo durante ~1.3 s antes de mostrar el texto fijo. Los demás niveles usan fade-in/fade-out suave.
 
@@ -454,4 +457,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.5.1 — que tengas buen vuelo.*
+*vmsOpenAcars v0.5.4 — que tengas buen vuelo.*

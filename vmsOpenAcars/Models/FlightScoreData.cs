@@ -123,11 +123,10 @@ namespace vmsOpenAcars.Models
 public bool BelowMinimums { get; set; }
 
         /// <summary>
-        /// Set to false at flight start if the LittleNavMap database is not available.
-        /// When false, a flat 14-pt penalty (TDZ + Centreline) is applied since
-        /// runway distance / centreline metrics cannot be computed.
+        /// True if the aircraft performed single-engine taxi (TaxiOut or TaxiIn) on a
+        /// multi-engine aircraft. Grants a +5 pt bonus (capped at 100).
         /// </summary>
-        public bool LnmDbAvailable { get; set; } = true;
+        public bool SingleEngineTaxi { get; set; }
 
         /// <summary>
         /// Resets all fields to their default (zero) values.
@@ -151,7 +150,7 @@ public bool BelowMinimums { get; set; }
             IlsTunedCorrectly = true;
             LocalizerViolations = 0;
             BelowMinimums = false;
-            LnmDbAvailable = true;
+            SingleEngineTaxi = false;
         }
     }
 }
