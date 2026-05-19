@@ -180,6 +180,9 @@ namespace vmsOpenAcars.ViewModels
         private string _lastTaxiPositionMsg  = null;
         private string _pendingTaxiway       = null;
         private int    _pendingTaxiwayCount  = 0;
+        // Min heading divergence from current taxiway axis before a taxiway change is considered.
+        // Filters GPS proximity blips on crossing/parallel taxiways without a real turn.
+        private const double TaxiwayChangeHeadingThreshold = 25.0;
 
         private void OnRawDataUpdated(object sender, RawTelemetryData e)
         {
@@ -755,27 +758,55 @@ namespace vmsOpenAcars.ViewModels
                     {
                         if (twy != _lastLoggedTaxiway)
                         {
-                            // Require 3 consecutive detections before announcing a taxiway change
-                            // to suppress GPS jitter and spurious cross-taxiway blips at intersections.
-                            if (twy == _pendingTaxiway)
-                                _pendingTaxiwayCount++;
-                            else
+                            // Angular criterion: only advance hysteresis if the aircraft has
+                            // turned away from the current taxiway axis by more than the threshold.
+                            // This prevents proximity blips on crossing or parallel taxiways from
+                            // triggering a taxiway change while the aircraft is still rolling
+                            // straight along its current taxiway. The criterion is skipped when
+                            // no taxiway has been confirmed yet (first taxiway of the session).
+                            bool headingDiverged = true;
+                            if (!string.IsNullOrEmpty(_lastLoggedTaxiway))
                             {
-                                _pendingTaxiway      = twy;
-                                _pendingTaxiwayCount = 1;
+                                double curBrg = _runwayService.FindTaxiwaySegmentBearing(
+                                    airport, _lastLoggedTaxiway, lat, lon);
+                                if (!double.IsNaN(curBrg))
+                                {
+                                    double d1 = Math.Abs(heading - curBrg) % 360.0;
+                                    if (d1 > 180.0) d1 = 360.0 - d1;
+                                    double d2 = Math.Abs(heading - (curBrg + 180.0) % 360.0) % 360.0;
+                                    if (d2 > 180.0) d2 = 360.0 - d2;
+                                    headingDiverged = Math.Min(d1, d2) > TaxiwayChangeHeadingThreshold;
+                                }
                             }
 
-                            if (_pendingTaxiwayCount >= 3)
+                            if (headingDiverged)
                             {
+                                if (twy == _pendingTaxiway)
+                                    _pendingTaxiwayCount++;
+                                else
+                                {
+                                    _pendingTaxiway      = twy;
+                                    _pendingTaxiwayCount = 1;
+                                }
+
+                                if (_pendingTaxiwayCount >= 3)
+                                {
+                                    _pendingTaxiway      = null;
+                                    _pendingTaxiwayCount = 0;
+                                    _lastLoggedTaxiway   = twy;
+
+                                    string msg = !string.IsNullOrEmpty(next)
+                                        ? string.Format(_("Lnm_TaxiPosition"), twy, next)
+                                        : string.Format(_("Lnm_TaxiwayChange"), twy);
+                                    _lastTaxiPositionMsg = msg;
+                                    OnLog?.Invoke(msg, Theme.Taxi);
+                                }
+                            }
+                            else
+                            {
+                                // Heading still aligned with current taxiway — suppress candidate
                                 _pendingTaxiway      = null;
                                 _pendingTaxiwayCount = 0;
-                                _lastLoggedTaxiway   = twy;
-
-                                string msg = !string.IsNullOrEmpty(next)
-                                    ? string.Format(_("Lnm_TaxiPosition"), twy, next)
-                                    : string.Format(_("Lnm_TaxiwayChange"), twy);
-                                _lastTaxiPositionMsg = msg;
-                                OnLog?.Invoke(msg, Theme.Taxi);
                             }
                         }
                         else

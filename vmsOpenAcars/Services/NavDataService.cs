@@ -112,6 +112,35 @@ namespace vmsOpenAcars.Services
             catch { return null; }
         }
 
+        // Returns the geographic bearing of the nearest segment of the named taxiway,
+        // or double.NaN if not found. Used to apply the angular transition criterion.
+        public double FindTaxiwaySegmentBearing(string airport, string taxiwayName,
+            double lat, double lon)
+        {
+            if (string.IsNullOrEmpty(taxiwayName)) return double.NaN;
+            try
+            {
+                var taxiways = NavDataClient.GetTaxiways(airport);
+                double bestDist = double.MaxValue;
+                double result   = double.NaN;
+                foreach (var twy in taxiways)
+                {
+                    if (!string.Equals(twy.Name, taxiwayName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    double d = DistToSegM(lat, lon, twy.StartLat, twy.StartLon,
+                                          twy.EndLat,   twy.EndLon);
+                    if (d < bestDist)
+                    {
+                        bestDist = d;
+                        result   = BearingDeg(twy.StartLat, twy.StartLon,
+                                              twy.EndLat,   twy.EndLon);
+                    }
+                }
+                return result;
+            }
+            catch { return double.NaN; }
+        }
+
         public string FindNextIntersection(
             string airport, double lat, double lon, double heading)
         {
