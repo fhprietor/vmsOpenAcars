@@ -2,6 +2,20 @@
 
 ---
 
+## [0.5.8] — 2026-05-18
+
+### Added
+
+- **Mapa en movimiento (MAP)** — nuevo botón MAP (reemplaza MSG no utilizado) que abre una ventana no modal `MapForm` con un mapa GMap.NET en tiempo real. El avión se representa como un marcador amarillo con forma de flecha girado por heading. Modos de seguimiento: FOLLOW activa auto-centrado; el piloto puede desactivarlo para explorar el mapa manualmente. Proveedores disponibles: OpenStreetMap (defecto) y ESRI World Imagery (satélite, sin API key). Botones de zoom ±. Barra de estado inferior con coordenadas lat/lon, heading y zoom actual. El mapa se actualiza cada 5 ciclos de telemetría (~250 ms). Paquete NuGet: **GMap.NET.WinForms 17.2.0** y **GMap.NET.Core 17.2.0**.
+- **Criterio de transición de calle de rodaje angular** — el cambio de calle ya no se basa únicamente en proximidad temporal. Una vez confirmada una calle (`_lastLoggedTaxiway`), el contador de histéresis sólo avanza si el heading del avión diverge más de **25°** respecto al bearing bidireccional del segmento actual de la calle confirmada (`FindTaxiwaySegmentBearing()`). Esto elimina los falsos cambios por calles paralelas o calles de cruce que momentáneamente están más cerca. Mientras el avión mantenga el rumbo de la calle actual, los segmentos de otras calles más cercanas se ignoran. Se usa la función `HeadingDeltaBidirectional` para tratar la calle como una línea sin dirección (ambos sentidos de rodaje son válidos).
+
+### Changed
+
+- `NavDataService` — nuevo método público `FindTaxiwaySegmentBearing(airport, taxiwayName, lat, lon)` que devuelve el bearing geográfico del segmento más próximo de una calle de rodaje dada (usado por el criterio angular).
+- `MainViewModel` — `HandleTaxiPositionUpdate` modificado para usar el criterio angular; nuevo campo `_mapUpdateCounter` y evento `OnMapPositionUpdate` (lat, lon, heading) que dispara cada 5 ciclos de `RawDataUpdated` (~250 ms, independiente de la tasa de telemetría adaptativa). **Fix:** el contador estaba inicialmente en `OnTelemetryUpdated` (tasa adaptativa: 30 s en taxi → mapa se actualizaba cada 150 s); movido a `OnRawDataUpdated`.
+
+---
+
 ## [0.5.7] — 2026-05-18
 
 ### Fixed

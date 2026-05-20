@@ -73,6 +73,7 @@ namespace vmsOpenAcars.UI.Forms
         private Button btnAtis;
         private Button btnOfp;
         private Button btnMsg;
+        private MapForm _mapForm;
         private Button btnWeather;
         private Button btnSimbrief;
         private Button btnLogbook;
@@ -254,6 +255,12 @@ namespace vmsOpenAcars.UI.Forms
             _viewModel.OnButtonStateChanged += UpdateButtonState;
             _viewModel.OnMetarUpdated      += UpdateMetarPanel;
             _viewModel.OnMetarStateChanged += UpdateMetarPanelState;
+            _viewModel.OnMapPositionUpdate += (lat, lon, hdg) =>
+            {
+                if (_mapForm != null && !_mapForm.IsDisposed)
+                    _mapForm.UpdatePosition(lat, lon, hdg);
+            };
+
             _viewModel.OnOsdMessage += (msg, sev) =>
             {
                 OsdAudio.Play(sev);
@@ -1221,7 +1228,7 @@ namespace vmsOpenAcars.UI.Forms
                 Padding = new Padding(4)
             };
 
-            string[] buttonNames = { "MENU", "LOGIN", "ATIS", "OFP", "MSG", "WEATHER", "DISPATCH", "LOGBOOK", "START", "CANCEL" };
+            string[] buttonNames = { "MENU", "LOGIN", "ATIS", "OFP", "MAP", "WEATHER", "DISPATCH", "LOGBOOK", "START", "CANCEL" };
             Color[] buttonColors = {
                 Color.FromArgb(60, 70, 80),
                 Color.FromArgb(0, 120, 200),
@@ -1287,6 +1294,10 @@ namespace vmsOpenAcars.UI.Forms
                     case "MENU":
                         btnMenu = btn;
                         btn.Click += BtnMenu_Click;
+                        break;
+                    case "MAP":
+                        btnMsg = btn;
+                        btn.Click += BtnMap_Click;
                         break;
                     default:
                         btn.Click += GenericButton_Click;
@@ -1834,6 +1845,26 @@ namespace vmsOpenAcars.UI.Forms
                 {
                     Close();
                 }
+            }
+        }
+
+        private void BtnMap_Click(object sender, EventArgs e)
+        {
+            if (_mapForm == null || _mapForm.IsDisposed)
+            {
+                _mapForm = new MapForm();
+                // Open to the right of the ACARS window; fall back to offset if no room
+                int x = Right + 6;
+                if (x + _mapForm.Width > Screen.FromControl(this).WorkingArea.Right)
+                    x = Left + 40;
+                _mapForm.Location = new Point(x, Top);
+                _mapForm.Show();
+            }
+            else
+            {
+                if (_mapForm.WindowState == FormWindowState.Minimized)
+                    _mapForm.WindowState = FormWindowState.Normal;
+                _mapForm.BringToFront();
             }
         }
 

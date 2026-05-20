@@ -8,7 +8,10 @@
       "Bash(sqlite3 *)",
       "Bash(cd /d \"D:\\\\Desarrollo\\\\proyectos\\\\VMS\\\\vmsOpenAcars\\\\vmsOpenAcars\")",
       "Bash(findstr /n \"LoadPlan\\\\|LoadSimbrief\\\\|BtnSimbrief_Click\\\\|LoadFlightPlan\\\\|StartFlight\\\\|LoadFlight\" UI\\\\Forms\\\\MainForm.cs)",
-      "Bash(grep -n \"EmbeddedResource\\\\|Resources\\\\\\\\\\\\\\\\\" \"D:/Desarrollo/proyectos/VMS/vmsOpenAcars/vmsOpenAcars/vmsOpenAcars.csproj\")"
+      "Bash(grep -n \"EmbeddedResource\\\\|Resources\\\\\\\\\\\\\\\\\" \"D:/Desarrollo/proyectos/VMS/vmsOpenAcars/vmsOpenAcars/vmsOpenAcars.csproj\")",
+      "PowerShell(Get-Command *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(cmd /c dir \"D:\\\\Desarrollo\\\\proyectos\\\\VMS\\\\vmsOpenAcars\\\\packages\\\\GMap.NET.WinForms.2.1.7\\\\lib\" /s /b 2>&1)"
     ]
   }
 }

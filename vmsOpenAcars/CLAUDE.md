@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.5.7  
+**Versión actual:** v0.5.8  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -76,6 +76,7 @@ RunwayTouchdownResult FindTouchdownRunway(airport, lat, lon, heading)
 RunwayTouchdownResult FindTakeoffRunway(airport, lat, lon, heading)
 RunwayEntry           FindRunwayEntry(airport, lat, lon, heading)
 string                FindNearestTaxiway(airport, lat, lon, heading)  // heading opcional; penaliza ×2,5 segmentos >50° (v0.4.17)
+double                FindTaxiwaySegmentBearing(airport, taxiwayName, lat, lon)  // bearing del segmento más cercano de una calle dada (v0.5.8)
 HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)    // usa datos holdshort de la API
 ParkingSpot           FindNearestParking(airport, lat, lon)
 RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading)
@@ -369,7 +370,7 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 
 | Archivo | Línea aprox. | Contenido |
 |---|---|---|
-| `Services/NavDataService.cs` | — | `ProjectOnRunway()` con `WithinFootprint` para desambiguar pistas paralelas (v0.4.18); `TrueRunwayBearing()` — bearing geográfico verdadero desde coords threshold→end, usado en `WithinFootprint` y proyección final de touchdown (v0.5.7) |
+| `Services/NavDataService.cs` | — | `ProjectOnRunway()` con `WithinFootprint` para desambiguar pistas paralelas (v0.4.18); `TrueRunwayBearing()` — bearing geográfico verdadero desde coords threshold→end, usado en `WithinFootprint` y proyección final de touchdown (v0.5.7); `FindTaxiwaySegmentBearing()` — bearing del segmento más cercano de una calle dada (v0.5.8) |
 | `Services/NavDataService.cs` | — | `NextIntersection()` — próxima intersección de calle de rodaje adelante (v0.4.18) |
 | `Services/NavDataClient.cs` | — | HTTP client estático con caché ICAO; 6 endpoints por aeropuerto; `TestApiAsync` (v0.4.19) |
 | `Models/NavData.cs` | — | DTOs de la API NavData (NavRunway, NavTaxiway, NavApproach, NavAirportInfo, etc.) (v0.4.18/19) |
@@ -395,8 +396,10 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `ViewModels/MainViewModel.cs` | 535-560 | `LookupRunwayData()` post-touchdown |
 | `ViewModels/MainViewModel.cs` | 620-637 | `LookupTakeoffRunwayData()` |
 | `ViewModels/MainViewModel.cs` | — | `LogNavDataPrefetch(icao, isOrigin)` — prefetch + diagnóstico + inyección TA/TL en FlightManager (v0.4.19) |
-| `ViewModels/MainViewModel.cs` | ~562 | `HandleTaxiPositionUpdate()` — histéresis 3 ciclos para cambio de taxiway; debounce 2 ciclos para entrada/backtrack de pista (v0.5.5); pasa `heading` a `FindNearestTaxiway` (v0.4.17) |
-| `ViewModels/MainViewModel.cs` | ~177 | `_pendingTaxiway`, `_pendingTaxiwayCount` — histéresis de taxiway (v0.4.17); `_pendingRunwayOnCount` — debounce de entrada a pista (v0.5.5) |
+| `ViewModels/MainViewModel.cs` | ~562 | `HandleTaxiPositionUpdate()` — criterio **angular** (>25°) para cambio de taxiway (v0.5.8); debounce 2 ciclos para entrada/backtrack de pista (v0.5.5); pasa `heading` a `FindNearestTaxiway` (v0.4.17) |
+| `UI/Forms/MapForm.cs` | — | Ventana no-modal GMap.NET: marcador `AircraftMarker` amarillo girado por heading, modo FOLLOW, proveedores OSM/ESRI, barra de estado lat/lon/HDG/Z (v0.5.8) |
+| `ViewModels/MainViewModel.cs` | ~177 | `_pendingTaxiway`, `_pendingTaxiwayCount` — histéresis de taxiway (v0.4.17); `_pendingRunwayOnCount` — debounce de entrada a pista (v0.5.5); `TaxiwayChangeHeadingThreshold = 25.0` — umbral angular para criterio de cambio de calle (v0.5.8) |
+| `ViewModels/MainViewModel.cs` | — | `OnMapPositionUpdate` event (`Action<double, double, double>`) — dispara lat/lon/heading cada 5 ciclos de `RawDataUpdated` (~250 ms, independiente de la tasa de telemetría adaptativa); `_mapUpdateCounter` en `OnRawDataUpdated` (v0.5.8) |
 | `Services/LocalizationService.cs` | ~20 | Respeta idioma configurado en `App.config` (v0.4.19); antes forzaba `"es"` |
 | `ViewModels/MainViewModel.cs` | ~210 | Approach capture start log: `Lnm_ApproachCaptureStart` (pista, AGL, distancia) |
 | `Services/MetarService.cs` | ~57 | `DoFetchAsync` refactorizado v0.4.10: wrappers `SafeFetch*` independientes, `OnMetarUpdated` en finally, evento `OnLog`, `ParseMetarToken` en try/catch |

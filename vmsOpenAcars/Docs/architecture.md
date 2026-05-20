@@ -1,6 +1,6 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.5.7  
+> Versión del documento: 0.5.8  
 > Última actualización: 2026-05-18
 
 ---
@@ -54,7 +54,7 @@ vmsOpenAcars/
 │   ├── Forms/              MainForm, FlightPlannerForm, OFPViewerForm, SettingsForm,
 │   │                       MetarDecodeForm, EcamDialog,
 │   │                       FlightHistoryForm, LandingAnalysisForm,
-│   │                       OsdOverlayForm
+│   │                       OsdOverlayForm, MapForm
 │   └── Theme.cs            Paleta de colores centralizada
 └── ViewModels/             MainViewModel
 ```
@@ -258,6 +258,7 @@ RunwayTouchdownResult FindTouchdownRunway(airport, lat, lon, heading)  // touchd
 RunwayTouchdownResult FindTakeoffRunway(airport, lat, lon, heading)    // pista de despegue
 RunwayEntry           FindRunwayEntry(airport, lat, lon, heading)      // entrada a pista
 string                FindNearestTaxiway(airport, lat, lon, heading)   // taxiway más cercano (heading opcional; penaliza ×2,5 segmentos >50°)
+double                FindTaxiwaySegmentBearing(airport, taxiwayName, lat, lon)  // bearing del segmento más cercano (v0.5.8)
 HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)     // holding short
 ParkingSpot           FindNearestParking(airport, lat, lon)            // gate / parking
 RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading)   // umbral de aproximación — exige heading-delta ≤15°, |cross| ≤2 NM, along<0
@@ -493,6 +494,45 @@ void HideOsd()
 _viewModel.OnOsdMessage += (text, severity) =>
     _osd.ShowMessage(text, severity, AppConfig.OsdDurationMs);
 ```
+
+---
+
+### MapForm — `UI/Forms/MapForm.cs` (v0.5.8)
+
+Ventana no-modal con mapa en movimiento basado en **GMap.NET 17.2.0**. Se abre con el botón MAP (reemplaza MSG no utilizado) y se mantiene sincronizada con la posición del simulador.
+
+**Actualización de posición:** evento `OnMapPositionUpdate(lat, lon, heading)` disparado cada 5 ciclos de `RawDataUpdated` (50 ms × 5 = ~250 ms) desde `MainViewModel.OnRawDataUpdated`. Al estar en el evento raw y no en el adaptativo, la cadencia es constante independientemente de la fase de vuelo (taxi, crucero, etc.). Thread-safe vía `BeginInvoke`.
+
+**Marcador de aeronave (`AircraftMarker`):** subclase de `GMapMarker`. Dibuja una flecha amarilla de 4 puntos (nariz, cola derecha, muesca central, cola izquierda) girada por heading mediante `g.RotateTransform()`. Incluye sombra translúcida offset (+1.5 px).
+
+**Controles de la barra inferior:**
+- Label de coordenadas/heading/zoom
+- Checkbox FOLLOW (auto-centra el mapa en el avión)
+- Dropdown de proveedor: OpenStreetMap (defecto) / ESRI World Imagery (satélite, sin API key)
+- Botones zoom + / −
+
+**Proveedores de mapa:**
+
+| Opción | Provider | Descripción |
+|---|---|---|
+| OpenStreetMap | `GMapProviders.OpenStreetMap` | Mapa de calles/aeropuertos, gratuito global |
+| Satellite (ESRI) | `GMapProviders.ArcGIS_World_Imagery` | Imágenes satelitales, gratuito no-comercial |
+
+**Modo de acceso:** `GMaps.Instance.Mode = AccessMode.ServerAndCache` — descarga tiles al primer uso y los conserva en caché local.
+
+---
+
+### Criterio Angular de Cambio de Calle de Rodaje (v0.5.8)
+
+La transición entre calles de rodaje en `HandleTaxiPositionUpdate` (MainViewModel) usa un criterio **angular** en lugar de puramente temporal:
+
+1. Si el avión ya está en una calle confirmada (`_lastLoggedTaxiway`), se consulta `FindTaxiwaySegmentBearing()` para obtener el bearing geográfico del segmento más cercano de esa calle.
+2. Se calcula `HeadingDeltaBidirectional` = `min(|heading − bearing|, |heading − (bearing+180°)|)`.
+3. El contador de histéresis (`_pendingTaxiwayCount`) solo avanza si `HeadingDeltaBidirectional > 25°`.
+4. Si la divergencia es ≤ 25°, el contador se resetea a cero: la calle candidata se descarta mientras el avión siga el rumbo de la calle actual.
+5. Al alcanzar 3 ciclos consecutivos con divergencia > 25°, se confirma el cambio de calle.
+
+Esto elimina los falsos cambios causados por calles paralelas o de cruce que momentáneamente resultan más próximas. El umbral de primera detección (cuando `_lastLoggedTaxiway == null`) sigue siendo solo temporal (3 ciclos).
 
 ---
 

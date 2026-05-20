@@ -51,6 +51,7 @@ namespace vmsOpenAcars.ViewModels
         // Eventos para comunicación con la UI (sin cambios)
         public event Action<string, Color> OnLog;
         public event Action<string> OnPositionUpdate;
+        public event Action<double, double, double> OnMapPositionUpdate; // lat, lon, headingDeg
         public event Action<FlightPhase> OnPhaseChanged;
         public event Action<FlightPhase> OnAirStatusChanged;
         public event Action<ValidationStatus> OnValidationStatusChanged;
@@ -168,6 +169,7 @@ namespace vmsOpenAcars.ViewModels
             _metarService.OnLog           += msg   => OnLog?.Invoke(msg, Theme.MainText);
         }
         private int _lastUiAltitude;
+        private int _mapUpdateCounter;
         private int _lastUiSpeed;
         private string _lastUiPhase = string.Empty;
         private string _lastUiPosition = string.Empty;
@@ -204,6 +206,13 @@ namespace vmsOpenAcars.ViewModels
                 _lastUiPosition = posStr;
                 _lastUiPhase = phaseStr;
                 OnFlightInfoChanged?.Invoke();
+            }
+
+            // Map update every 5 raw cycles (~250 ms) — independent of adaptive telemetry rate
+            if (++_mapUpdateCounter >= 5)
+            {
+                _mapUpdateCounter = 0;
+                OnMapPositionUpdate?.Invoke(e.Latitude, e.Longitude, e.HeadingDeg);
             }
 
             // Approach track capture — every 2 s when in approach phase, AGL < 3000 ft
@@ -485,6 +494,7 @@ namespace vmsOpenAcars.ViewModels
 
             // Actualizar UI (posición, altitudes, etc.)
             OnPositionUpdate?.Invoke($"{e.Latitude:F3}/{e.Longitude:F3}");
+
             OnPhaseChanged?.Invoke(_flightManager.CurrentPhase);
             OnAirStatusChanged?.Invoke(_flightManager.CurrentPhase);
 

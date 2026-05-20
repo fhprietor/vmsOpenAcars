@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.5.7**
+**Versión 0.5.8**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -15,8 +15,9 @@ vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC b
 - [5. Scoring de vuelo](#5-scoring-de-vuelo)
 - [6. METAR](#6-metar)
 - [7. OSD Overlay](#7-osd-overlay)
-- [8. LOGBOOK y Landing Analysis](#8-logbook-y-landing-analysis)
-- [9. Solución de problemas](#9-solución-de-problemas)
+- [8. Mapa en movimiento (MAP)](#8-mapa-en-movimiento-map)
+- [9. LOGBOOK y Landing Analysis](#9-logbook-y-landing-analysis)
+- [10. Solución de problemas](#10-solución-de-problemas)
 
 ---
 
@@ -119,7 +120,7 @@ Controla el overlay de notificaciones que aparece sobre el simulador.
 ├────────────────────────────────────────────────────────────────────┤
 │  [STATUS]  GPS • Conexión sim • ACARS • Aeropuerto • COM • NAV       │
 ├────────────────────────────────────────────────────────────────────┤
-│  LOGIN  SETTINGS  SIMBRIEF  METAR  LOGBOOK  DISPATCH  MENU  START   │
+│  LOGIN  SETTINGS  SIMBRIEF  METAR  LOGBOOK  DISPATCH  MAP  MENU  START │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -381,7 +382,39 @@ Ve a **Settings → OSD** para ajustar duración, pantalla y opacidad. Usa **MEN
 
 ---
 
-## 8. LOGBOOK y Landing Analysis
+## 8. Mapa en movimiento (MAP)
+
+El botón **MAP** abre una ventana no modal con un mapa en tiempo real sincronizado con la posición del simulador. Se actualiza cada ~250 ms independientemente de la fase de vuelo.
+
+### Controles
+
+| Control | Función |
+|---|---|
+| **FOLLOW** (checkbox) | Activa el auto-centrado: el mapa sigue al avión automáticamente. Desactívalo para explorar el mapa libremente con el ratón. |
+| **Dropdown de proveedor** | Cambia la capa de mapa entre las dos opciones disponibles. |
+| **+ / −** | Aumenta o reduce el nivel de zoom. También puedes hacer scroll con la rueda del ratón. |
+| **Arrastrar (botón izq.)** | Desplaza el mapa manualmente (solo activo si FOLLOW está desactivado). |
+
+### Proveedores de mapa
+
+| Opción | Descripción |
+|---|---|
+| **Street (Carto)** | Mapa de calles limpio y legible, ideal para aeropuertos y navegación en tierra. Sin API key. |
+| **Satellite (ESRI)** | Imágenes satelitales de ESRI World Imagery. Útil para identificar pistas y terminales visualmente. Sin API key. |
+
+### Marcador de aeronave
+
+El avión aparece como una flecha amarilla que apunta en la dirección del heading real, con una sombra para mejor visibilidad sobre fondos claros.
+
+### Barra de estado
+
+La barra inferior muestra la posición actual: `latitud°  longitud°   HDG XXX°  Z:NN`.
+
+> La ventana MAP puede permanecer abierta durante todo el vuelo. Al cerrarla y volver a abrirla retoma la posición actual del avión.
+
+---
+
+## 9. LOGBOOK y Landing Analysis
 
 El LOGBOOK guarda el historial completo de tus aterrizajes con análisis gráfico de cada aproximación.
 
@@ -426,7 +459,7 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-## 9. Solución de problemas
+## 10. Solución de problemas
 
 **El botón START no se habilita**
 - Verifica que el simulador esté activo y FSUIPC conectado (el STATUS debe mostrarlo).
@@ -457,4 +490,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.5.4 — que tengas buen vuelo.*
+*vmsOpenAcars v0.5.8 — que tengas buen vuelo.*
