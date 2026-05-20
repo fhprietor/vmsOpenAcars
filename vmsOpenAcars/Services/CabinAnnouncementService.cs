@@ -27,6 +27,8 @@ namespace vmsOpenAcars.Services
         private readonly Queue<string> _queue = new Queue<string>();
         private readonly Dictionary<string, string> _paths = new Dictionary<string, string>();
         private volatile bool _isPlaying;
+        private volatile WaveOutEvent  _currentOutput;
+        private volatile AudioFileReader _currentReader;
         private string _nativeLang    = "en";
         private bool   _isInternational;
 
@@ -145,6 +147,11 @@ namespace vmsOpenAcars.Services
 
         // ── Playback (FIFO, secuencial, background) ──────────────────────────────
 
+        private void StopCurrent()
+        {
+            try { _currentOutput?.Stop(); } catch { }
+        }
+
         private void PlayNext()
         {
             string item;
@@ -185,18 +192,32 @@ namespace vmsOpenAcars.Services
             catch { }
         }
 
-        private static void PlayAudioSync(string filePath)
+        private void PlayAudioSync(string filePath)
         {
             if (!File.Exists(filePath)) return;
             using (var reader = new AudioFileReader(filePath))
             using (var output = new WaveOutEvent())
             using (var done   = new ManualResetEventSlim(false))
             {
+                reader.Volume  = Math.Max(0f, Math.Min(1f,
+                    AppConfig.CabinAnnouncementsVolume / 100f));
+                _currentReader = reader;
+                _currentOutput = output;
                 output.PlaybackStopped += (s, e) => done.Set();
                 output.Init(reader);
                 output.Play();
                 done.Wait();
+                _currentReader = null;
+                _currentOutput = null;
             }
+        }
+
+        public void SetVolume(int volume)
+        {
+            AppConfig.CabinAnnouncementsVolume = volume;
+            var reader = _currentReader;
+            if (reader != null)
+                reader.Volume = Math.Max(0f, Math.Min(1f, volume / 100f));
         }
 
         private static string DetectFormat(string filePath)
@@ -230,14 +251,18 @@ namespace vmsOpenAcars.Services
                 if (cachePath == null)
                     await FetchOneAsync(phase, lang).ConfigureAwait(false);
 
+                // Stop whatever is playing and replace the queue with this test
+                StopCurrent();
                 lock (_lock)
                 {
+                    _queue.Clear();
                     _paths.TryGetValue(phase + "_" + lang, out cachePath);
                     _queue.Enqueue(ChimeSentinel);
                     if (cachePath != null) _queue.Enqueue(cachePath);
                 }
+                _isPlaying = false;
 
-                if (!_isPlaying) PlayNext();
+                PlayNext();
 
                 if (cachePath == null)
                     return "Phase not available from API";
@@ -256,6 +281,7 @@ namespace vmsOpenAcars.Services
 
         public void Reset()
         {
+            StopCurrent();
             lock (_lock)
             {
                 _queue.Clear();

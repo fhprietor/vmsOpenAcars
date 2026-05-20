@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.5.9  
+**Versión actual:** v0.5.10  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -144,13 +144,19 @@ Reproducción de anuncios de cabina pregrabados. Descarga MP3 desde `/briefing/c
 
 **Supresión:** `aircraftSeats > 0 && aircraftSeats < 40` → `PrefetchAsync` retorna inmediatamente. `aircraftSeats == 0` (dato no disponible en API) → no suprime (safe default).
 
-**Reproducción:** NAudio `AudioFileReader` + `WaveOutEvent` + `ManualResetEventSlim(false)`. El `Task.Run` que reproduce un MP3 bloquea hasta `PlaybackStopped`; el chime usa `System.Media.SoundPlayer` desde recurso embebido `chime_warning.wav`.
+**Reproducción:** NAudio `AudioFileReader` + `WaveOutEvent` + `ManualResetEventSlim(false)`. El `Task.Run` bloquea hasta `PlaybackStopped`; el chime usa `System.Media.SoundPlayer` desde recurso embebido `chime_warning.wav`. `_currentOutput` (volatile `WaveOutEvent`) y `_currentReader` (volatile `AudioFileReader`) permiten stop en tiempo real y cambio de volumen en caliente.
+
+**Volumen:** `AppConfig.CabinAnnouncementsVolume` (int 0–100, default 80, backing field con setter). `SetVolume(int)` actualiza `AppConfig` Y `_currentReader?.Volume` inmediatamente. Cadena live: `trkCabinVolume.ValueChanged` → `CabinVolumeChangedCallback` (SettingsForm) → `MainViewModel.SetCabinVolume()` → `CabinAnnouncementService.SetVolume()`. Clave `App.config`: `cabin_announcements_volume` (default `80`).
+
+**Stop:** `StopCurrent()` llama `_currentOutput?.Stop()` → dispara `PlaybackStopped` → `done.Set()` → el hilo `Task.Run` termina limpiamente. Llamado en `TestAnnouncementAsync` (reemplaza anuncio en curso al seleccionar nuevo test) y en `Reset()` (exit paths del vuelo).
 
 **Campos en MainViewModel:** `_cabinAnnouncements` (instancia), `_cabinCruiseSent`, `_cabinOnRunwaySent`, `_cabinCruiseCheckStart`, `_lastGroundSpeedKt`. Reset en `StartFlight()` y en los tres exit paths (`SendPirep`, `AbortFlight`, `CancelFlight`).
 
-**`AppConfig.CabinAnnouncementsEnabled`** — backing field `_cabinAnnouncementsEnabled` con setter; toggle live desde Settings sin reinicio. Clave `App.config`: `cabin_announcements_enabled` (default `true`).
+**`AppConfig.CabinAnnouncementsEnabled`** — backing field con setter; toggle live desde Settings sin reinicio. Clave `App.config`: `cabin_announcements_enabled` (default `true`). **Auto-saved** en `CheckedChanged` vía `SaveConfigKey` — no requiere Save ni cierra el diálogo.
 
-**Test desde SettingsForm:** `Func<string, Task<string>> TestCabinAnnouncementCallback` (callback async inyectado desde `MainForm`). `TestAnnouncementAsync(phase, lang)` descarga bajo demanda si el archivo no está en `_paths`, encola chime + MP3 y devuelve `"OK  [{fmt}  {kb} KB]  {filename}"` o `"Phase not available from API"`.
+**Test desde SettingsForm:** `Func<string, Task<string>> TestCabinAnnouncementCallback` (callback async inyectado desde `MainForm`). `TestAnnouncementAsync(phase, lang)` para el audio actual, descarga bajo demanda si no está en `_paths`, encola chime + MP3 y devuelve `"OK  [{fmt}  {kb} KB]  {filename}"` o `"Phase not available from API"`.
+
+**Auto-save de controles de cabina:** `chkCabinAnnouncements` y `trkCabinVolume` usan `SaveConfigKey(key, value)` (helper privado en `SettingsForm`) para persistir en `App.config` en el acto. Excluidos de `HasChanges()` y `BtnSave_Click` — cambiarlos no activa el botón Save.
 
 **Fases y triggers en `MainViewModel`:**
 
@@ -457,8 +463,8 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `Services/UIService.cs` | ~186 | `SetAirStatus()` |
 | `UI/Forms/SettingsForm.cs` | — | Sección Landing Log con OpenFileDialog (CheckFileExists=false) |
 | `UI/Forms/SettingsForm.cs` | — | Sección OSD: checkBox + numericUpDown duration/opacity/screen |
-| `UI/Forms/SettingsForm.cs` | — | Sección Cabin Announcements: `chkCabinAnnouncements` (toggle live) + `btnTestCabin` (menú 7 fases) + `lblCabinStatus`; `TestCabinAnnouncementCallback` (`Func<string, Task<string>>`) inyectado desde MainForm (v0.5.9) |
-| `ViewModels/MainViewModel.cs` | — | `_cabinAnnouncements`, `_cabinCruiseSent`, `_cabinOnRunwaySent`, `_cabinCruiseCheckStart`, `_lastGroundSpeedKt`; `TestCabinAnnouncementAsync(phase)` público (v0.5.9) |
+| `UI/Forms/SettingsForm.cs` | — | Sección Cabin Announcements: `chkCabinAnnouncements` (toggle live) + `btnTestCabin` (menú 7 fases) + `trkCabinVolume` (0–100, live) + `lblCabinStatus`; `TestCabinAnnouncementCallback` + `CabinVolumeChangedCallback` inyectados desde MainForm (v0.5.9/0.5.10) |
+| `ViewModels/MainViewModel.cs` | — | `_cabinAnnouncements`, `_cabinCruiseSent`, `_cabinOnRunwaySent`, `_cabinCruiseCheckStart`, `_lastGroundSpeedKt`; `TestCabinAnnouncementAsync(phase)` + `SetCabinVolume(volume)` públicos (v0.5.9/0.5.10) |
 | `ViewModels/MainViewModel.cs` | — | `OnOsdMessage` event (`Action<string, OsdSeverity>`) |
 | `ViewModels/MainViewModel.cs` | — | `SetActivePlan()` → `OnButtonStateChanged("START", enabled=true)` (v0.4.6) |
 

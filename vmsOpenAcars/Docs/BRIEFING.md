@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.5.9**
+**Versión 0.5.10**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -107,9 +107,10 @@ vmsOpenAcars puede reproducir anuncios de cabina pregrabados durante las distint
 
 | Campo | Descripción |
 |---|---|
-| Enable Cabin Announcements | Activa o desactiva los anuncios globalmente. El cambio se aplica de inmediato, sin reiniciar. |
+| Enable Cabin Announcements | Activa o desactiva los anuncios. Se aplica y guarda **al instante**, sin pulsar Save. |
+| Volume | Slider 0–100 % (default 80 %). Se aplica **en tiempo real** sobre el audio en curso y se guarda automáticamente sin pulsar Save. |
 
-El botón **TEST** abre un menú con las 7 fases disponibles (`boarding`, `taxi_out`, `on_runway`, `cruise`, `top_of_descent`, `approach`, `taxi_in`). Al seleccionar una, el sistema descarga y reproduce el anuncio correspondiente mostrando el formato del audio y el tamaño del archivo.
+El botón **TEST** abre un menú con las 7 fases disponibles (`boarding`, `taxi_out`, `on_runway`, `cruise`, `top_of_descent`, `approach`, `taxi_in`). Al seleccionar una, el sistema detiene el anuncio en curso, descarga el nuevo si hace falta y lo reproduce mostrando el formato del audio y el tamaño del archivo.
 
 > Los anuncios solo están disponibles si la NavData API de tu aerolínea los proporciona. Sin API key válida, o si la aerolínea no dispone de audios, la función queda silenciosa (el vuelo continúa con normalidad).  
 > En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan automáticamente.
@@ -524,4 +525,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.5.9 — que tengas buen vuelo.*
+*vmsOpenAcars v0.5.10 — que tengas buen vuelo.*

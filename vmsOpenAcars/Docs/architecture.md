@@ -1,6 +1,6 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.5.9  
+> Versión del documento: 0.5.10  
 > Última actualización: 2026-05-20
 
 ---
@@ -348,7 +348,13 @@ void   Dispose()                          // ClearCacheFiles()
 | Doméstico / aerolínea anglohablante | `[__chime__, native.mp3]` |
 | Internacional (nativo ≠ en) | `[__chime__, en.mp3, native.mp3]` |
 
-**Playback:** NAudio `AudioFileReader` + `WaveOutEvent` + `ManualResetEventSlim` — bloquea el hilo `Task.Run` hasta que `PlaybackStopped` se dispara; el siguiente ítem de la cola no empieza hasta que el anterior termina. El chime WAV se reproduce vía `System.Media.SoundPlayer` desde recurso embebido (`Resources/Audio/chime_warning.wav`).
+**Playback:** NAudio `AudioFileReader` + `WaveOutEvent` + `ManualResetEventSlim` — bloquea el hilo `Task.Run` hasta que `PlaybackStopped` se dispara. El chime WAV usa `System.Media.SoundPlayer` desde recurso embebido (`Resources/Audio/chime_warning.wav`).
+
+**Volumen en tiempo real:** `_currentReader` (volatile `AudioFileReader`) se asigna antes de `Play()` y se limpia tras `done.Wait()`. `SetVolume(int volume)` actualiza `AppConfig.CabinAnnouncementsVolume` y aplica `_currentReader.Volume = volume / 100f` inmediatamente. Cadena: `trkCabinVolume.ValueChanged` → `CabinVolumeChangedCallback` → `MainViewModel.SetCabinVolume()` → `SetVolume()`.
+
+**Auto-save de controles de cabina:** el slider de volumen y el toggle "Enabled" llaman a `SaveConfigKey(key, value)` (helper privado de `SettingsForm`) en su propio handler, persistiendo el cambio en `App.config` en el acto. No participan en `HasChanges()` ni en `BtnSave_Click`, por lo que modificarlos no activa el botón Save ni provoca el cierre del diálogo.
+
+**Stop:** `StopCurrent()` llama `_currentOutput?.Stop()` → dispara `PlaybackStopped` → libera `done` → el `Task.Run` termina limpiamente. Invocado en `TestAnnouncementAsync` (al seleccionar nueva fase de test) y en `Reset()` (fin o cancelación de vuelo).
 
 **Triggers en MainViewModel:**
 
@@ -851,6 +857,7 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 | `osd_screen_index` | 0 | Índice de pantalla para el OSD (0 = primaria) |
 | `osd_opacity` | 90 | Opacidad del OSD (10–100 %) |
 | `cabin_announcements_enabled` | true | Activa los anuncios de cabina pregrabados |
+| `cabin_announcements_volume` | 80 | Volumen de los anuncios (0–100 %) |
 
 ---
 

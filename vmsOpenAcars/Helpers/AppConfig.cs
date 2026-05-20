@@ -60,12 +60,19 @@ namespace vmsOpenAcars.Helpers
         public static bool OsdEnabled      => GetBool("osd_enabled",       true);
         public static bool OsdSoundEnabled => GetBool("osd_sound_enabled", true);
 
-        // Cabin Announcements (backing field allows live toggle from SettingsForm)
+        // Cabin Announcements (backing fields allow live updates from SettingsForm)
         private static bool _cabinAnnouncementsEnabled = GetBool("cabin_announcements_enabled", true);
         public static bool CabinAnnouncementsEnabled
         {
             get => _cabinAnnouncementsEnabled;
             set => _cabinAnnouncementsEnabled = value;
+        }
+
+        private static int _cabinAnnouncementsVolume = GetInt("cabin_announcements_volume", 80);
+        public static int CabinAnnouncementsVolume
+        {
+            get => _cabinAnnouncementsVolume;
+            set => _cabinAnnouncementsVolume = value;
         }
         public static int  OsdDurationSeconds => GetInt("osd_duration_seconds", 4);
         public static int  OsdScreenIndex     => GetInt("osd_screen_index",     1);

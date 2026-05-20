@@ -1704,6 +1704,9 @@ namespace vmsOpenAcars.ViewModels
         public Task<string> TestCabinAnnouncementAsync(string phase)
             => _cabinAnnouncements.TestAnnouncementAsync(phase, "en");
 
+        public void SetCabinVolume(int volume)
+            => _cabinAnnouncements.SetVolume(volume);
+
         public void LoadFlightFromBid(Flight flight)
         {
             if (flight == null) return;

@@ -46,15 +46,20 @@ namespace vmsOpenAcars.UI.Forms
         private NumericUpDown nudOsdOpacity;
 
         // Cabin Announcements
-        private CheckBox chkCabinAnnouncements;
-        private Button   btnTestCabin;
-        private Label    lblCabinStatus;
+        private CheckBox  chkCabinAnnouncements;
+        private Button    btnTestCabin;
+        private TrackBar  trkCabinVolume;
+        private Label     lblCabinVolVal;
+        private Label     lblCabinStatus;
 
         /// <summary>Set by MainForm to route TEST OSD clicks to the live OSD overlay.</summary>
         public Action<string, OsdSeverity> TestOsdCallback { get; set; }
 
         /// <summary>Set by MainForm to route TEST CABIN clicks to the active announcement service.</summary>
         public Func<string, Task<string>> TestCabinAnnouncementCallback { get; set; }
+
+        /// <summary>Set by MainForm to propagate live volume changes to the active announcement service.</summary>
+        public Action<int> CabinVolumeChangedCallback { get; set; }
 
         private Button btnSave;
         private Button btnCancel;
@@ -342,17 +347,17 @@ namespace vmsOpenAcars.UI.Forms
             };
             left.Controls.Add(navDataPanel, 1, 11);
 
-            // ── Right table: Landing Log / OSD / Cabin (9 rows × 35 px) ───────
+            // ── Right table: Landing Log / OSD / Cabin (10 rows × 35 px + 1 status) ──
             var right = new TableLayoutPanel
             {
                 Dock        = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount    = 10,
+                RowCount    = 11,
                 BackColor   = Color.Transparent
             };
             right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35F));
             right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65F));
-            for (int i = 0; i < 9; i++)
+            for (int i = 0; i < 10; i++)
                 right.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
             right.RowStyles.Add(new RowStyle(SizeType.Absolute, 28F)); // status row
 
@@ -515,7 +520,11 @@ namespace vmsOpenAcars.UI.Forms
                 Margin    = new Padding(0, 6, 8, 0)
             };
             chkCabinAnnouncements.CheckedChanged += (s, ev) =>
+            {
                 AppConfig.CabinAnnouncementsEnabled = chkCabinAnnouncements.Checked;
+                SaveConfigKey("cabin_announcements_enabled",
+                    chkCabinAnnouncements.Checked.ToString().ToLower());
+            };
             btnTestCabin = new Button
             {
                 Text      = "TEST ▾",
@@ -532,7 +541,45 @@ namespace vmsOpenAcars.UI.Forms
             cabinPanel.Controls.Add(btnTestCabin);
             right.Controls.Add(cabinPanel, 1, 8);
 
-            // row 9 — cabin test status (spans both columns)
+            // row 9 — volume slider
+            right.Controls.Add(CreateLabel("Volume"), 0, 9);
+            var volPanel = new FlowLayoutPanel
+            {
+                Dock         = DockStyle.Fill,
+                BackColor    = Color.Transparent,
+                WrapContents = false,
+                Padding      = new Padding(0)
+            };
+            trkCabinVolume = new TrackBar
+            {
+                Minimum       = 0,
+                Maximum       = 100,
+                TickFrequency = 10,
+                SmallChange   = 5,
+                LargeChange   = 10,
+                Width         = 130,
+                Height        = 28,
+                BackColor     = Color.FromArgb(28, 36, 48)
+            };
+            lblCabinVolVal = new Label
+            {
+                Text      = "80%",
+                ForeColor = Color.White,
+                Font      = new Font("Consolas", 9),
+                AutoSize  = true,
+                Margin    = new Padding(4, 8, 0, 0)
+            };
+            trkCabinVolume.ValueChanged += (s, ev) =>
+            {
+                lblCabinVolVal.Text = trkCabinVolume.Value + "%";
+                CabinVolumeChangedCallback?.Invoke(trkCabinVolume.Value);
+                SaveConfigKey("cabin_announcements_volume", trkCabinVolume.Value.ToString());
+            };
+            volPanel.Controls.Add(trkCabinVolume);
+            volPanel.Controls.Add(lblCabinVolVal);
+            right.Controls.Add(volPanel, 1, 9);
+
+            // row 10 — cabin test status (spans both columns)
             lblCabinStatus = new Label
             {
                 Dock      = DockStyle.Fill,
@@ -543,7 +590,7 @@ namespace vmsOpenAcars.UI.Forms
                 Padding   = new Padding(4, 0, 0, 0)
             };
             right.SetColumnSpan(lblCabinStatus, 2);
-            right.Controls.Add(lblCabinStatus, 0, 9);
+            right.Controls.Add(lblCabinStatus, 0, 10);
 
             // ── Assemble ──────────────────────────────────────────────────────
             outer.Controls.Add(left,    0, 0);
@@ -644,6 +691,12 @@ namespace vmsOpenAcars.UI.Forms
             if (bool.TryParse(ConfigurationManager.AppSettings["cabin_announcements_enabled"], out bool cabinParsed))
                 cabinAnn = cabinParsed;
             chkCabinAnnouncements.Checked = cabinAnn;
+
+            int cabinVol = 80;
+            if (int.TryParse(ConfigurationManager.AppSettings["cabin_announcements_volume"], out int cabinVolParsed))
+                cabinVol = Math.Max(0, Math.Min(100, cabinVolParsed));
+            trkCabinVolume.Value  = cabinVol;
+            lblCabinVolVal.Text   = cabinVol + "%";
         }
 
         private void LoadLanguages()
@@ -680,8 +733,7 @@ namespace vmsOpenAcars.UI.Forms
                 chkOsdEnabled.Checked.ToString().ToLower()         != Cfg("osd_enabled",          "true").ToLower() ||
                 chkOsdSound.Checked.ToString().ToLower()           != Cfg("osd_sound_enabled",    "true").ToLower() ||
                 ((int)nudOsdDuration.Value).ToString()             != Cfg("osd_duration_seconds", "4")      ||
-                ((int)nudOsdOpacity.Value).ToString()              != Cfg("osd_opacity",          "90")     ||
-                chkCabinAnnouncements.Checked.ToString().ToLower() != Cfg("cabin_announcements_enabled", "true").ToLower();
+                ((int)nudOsdOpacity.Value).ToString()              != Cfg("osd_opacity",          "90");
         }
 
         // ── Test handlers ─────────────────────────────────────────────────────
@@ -783,7 +835,7 @@ namespace vmsOpenAcars.UI.Forms
                 SetValue(config, "osd_sound_enabled",            chkOsdSound.Checked.ToString().ToLower());
                 SetValue(config, "osd_duration_seconds",         ((int)nudOsdDuration.Value).ToString());
                 SetValue(config, "osd_opacity",                  ((int)nudOsdOpacity.Value).ToString());
-                SetValue(config, "cabin_announcements_enabled",  chkCabinAnnouncements.Checked.ToString().ToLower());
+                // cabin_announcements_enabled and cabin_announcements_volume are auto-saved on change
 
                 config.Save(ConfigurationSaveMode.Modified);
                 ConfigurationManager.RefreshSection("appSettings");
@@ -816,6 +868,18 @@ namespace vmsOpenAcars.UI.Forms
                 config.AppSettings.Settings[key].Value = value;
             else
                 config.AppSettings.Settings.Add(key, value);
+        }
+
+        private void SaveConfigKey(string key, string value)
+        {
+            try
+            {
+                var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                SetValue(config, key, value);
+                config.Save(ConfigurationSaveMode.Modified);
+                ConfigurationManager.RefreshSection("appSettings");
+            }
+            catch { }
         }
     }
 }
