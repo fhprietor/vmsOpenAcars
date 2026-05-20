@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.5.8  
+**Versión actual:** v0.5.9  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -18,7 +18,8 @@ vmsOpenAcars/
 ├── Models/               → Aircraft, Flight, FlightScoreData, TouchdownData, TakeoffData,
 │                           SimbriefPlan, Pirep, FlightRecord, ApproachTrackPoint
 ├── Services/             → ApiService, FsuipcService, ScoringService, MetarService,
-│                           IvaoService, SimbriefEnhancedService, LandingLogService
+│                           IvaoService, SimbriefEnhancedService, LandingLogService,
+│                           CabinAnnouncementService
 ├── ViewModels/           → MainViewModel.cs  (coordinación UI ↔ dominio)
 ├── UI/Forms/             → MainForm, SettingsForm, MetarDecodeForm, OFPViewerForm,
 │                           FlightHistoryForm, LandingAnalysisForm, EcamDialog,
@@ -33,6 +34,7 @@ vmsOpenAcars/
 - **System.Data.SQLite** (1.0.119) — LittleNavMap BD + landing_log.sqlite
 - **System.Windows.Forms.DataVisualization** — gráficos de aproximación (incluido en .NET 4.8)
 - **Newtonsoft.Json** — serialización REST
+- **NAudio** (2.3.0) — reproducción MP3 sincrónica en background thread (`AudioFileReader` + `WaveOutEvent`); usado en `CabinAnnouncementService`
 - **phpVMS v7** — backend de la aerolínea virtual (API REST)
 - **SimBrief** — planes de vuelo / OFP
 
@@ -86,7 +88,7 @@ ApproachInfo         GetApproachType(airport, runwayName)
 IList<ApproachFix>   GetApproachFixes(airport, runwayName)           // firma cambiada desde v0.4.18 (antes int approachId)
 ```
 
-### NavDataClient — `Services/NavDataClient.cs` (v0.4.19)
+### NavDataClient — `Services/NavDataClient.cs` (v0.5.9)
 
 Cliente HTTP estático con caché por ICAO:
 
@@ -104,6 +106,10 @@ static Task<NavApiTestResult> TestApiAsync(string apiKeyOverride = null)
     // Paso 1: GET /status/ → reachability
     // Paso 2: GET /airport/LEMD/runways/ con key → 401/403 = key inválida
     // NavApiTestResult { bool Reachable, bool KeyValid, NavStatusResponse NavStatus }
+static Task<BriefingCheckResult> CheckAnnouncementAsync(string phase, string lang)
+    // GET /briefing/check/?phase=&lang= → { available: bool, version: string }
+static Task<byte[]> FetchBytesAsync(string path)
+    // GET {NavDataApiUrl}/{path} — descarga binaria; usado por CabinAnnouncementService
 ```
 
 - Caché: `ConcurrentDictionary<string, Task<NavAirportCache>>` — `GetOrAdd` + `GetAwaiter().GetResult()` (seguro en `Task.Run`).
@@ -127,6 +133,36 @@ ThresholdDistanceFt = Math.Max(0.0, along * 3.28084)    // ← Math.Max(0,...) e
 > - **`WithinFootprint`**: proyectaba el avión en eje magnético → calle de rodaje a 513 ft del centreline aparecía a solo 90 ft → falso backtrack (caso TJSJ RWY 08, var. −14°W).
 > - **`ProjectOnRunway`** (touchdown metrics): usaba el heading verdadero del *avión* como proxy, que incluye el ángulo de crab en viento cruzado — irrelevante para desviación de centreline (caso SKBO RWY 14L: aterrizaje en eje ILS con crab de 3°, reportado como 226 ft de desviación).
 > `rwy.Heading` (magnético) se conserva **únicamente** en `HeadingDelta` para la selección de pista; la variación magnética no impacta esa clasificación (umbrales 45°/135°).
+
+---
+
+### CabinAnnouncementService — `Services/CabinAnnouncementService.cs` (v0.5.9)
+
+Reproducción de anuncios de cabina pregrabados. Descarga MP3 desde `/briefing/check/` + `/briefing/download/` de la NavData API, los cachea en `%TEMP%\vmsacars\briefing\` y los reproduce en orden FIFO (chime WAV → MP3).
+
+**Idioma nativo** determinado por `Pilot.AirlineCountry` (ISO-2). Países hispanohablantes (`SpanishCountries` hashset) → `"es"`; resto → `"en"`. Vuelo internacional (prefijos ICAO origen ≠ destino) con aerolínea no anglohablante → cola inglés + idioma nativo. Vuelo doméstico → solo idioma nativo.
+
+**Supresión:** `aircraftSeats > 0 && aircraftSeats < 40` → `PrefetchAsync` retorna inmediatamente. `aircraftSeats == 0` (dato no disponible en API) → no suprime (safe default).
+
+**Reproducción:** NAudio `AudioFileReader` + `WaveOutEvent` + `ManualResetEventSlim(false)`. El `Task.Run` que reproduce un MP3 bloquea hasta `PlaybackStopped`; el chime usa `System.Media.SoundPlayer` desde recurso embebido `chime_warning.wav`.
+
+**Campos en MainViewModel:** `_cabinAnnouncements` (instancia), `_cabinCruiseSent`, `_cabinOnRunwaySent`, `_cabinCruiseCheckStart`, `_lastGroundSpeedKt`. Reset en `StartFlight()` y en los tres exit paths (`SendPirep`, `AbortFlight`, `CancelFlight`).
+
+**`AppConfig.CabinAnnouncementsEnabled`** — backing field `_cabinAnnouncementsEnabled` con setter; toggle live desde Settings sin reinicio. Clave `App.config`: `cabin_announcements_enabled` (default `true`).
+
+**Test desde SettingsForm:** `Func<string, Task<string>> TestCabinAnnouncementCallback` (callback async inyectado desde `MainForm`). `TestAnnouncementAsync(phase, lang)` descarga bajo demanda si el archivo no está en `_paths`, encola chime + MP3 y devuelve `"OK  [{fmt}  {kb} KB]  {filename}"` o `"Phase not available from API"`.
+
+**Fases y triggers en `MainViewModel`:**
+
+| Fase | Trigger |
+|---|---|
+| `boarding` | `PrefetchAsync()` completado en `StartFlight()` |
+| `taxi_out` | `OnFlightPhaseChanged(TaxiOut)` |
+| `on_runway` | `LandingLightChanged(on=true)` o `StrobeLightChanged(on=true)`, GS ≤ 40 kt, flag `_cabinOnRunwaySent` |
+| `cruise` | `OnRawDataUpdated`: Enroute + AGL > 10 000 ft sostenido 30 s, flag `_cabinCruiseSent` |
+| `top_of_descent` | `OnFlightPhaseChanged(Descent)` |
+| `approach` | `OnFlightPhaseChanged(Approach)` |
+| `taxi_in` | `OnFlightPhaseChanged(TaxiIn)` |
 
 ---
 
@@ -372,8 +408,10 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 |---|---|---|
 | `Services/NavDataService.cs` | — | `ProjectOnRunway()` con `WithinFootprint` para desambiguar pistas paralelas (v0.4.18); `TrueRunwayBearing()` — bearing geográfico verdadero desde coords threshold→end, usado en `WithinFootprint` y proyección final de touchdown (v0.5.7); `FindTaxiwaySegmentBearing()` — bearing del segmento más cercano de una calle dada (v0.5.8) |
 | `Services/NavDataService.cs` | — | `NextIntersection()` — próxima intersección de calle de rodaje adelante (v0.4.18) |
-| `Services/NavDataClient.cs` | — | HTTP client estático con caché ICAO; 6 endpoints por aeropuerto; `TestApiAsync` (v0.4.19) |
-| `Models/NavData.cs` | — | DTOs de la API NavData (NavRunway, NavTaxiway, NavApproach, NavAirportInfo, etc.) (v0.4.18/19) |
+| `Services/NavDataClient.cs` | — | HTTP client estático con caché ICAO; 6 endpoints por aeropuerto; `TestApiAsync` (v0.4.19); `CheckAnnouncementAsync`, `FetchBytesAsync` (v0.5.9) |
+| `Services/CabinAnnouncementService.cs` | — | Prefetch, cola FIFO y reproducción de anuncios de cabina; NAudio para MP3; `TestAnnouncementAsync` para Settings (v0.5.9) |
+| `Models/NavData.cs` | — | DTOs de la API NavData (NavRunway, NavTaxiway, NavApproach, NavAirportInfo, etc.) (v0.4.18/19); `BriefingCheckResult` (v0.5.9) |
+| `Models/Pilot.cs` | — | `AirlineCountry` (ISO-2, para idioma de anuncios) · `AircraftSeats` (total_seats de subfleet, para supresión en aviones pequeños) (v0.5.9) |
 | `Models/SimbriefPlan.cs` | ~119 | `BlockFuel`, `TripFuel` |
 | `Services/ScoringService.cs` | ~213 | Touchdown Zone + Centreline deductions |
 | `Services/ScoringService.cs` | ~247 | Localizer Alignment + Minimums Compliance deductions (v0.4.4) |
@@ -419,6 +457,8 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `Services/UIService.cs` | ~186 | `SetAirStatus()` |
 | `UI/Forms/SettingsForm.cs` | — | Sección Landing Log con OpenFileDialog (CheckFileExists=false) |
 | `UI/Forms/SettingsForm.cs` | — | Sección OSD: checkBox + numericUpDown duration/opacity/screen |
+| `UI/Forms/SettingsForm.cs` | — | Sección Cabin Announcements: `chkCabinAnnouncements` (toggle live) + `btnTestCabin` (menú 7 fases) + `lblCabinStatus`; `TestCabinAnnouncementCallback` (`Func<string, Task<string>>`) inyectado desde MainForm (v0.5.9) |
+| `ViewModels/MainViewModel.cs` | — | `_cabinAnnouncements`, `_cabinCruiseSent`, `_cabinOnRunwaySent`, `_cabinCruiseCheckStart`, `_lastGroundSpeedKt`; `TestCabinAnnouncementAsync(phase)` público (v0.5.9) |
 | `ViewModels/MainViewModel.cs` | — | `OnOsdMessage` event (`Action<string, OsdSeverity>`) |
 | `ViewModels/MainViewModel.cs` | — | `SetActivePlan()` → `OnButtonStateChanged("START", enabled=true)` (v0.4.6) |
 

@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models.NavData;
 
@@ -167,6 +168,43 @@ namespace vmsOpenAcars.Services
                     if (!resp.IsSuccessStatusCode) return null;
                     string json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                     return JsonConvert.DeserializeObject<T>(json);
+                }
+            }
+            catch { return null; }
+        }
+
+        // ── Cabin Announcements ───────────────────────────────────────────────────
+
+        public static async Task<byte[]> FetchBytesAsync(string path)
+        {
+            try
+            {
+                string url = AppConfig.NavDataApiUrl.TrimEnd('/') + "/" + path.TrimStart('/');
+                using (var response = await _http.GetAsync(url).ConfigureAwait(false))
+                {
+                    if (!response.IsSuccessStatusCode) return null;
+                    return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                }
+            }
+            catch { return null; }
+        }
+
+        public static async Task<BriefingCheckResult> CheckAnnouncementAsync(string phase, string lang)
+        {
+            try
+            {
+                string url = AppConfig.NavDataApiUrl.TrimEnd('/')
+                    + "/briefing/check/?phase=" + phase + "&lang=" + lang;
+                using (var response = await _http.GetAsync(url).ConfigureAwait(false))
+                {
+                    if (!response.IsSuccessStatusCode) return null;
+                    string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    var obj = JObject.Parse(json);
+                    return new BriefingCheckResult
+                    {
+                        Available = obj["available"]?.Value<bool>() ?? false,
+                        Version   = obj["version"]?.ToString()     ?? "unknown",
+                    };
                 }
             }
             catch { return null; }

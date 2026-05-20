@@ -144,4 +144,12 @@ namespace vmsOpenAcars.Models.NavData
         [JsonProperty("airac_cycle")]       public string AiracCycle     { get; set; }
         [JsonProperty("airac_valid_until")] public string AiracValidUntil { get; set; }
     }
+
+    // ── Cabin Announcements ───────────────────────────────────────────────────────
+
+    internal class BriefingCheckResult
+    {
+        public bool   Available { get; set; }
+        public string Version   { get; set; }
+    }
 }

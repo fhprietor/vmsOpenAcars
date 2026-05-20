@@ -11,7 +11,9 @@
       "Bash(grep -n \"EmbeddedResource\\\\|Resources\\\\\\\\\\\\\\\\\" \"D:/Desarrollo/proyectos/VMS/vmsOpenAcars/vmsOpenAcars/vmsOpenAcars.csproj\")",
       "PowerShell(Get-Command *)",
       "PowerShell(Get-ChildItem *)",
-      "PowerShell(cmd /c dir \"D:\\\\Desarrollo\\\\proyectos\\\\VMS\\\\vmsOpenAcars\\\\packages\\\\GMap.NET.WinForms.2.1.7\\\\lib\" /s /b 2>&1)"
+      "PowerShell(cmd /c dir \"D:\\\\Desarrollo\\\\proyectos\\\\VMS\\\\vmsOpenAcars\\\\packages\\\\GMap.NET.WinForms.2.1.7\\\\lib\" /s /b 2>&1)",
+      "Bash(Get-ChildItem -Recurse -Name -Include \"README*\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object -First 20)"
     ]
   }
 }

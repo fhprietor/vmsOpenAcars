@@ -77,5 +77,19 @@
         /// Field source: users.ivao_id via phpVMS API.
         /// </summary>
         public int IvaoId { get; set; }
+
+        /// <summary>
+        /// ISO country code of the airline (e.g. "CO", "ES", "US").
+        /// Used to determine the native language for cabin announcements.
+        /// Source: airline.country from phpVMS GET /api/user response.
+        /// </summary>
+        public string AirlineCountry { get; set; }
+
+        /// <summary>
+        /// Total seat capacity of the pilot's assigned aircraft.
+        /// Source: curr_aircraft.subfleet.total_seats from phpVMS GET /api/user.
+        /// Zero means the value was not available in the API response.
+        /// </summary>
+        public int AircraftSeats { get; set; }
     }
 }

@@ -152,11 +152,23 @@ namespace vmsOpenAcars.ViewModels
             {
                 string agl = AglSuffix();
                 OnLog?.Invoke(on ? _("Log_StrobeLightsOn", agl) : _("Log_StrobeLightsOff", agl), Theme.MainText);
+                if (on && !_cabinOnRunwaySent && _lastGroundSpeedKt <= 40
+                    && _flightManager?.CurrentPhase != FlightPhase.Idle)
+                {
+                    _cabinOnRunwaySent = true;
+                    _cabinAnnouncements.QueueAnnouncement("on_runway");
+                }
             };
             _fsuipc.LandingLightChanged += on =>
             {
                 string agl = AglSuffix();
                 OnLog?.Invoke(on ? _("Log_LandingLightsOn", agl) : _("Log_LandingLightsOff", agl), Theme.MainText);
+                if (on && !_cabinOnRunwaySent && _lastGroundSpeedKt <= 40
+                    && _flightManager?.CurrentPhase != FlightPhase.Idle)
+                {
+                    _cabinOnRunwaySent = true;
+                    _cabinAnnouncements.QueueAnnouncement("on_runway");
+                }
             };
             _fsuipc.BeaconChanged += on =>
             {
@@ -174,6 +186,11 @@ namespace vmsOpenAcars.ViewModels
         private string _lastUiPhase = string.Empty;
         private string _lastUiPosition = string.Empty;
         private FlightPhase _prevPhase = FlightPhase.Idle;
+        private readonly CabinAnnouncementService _cabinAnnouncements = new CabinAnnouncementService();
+        private bool     _cabinCruiseSent;
+        private bool     _cabinOnRunwaySent;
+        private DateTime _cabinCruiseCheckStart = DateTime.MinValue;
+        private double   _lastGroundSpeedKt;
         private bool   _wasOnRunwayForEntry  = false;
         private bool   _wasOnRunwayForExit   = false;
         private int    _pendingRunwayOnCount = 0;
@@ -213,6 +230,24 @@ namespace vmsOpenAcars.ViewModels
             {
                 _mapUpdateCounter = 0;
                 OnMapPositionUpdate?.Invoke(e.Latitude, e.Longitude, e.HeadingDeg);
+            }
+
+            // Cabin announcements — GS tracking + cruise 30 s sustained check
+            _lastGroundSpeedKt = e.GroundSpeedKt;
+            if (_flightManager?.CurrentPhase == FlightPhase.Enroute && !_cabinCruiseSent)
+            {
+                double agl = e.AltitudeFeet - (_flightManager.ActivePlan?.OriginElevation ?? 0);
+                if (agl > 10000)
+                {
+                    if (_cabinCruiseCheckStart == DateTime.MinValue)
+                        _cabinCruiseCheckStart = DateTime.UtcNow;
+                    else if ((DateTime.UtcNow - _cabinCruiseCheckStart).TotalSeconds >= 30)
+                    {
+                        _cabinCruiseSent = true;
+                        _cabinAnnouncements.QueueAnnouncement("cruise");
+                    }
+                }
+                else { _cabinCruiseCheckStart = DateTime.MinValue; }
             }
 
             // Approach track capture — every 2 s when in approach phase, AGL < 3000 ft
@@ -375,14 +410,26 @@ namespace vmsOpenAcars.ViewModels
                 _approachThreshold = null;
             }
 
-            // OSD phase notifications
+            // OSD phase notifications + cabin announcements
             switch (phase)
             {
-                case FlightPhase.TaxiOut:     OnOsdMessage?.Invoke("TAXI OUT",     OsdSeverity.Info); break;
+                case FlightPhase.TaxiOut:
+                    OnOsdMessage?.Invoke("TAXI OUT", OsdSeverity.Info);
+                    _cabinAnnouncements.QueueAnnouncement("taxi_out");
+                    break;
                 case FlightPhase.TakeoffRoll: OnOsdMessage?.Invoke("TAKEOFF ROLL", OsdSeverity.Info); break;
                 case FlightPhase.Enroute:     OnOsdMessage?.Invoke("CRUISE",       OsdSeverity.Info); break;
-                case FlightPhase.Descent:     OnOsdMessage?.Invoke("DESCENDING",   OsdSeverity.Info); break;
-                case FlightPhase.Approach:    OnOsdMessage?.Invoke("APPROACH",     OsdSeverity.Info); break;
+                case FlightPhase.Descent:
+                    OnOsdMessage?.Invoke("DESCENDING", OsdSeverity.Info);
+                    _cabinAnnouncements.QueueAnnouncement("top_of_descent");
+                    break;
+                case FlightPhase.Approach:
+                    OnOsdMessage?.Invoke("APPROACH", OsdSeverity.Info);
+                    _cabinAnnouncements.QueueAnnouncement("approach");
+                    break;
+                case FlightPhase.TaxiIn:
+                    _cabinAnnouncements.QueueAnnouncement("taxi_in");
+                    break;
                 case FlightPhase.OnBlock:     OnOsdMessage?.Invoke("ON BLOCK",     OsdSeverity.Info); break;
                 case FlightPhase.Climb:
                     if (_prevPhase == FlightPhase.AfterLanding)
@@ -1230,6 +1277,16 @@ namespace vmsOpenAcars.ViewModels
                 OnLog?.Invoke(_("FlightStarted"), Theme.Success);
                 OnFlightStarted?.Invoke();
                 OnOsdMessage?.Invoke("ACARS ACTIVE", OsdSeverity.Success);
+
+                // Prefetch cabin announcements — boarding se encola al terminar
+                _cabinCruiseSent       = false;
+                _cabinOnRunwaySent     = false;
+                _cabinCruiseCheckStart = DateTime.MinValue;
+                Task.Run(async () => await _cabinAnnouncements.PrefetchAsync(
+                    plan.Origin,
+                    plan.Destination,
+                    _flightManager.ActivePilot?.AirlineCountry ?? "",
+                    _flightManager.ActivePilot?.AircraftSeats  ?? 0));
             }
         }
 
@@ -1245,6 +1302,10 @@ namespace vmsOpenAcars.ViewModels
             if (await _flightManager.CancelFlight())
             {
                 OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), false);
+                _cabinAnnouncements.Reset();
+                _cabinCruiseSent       = false;
+                _cabinOnRunwaySent     = false;
+                _cabinCruiseCheckStart = DateTime.MinValue;
                 OnLog?.Invoke("✖️ Vuelo cancelado", Theme.Warning);
                 OnFlightEnded?.Invoke();  // <-- añadir
             }
@@ -1261,6 +1322,10 @@ namespace vmsOpenAcars.ViewModels
             if (await _flightManager.AbortFlight())
             {
                 OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), false);
+                _cabinAnnouncements.Reset();
+                _cabinCruiseSent       = false;
+                _cabinOnRunwaySent     = false;
+                _cabinCruiseCheckStart = DateTime.MinValue;
                 OnLog?.Invoke("✖️ Flight aborted", Theme.Warning);
                 OnFlightEnded?.Invoke();
             }
@@ -1282,6 +1347,10 @@ namespace vmsOpenAcars.ViewModels
                 OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), false);
                 _lastTelemetry = null;
                 _lastPositionUpdate = DateTime.MinValue;
+                _cabinAnnouncements.Reset();
+                _cabinCruiseSent       = false;
+                _cabinOnRunwaySent     = false;
+                _cabinCruiseCheckStart = DateTime.MinValue;
                 OnLog?.Invoke("✅ Vuelo reportado, listo para siguiente vuelo", Theme.Success);
                 OnFlightEnded?.Invoke();
                 SaveLandingRecord(pendingRecord);
@@ -1631,6 +1700,9 @@ namespace vmsOpenAcars.ViewModels
         }
 
         public void LogButtonPress(string buttonText) => OnLog?.Invoke(_("Log_ButtonPress", buttonText), Theme.MainText);
+
+        public Task<string> TestCabinAnnouncementAsync(string phase)
+            => _cabinAnnouncements.TestAnnouncementAsync(phase, "en");
 
         public void LoadFlightFromBid(Flight flight)
         {

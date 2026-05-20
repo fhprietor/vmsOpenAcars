@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.5.8**
+**Versión 0.5.9**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -100,6 +100,19 @@ Controla el overlay de notificaciones que aparece sobre el simulador.
 | Duration (s) | Tiempo que permanece visible cada notificación (1–30 s) |
 | Screen index | Índice de la pantalla donde se muestra (0 = pantalla principal, 1 = segunda pantalla, etc.) |
 | Opacity (%) | Opacidad del overlay (10–100 %) |
+
+### Sección Cabin Announcements
+
+vmsOpenAcars puede reproducir anuncios de cabina pregrabados durante las distintas fases del vuelo.
+
+| Campo | Descripción |
+|---|---|
+| Enable Cabin Announcements | Activa o desactiva los anuncios globalmente. El cambio se aplica de inmediato, sin reiniciar. |
+
+El botón **TEST** abre un menú con las 7 fases disponibles (`boarding`, `taxi_out`, `on_runway`, `cruise`, `top_of_descent`, `approach`, `taxi_in`). Al seleccionar una, el sistema descarga y reproduce el anuncio correspondiente mostrando el formato del audio y el tamaño del archivo.
+
+> Los anuncios solo están disponibles si la NavData API de tu aerolínea los proporciona. Sin API key válida, o si la aerolínea no dispone de audios, la función queda silenciosa (el vuelo continúa con normalidad).  
+> En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan automáticamente.
 
 ---
 
@@ -203,6 +216,22 @@ Durante el rodaje el sistema informa en el log: pista en uso al alinearse, taxiw
 #### Trayectoria de aproximación
 
 A partir de **3 000 ft AGL** en fase Approach, el sistema captura un punto de trayectoria cada 2 segundos (altitud, velocidad, VS, desviación lateral) para los gráficos del LOGBOOK.
+
+#### Anuncios de cabina
+
+Si la aerolínea dispone de audios y los anuncios están activados en Settings, vmsOpenAcars reproduce automáticamente un chime seguido del anuncio de cabina en cada fase:
+
+| Anuncio | Trigger |
+|---|---|
+| Boarding | Al iniciar el vuelo (START) |
+| Taxi Out | Al entrar en fase TaxiOut |
+| On Runway | Al encender luces de aterrizaje o strobes con GS ≤ 40 kt |
+| Cruise | Fase Enroute + AGL > 10 000 ft durante 30 s continuos |
+| Top of Descent | Al entrar en fase Descent |
+| Approach | Al entrar en fase Approach |
+| Taxi In | Al entrar en fase TaxiIn |
+
+En vuelos **internacionales** con aerolínea hispanohablante los anuncios se reproducen en inglés seguidos de español. En vuelos **domésticos** solo suena el idioma nativo de la aerolínea.
 
 #### Frecuencia de envío de posición
 
@@ -488,6 +517,11 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 **La ventana de METAR no carga datos**
 - Requiere un plan activo con aeropuertos ICAO válidos y conexión a internet.
 
+**Los anuncios de cabina no suenan**
+- Verifica que **Cabin Announcements** esté activo en Settings.
+- Los anuncios requieren que la NavData API esté configurada y que la aerolínea publique audios. Usa el botón **TEST** en Settings para comprobar si hay archivos disponibles para una fase concreta.
+- En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan automáticamente.
+
 ---
 
-*vmsOpenAcars v0.5.8 — que tengas buen vuelo.*
+*vmsOpenAcars v0.5.9 — que tengas buen vuelo.*

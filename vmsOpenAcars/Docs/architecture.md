@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.5.8  
-> Última actualización: 2026-05-18
+> Versión del documento: 0.5.9  
+> Última actualización: 2026-05-20
 
 ---
 
@@ -25,6 +25,7 @@ Cliente ACARS de escritorio para Windows que conecta un simulador de vuelo con u
 | BD de historial | System.Data.SQLite 1.0.119 (landing_log.sqlite) |
 | Gráficos | System.Windows.Forms.DataVisualization (incluido en .NET 4.8) |
 | PDF | PdfiumViewer 2.13 + pdfium.dll x64 |
+| Audio cabina | NAudio 2.3.0 (`AudioFileReader` + `WaveOutEvent`) |
 | Clima / QNH | METAR vía WeatherService |
 | Localización | JSON (en.json / es.json) |
 | Configuración | App.config + Settings.settings |
@@ -49,7 +50,8 @@ vmsOpenAcars/
 ├── Properties/             AssemblyInfo, Resources, Settings
 ├── Services/               ApiService, FsuipcService, ScoringService, MetarService,
 │                           IvaoService, SimbriefEnhancedService, LandingLogService,
-│                           NavDataService, NavDataClient
+│                           NavDataService, NavDataClient,
+│                           CabinAnnouncementService
 ├── UI/
 │   ├── Forms/              MainForm, FlightPlannerForm, OFPViewerForm, SettingsForm,
 │   │                       MetarDecodeForm, EcamDialog,
@@ -304,11 +306,63 @@ static NavAirportInfo     GetAirportInfo(icao)  // transition_altitude_ft / tran
 static Task<NavApiTestResult> TestApiAsync(string apiKeyOverride = null)
     // Paso 1: GET /status/ → reachability
     // Paso 2: GET /airport/LEMD/runways/ con key → 401/403 = key inválida
+static Task<BriefingCheckResult> CheckAnnouncementAsync(string phase, string lang)
+    // GET /briefing/check/?phase={phase}&lang={lang} → { available, version }
+static Task<byte[]> FetchBytesAsync(string path)
+    // GET {NavDataApiUrl}/{path} — descarga binaria genérica; usado por CabinAnnouncementService
 ```
 
 - Caché: `ConcurrentDictionary<string, Task<NavAirportCache>>` — carga paralela de 6 endpoints por aeropuerto.
 - Auth: cabeceras `X-API-Key` + `X-Origin-Domain`.
 - Todos los endpoints usan la forma singular `/airport/` (no `/airports/`).
+- `BriefingCheckResult` (en `Models/NavData.cs`): `bool Available`, `string Version`.
+
+---
+
+### CabinAnnouncementService — `Services/CabinAnnouncementService.cs` (v0.5.9)
+
+Reproduce anuncios de cabina pregrabados descargados desde la NavData API. Opera en segundo plano con una cola FIFO de ítems de audio.
+
+**Fases soportadas:** `boarding`, `taxi_out`, `on_runway`, `cruise`, `top_of_descent`, `approach`, `taxi_in`
+
+**Caché local:** `%TEMP%\vmsacars\briefing\` — los MP3 se guardan como `{phase}_{lang}_{version}.mp3` y se reutilizan si ya existen.
+
+**Idioma:** determinado por `airline.country` del piloto (phpVMS `GET /api/user`). Países hispanohablantes → `es`; resto → `en`. En vuelos internacionales (prefijo ICAO de país distinto) se reproducen los dos idiomas: inglés primero, luego nativo.
+
+**Supresión automática:** si `Pilot.AircraftSeats > 0 && AircraftSeats < 40` (aeronave pequeña), el prefetch se cancela y no se reproducen anuncios.
+
+**API pública:**
+
+```csharp
+Task   PrefetchAsync(string originIcao, string destIcao, string airlineCountry, int aircraftSeats = 0)
+void   QueueAnnouncement(string phase)    // encola chime WAV + MP3 para la fase dada
+Task<string> TestAnnouncementAsync(string phase, string lang = "en")  // descarga y reproduce en Settings
+void   Reset()                            // limpia cola, rutas y caché de disco
+void   Dispose()                          // ClearCacheFiles()
+```
+
+**Orden de cola por anuncio:**
+
+| Vuelo | Ítems encolados |
+|---|---|
+| Doméstico / aerolínea anglohablante | `[__chime__, native.mp3]` |
+| Internacional (nativo ≠ en) | `[__chime__, en.mp3, native.mp3]` |
+
+**Playback:** NAudio `AudioFileReader` + `WaveOutEvent` + `ManualResetEventSlim` — bloquea el hilo `Task.Run` hasta que `PlaybackStopped` se dispara; el siguiente ítem de la cola no empieza hasta que el anterior termina. El chime WAV se reproduce vía `System.Media.SoundPlayer` desde recurso embebido (`Resources/Audio/chime_warning.wav`).
+
+**Triggers en MainViewModel:**
+
+| Fase | Origen del trigger |
+|---|---|
+| `boarding` | `PrefetchAsync()` completado (al hacer START) |
+| `taxi_out` | `OnFlightPhaseChanged(TaxiOut)` |
+| `on_runway` | `LandingLightChanged(on=true)` o `StrobeLightChanged(on=true)` con GS ≤ 40 kt |
+| `cruise` | `OnRawDataUpdated`: Enroute + AGL > 10 000 ft sostenido 30 s |
+| `top_of_descent` | `OnFlightPhaseChanged(Descent)` |
+| `approach` | `OnFlightPhaseChanged(Approach)` |
+| `taxi_in` | `OnFlightPhaseChanged(TaxiIn)` |
+
+Flags de guarda: `_cabinCruiseSent`, `_cabinOnRunwaySent` (reset en `StartFlight()` y en los tres exit paths). Configurable con `AppConfig.CabinAnnouncementsEnabled` (toggle live desde Settings).
 
 ---
 
@@ -725,6 +779,19 @@ int PaxCount
 string PdfUrl, LocalPdfPath
 ```
 
+### Pilot
+
+```csharp
+int    Id, AirlineId, IvaoId, AircraftSeats
+string PilotId, Name, AirlineName, Rank, CurrentAirport, AirlineCountry
+double? CurrentAirportLat, CurrentAirportLon
+```
+
+`AirlineCountry` — ISO-2 country code de la aerolínea (p. ej. `"CO"`, `"ES"`). Fuente: `airline.country` del `GET /api/user` de phpVMS.  
+`AircraftSeats` — capacidad de asientos del avión asignado. Fuente: `curr_aircraft.subfleet.total_seats`. Cero = no disponible → anuncios de cabina activados (safe default).
+
+---
+
 ### FlightRecord
 
 ```csharp
@@ -779,9 +846,11 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 | `navdata_api_domain` | _(vacío)_ | Dominio de la aerolínea (cabecera `X-Origin-Domain`) |
 | `landing_log_path` | _(vacío)_ | Ruta al archivo `landing_log.sqlite` |
 | `osd_enabled` | true | Activa el overlay OSD |
+| `osd_sound_enabled` | true | Activa los chimes del OSD (Info/Success/Warning/Critical) |
 | `osd_duration_seconds` | 4 | Tiempo de visualización por notificación (s) |
 | `osd_screen_index` | 0 | Índice de pantalla para el OSD (0 = primaria) |
 | `osd_opacity` | 90 | Opacidad del OSD (10–100 %) |
+| `cabin_announcements_enabled` | true | Activa los anuncios de cabina pregrabados |
 
 ---
 

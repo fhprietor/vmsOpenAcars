@@ -628,6 +628,8 @@ namespace vmsOpenAcars.UI.Forms
             {
                 settingsForm.TestOsdCallback = (msg, sev) =>
                     _osd?.ShowMessage(msg, sev, AppConfig.OsdDurationSeconds * 1000);
+                settingsForm.TestCabinAnnouncementCallback = phase =>
+                    _viewModel?.TestCabinAnnouncementAsync(phase) ?? Task.FromResult("No active session");
                 if (settingsForm.ShowDialog(this) == DialogResult.OK)
                 {
                     string airline = ConfigurationManager.AppSettings["airline"] ?? "vmsOpenAcars";

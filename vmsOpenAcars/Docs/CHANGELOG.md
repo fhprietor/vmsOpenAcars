@@ -2,6 +2,20 @@
 
 ---
 
+## [0.5.9] — 2026-05-20
+
+### Added
+
+- **Cabin Announcements** — pregrabados descargados desde la NavData API y reproducidos en cabina durante las fases de vuelo. Al iniciar el vuelo, `CabinAnnouncementService` descarga en paralelo los MP3 de 7 fases (`boarding`, `taxi_out`, `on_runway`, `cruise`, `top_of_descent`, `approach`, `taxi_in`) vía `/briefing/check/` + `/briefing/download/`. Los archivos se cachean en `%TEMP%\vmsacars\briefing\`. Reproducción: chime WAV + MP3 en cola FIFO secuencial vía Win32 MCI. Vuelos internacionales (ICAO prefix distinto): inglés primero, luego idioma nativo. Vuelos domésticos: solo idioma nativo. Trigger `on_runway`: primer evento `LandingLightChanged(on=true)` o `StrobeLightChanged(on=true)` con GS ≤ 40 kts. Trigger `cruise`: Enroute + AGL > 10 000 ft sostenido 30 s. Idioma nativo: detectado por `airline.country` (phpVMS API) — países hispanohablantes → `es`, resto → `en`.
+- **Settings — Cabin Announcements** — sección en el panel derecho de Settings con checkbox de activación (efecto inmediato, sin reinicio) y botón `TEST ▾` con dropdown por fase. El test descarga el audio bajo demanda si no está en caché, reproduce chime + MP3, y muestra el resultado debajo del botón: formato real del archivo (`MP3/ID3`, `OGG`, `AAC`…), tamaño en KB y nombre de archivo.
+- **Settings — layout apaisado** — rediseño completo de `SettingsForm` de una sola columna (21 filas, ~760 px de alto) a dos columnas lado a lado (920 × 560 px, mínimo 760 × 520 px). Columna izquierda: Conexión + SimBrief + NavData API. Columna derecha: Landing Log + OSD + Cabin Announcements. Los botones Guardar/Cancelar quedan en un panel fijo inferior, siempre visibles.
+
+### Fixed
+
+- **Reproducción MP3 vía MCI** — `PlayMp3Sync` especificaba `type mpegvideo` en la llamada `mciSendString`, lo que falla en sistemas donde el handler de vídeo MPEG rechaza streams de audio puro. Se elimina la especificación de tipo; Windows resuelve el handler MCI correcto desde la extensión `.mp3` del archivo.
+
+---
+
 ## [0.5.8] — 2026-05-18
 
 ### Added
