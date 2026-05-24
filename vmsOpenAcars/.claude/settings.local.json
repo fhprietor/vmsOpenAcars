@@ -13,7 +13,15 @@
       "PowerShell(Get-ChildItem *)",
       "PowerShell(cmd /c dir \"D:\\\\Desarrollo\\\\proyectos\\\\VMS\\\\vmsOpenAcars\\\\packages\\\\GMap.NET.WinForms.2.1.7\\\\lib\" /s /b 2>&1)",
       "Bash(Get-ChildItem -Recurse -Name -Include \"README*\" -ErrorAction SilentlyContinue)",
-      "Bash(Select-Object -First 20)"
+      "Bash(Select-Object -First 20)",
+      "Bash(Get-ChildItem -Path \"D:\\\\Desarrollo\\\\Projects\\\\vmsOpenAcars\" -Filter \"CHANGELOG*\" -Recurse)",
+      "Bash(Select-Object FullName)",
+      "Bash(Get-ChildItem \"D:\\\\Desarrollo\\\\Projects\\\\vmsOpenAcars\\\\vmsOpenAcars\\\\UI\\\\Forms\\\\\" | Select-Object Name *)",
+      "Bash(\"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\2017\\\\Community\\\\MSBuild\\\\15.0\\\\Bin\\\\MSBuild.exe\" vmsOpenAcars.csproj /p:Configuration=Debug /nologo /v:minimal)",
+      "Bash(Get-Content \"D:\\\\Desarrollo\\\\Projects\\\\vmsOpenAcars\\\\vmsOpenAcars\\\\UI\\\\Forms\\\\MapForm.cs\")",
+      "Bash(Measure-Object -Line)",
+      "PowerShell(Get-Content *)",
+      "Bash(git *)"
     ]
   }
 }

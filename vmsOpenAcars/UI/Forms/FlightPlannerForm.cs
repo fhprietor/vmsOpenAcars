@@ -56,8 +56,9 @@ namespace vmsOpenAcars.UI
         private TabControl tabControl;
         private TabPage tabAvailable;
         private TabPage tabBids;
-        private ListView lvBids; // ListView para las reservas
-        private ListView lvAvailableFlights; // Renombrado para claridad
+        private ListView lvBids;
+        private ListView lvAvailableFlights;
+        private Button btnDeleteBid;
 
         private bool _hasPlanned = false;
         private readonly ListViewColumnSorter _availableSorter = new ListViewColumnSorter();
@@ -149,6 +150,12 @@ namespace vmsOpenAcars.UI
 
             tabControl.Controls.Add(tabBids);
             tabControl.Controls.Add(tabAvailable);
+
+            tabControl.SelectedIndexChanged += async (s, e) =>
+            {
+                if (tabControl.SelectedTab == tabAvailable && lvAvailableFlights.Items.Count == 0)
+                    await LoadAvailableFlightsAsync();
+            };
 
             // Panel de selección de aeronave
             Label lblAircraftTitle = new Label
@@ -331,12 +338,33 @@ namespace vmsOpenAcars.UI
             lvBids.SelectedIndexChanged += LvBids_SelectedIndexChanged;
             lvBids.DoubleClick += (s, e) => BtnPlanWithSimbrief_Click(s, e);
 
-            tabBids.Controls.Add(lvBids);
+            btnDeleteBid = new Button
+            {
+                Text     = "🗑 DELETE BID",
+                Dock     = DockStyle.Bottom,
+                Height   = 32,
+                BackColor = Color.FromArgb(140, 20, 20),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font     = Theme.MainFont,
+                Enabled  = false,
+            };
+            btnDeleteBid.FlatAppearance.BorderSize = 0;
+            btnDeleteBid.Click += BtnDeleteBid_Click;
+
+            var bidsPanel = new Panel { Dock = DockStyle.Fill };
+            bidsPanel.Controls.Add(lvBids);
+            bidsPanel.Controls.Add(btnDeleteBid);
+
+            tabBids.Controls.Add(bidsPanel);
         }
 
         private async Task LoadAllDataAsync()
         {
-            await Task.WhenAll(LoadAvailableFlightsAsync(), LoadBidsAsync());
+            await LoadBidsAsync();
+
+            if (lvBids.Items.Count == 0)
+                tabControl.SelectedTab = tabAvailable;  // dispara SelectedIndexChanged → LoadAvailableFlightsAsync
         }
 
         private async Task LoadAvailableFlightsAsync()
@@ -511,6 +539,42 @@ namespace vmsOpenAcars.UI
             lvAvailableFlights.Sort();
         }
 
+        private async void BtnDeleteBid_Click(object sender, EventArgs e)
+        {
+            if (lvBids.SelectedItems.Count == 0) return;
+            var flight = lvBids.SelectedItems[0].Tag as Flight;
+            if (flight == null || string.IsNullOrEmpty(flight.BidId)) return;
+
+            string msg = $"{flight.Airline}{flight.FlightNumber}  " +
+                         $"{flight.Departure} → {flight.Arrival}\n\nBid ID: {flight.BidId}";
+            var confirm = EcamDialog.Show(this, msg, "CONFIRM DELETE BID", EcamDialogButtons.YesNo);
+            if (confirm != System.Windows.Forms.DialogResult.Yes) return;
+
+            btnDeleteBid.Enabled = false;
+            try
+            {
+                bool ok = await _apiService.DeleteBid(flight.BidId);
+                if (ok)
+                {
+                    AppendLog($"✅ Bid {flight.BidId} deleted");
+                    _selectedFlight = null;
+                    await LoadBidsAsync();
+                    if (lvBids.Items.Count == 0)
+                        tabControl.SelectedTab = tabAvailable;  // SelectedIndexChanged carga solo si la lista está vacía
+                }
+                else
+                {
+                    AppendLog("❌ Could not delete bid — server returned an error", Color.Red);
+                    btnDeleteBid.Enabled = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ Error deleting bid: {ex.Message}", Color.Red);
+                btnDeleteBid.Enabled = true;
+            }
+        }
+
         private async void LvAvailableFlights_SelectedIndexChanged(object sender, EventArgs e)
         {
             if (lvAvailableFlights.SelectedItems.Count > 0)
@@ -523,10 +587,12 @@ namespace vmsOpenAcars.UI
 
         private async void LvBids_SelectedIndexChanged(object sender, EventArgs e)
         {
-            if (lvBids.SelectedItems.Count > 0)
+            bool hasSel = lvBids.SelectedItems.Count > 0;
+            btnDeleteBid.Enabled = hasSel;
+
+            if (hasSel)
             {
-                var item = lvBids.SelectedItems[0];
-                _selectedFlight = item.Tag as Flight;
+                _selectedFlight = lvBids.SelectedItems[0].Tag as Flight;
                 await LoadAircraftForSelectedFlight();
             }
         }

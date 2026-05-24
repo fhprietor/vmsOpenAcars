@@ -204,12 +204,50 @@ namespace vmsOpenAcars.Services
             if (string.IsNullOrEmpty(airport)) return null;
             try
             {
+                // Primary path: /ils/ endpoint provides loc_true_heading (true, not magnetic)
+                // and glideslope.altitude_ft (real DA altitude). Fixes the same magnetic-variation
+                // error class as TrueRunwayBearing() fixed for touchdown metrics.
+                var ilsList = NavDataClient.GetIls(airport);
+                if (ilsList != null)
+                {
+                    foreach (var ils in ilsList)
+                    {
+                        if (!string.Equals(ils.Runway, runwayName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (ils.FrequencyMhz < 108.0 || !ils.LocTrueHeading.HasValue) continue;
+                        if (ils.Glideslope == null || !(ils.Glideslope.PitchDeg > 0.1)) continue;
+
+                        double thLat = 0, thLon = 0, thElev = 0;
+                        foreach (var rwy in NavDataClient.GetRunways(airport))
+                        {
+                            if (!string.Equals(rwy.Name, runwayName, StringComparison.OrdinalIgnoreCase)) continue;
+                            thLat  = rwy.ThresholdLat;
+                            thLon  = rwy.ThresholdLon;
+                            thElev = rwy.ElevationFt;
+                            break;
+                        }
+
+                        return new IlsData
+                        {
+                            FrequencyMhz    = ils.FrequencyMhz,
+                            Course          = ils.LocTrueHeading.Value,
+                            GlideSlopePitch = ils.Glideslope.PitchDeg,
+                            RunwayName      = ils.Runway,
+                            ThresholdLat    = thLat,
+                            ThresholdLon    = thLon,
+                            ThresholdElevFt = thElev,
+                            GlideslopeAltFt = ils.Glideslope.AltitudeFt,
+                        };
+                    }
+                }
+
+                // Fallback: derive from runway record (magnetic ils_course — less accurate)
                 foreach (var rwy in NavDataClient.GetRunways(airport))
                 {
                     if (!string.Equals(rwy.Name, runwayName, StringComparison.OrdinalIgnoreCase))
                         continue;
                     if (!rwy.HasIls || !rwy.IlsFreqMhz.HasValue) continue;
-                    if (!(rwy.IlsGlideslopeAngle > 0.1)) continue;  // must have glideslope
+                    if (!(rwy.IlsGlideslopeAngle > 0.1)) continue;
 
                     return new IlsData
                     {
@@ -289,6 +327,7 @@ namespace vmsOpenAcars.Services
                         Lat        = leg.Lat.Value,
                         Lon        = leg.Lon.Value,
                         AltitudeFt = leg.AltitudeFt,
+                        IsFlyover  = leg.IsFlyover,
                     });
                 }
             }

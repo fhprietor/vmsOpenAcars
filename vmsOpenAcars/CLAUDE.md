@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.5.10  
+**Versión actual:** v0.6.1  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -88,9 +88,9 @@ ApproachInfo         GetApproachType(airport, runwayName)
 IList<ApproachFix>   GetApproachFixes(airport, runwayName)           // firma cambiada desde v0.4.18 (antes int approachId)
 ```
 
-### NavDataClient — `Services/NavDataClient.cs` (v0.5.9)
+### NavDataClient — `Services/NavDataClient.cs` (v0.6.1)
 
-Cliente HTTP estático con caché por ICAO:
+Cliente HTTP estático con caché por ICAO (en memoria) y caché SQLite persistente (`NavDataCache`) entre sesiones:
 
 ```csharp
 static bool IsReachable  // true tras primer fetch exitoso
@@ -188,13 +188,17 @@ outer (TableLayoutPanel 2 cols: 70% izq / 30% der)
 
 ---
 
-### SimBrief — `Models/SimbriefPlan.cs`
+### SimBrief — `Models/SimbriefPlan.cs` / `SimbriefWaypoint.cs`
 
 - `BlockFuel` ← `fuel.plan_ramp`
 - `TripFuel`  ← `fuel.enroute_burn`
 - `DepartureFuel` ← `fuel.plan_ramp` (alias)
 - `ScheduledOutTime` ← `times.sched_out` (Unix, blocks-off — countdown ETD en FMA)
 - `ScheduledOffTime` ← `times.sched_off` (Unix, wheels-off = sched_out + taxi_out — fecha en FMA)
+- `OriginRunway` / `DestinationRunway` ← `origin.plan_rwy` / `destination.plan_rwy` — pistas asignadas, pasadas a `LoadRoute`
+- `SidName` / `StarName` ← procedimiento SID/STAR del plan, pasados a `LoadRoute` para resolución en NavData
+- `Alternate` ← `alternate.icao_code` — aeropuerto alterno, dibujado como línea punteada en el mapa
+- `SimbriefWaypoint.IsSidStar` ← `navlog.fix[].is_sid_star == "1"` — distingue fixes reales de SID/STAR de waypoints normales de subida/bajada (v0.6.1)
 
 ---
 
@@ -414,11 +418,13 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 |---|---|---|
 | `Services/NavDataService.cs` | — | `ProjectOnRunway()` con `WithinFootprint` para desambiguar pistas paralelas (v0.4.18); `TrueRunwayBearing()` — bearing geográfico verdadero desde coords threshold→end, usado en `WithinFootprint` y proyección final de touchdown (v0.5.7); `FindTaxiwaySegmentBearing()` — bearing del segmento más cercano de una calle dada (v0.5.8) |
 | `Services/NavDataService.cs` | — | `NextIntersection()` — próxima intersección de calle de rodaje adelante (v0.4.18) |
-| `Services/NavDataClient.cs` | — | HTTP client estático con caché ICAO; 6 endpoints por aeropuerto; `TestApiAsync` (v0.4.19); `CheckAnnouncementAsync`, `FetchBytesAsync` (v0.5.9) |
+| `Services/NavDataClient.cs` | — | HTTP client estático con caché ICAO en memoria + `NavDataCache` SQLite persistente; 6 endpoints por aeropuerto; `TestApiAsync` llama `NavDataCache.SyncAirac()` (v0.4.19/v0.6.1); `CheckAnnouncementAsync`, `FetchBytesAsync` (v0.5.9); `GetAirportWaypoints(icao, radiusNm)` (v0.6.1) |
+| `Services/NavDataCache.cs` | — | Caché SQLite persistente para datos estáticos NavData; tablas `meta`/`airport_entries`/`navaid_entries`; invalidación por ciclo AIRAC (v0.6.1) |
 | `Services/CabinAnnouncementService.cs` | — | Prefetch, cola FIFO y reproducción de anuncios de cabina; NAudio para MP3; `TestAnnouncementAsync` para Settings (v0.5.9) |
-| `Models/NavData.cs` | — | DTOs de la API NavData (NavRunway, NavTaxiway, NavApproach, NavAirportInfo, etc.) (v0.4.18/19); `BriefingCheckResult` (v0.5.9) |
+| `Models/NavData.cs` | — | DTOs de la API NavData (NavRunway, NavTaxiway, NavApproach, NavAirportInfo, NavAirportWaypoint, etc.) (v0.4.18/19); `BriefingCheckResult` (v0.5.9) |
 | `Models/Pilot.cs` | — | `AirlineCountry` (ISO-2, para idioma de anuncios) · `AircraftSeats` (total_seats de subfleet, para supresión en aviones pequeños) (v0.5.9) |
-| `Models/SimbriefPlan.cs` | ~119 | `BlockFuel`, `TripFuel` |
+| `Models/SimbriefPlan.cs` | — | `BlockFuel`, `TripFuel`; `OriginRunway`, `DestinationRunway`, `SidName`, `StarName`, `Alternate` (v0.6.1) |
+| `Models/SimbriefWaypoint.cs` | — | `IsSidStar` — `true` si `is_sid_star == "1"` en el navlog de SimBrief; distingue fixes reales de SID/STAR de waypoints de subida/bajada sin procedimiento (v0.6.1) |
 | `Services/ScoringService.cs` | ~213 | Touchdown Zone + Centreline deductions |
 | `Services/ScoringService.cs` | ~247 | Localizer Alignment + Minimums Compliance deductions (v0.4.4) |
 | `Models/FlightScoreData.cs` | ~85 | `TouchdownDistanceFt`, `CenterlineDeviationFt`, `RunwayName` |
@@ -441,7 +447,8 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `ViewModels/MainViewModel.cs` | 620-637 | `LookupTakeoffRunwayData()` |
 | `ViewModels/MainViewModel.cs` | — | `LogNavDataPrefetch(icao, isOrigin)` — prefetch + diagnóstico + inyección TA/TL en FlightManager (v0.4.19) |
 | `ViewModels/MainViewModel.cs` | ~562 | `HandleTaxiPositionUpdate()` — criterio **angular** (>25°) para cambio de taxiway (v0.5.8); debounce 2 ciclos para entrada/backtrack de pista (v0.5.5); pasa `heading` a `FindNearestTaxiway` (v0.4.17) |
-| `UI/Forms/MapForm.cs` | — | Ventana no-modal GMap.NET: marcador `AircraftMarker` amarillo girado por heading, modo FOLLOW, proveedores OSM/ESRI, barra de estado lat/lon/HDG/Z (v0.5.8) |
+| `UI/Forms/MapForm.cs` | — | Ventana no-modal GMap.NET: marcador `AircraftMarker` amarillo girado por heading, modo FOLLOW, proveedores OSM/ESRI/Carto Dark, barra de estado lat/lon/HDG/Z (v0.5.8). `LoadRoute(waypoints, originIcao, originRunway, destIcao, destRunway, altIcao, sidName, starName)` — dibuja ruta suavizada con fly-by/fly-over (v0.5.8), proyecciones virtuales sin SID (`ComputeDepartureArc` + ext3nm/waypoint 2-5 NM) y sin STAR (`thr-5nm` + `FindArrivalRunway`), waypoint alineado a ~10 NM para STAR desalineada o sin STAR (v0.6.1), waypoints ambient origen (≤20 NM) y destino solo con zoom ≥ 10, anillos 5/10 NM al umbral, línea punteada al alterno, icono logo.png, redimensionado por bordes (Padding=6 + WM_NCHITTEST) (v0.6.1) |
+| `Services/NavDataCache.cs` | — | Caché SQLite persistente (`NavData_cache.sqlite`, junto al exe) para datos estáticos de NavData. Tablas: `meta`, `airport_entries` (icao+data_type PK; data_type ∈ block/sids/stars/ils/waypoints), `navaid_entries`. Invalidación automática por ciclo AIRAC: `SyncAirac(airac, validUntil)` purga entradas del ciclo anterior; `Initialize()` auto-purga al arrancar si `airac_valid_until` expiró. Integrado en `NavDataClient` — check caché antes de cada petición HTTP, store tras fetch. ~96% menos peticiones por sesión (v0.6.1) |
 | `ViewModels/MainViewModel.cs` | ~177 | `_pendingTaxiway`, `_pendingTaxiwayCount` — histéresis de taxiway (v0.4.17); `_pendingRunwayOnCount` — debounce de entrada a pista (v0.5.5); `TaxiwayChangeHeadingThreshold = 25.0` — umbral angular para criterio de cambio de calle (v0.5.8) |
 | `ViewModels/MainViewModel.cs` | — | `OnMapPositionUpdate` event (`Action<double, double, double>`) — dispara lat/lon/heading cada 5 ciclos de `RawDataUpdated` (~250 ms, independiente de la tasa de telemetría adaptativa); `_mapUpdateCounter` en `OnRawDataUpdated` (v0.5.8) |
 | `Services/LocalizationService.cs` | ~20 | Respeta idioma configurado en `App.config` (v0.4.19); antes forzaba `"es"` |
@@ -491,3 +498,5 @@ Los umbrales elevados (−500 fpm, 20 s) evitan que cambios de QNH o turbulencia
 - **ILS - aeropuertos sin ILS en NavData** — si la API no devuelve ILS para una pista concreta, `ApproachInfo` será null aunque la pista tenga ILS físico. El scoring de Localizer Alignment y Minimums no se evaluará en esos casos.
 - **DA calculada** — actualmente DA = threshold elevation + 200 ft (constante conservadora). Podría calcularse dinámicamente desde el `approach_leg` runway threshold fix cuando esté disponible en la API.
 - **TA/TL null en NavData** — la API devuelve `transition_altitude_ft` y `transition_level_ft` como `null` cuando el aeropuerto no tiene ese dato. Ambos campos son `double?` en `NavAirportInfo`; la guarda `info?.TransitionAltitudeFt > 0` evalúa a `false` cuando es null, así que los OSD de TA/TL y el check de STD pressure simplemente no se activan. Podría añadirse un fallback basado en valores regionales estándar.
+- **Mapa: arcos DME/RF desde procedimientos** — `InterpolateArcLegs` ya interpola legs AF/RF de SID y STAR en `allPts`. Si hay legs `AF`/`RF` con `center_lat`/`center_lon` definidos, los arcos circulares se insertan directamente en la polilínea antes de `BuildSmoothedRoutes`. Verificar con procedimientos que usan múltiples arcos encadenados.
+- **NavData caché: purga selectiva por aeropuerto** — actualmente `SyncAirac` borra todas las entradas del ciclo anterior en bloque. Podría añadirse `PurgeAirport(icao)` para invalidar un aeropuerto puntualmente (útil si la API actualiza datos de ciclo sin cambiar el número AIRAC).

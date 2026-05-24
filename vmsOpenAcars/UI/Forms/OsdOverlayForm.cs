@@ -80,7 +80,8 @@ namespace vmsOpenAcars.UI.Forms
         /// <summary>Shows a notification. Safe to call from any thread.</summary>
         public void ShowMessage(string text, OsdSeverity severity, int durationMs = 4000)
         {
-            if (InvokeRequired) { Invoke(new Action(() => ShowMessage(text, severity, durationMs))); return; }
+            if (IsDisposed || !IsHandleCreated) return;
+            if (InvokeRequired) { BeginInvoke(new Action(() => ShowMessage(text, severity, durationMs))); return; }
 
             PositionOnScreen(AppConfig.OsdScreenIndex);
 
@@ -134,7 +135,8 @@ namespace vmsOpenAcars.UI.Forms
         /// <summary>Immediately hides the OSD. Safe to call from any thread.</summary>
         public void HideOsd()
         {
-            if (InvokeRequired) { Invoke(new Action(HideOsd)); return; }
+            if (IsDisposed || !IsHandleCreated) return;
+            if (InvokeRequired) { BeginInvoke(new Action(HideOsd)); return; }
             _animTimer.Stop();
             _flashTimer.Stop();
             _state  = AnimState.Idle;

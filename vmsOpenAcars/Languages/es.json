@@ -154,6 +154,8 @@
 
   "Dlg_ActiveFlightExitMsg": "Hay un vuelo activo.\n\nSi cierras la aplicación, el vuelo se perderá.\n\n¿Deseas cancelar el vuelo y salir?",
   "Dlg_ActiveFlightExitTitle": "VUELO ACTIVO",
+  "Dlg_ExitConfirmMsg": "¿Deseas cerrar vmsOpenAcars?",
+  "Dlg_ExitConfirmTitle": "SALIR",
   "Dlg_ActiveFlightsMsg": "⚠️ VUELO(S) ACTIVO(S) DETECTADO(S) ⚠️\n\nTienes {0} vuelo(s) activo(s) en el servidor.\nProbablemente fueron creados en una sesión anterior.\n\n• ELIMÍNALOS para iniciar un nuevo vuelo.\n• o cierra este diálogo para continuar el seguimiento.",
   "Dlg_ActiveFlightsTitle": "VUELOS ACTIVOS",
   "Dlg_ResumeFlightMsg": "🔄 VUELO ACTIVO ENCONTRADO\n\nVuelo: {0}\nRuta: {1} → {2}\nAeronave: {3}\nTiempo de vuelo: {4} min\nÚltima actualización: {5}\n\n¿Deseas retomar este vuelo?",
@@ -212,6 +214,7 @@
   "Score_CritCentreline":  "Línea Central",
   "Score_CritLocalizer":   "Alineación de Localizador",
   "Score_CritMinimums":    "Cumplimiento de Mínimos",
+  "Score_CritProcSpeed":   "Velocidad de Procedimiento",
   "Score_ReasonIvao": "vuelo iniciado sin conexión a IVAO",
   "Score_ReasonStabilized": "aproximación inestable en la compuerta de 1000 ft AGL",
 
@@ -315,6 +318,9 @@
   "Log_NavDataApiOk":         "🗺️ NavData API: {0}  AIRAC {1} — activo",
   "Log_NavDataPrefetchOk":    "🗺️ NavData {0}: {1} pistas, {2} calles, {3} gates, {4} aprox",
   "Log_NavDataPrefetchEmpty": "⚠️ NavData {0}: sin datos — aeropuerto no disponible en la API",
+  "Log_NavDataAiracExpired":  "⚠️ NavData AIRAC {0} expirado el {1} — actualiza el ciclo en los ajustes de NavData",
+  "Log_ProcFixApproaching":   "→ Fix próximo: {0}  {1}",
+  "Osd_ProcNextFix":          "PRÓXIMO",
 
   "Log_GearChanged":            "🛬 Tren de aterrizaje: {0}{1}",
   "Log_FlapsChanged":           "🛫 Flaps: {0}% → {1}%",

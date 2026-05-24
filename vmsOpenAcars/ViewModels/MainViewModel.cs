@@ -12,6 +12,7 @@ using vmsOpenAcars.UI.Forms;
 using System.Linq;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Db;
+using vmsOpenAcars.Models.NavData;
 
 namespace vmsOpenAcars.ViewModels
 {
@@ -52,6 +53,7 @@ namespace vmsOpenAcars.ViewModels
         public event Action<string, Color> OnLog;
         public event Action<string> OnPositionUpdate;
         public event Action<double, double, double> OnMapPositionUpdate; // lat, lon, headingDeg
+        public event Action<SimbriefPlan> OnPlanChanged;
         public event Action<FlightPhase> OnPhaseChanged;
         public event Action<FlightPhase> OnAirStatusChanged;
         public event Action<ValidationStatus> OnValidationStatusChanged;
@@ -203,6 +205,12 @@ namespace vmsOpenAcars.ViewModels
         // Filters GPS proximity blips on crossing/parallel taxiways without a real turn.
         private const double TaxiwayChangeHeadingThreshold = 25.0;
 
+        // Procedure fix restriction tracking (SID/STAR speed restriction OSD + scoring)
+        private List<SimbriefWaypoint> _procFixes     = null;   // ordered CLB or DSC fixes with restriction
+        private int                    _procFixIdx     = 0;      // index of next unannounced fix
+        private int                    _procSpdViolations = 0;   // speed violations this flight
+        private bool                   _procFixAnnounced = false; // whether current fix was already OSD'd
+
         private void OnRawDataUpdated(object sender, RawTelemetryData e)
         {
             _flightManager?.UpdateTelemetry(e);   // ← ver C1, pasa el objeto completo
@@ -249,6 +257,11 @@ namespace vmsOpenAcars.ViewModels
                 }
                 else { _cabinCruiseCheckStart = DateTime.MinValue; }
             }
+
+            // Procedure fix restriction tracking (CLB / DSC phases only)
+            var curPhase = _flightManager?.CurrentPhase;
+            if (curPhase == FlightPhase.Climb || curPhase == FlightPhase.Descent)
+                CheckProcedureRestrictions(e.Latitude, e.Longitude, e.IndicatedAirspeedKt);
 
             // Approach track capture — every 2 s when in approach phase, AGL < 3000 ft
             if (_flightManager?.CurrentPhase == FlightPhase.Approach)
@@ -1072,7 +1085,14 @@ namespace vmsOpenAcars.ViewModels
                 else if (!result.KeyValid)
                     OnLog?.Invoke(_("Log_NavDataApiNoKey"), Theme.Warning);
                 else
+                {
                     OnLog?.Invoke(_("Log_NavDataApiOk", AppConfig.NavDataApiUrl, result.NavStatus?.AiracCycle), Theme.Success);
+                    if (NavDataClient.IsAiracExpired)
+                    {
+                        OnLog?.Invoke(_("Log_NavDataAiracExpired", NavDataClient.AiracCycle, NavDataClient.AiracValidUntil), Theme.Warning);
+                        OnOsdMessage?.Invoke($"AIRAC {NavDataClient.AiracCycle}  EXPIRED", OsdSeverity.Warning);
+                    }
+                }
             });
         }
 
@@ -1149,10 +1169,13 @@ namespace vmsOpenAcars.ViewModels
 
         public async Task TriggerMetarFetchAsync() => await _metarService.FetchNowAsync();
 
+        public SimbriefPlan ActivePlan => _flightManager?.ActivePlan;
+
         public void SetActivePlan(SimbriefPlan plan)
         {
             if (plan == null) return;
             _flightManager.SetActivePlan(plan);
+            OnPlanChanged?.Invoke(plan);
             UpdateFlightInfo();
             _metarService.SetStations(plan.Origin, plan.Destination, plan.Alternate);
             if (_fsuipc.IsConnected)
@@ -1161,6 +1184,13 @@ namespace vmsOpenAcars.ViewModels
                 OnValidationStatusChanged?.Invoke(_flightManager.PositionValidationStatus);
             }
             OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), true);
+
+            // Resolve SID/STAR restrictions async — populates _procFixes for OSD + scoring
+            _procFixes  = null;
+            _procFixIdx = 0;
+            _procSpdViolations  = 0;
+            _procFixAnnounced   = false;
+            Task.Run(() => LoadProcedureRestrictions(plan));
         }
 
         public void UpdateFlightInfo()
@@ -1188,6 +1218,154 @@ namespace vmsOpenAcars.ViewModels
                 OnTypeChanged?.Invoke("TYPE: ----");
                 OnRegistrationChanged?.Invoke("REG: ----");
             }
+        }
+
+        // ── Procedure restriction tracking ────────────────────────────────────────
+
+        /// <summary>
+        /// Resolves SID/STAR procedure legs from NavData and builds the ordered list of
+        /// waypoints that have altitude or speed restrictions. Called async on plan activation.
+        /// </summary>
+        private void LoadProcedureRestrictions(SimbriefPlan plan)
+        {
+            try
+            {
+                if (plan?.Waypoints == null || plan.Waypoints.Count == 0) return;
+
+                NavProcedure sidProc = null, starProc = null;
+                if (!string.IsNullOrEmpty(plan.Origin))
+                    sidProc  = ResolveProcedure(
+                        plan.Waypoints.Where(w => (w.Stage ?? "CRZ") == "CLB" && w.Type != "apt")
+                                      .Select(w => w.Ident).ToList(),
+                        NavDataClient.GetSids(plan.Origin), plan.OriginRunway);
+
+                if (!string.IsNullOrEmpty(plan.Destination))
+                    starProc = ResolveProcedure(
+                        plan.Waypoints.Where(w => (w.Stage ?? "CRZ") == "DSC" && w.Type != "apt")
+                                      .Select(w => w.Ident).ToList(),
+                        NavDataClient.GetStars(plan.Destination), plan.DestinationRunway);
+
+                // Build restriction lookup
+                var restrDict = new Dictionary<string, FixRestriction>(StringComparer.OrdinalIgnoreCase);
+                foreach (var proc in new[] { sidProc, starProc })
+                {
+                    if (proc?.Legs == null) continue;
+                    foreach (var leg in proc.Legs)
+                    {
+                        if (string.IsNullOrEmpty(leg.Fix)) continue;
+                        if (!leg.AltitudeFt.HasValue && !leg.SpeedKts.HasValue) continue;
+                        restrDict[leg.Fix] = new FixRestriction
+                        {
+                            AltFt    = leg.AltitudeFt,
+                            Alt2Ft   = leg.Altitude2Ft,
+                            AltDescr = leg.AltDescriptor,
+                            SpeedKts = leg.SpeedKts,
+                            SpdType  = leg.SpeedLimitType,
+                        };
+                    }
+                }
+
+                if (restrDict.Count == 0) return;
+
+                // Collect CLB + DSC fixes (in order) that have a restriction
+                var procFixes = new List<SimbriefWaypoint>();
+                foreach (var wp in plan.Waypoints)
+                {
+                    if (wp.Type == "apt" || wp.Type == "latlon") continue;
+                    string stage = wp.Stage ?? "CRZ";
+                    if (stage != "CLB" && stage != "DSC") continue;
+                    if (!restrDict.TryGetValue(wp.Ident ?? "", out FixRestriction r)) continue;
+                    // Stamp the restriction onto the waypoint (in-memory copy is safe)
+                    wp.Restriction = r;
+                    procFixes.Add(wp);
+                }
+
+                _procFixes = procFixes.Count > 0 ? procFixes : null;
+            }
+            catch { /* non-critical — proceed without restriction tracking */ }
+        }
+
+        /// <summary>
+        /// Simplified procedure match: finds the NavData procedure whose leg idents best
+        /// overlap with the plan waypoints for that stage.
+        /// </summary>
+        private static NavProcedure ResolveProcedure(
+            IList<string> planIdents, IList<NavProcedure> procedures, string runwayHint)
+        {
+            if (procedures == null || procedures.Count == 0 || planIdents.Count == 0)
+                return null;
+
+            NavProcedure best  = null;
+            int          bestScore = 0;
+
+            foreach (var proc in procedures)
+            {
+                if (!string.IsNullOrEmpty(runwayHint) && !string.IsNullOrEmpty(proc.Runway)
+                    && !proc.Runway.Equals(runwayHint, StringComparison.OrdinalIgnoreCase)
+                    && !proc.Runway.Equals("ALL", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (proc.Legs == null) continue;
+                var legIdents = new HashSet<string>(
+                    proc.Legs.Select(l => l.Fix ?? ""), StringComparer.OrdinalIgnoreCase);
+                int score = planIdents.Count(id => legIdents.Contains(id));
+                if (score > bestScore) { bestScore = score; best = proc; }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Called each telemetry cycle during CLB/DSC. Announces the next approaching fix (≤3 NM)
+        /// via OSD, and records a speed violation if IAS exceeds the published max when passing (≤0.5 NM).
+        /// </summary>
+        private void CheckProcedureRestrictions(double lat, double lon, double iasKt)
+        {
+            var fixes = _procFixes;
+            if (fixes == null || _procFixIdx >= fixes.Count) return;
+
+            var wp = fixes[_procFixIdx];
+            double distNm = HaversineNm(lat, lon, wp.Lat, wp.Lon);
+
+            // Announce on approach (≤3 NM) — fire once per fix
+            if (!_procFixAnnounced && distNm <= 3.0)
+            {
+                _procFixAnnounced = true;
+                string restrLine = wp.Restriction?.OsdLine();
+                string osdMsg = string.IsNullOrEmpty(restrLine)
+                    ? wp.Ident
+                    : $"{wp.Ident}  {restrLine}";
+                OnOsdMessage?.Invoke($"{_("Osd_ProcNextFix")} {osdMsg}", OsdSeverity.Info);
+                OnLog?.Invoke(
+                    string.Format(_("Log_ProcFixApproaching"), wp.Ident, restrLine ?? ""),
+                    Theme.MainText);
+            }
+
+            // Check speed violation when passing (≤0.5 NM) and there is a max speed restriction
+            if (distNm <= 0.5)
+            {
+                if (wp.Restriction?.SpeedKts.HasValue == true
+                    && (wp.Restriction.SpdType == "max" || wp.Restriction.SpdType == null)
+                    && iasKt > wp.Restriction.SpeedKts.Value + 5)   // 5 kt tolerance
+                {
+                    _procSpdViolations++;
+                    OnLog?.Invoke(
+                        $"⚠ SPD RESTRICTION  {wp.Ident}  {(int)iasKt} kt  / {wp.Restriction.SpeedKts} kt limit",
+                        Theme.Warning);
+                }
+                _procFixIdx++;
+                _procFixAnnounced = false;
+            }
+        }
+
+        private static double HaversineNm(double lat1, double lon1, double lat2, double lon2)
+        {
+            const double R = 3440.065;   // Earth radius in NM
+            double dLat = (lat2 - lat1) * Math.PI / 180.0;
+            double dLon = (lon2 - lon1) * Math.PI / 180.0;
+            double a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
+                     + Math.Cos(lat1 * Math.PI / 180.0) * Math.Cos(lat2 * Math.PI / 180.0)
+                     * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+            return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
         }
 
         public async Task HandleStartStopButton(string buttonText)
@@ -1282,6 +1460,9 @@ namespace vmsOpenAcars.ViewModels
                 _cabinCruiseSent       = false;
                 _cabinOnRunwaySent     = false;
                 _cabinCruiseCheckStart = DateTime.MinValue;
+                _procFixIdx            = 0;
+                _procSpdViolations     = 0;
+                _procFixAnnounced      = false;
                 Task.Run(async () => await _cabinAnnouncements.PrefetchAsync(
                     plan.Origin,
                     plan.Destination,
@@ -1306,6 +1487,9 @@ namespace vmsOpenAcars.ViewModels
                 _cabinCruiseSent       = false;
                 _cabinOnRunwaySent     = false;
                 _cabinCruiseCheckStart = DateTime.MinValue;
+                _procFixIdx            = 0;
+                _procSpdViolations     = 0;
+                _procFixAnnounced      = false;
                 OnLog?.Invoke("✖️ Vuelo cancelado", Theme.Warning);
                 OnFlightEnded?.Invoke();  // <-- añadir
             }
@@ -1326,6 +1510,9 @@ namespace vmsOpenAcars.ViewModels
                 _cabinCruiseSent       = false;
                 _cabinOnRunwaySent     = false;
                 _cabinCruiseCheckStart = DateTime.MinValue;
+                _procFixIdx            = 0;
+                _procSpdViolations     = 0;
+                _procFixAnnounced      = false;
                 OnLog?.Invoke("✖️ Flight aborted", Theme.Warning);
                 OnFlightEnded?.Invoke();
             }
@@ -1333,6 +1520,9 @@ namespace vmsOpenAcars.ViewModels
 
         public async Task SendPirep()
         {
+            // Pass procedure speed violations before score is calculated inside FilePirep
+            _flightManager.SetProcedureSpdViolations(_procSpdViolations);
+
             // Snapshot plan + touchdown data before FilePirep resets state
             var pendingRecord = SnapshotLandingRecord();
 

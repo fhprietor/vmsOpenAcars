@@ -2,6 +2,63 @@
 
 ---
 
+## [0.6.1] — 2026-05-23
+
+### Added
+
+- **Restricciones de altitud/velocidad en fixes SID/STAR** — los fixes de salida (CLB) y llegada (DSC) que tienen restricciones publicadas en la base de datos NavData muestran ahora debajo de su etiqueta en el mapa:
+  - Texto de altitud con las líneas aeronáuticas estándar: línea inferior ("a o superior" `+`), línea superior ("a o inferior" `-`), ambas ("exactamente" `A`/`@`), rango entre dos valores (`B`). Color amarillo cálido `#FFDC78`, fuente 9 pt Consolas. Visible con zoom ≥ 9.
+  - Texto de velocidad en kt debajo de la restricción de altitud.
+  - Nuevos campos en `NavProcedureLeg`: `Altitude2Ft`, `AltDescriptor`, `SpeedKts`, `SpeedLimitType`.
+  - Nueva clase `Models/FixRestriction.cs` con helpers `AltText()`, `SpdText()`, `OsdLine()`.
+  - Campo `Restriction` en `SimbriefWaypoint`.
+- **OSD de fix próximo** — durante la fase Climb y Descent, cuando el avión se aproxima a ≤ 3 NM de un fix con restricción, aparece un OSD `"PRÓXIMO SIGOX  7000A  250 kts"` (una vez por fix). El log también registra el evento.
+- **Scoring: velocidad en procedimientos** — al pasar el fix (≤ 0.5 NM), si la IAS supera el límite publicado en más de 5 kt, se registra una violación. Al enviar el PIREP: −3 pts por violación, cap −10 pts (`Score_CritProcSpeed`).
+- **ILS con heading verdadero** — `GetIlsForRunway` usa ahora `loc_true_heading` del endpoint `/airport/{icao}/ils/` (heading TRUE) en lugar de `ils_course` del endpoint de pistas (magnético). Misma clase de error corregida en v0.5.7 para `TrueRunwayBearing`. La DA ahora usa `glideslope.altitude_ft` de la API cuando está disponible, en lugar de `threshold_elevation + 200 ft` constante.
+- **Weather desde NavData** — `WeatherService` usa como fuente primaria el endpoint `/weather/{icao}/` de la NavData API (QNH pre-parseado, caché de 5 min) con fallback a aviationweather.gov.
+- **is_flyover generalizado** — cualquier fix de SID/STAR con `is_flyover = true` en los legs de NavData recibe tratamiento de fly-over en el mapa (arco Bézier cúbico). Antes solo el primer fix del SID estaba hardcodeado.
+- **Ciclo AIRAC en UI** — tras el test de conexión exitoso, si el ciclo AIRAC está expirado se muestra un OSD Warning y se registra en el log con fecha de expiración.
+- **Mapa: proveedor Carto Dark** — nuevo proveedor de tiles "Dark (Carto)" (`dark_all`) añadido al combo. Pasa a ser el proveedor por defecto. La preferencia se persiste en `App.config` clave `map_provider_index` y se restaura al abrir el mapa.
+- **Mapa: proyección de salida sin SID** — cuando el plan de SimBrief no incluye SID real (ningún fix con `is_sid_star = 1` en la fase CLB), el mapa dibuja la pista física y traza un arco de salida desde el final de pista hasta el primer fix del navlog:
+  - Se proyecta un punto de pivote a 3 NM del final de pista en el eje de despegue. Si existe un waypoint publicado entre 2 y 5 NM en esa dirección (alineado con ≤ 25° del eje), se usa ese waypoint como pivote y recibe marcador `apfx` propio.
+  - Desde el pivote se traza un arco circular de radio 2.5 NM que gira hasta que la tangente apunta al primer fix del navlog. El arco incluye una recta de tangencia hasta el fix.
+  - Función `ComputeDepartureArc`; fallback a `ComputeTransitionCurve` (Bézier cúbico) cuando el fix está muy cerca del arco.
+- **Mapa: proyección de llegada sin STAR** — cuando el plan no incluye STAR real, el mapa calcula la pista de llegada desde NavData y construye la llegada visual:
+  - Se proyecta el punto `thr-5nm` a 5 NM delante del umbral en el eje de aproximación contrario. El último fix del navlog actúa como fly-over; `BuildSmoothedRoutes` genera la curva de interceptación hacia `thr-5nm`.
+  - Tramo físico coloreado `thr-5nm → umbral` con marcadores en ambos extremos.
+  - Nueva función `FindArrivalRunway` — selecciona la pista cuyo eje de aproximación es más próximo al bearing del último fix hacia el umbral; respeta `destRunway` cuando SimBrief lo provee.
+- **Mapa: waypoint alineado como guía de final** — en dos escenarios, el mapa busca en la caché de waypoints ambient el fix más próximo a 10 NM del umbral alineado con el eje de pista (tolerancia ±20°):
+  - *Sin STAR*: el fix encontrado se inserta como punto interior entre el último fix del navlog y `thr-5nm`; `BuildSmoothedRoutes` genera la curva fly-by en ese punto, llegando a `thr-5nm` ya en el eje.
+  - *Con STAR desalineada* (último fix de la STAR con diferencia de rumbo > 25° respecto al eje de final): igual — el fix se inserta y hace de interceptor del eje final, añadiéndose también el umbral como endpoint.
+  - El fix alineado recibe siempre un marcador `apfx` propio y se excluye del layer ambient.
+- **Mapa: waypoints ambient del aeropuerto de origen** — además del destino, `LoadRoute` carga ahora los waypoints ambient del aeropuerto de **origen** y los muestra en el overlay ambient (atenuados), limitados a ≤ 20 NM del aeropuerto. Los fixes que ya tienen marcador explícito en la ruta (fix alineado, waypoint de salida) se excluyen automáticamente para evitar duplicados.
+- **Mapa: visibilidad de waypoints ambient según zoom** — el overlay `_ambientOverlay` (navaids y fixes alrededor de origen/destino) solo es visible con zoom ≥ 10. Se aplica en el cambio de zoom (`UpdateZoomInStatus`) y al completar la carga de la ruta.
+- **Mapa: anillos de distancia al umbral** — se dibujan dos círculos punteados a 5 NM y 10 NM alrededor del umbral de llegada cuando se detecta la pista de destino (tanto con STAR como sin STAR). Ayudan a estimar distancia al umbral durante la aproximación.
+- **Mapa: línea al alterno** — si SimBrief provee aeropuerto alterno, se traza una línea punteada violeta desde el aeropuerto de destino hasta el alterno con marcador `apt`.
+- **Mapa: icono de barra de tareas** — la ventana `MapForm` usa el mismo icono `logo.png` que `MainForm` (antes mostraba el icono genérico de Windows).
+- **Mapa: redimensionado de ventana** — la ventana del mapa (`FormBorderStyle.None`) puede ahora redimensionarse arrastrando los bordes y esquinas como cualquier ventana normal de Windows. La solución añade `Padding = new Padding(6)` para que la franja de 6 px del borde quede expuesta al `WndProc` de `WM_NCHITTEST` sin ser interceptada por `GMapControl`.
+- **NavData caché SQLite persistente** (`NavData_cache.sqlite`) — nueva clase `Services/NavDataCache.cs` que persiste localmente todos los datos estáticos de la API NavData entre sesiones:
+  - Tablas: `meta` (ciclo AIRAC y fecha de validez), `airport_entries` (runways, taxiways, approaches, SIDs, STARs, waypoints por ICAO), `navaid_entries` (VOR, NDB, DME). Archivo junto al ejecutable.
+  - `NavDataClient` integrado: comprueba la caché antes de cada petición HTTP y almacena tras fetch exitoso. Los datos estáticos (renovados solo con el AIRAC cada 28 días) no se refrescan hasta que el ciclo cambia.
+  - Invalidación automática: `SyncAirac(airac, validUntil)` borra las entradas del ciclo anterior en una transacción atómica al detectar cambio de AIRAC. `Initialize()` lee `airac_valid_until`; si la fecha está expirada al arrancar la app, purga toda la caché antes del primer acceso.
+  - Ganancia típica: 50–500× más rápido para aeropuertos ya cacheados; ~96 % menos peticiones a NavData API por sesión.
+- **DISPATCH: carga condicional** — al abrir `FlightPlannerForm`, solo se cargan los bids del aeropuerto actual. Si no hay bids, se cargan los vuelos disponibles y se activa automáticamente la pestaña "Available Flights". Antes se cargaban ambas fuentes en paralelo siempre.
+- **DISPATCH: eliminar bid** — nuevo botón `🗑 DELETE BID` en la pestaña "My Bids" (rojo, deshabilitado hasta seleccionar un bid). Requiere confirmación con diálogo ECAM `"CONFIRM DELETE BID"`. Tras borrar, refresca la lista y si queda vacía activa automáticamente "Available Flights".
+- **Botón OFP deshabilitado sin plan** — `btnOfp` arranca `Enabled = false` y se habilita únicamente cuando hay un plan activo (`OnPlanChanged`). Elimina el modal de advertencia que aparecía antes al pulsarlo sin plan.
+
+### Changed
+
+- **`LoadRoute` ampliado** — firma extendida a `LoadRoute(waypoints, originIcao, originRunway, destIcao, destRunway, altIcao, sidName, starName)`. `MainForm` pasa `plan.Origin`, `plan.OriginRunway`, `plan.Destination`, `plan.DestinationRunway`, `plan.Alternate`, `plan.SidName` y `plan.StarName`.
+- **Detección de SID/STAR real** — `hasSid` y `hasStar` ya no se basan en el conteo de fixes con `Stage == "CLB"/"DSC"`, sino en que al menos un fix tenga `IsSidStar = true` (campo `is_sid_star` del navlog de SimBrief). Elimina falsos positivos en rutas donde SimBrief usa `Stage = CLB` para todos los waypoints de subida aunque no haya SID publicada.
+- **`SimbriefPlan`** — nuevos campos `OriginRunway`, `DestinationRunway`, `SidName`, `StarName` y `Alternate` leídos desde el JSON de SimBrief.
+- **`SimbriefWaypoint`** — nuevo campo `IsSidStar` (`is_sid_star == "1"` en el navlog de SimBrief).
+
+### Fixed
+
+- **Cross-thread exception al cerrar la app** — `OsdOverlayForm.ShowMessage()` y `HideOsd()` llamaban `Invoke` (bloqueante) sin verificar `IsDisposed || !IsHandleCreated`. Al cerrar la app con FSUIPC activo, el hilo de telemetría podía disparar un OSD sobre un handle destruido. Corregido: guard `IsDisposed || !IsHandleCreated` + cambio a `BeginInvoke` (no bloqueante).
+
+---
+
 ## [0.5.10] — 2026-05-20
 
 ### Added

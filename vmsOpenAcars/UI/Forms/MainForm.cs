@@ -166,6 +166,7 @@ namespace vmsOpenAcars.UI.Forms
             EnsureAllConfigKeys();
             InitializeForm();
             InitializeLayout();
+            InitializeNotifications();
             InitializeHeader();
             InitializeMessageSection();
             InitializeFmaPanel();
@@ -259,6 +260,23 @@ namespace vmsOpenAcars.UI.Forms
             {
                 if (_mapForm != null && !_mapForm.IsDisposed)
                     _mapForm.UpdatePosition(lat, lon, hdg);
+            };
+
+            _viewModel.OnPlanChanged += plan =>
+            {
+                if (_mapForm != null && !_mapForm.IsDisposed)
+                    _mapForm.LoadRoute(plan?.Waypoints, plan?.Origin, plan?.OriginRunway,
+                        plan?.Destination, plan?.DestinationRunway, plan?.Alternate,
+                        plan?.SidName, plan?.StarName);
+
+                if (btnOfp != null)
+                {
+                    bool hasPlan = plan != null;
+                    if (btnOfp.InvokeRequired)
+                        btnOfp.BeginInvoke(new Action(() => btnOfp.Enabled = hasPlan));
+                    else
+                        btnOfp.Enabled = hasPlan;
+                }
             };
 
             _viewModel.OnOsdMessage += (msg, sev) =>
@@ -442,13 +460,21 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeNotifications()
         {
+            var trayMenu = new ContextMenuStrip();
+            trayMenu.Items.Add("Restaurar", null, (s, e) => RestoreFromTray());
+            trayMenu.Items.Add(new ToolStripSeparator());
+            trayMenu.Items.Add("Salir", null, (s, e) => ExitFromTray());
+
             _notifyIcon = new NotifyIcon
             {
-                Icon = this.Icon, // Usa el mismo icono de la aplicación
+                Icon = this.Icon,
                 Visible = true,
+                Text = "vmsOpenAcars",
                 BalloonTipTitle = "vmsOpenAcars",
-                BalloonTipIcon = ToolTipIcon.Info
+                BalloonTipIcon = ToolTipIcon.Info,
+                ContextMenuStrip = trayMenu
             };
+            _notifyIcon.DoubleClick += (s, e) => RestoreFromTray();
         }
 
         // Método público para mostrar notificaciones
@@ -552,7 +578,7 @@ namespace vmsOpenAcars.UI.Forms
             btnSettings.FlatAppearance.BorderSize = 0;
             btnSettings.Click += BtnSettings_Click;
 
-            // ===== BOTÓN DE MINIMIZAR =====
+            // ===== BOTÓN MINIMIZAR A TASKBAR =====
             Button btnMinimize = new Button
             {
                 Text = "─",
@@ -566,9 +592,24 @@ namespace vmsOpenAcars.UI.Forms
             btnMinimize.FlatAppearance.BorderSize = 0;
             btnMinimize.Click += (s, e) => this.WindowState = FormWindowState.Minimized;
 
+            // ===== BOTÓN MINIMIZAR AL SYSTEM TRAY =====
+            Button btnTray = new Button
+            {
+                Text = "▾",
+                Font = new Font("Segoe UI", 12, FontStyle.Regular),
+                Size = new Size(40, 40),
+                BackColor = Color.Transparent,
+                ForeColor = Color.FromArgb(180, 180, 180),
+                FlatStyle = FlatStyle.Flat,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            btnTray.FlatAppearance.BorderSize = 0;
+            btnTray.Click += (s, e) => MinimizeToTray();
+            new ToolTip().SetToolTip(btnTray, "Minimizar al área de notificaciones");
+
             // Agregar controles al panel
             pnlHeader.Controls.AddRange(new Control[] {
-        pbLogo, lblTitle, lblSubTitle, lblVersion, btnSettings, btnMinimize
+        pbLogo, lblTitle, lblSubTitle, lblVersion, btnSettings, btnTray, btnMinimize
     });
 
             mainLayout.Controls.Add(pnlHeader, 0, 0);
@@ -580,9 +621,10 @@ namespace vmsOpenAcars.UI.Forms
                 int btnWidth = 40;
                 int spacing = 4;
 
-                // Posicionar: [lblVersion] [btnSettings] [btnMinimize]
+                // Posicionar: [lblVersion] [btnSettings] [btnTray] [btnMinimize]
                 btnMinimize.Location = new Point(pnlHeader.Width - btnWidth - rightMargin, 10);
-                btnSettings.Location = new Point(btnMinimize.Left - btnWidth - spacing, 10);
+                btnTray.Location = new Point(btnMinimize.Left - btnWidth - spacing, 10);
+                btnSettings.Location = new Point(btnTray.Left - btnWidth - spacing, 10);
 
                 // Calcular el centro vertical del botón
                 int buttonCenterY = btnSettings.Top + (btnSettings.Height / 2);
@@ -1290,6 +1332,7 @@ namespace vmsOpenAcars.UI.Forms
                     case "OFP":
                         btnOfp = btn;
                         btn.Click += BtnOfp_Click;
+                        btn.Enabled = false;   // enabled once a plan is loaded
                         break;
                     case "WEATHER":
                         btnWeather = btn;
@@ -1301,6 +1344,7 @@ namespace vmsOpenAcars.UI.Forms
                         break;
                     case "MAP":
                         btnMsg = btn;
+                        btn.Enabled = false;
                         btn.Click += BtnMap_Click;
                         break;
                     default:
@@ -1753,6 +1797,12 @@ namespace vmsOpenAcars.UI.Forms
             try
             {
                 await _viewModel.Login();
+                var pilot = _viewModel.ActivePilot;
+                if (pilot != null)
+                {
+                    btnMsg.Enabled = true;
+                    _mapForm?.CenterOnAirport(pilot.CurrentAirport);
+                }
             }
             finally
             {
@@ -1798,6 +1848,7 @@ namespace vmsOpenAcars.UI.Forms
                     if (completePlan != null)
                     {
                         _viewModel.SetActivePlan(completePlan);
+                        BtnMap_Click(null, EventArgs.Empty);
                         _uiService.AddLog($"✅ Plan loaded: {completePlan.Origin} → {completePlan.Destination}", Theme.Success);
                         Task.Run(() => _viewModel.TriggerMetarFetchAsync());
                         if (_viewModel.HasOFPPdf())
@@ -1857,12 +1908,18 @@ namespace vmsOpenAcars.UI.Forms
             if (_mapForm == null || _mapForm.IsDisposed)
             {
                 _mapForm = new MapForm();
-                // Open to the right of the ACARS window; fall back to offset if no room
                 int x = Right + 6;
                 if (x + _mapForm.Width > Screen.FromControl(this).WorkingArea.Right)
                     x = Left + 40;
                 _mapForm.Location = new Point(x, Top);
                 _mapForm.Show();
+                var plan = _viewModel.ActivePlan;
+                if (plan?.Waypoints?.Count > 1)
+                    _mapForm.LoadRoute(plan.Waypoints, plan.Origin, plan.OriginRunway,
+                        plan.Destination, plan.DestinationRunway, plan.Alternate,
+                        plan.SidName, plan.StarName);
+                else
+                    _mapForm.CenterOnAirport(_viewModel.ActivePilot?.CurrentAirport);
             }
             else
             {
@@ -2098,6 +2155,54 @@ private void UpdateMetarPanel(MetarData[] metars)
 
         #region Cierre
 
+        private void MinimizeToTray()
+        {
+            this.Hide();
+            _notifyIcon?.ShowBalloonTip(2000, "vmsOpenAcars", "La aplicación sigue ejecutándose.", ToolTipIcon.Info);
+        }
+
+        private void RestoreFromTray()
+        {
+            this.Show();
+            this.WindowState = FormWindowState.Normal;
+            this.Activate();
+        }
+
+        private void ExitFromTray()
+        {
+            string msg = _isFlightActive
+                ? _("Dlg_ActiveFlightExitMsg")
+                : _("Dlg_ExitConfirmMsg");
+            string title = _isFlightActive
+                ? _("Dlg_ActiveFlightExitTitle")
+                : _("Dlg_ExitConfirmTitle");
+
+            // Sin owner: el form está oculto y ShowDialog(owner) falla si el parent no es visible.
+            var result = EcamDialog.Show(msg, title, EcamDialogButtons.YesNo);
+            if (result != DialogResult.Yes) return;
+
+            if (_isFlightActive)
+            {
+                Task.Run(async () =>
+                {
+                    await _viewModel?.CancelFlight();
+                    _viewModel?.Stop();
+                    if (!IsDisposed)
+                        BeginInvoke((Action)(() =>
+                        {
+                            _osd?.Close();
+                            _osd = null;
+                            _isFlightActive = false;
+                            Close();
+                        }));
+                });
+            }
+            else
+            {
+                Close();
+            }
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             if (_isFlightActive)
@@ -2141,6 +2246,12 @@ private void UpdateMetarPanel(MetarData[] metars)
                 _osd?.Close();
                 _osd = null;
                 _viewModel?.Stop();
+                if (_notifyIcon != null)
+                {
+                    _notifyIcon.Visible = false;
+                    _notifyIcon.Dispose();
+                    _notifyIcon = null;
+                }
                 base.OnFormClosing(e);
 
                 try

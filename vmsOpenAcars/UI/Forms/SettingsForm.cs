@@ -331,8 +331,19 @@ namespace vmsOpenAcars.UI.Forms
                 }
                 else
                 {
-                    lblNavDataStatus.Text      = $"AIRAC {result.NavStatus?.AiracCycle}  until {result.NavStatus?.AiracValidUntil}";
-                    lblNavDataStatus.ForeColor = Color.FromArgb(100, 220, 100);
+                    string cycle      = result.NavStatus?.AiracCycle      ?? "—";
+                    string validUntil = result.NavStatus?.AiracValidUntil ?? "—";
+                    bool   expired    = !string.IsNullOrEmpty(result.NavStatus?.AiracValidUntil)
+                                        && DateTime.TryParse(result.NavStatus.AiracValidUntil,
+                                               System.Globalization.CultureInfo.InvariantCulture,
+                                               System.Globalization.DateTimeStyles.None, out var d)
+                                        && d.Date < DateTime.UtcNow.Date;
+                    lblNavDataStatus.Text      = expired
+                        ? $"AIRAC {cycle}  until {validUntil}  ⚠ EXPIRED"
+                        : $"AIRAC {cycle}  until {validUntil}";
+                    lblNavDataStatus.ForeColor = expired
+                        ? Color.FromArgb(220, 120, 0)
+                        : Color.FromArgb(100, 220, 100);
                 }
                 btnTestApi.Enabled = true;
             };

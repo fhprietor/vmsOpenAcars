@@ -129,6 +129,12 @@ public bool BelowMinimums { get; set; }
         public bool SingleEngineTaxi { get; set; }
 
         /// <summary>
+        /// Number of SID/STAR speed restriction violations (IAS exceeded the published
+        /// limit when passing the fix). Each violation: -3 pts, capped at -10 pts.
+        /// </summary>
+        public int ProcedureSpdViolations { get; set; }
+
+        /// <summary>
         /// Resets all fields to their default (zero) values.
         /// Call this when a new flight begins (e.g., on prefile).
         /// </summary>
@@ -151,6 +157,7 @@ public bool BelowMinimums { get; set; }
             LocalizerViolations = 0;
             BelowMinimums = false;
             SingleEngineTaxi = false;
+            ProcedureSpdViolations = 0;
         }
     }
 }

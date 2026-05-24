@@ -227,6 +227,14 @@
         /// </summary>
         public string LocalPdfPath { get; set; }
 
+        public string OriginRunway      { get; set; }
+        public string DestinationRunway { get; set; }
+        public string SidName           { get; set; }
+        public string StarName          { get; set; }
+
+        public System.Collections.Generic.List<SimbriefWaypoint> Waypoints { get; set; }
+            = new System.Collections.Generic.List<SimbriefWaypoint>();
+
         #endregion
     }
 }

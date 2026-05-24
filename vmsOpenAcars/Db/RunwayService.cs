@@ -35,13 +35,16 @@ namespace vmsOpenAcars.Db
 
     public class IlsData
     {
-        public double FrequencyMhz     { get; set; }
-        public double Course           { get; set; }
-        public double GlideSlopePitch  { get; set; }
-        public string RunwayName       { get; set; }
-        public double ThresholdLat     { get; set; }
-        public double ThresholdLon     { get; set; }
-        public double ThresholdElevFt  { get; set; }
+        public double  FrequencyMhz    { get; set; }
+        public double  Course          { get; set; }
+        public double  GlideSlopePitch { get; set; }
+        public string  RunwayName      { get; set; }
+        public double  ThresholdLat    { get; set; }
+        public double  ThresholdLon    { get; set; }
+        public double  ThresholdElevFt { get; set; }
+        // Real glideslope intercept altitude from NavData /ils/ endpoint.
+        // When set, used directly as DA instead of ThresholdElevFt + 200 ft.
+        public double? GlideslopeAltFt { get; set; }
     }
 
     public class ApproachInfo
@@ -59,5 +62,6 @@ namespace vmsOpenAcars.Db
         public double Lat        { get; set; }
         public double Lon        { get; set; }
         public double AltitudeFt { get; set; }
+        public bool   IsFlyover  { get; set; }
     }
 }

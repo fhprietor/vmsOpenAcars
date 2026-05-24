@@ -81,8 +81,10 @@ namespace vmsOpenAcars.Services
         private const int LateDepartureDeduction = 5;
         private const int MaxTouchdownZoneDeduction = 7;
         private const int MaxCenterlineDeduction = 7;
-        private const int MaxLocalizerDeduction = 5;
-        private const int MinimumsBustDeduction = 5;
+        private const int MaxLocalizerDeduction    = 5;
+        private const int MinimumsBustDeduction    = 5;
+        private const int MaxProcSpdDeduction      = 10;
+        private const int ProcSpdDeductionPerEvent = 3;
 
         // ─── Public API ───────────────────────────────────────────────────────────
 
@@ -307,6 +309,21 @@ int totalDeduction = 0;
                     PointsDeducted = LateDepartureDeduction
                 });
                 totalDeduction += LateDepartureDeduction;
+            }
+
+            // ── Procedure Speed Restrictions ─────────────────────────────────────
+            if (data.ProcedureSpdViolations > 0)
+            {
+                int procSpdDed = Math.Min(
+                    data.ProcedureSpdViolations * ProcSpdDeductionPerEvent,
+                    MaxProcSpdDeduction);
+                result.Deductions.Add(new ScoringDeduction
+                {
+                    Criterion      = "Procedure Speed",
+                    Reason         = $"{data.ProcedureSpdViolations} speed restriction violation(s)",
+                    PointsDeducted = procSpdDed
+                });
+                totalDeduction += procSpdDed;
             }
 
             result.TotalScore = Math.Max(0, 100 - totalDeduction);

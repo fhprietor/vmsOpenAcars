@@ -81,6 +81,7 @@ namespace vmsOpenAcars.Core.Flight
         private int _qnhViolationCount = 0;
         private bool _isOfflineFlight = false;
         private bool _departedLate = false;
+        private int  _procedureSpdViolations = 0;
         private int _vmoKts = 320;
         private int _apEngagedCounter = 0;
         private const int ApEngageDebounce = 6; // 6 × 50 ms = 300 ms
@@ -889,7 +890,7 @@ namespace vmsOpenAcars.Core.Flight
                 OnLog?.Invoke(_("Log_BelowMinimums", (int)CurrentAltitude, $"{_daAltitudeFt:F0}"), Theme.Warning);
             }
 
-            // Waypoint sequencing — advance when within 0.5 NM of next fix
+            // Waypoint sequencing — flyby: 0.5 NM; flyover: 0.3 NM (must cross the fix)
             if (_approachFixes != null && _nextFixIndex < _approachFixes.Count)
             {
                 var fix = _approachFixes[_nextFixIndex];
@@ -897,7 +898,8 @@ namespace vmsOpenAcars.Core.Flight
                 double dN = (fix.Lat - CurrentLat) * 111320.0;
                 double dE = (fix.Lon - CurrentLon) * 111320.0 * cosLat;
                 double distM = Math.Sqrt(dN * dN + dE * dE);
-                if (distM < 926.0) // 0.5 NM in metres
+                double thresholdM = fix.IsFlyover ? 556.0 : 926.0; // 0.3 NM / 0.5 NM
+                if (distM < thresholdM)
                 {
                     string fixLabel = string.IsNullOrEmpty(fix.FixType)
                         ? fix.Name
@@ -963,6 +965,7 @@ namespace vmsOpenAcars.Core.Flight
             _qnhViolationCount = 0;
             _isOfflineFlight = false;
             _departedLate = false;
+            _procedureSpdViolations = 0;
             _approachGateEvaluated = false;
             _prevApproachAgl = double.MaxValue;
             _stabilizedApproachDeductions = 0;
@@ -1129,6 +1132,14 @@ namespace vmsOpenAcars.Core.Flight
         }
 
         /// <summary>
+        /// Called from MainViewModel just before FilePirep to report SID/STAR speed violations.
+        /// </summary>
+        public void SetProcedureSpdViolations(int count)
+        {
+            _procedureSpdViolations = count;
+        }
+
+        /// <summary>
         /// Loads ILS and approach procedure data for scoring and waypoint sequencing.
         /// Call from MainViewModel when the Approach phase starts (after GetRunwayThreshold).
         /// </summary>
@@ -1142,9 +1153,17 @@ namespace vmsOpenAcars.Core.Flight
             _localizerViolations = 0;
             _belowMinimums    = false;
             _ilsTunedCorrectly = true;
-            _daAltitudeFt     = ils != null && ils.ThresholdElevFt > 0
-                                 ? ils.ThresholdElevFt + 200.0 : 0;
-
+            if (ils != null)
+            {
+                if (ils.GlideslopeAltFt.HasValue && ils.GlideslopeAltFt.Value > 0)
+                    _daAltitudeFt = ils.GlideslopeAltFt.Value;
+                else if (ils.ThresholdElevFt > 0)
+                    _daAltitudeFt = ils.ThresholdElevFt + 200.0;
+                else
+                    _daAltitudeFt = 0;
+            }
+            else
+                _daAltitudeFt = 0;
         }
 
         public void SetOriginTransitionAlt(double ft)  { if (ft > 0) _originTransitionAltFt = ft; }
@@ -1844,10 +1863,11 @@ namespace vmsOpenAcars.Core.Flight
                 TouchdownDistanceFt = _touchdownDistanceFt,
                 CenterlineDeviationFt = _touchdownCenterlineDeviationFt,
                 RunwayName = _touchdownRunwayName,
-                IlsTunedCorrectly   = _ilsTunedCorrectly,
-                LocalizerViolations = _localizerViolations,
-                BelowMinimums       = _belowMinimums,
-                SingleEngineTaxi    = _singleEngineTaxiDetected && _bothEnginesRunning,
+                IlsTunedCorrectly      = _ilsTunedCorrectly,
+                LocalizerViolations    = _localizerViolations,
+                BelowMinimums          = _belowMinimums,
+                SingleEngineTaxi       = _singleEngineTaxiDetected && _bothEnginesRunning,
+                ProcedureSpdViolations = _procedureSpdViolations,
             };
             var scoring = new ScoringService();
             ScoringResult scoreResult = scoring.Calculate(scoreData);
@@ -1869,7 +1889,8 @@ namespace vmsOpenAcars.Core.Flight
                 { "Touchdown Zone",       "Score_CritTdz"          },
                 { "Centreline",           "Score_CritCentreline"   },
                 { "Localizer Alignment",  "Score_CritLocalizer"    },
-                { "Minimums Compliance",  "Score_CritMinimums"     }
+                { "Minimums Compliance",  "Score_CritMinimums"     },
+                { "Procedure Speed",      "Score_CritProcSpeed"    }
             };
             foreach (var ded in scoreResult.Deductions)
             {

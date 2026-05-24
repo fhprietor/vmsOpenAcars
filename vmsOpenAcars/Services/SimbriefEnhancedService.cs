@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Configuration;
+using System.Linq;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Models;
@@ -96,8 +97,10 @@ namespace vmsOpenAcars.Services
                         // Origen y destino
                         Origin = json["origin"]?["icao_code"]?.ToString() ?? "ZZZZ",
                         OriginIata = json["origin"]?["iata_code"]?.ToString() ?? "---",
+                        OriginRunway = json["origin"]?["plan_rwy"]?.ToString(),
                         Destination = json["destination"]?["icao_code"]?.ToString() ?? "ZZZZ",
                         DestinationIata = json["destination"]?["iata_code"]?.ToString() ?? "---",
+                        DestinationRunway = json["destination"]?["plan_rwy"]?.ToString(),
                         DestinationElevation = json["destination"]?["elevation"]?.Value<int>() ?? 0,
                         OriginElevation = json["origin"]?["elevation"]?.Value<int>() ?? 0,
                         Alternate = json["alternate"]?["icao_code"]?.ToString(),
@@ -149,7 +152,93 @@ namespace vmsOpenAcars.Services
 
                         // URL del PDF: directory + filename
                         PdfUrl = BuildPdfUrl(json),
+
+                        // SID y STAR: campo directo de SimBrief, con fallback al primer/último
+                        // token de la cadena de ruta (SimBrief incluye el nombre ahí).
+                        SidName  = json["general"]?["sid"]?.ToString()?.Trim()
+                                   ?? ExtractProcedureFromRoute(
+                                          json["general"]?["route"]?.ToString(), isFirst: true),
+                        StarName = json["general"]?["star"]?.ToString()?.Trim()
+                                   ?? ExtractProcedureFromRoute(
+                                          json["general"]?["route"]?.ToString(), isFirst: false),
                 };
+                // Navlog — waypoints con coordenadas para el mapa
+                var fixes = json["navlog"]?["fix"];
+                if (fixes != null)
+                {
+                    foreach (var fix in fixes)
+                    {
+                        string latStr = fix["pos_lat"]?.ToString();
+                        string lonStr = (fix["pos_long"] ?? fix["pos_lon"])?.ToString();
+                        if (!double.TryParse(latStr, System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture, out double lat)) continue;
+                        if (!double.TryParse(lonStr, System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture, out double lon)) continue;
+                        int.TryParse(fix["altitude_feet"]?.ToString(), out int alt);
+                        string wType = fix["type"]?.ToString()?.ToLower() ?? "wpt";
+                        string freq  = null;
+                        if (wType == "vor" || wType == "ndb" || wType == "dme")
+                        {
+                            string rawFreq = fix["pos_freq"]?.ToString();
+                            if (!string.IsNullOrWhiteSpace(rawFreq) &&
+                                float.TryParse(rawFreq,
+                                    System.Globalization.NumberStyles.Any,
+                                    System.Globalization.CultureInfo.InvariantCulture,
+                                    out float fVal) && fVal > 0f)
+                                freq = rawFreq;
+                        }
+                        plan.Waypoints.Add(new vmsOpenAcars.Models.SimbriefWaypoint
+                        {
+                            Ident     = fix["ident"]?.ToString() ?? "",
+                            Type      = wType,
+                            Lat       = lat,
+                            Lon       = lon,
+                            Airway    = fix["via_airway"]?.ToString() ?? "DCT",
+                            Stage     = fix["stage"]?.ToString() ?? "CRZ",
+                            AltFt     = alt,
+                            IsSidStar = fix["is_sid_star"]?.ToString() == "1",
+                            Freq      = freq,
+                        });
+                    }
+                }
+
+                // Rellenar frecuencias VOR/NDB/DME desde NavData si SimBrief no las proveyó
+                try
+                {
+                    var lookup = new Dictionary<string, Task<vmsOpenAcars.Models.NavData.NavNavaid>>(
+                        StringComparer.OrdinalIgnoreCase);
+                    foreach (var wp in plan.Waypoints.Where(w =>
+                        (w.Type == "vor" || w.Type == "ndb" || w.Type == "dme")
+                        && string.IsNullOrEmpty(w.Freq)
+                        && !string.IsNullOrEmpty(w.Ident)))
+                    {
+                        if (!lookup.ContainsKey(wp.Ident))
+                            lookup[wp.Ident] = NavDataClient.GetNavaidAsync(wp.Ident, wp.Lat, wp.Lon, wp.Type);
+                    }
+
+                    if (lookup.Count > 0)
+                    {
+                        await Task.WhenAll(lookup.Values).ConfigureAwait(false);
+
+                        foreach (var wp in plan.Waypoints.Where(w =>
+                            (w.Type == "vor" || w.Type == "ndb" || w.Type == "dme")
+                            && string.IsNullOrEmpty(w.Freq)))
+                        {
+                            if (!lookup.TryGetValue(wp.Ident, out var task)) continue;
+                            var n = task.Status == System.Threading.Tasks.TaskStatus.RanToCompletion
+                                ? task.Result : null;
+                            if (n == null) continue;
+
+                            if (n.FrequencyMhz.HasValue && n.FrequencyMhz > 0)
+                                wp.Freq = n.FrequencyMhz.Value.ToString(
+                                    "000.00", System.Globalization.CultureInfo.InvariantCulture);
+                            else if (n.FrequencyKhz.HasValue && n.FrequencyKhz > 0)
+                                wp.Freq = ((int)Math.Round(n.FrequencyKhz.Value)).ToString();
+                        }
+                    }
+                }
+                catch { /* Las frecuencias son opcionales; ignorar errores de la API */ }
+
                 return plan;
             }
             catch
@@ -199,6 +288,18 @@ namespace vmsOpenAcars.Services
             if (raw.StartsWith("M", StringComparison.OrdinalIgnoreCase))
                 return int.TryParse(raw.Substring(1), out int v2) ? -v2 : 0;
             return int.TryParse(raw, out int v3) ? v3 : 0;
+        }
+
+        private static string ExtractProcedureFromRoute(string route, bool isFirst)
+        {
+            if (string.IsNullOrWhiteSpace(route)) return null;
+            var tokens = route.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length == 0) return null;
+            string t = isFirst ? tokens[0] : tokens[tokens.Length - 1];
+            if (string.Equals(t, "DCT",  StringComparison.OrdinalIgnoreCase)) return null;
+            if (string.Equals(t, "SID",  StringComparison.OrdinalIgnoreCase)) return null;
+            if (string.Equals(t, "STAR", StringComparison.OrdinalIgnoreCase)) return null;
+            return t;
         }
 
         private string GetSimbriefAircraftCode(string phpvmsType)

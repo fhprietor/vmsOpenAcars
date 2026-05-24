@@ -173,6 +173,8 @@
     <Compile Include="Models\Pirep.cs" />
     <Compile Include="Models\MetarData.cs" />
     <Compile Include="Models\SimbriefPlan.cs" />
+    <Compile Include="Models\FixRestriction.cs" />
+    <Compile Include="Models\SimbriefWaypoint.cs" />
     <Compile Include="Models\TakeoffData.cs" />
     <Compile Include="Models\NavData.cs" />
     <Compile Include="Models\TouchdownData.cs" />
@@ -193,6 +195,7 @@
     <Compile Include="Services\MetarService.cs" />
     <Compile Include="Services\LandingLogService.cs" />
     <Compile Include="Services\CabinAnnouncementService.cs" />
+    <Compile Include="Services\NavDataCache.cs" />
     <Compile Include="Services\NavDataClient.cs" />
     <Compile Include="Services\NavDataService.cs" />
     <Compile Include="Services\UIService.cs" />

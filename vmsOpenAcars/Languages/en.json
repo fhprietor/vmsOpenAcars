@@ -154,6 +154,8 @@
 
   "Dlg_ActiveFlightExitMsg": "There is an active flight.\n\nIf you close the application, the flight will be lost.\n\nDo you want to cancel the flight and exit?",
   "Dlg_ActiveFlightExitTitle": "ACTIVE FLIGHT",
+  "Dlg_ExitConfirmMsg": "Do you want to close vmsOpenAcars?",
+  "Dlg_ExitConfirmTitle": "EXIT",
   "Dlg_ActiveFlightsMsg": "⚠️ ACTIVE FLIGHT(S) DETECTED ⚠️\n\nYou have {0} active flight(s) on the server.\nThey were likely created in a previous session.\n\n• DELETE them to start a new flight.\n• or close this dialog to continue tracking.",
   "Dlg_ActiveFlightsTitle": "ACTIVE FLIGHTS",
   "Dlg_ResumeFlightMsg": "🔄 ACTIVE FLIGHT FOUND\n\nFlight: {0}\nRoute: {1} → {2}\nAircraft: {3}\nFlight time: {4} min\nLast update: {5}\n\nDo you want to resume this flight?",
@@ -212,6 +214,7 @@
   "Score_CritCentreline":  "Centreline",
   "Score_CritLocalizer":   "Localizer Alignment",
   "Score_CritMinimums":    "Minimums Compliance",
+  "Score_CritProcSpeed":   "Procedure Speed",
   "Score_ReasonIvao": "flight started without IVAO connection",
   "Score_ReasonStabilized": "unstabilized at 1000 ft AGL gate",
 
@@ -315,6 +318,9 @@
   "Log_NavDataApiOk":         "🗺️ NavData API: {0}  AIRAC {1} — active",
   "Log_NavDataPrefetchOk":    "🗺️ NavData {0}: {1} rwys, {2} twys, {3} gates, {4} approaches",
   "Log_NavDataPrefetchEmpty": "⚠️ NavData {0}: no data — airport not available",
+  "Log_NavDataAiracExpired":  "⚠️ NavData AIRAC {0} expired on {1} — update the cycle in NavData settings",
+  "Log_ProcFixApproaching":   "→ Fix approaching: {0}  {1}",
+  "Osd_ProcNextFix":          "NEXT",
 
   "Log_GearChanged":            "🛬 Gear: {0}{1}",
   "Log_FlapsChanged":           "🛫 Flaps: {0}% → {1}%",

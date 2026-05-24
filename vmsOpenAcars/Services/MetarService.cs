@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Models;
+using vmsOpenAcars.Models.NavData;
 
 namespace vmsOpenAcars.Services
 {
@@ -150,6 +151,20 @@ namespace vmsOpenAcars.Services
         private async Task<MetarData> FetchByIcaoAsync(string icao, string label)
         {
             if (string.IsNullOrWhiteSpace(icao)) return null;
+
+            // Primary: NavData /weather/<icao>/
+            if (NavDataClient.IsReachable && NavDataClient.IsKeyValid)
+            {
+                try
+                {
+                    var weather = await NavDataClient.GetWeatherAsync(icao);
+                    if (weather != null)
+                        return ParseNavDataWeather(weather, label, icao);
+                }
+                catch { }
+            }
+
+            // Fallback: aviationweather.gov
             try
             {
                 string url = "https://aviationweather.gov/api/data/metar?format=json&taf=false&ids=" +
@@ -157,6 +172,52 @@ namespace vmsOpenAcars.Services
                 string json = await _http.GetStringAsync(url);
                 var arr = JArray.Parse(json);
                 return arr.Count > 0 ? ParseMetarToken(arr[0], label, icao) : null;
+            }
+            catch { return null; }
+        }
+
+        private static MetarData ParseNavDataWeather(NavWeather w, string label, string icao)
+        {
+            try
+            {
+                var m = new MetarData
+                {
+                    StationLabel  = label,
+                    RequestedIcao = icao,
+                    FetchedIcao   = w.Icao ?? icao ?? "----",
+                    Raw           = w.RawMetar ?? "",
+                    FetchedAt     = DateTime.UtcNow,
+                    TempC         = w.TemperatureC,
+                    DewPointC     = w.DewpointC,
+                    QnhHpa        = w.QnhHpa,
+                    WindDir       = w.WindDir,
+                    WindSpeedKt   = w.WindSpeedKt,
+                    WindGustKt    = w.WindGustKt,
+                    CeilingFt     = w.CeilingFt,
+                    VisibilityKm  = w.VisibilityM.HasValue
+                                    ? w.VisibilityM.Value / 1000.0
+                                    : (double?)null,
+                };
+
+                switch (w.Condition)
+                {
+                    case "VMC":  m.Condition = MetarCondition.VMC;  break;
+                    case "MVMC": m.Condition = MetarCondition.MVMC; break;
+                    case "IMC":  m.Condition = MetarCondition.IMC;  break;
+                    default:     m.Condition = CalcCondition(m.VisibilityKm, m.CeilingFt); break;
+                }
+
+                if (!string.IsNullOrEmpty(m.Raw))
+                {
+                    string[] parts = m.Raw.Split(' ');
+                    if (parts.Length > 0)
+                    {
+                        string last = parts[parts.Length - 1];
+                        if (last == "NOSIG" || last == "BECMG" || last == "TEMPO") m.Trend = last;
+                    }
+                }
+
+                return m;
             }
             catch { return null; }
         }

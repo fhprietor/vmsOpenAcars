@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -7,8 +7,9 @@ using Newtonsoft.Json.Linq;
 namespace vmsOpenAcars.Services
 {
     /// <summary>
-    /// Obtiene datos meteorológicos reales (METAR) desde aviationweather.gov.
-    /// API pública OACI — sin autenticación, cubre aeropuertos colombianos y worldwide.
+    /// Obtiene datos meteorológicos reales (METAR) para scoring de QNH.
+    /// Ruta primaria: NavData /weather/{icao}/ (pre-parseado, misma fuente aviationweather.gov).
+    /// Fallback: aviationweather.gov directo si NavData no está disponible.
     /// </summary>
     public class WeatherService
     {
@@ -26,39 +27,51 @@ namespace vmsOpenAcars.Services
         }
 
         /// <summary>
-        /// Obtiene el QNH real del aeropuerto desde el último METAR disponible.
-        /// aviationweather.gov devuelve altim directamente en hPa — no requiere conversión.
-        /// En caso de error de red usa el último valor cacheado para el aeropuerto.
+        /// Obtiene el QNH real del aeropuerto.
+        /// Intenta NavData primero (qnh_hpa pre-parseado); si falla, consulta
+        /// aviationweather.gov directamente. En último recurso devuelve el
+        /// último valor cacheado exitoso para el aeropuerto.
         /// </summary>
-        /// <param name="icao">Código ICAO del aeropuerto (ej. "SKRG", "SKBO").</param>
-        /// <returns>QNH en hPa redondeado a 1 decimal, o null si no disponible o fuera de rango.</returns>
         public async Task<double?> GetQnhMbAsync(string icao)
         {
             if (string.IsNullOrWhiteSpace(icao)) return null;
             string key = icao.ToUpperInvariant();
+
+            // Ruta primaria: NavData (misma fuente, datos pre-parseados)
             try
             {
-                string json = await _http.GetStringAsync(MetarApiUrl + key);
-                var arr = JArray.Parse(json);
-                if (arr.Count == 0)
-                    return _qnhCache.TryGetValue(key, out double cached) ? cached : (double?)null;
-
-                // altim ya viene en hPa — NO convertir desde inHg
-                double? altimHpa = arr[0]["altim"]?.Value<double?>();
-                if (altimHpa == null)
-                    return _qnhCache.TryGetValue(key, out double cached2) ? cached2 : (double?)null;
-
-                // Sanidad: QNH válido está entre 850 y 1084 hPa
-                if (altimHpa < 850 || altimHpa > 1084) return null;
-
-                double result = Math.Round(altimHpa.Value, 0);
-                _qnhCache[key] = result;
-                return result;
+                var weather = await NavDataClient.GetWeatherAsync(key).ConfigureAwait(false);
+                if (weather?.QnhHpa.HasValue == true)
+                {
+                    double qnh = Math.Round(weather.QnhHpa.Value, 0);
+                    if (qnh >= 850 && qnh <= 1084)
+                    {
+                        _qnhCache[key] = qnh;
+                        return qnh;
+                    }
+                }
             }
-            catch
+            catch { }
+
+            // Fallback: aviationweather.gov directo
+            try
             {
-                return _qnhCache.TryGetValue(key, out double fallback) ? fallback : (double?)null;
+                string json = await _http.GetStringAsync(MetarApiUrl + key).ConfigureAwait(false);
+                var arr = JArray.Parse(json);
+                if (arr.Count > 0)
+                {
+                    double? altimHpa = arr[0]["altim"]?.Value<double?>();
+                    if (altimHpa >= 850 && altimHpa <= 1084)
+                    {
+                        double result = Math.Round(altimHpa.Value, 0);
+                        _qnhCache[key] = result;
+                        return result;
+                    }
+                }
             }
+            catch { }
+
+            return _qnhCache.TryGetValue(key, out double fallback) ? fallback : (double?)null;
         }
 
         /// <summary>
@@ -67,9 +80,21 @@ namespace vmsOpenAcars.Services
         public async Task<string> GetRawMetarAsync(string icao)
         {
             if (string.IsNullOrWhiteSpace(icao)) return null;
+            string key = icao.ToUpperInvariant();
+
+            // Ruta primaria: NavData (raw_metar incluido en el response)
             try
             {
-                string json = await _http.GetStringAsync(MetarApiUrl + icao.ToUpperInvariant());
+                var weather = await NavDataClient.GetWeatherAsync(key).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(weather?.RawMetar))
+                    return weather.RawMetar;
+            }
+            catch { }
+
+            // Fallback: aviationweather.gov directo
+            try
+            {
+                string json = await _http.GetStringAsync(MetarApiUrl + key).ConfigureAwait(false);
                 var arr = JArray.Parse(json);
                 return arr.Count > 0 ? arr[0]["rawOb"]?.ToString() : null;
             }
