@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.6.1  
-> Última actualización: 2026-05-22
+> Versión del documento: 0.6.2  
+> Última actualización: 2026-05-24
 
 ---
 
@@ -42,7 +42,7 @@ vmsOpenAcars/
 │   └── Helpers/            AppInfo
 ├── Db/                     Solo tipos resultado (RunwayTouchdownResult, IlsData, ApproachInfo…)
 ├── Docs/                   BRIEFING.md (guía usuario), architecture.md
-├── Helpers/                AppConfig, Constants, FlightPhaseHelper, L (localización), UnitConverter
+├── Helpers/                AppConfig, Constants, FlightPhaseHelper, L (localización), UnitConverter, SystemInfoHelper
 ├── Languages/              en.json, es.json
 ├── Models/                 Aircraft, Flight, Pirep, SimbriefPlan, FlightPhase,
 │                           FlightScoreData, TouchdownData, TakeoffData,
@@ -727,6 +727,59 @@ El flag `_wasOverspeed` actúa como latch: un overspeed sostenido cuenta como **
 | 0 | 0 pts |
 | 1 | −7 pts |
 | ≥ 2 | −15 pts (máximo) |
+
+---
+
+### SystemInfoHelper — `Helpers/SystemInfoHelper.cs` (v0.6.2)
+
+Clase estática interna que recopila información de hardware y simulador al arrancar la aplicación, sin dependencias de WMI (que requiere permisos elevados y es lento).
+
+**Propiedades públicas:**
+
+```csharp
+string OsSummary   // "Windows 10 Home Single Language / RAM 16 GB"
+string GpuSummary  // "NVIDIA GeForce 840M / VRAM ?"
+string SimSummary  // "MSFS 2024 / 1.39.15"
+```
+
+**`Initialize()`** — llamado en `MainForm` tras `ConnectViewModelEvents()`. Rellena `OsSummary` y `GpuSummary`.
+
+**`SetSimVersion(simName)`** — llamado en `MainViewModel.OnFsuipcConnected`. Rellena `SimSummary`.
+
+**`GetPrefileNotes()`** — devuelve un bloque multilínea con versión + OS + GPU + Sim, incluido en el campo `notes` del prefile phpVMS via `ApiService.PrefileFlight`.
+
+**Detección de GPU (`GetBestGpu`):**
+
+1. Lee `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}` (subkeys numéricas = adaptadores de vídeo instalados).
+2. Lee `DriverDesc` (nombre) y `HardwareInformation.MemorySize` (VRAM como QWORD, soporta >4 GB).
+3. Filtra adaptadores virtuales: Microsoft Basic, Hyper-V, Remote Desktop, VMware, VirtualBox, Parsec, VDDM.
+4. Asigna un rango discreto (`DiscreteRank`):
+
+| Rango | Condición |
+|---|---|
+| 3 | Nombre contiene NVIDIA / GeForce / Quadro / RTX / GTX |
+| 2 | Nombre contiene Radeon RX / Radeon Pro / AMD Radeon / Intel Arc |
+| 1 | Cualquier otro fabricante |
+| 0 | Nombre contiene Intel (integrado) |
+
+5. Selecciona la GPU con **rango más alto** (VRAM como desempate dentro del mismo rango).
+
+> **Portátiles NVIDIA Optimus:** la GPU discreta es `Render-Only Device` y su VRAM aparece como 0 bytes en el registro. La iGPU Intel muestra ~1 GB de memoria compartida. El criterio de rango primario garantiza que NVIDIA (3) siempre gane a Intel (0). La VRAM se muestra como `?` cuando es 0.
+
+**Detección de RAM:** P/Invoke `GlobalMemoryStatusEx` (kernel32). Sin WMI, sin permisos elevados.
+
+**Detección de versión del simulador:** `Process.GetProcessesByName(procName)` → `FileVersionInfo.GetVersionInfo(MainModule.FileName)` → `ProductVersion` recortado a 3 partes (`X.Y.Z`).
+
+**Flujo en MainViewModel.StartFlight():** al confirmar el inicio del vuelo, se envía un `AcarsPositionUpdate` con 4 entradas log a la tabla ACARS de phpVMS:
+
+```
+AcarsPosition[0].log = OsSummary       → "Windows 10 Home / RAM 16 GB"
+AcarsPosition[1].log = GpuSummary      → "NVIDIA GeForce 840M / VRAM ?"
+AcarsPosition[2].log = SimSummary      → "MSFS 2024 / 1.39.15"
+AcarsPosition[3].log = "{Type} / {Dev}"  → "B738 / PMDG"
+```
+
+Todos con `status = "ground"` y `source = "vmsOpenAcars"`. Envío asíncrono (`Task.Run`).
 
 ---
 

@@ -21,12 +21,12 @@ namespace vmsOpenAcars.Services
         /// <summary>
         /// Genera URL para pre-cargar datos en SimBrief
         /// </summary>
-        /// 
+        ///
         public string GenerateDispatchUrl(Flight flight, Pilot pilot, Aircraft aircraft)
         {
             // Calcular hora de salida: UTC actual + 30 minutos
             DateTime depTime = DateTime.UtcNow.AddMinutes(30);
-            
+
             // Determinar el tipo de vuelo para SimBrief
             // "s" = scheduled (regular), "n" = non-scheduled (charter, ferry, etc.)
             string simbriefFlightType = flight.FlightType == "J" ? "s" : "n";
@@ -224,7 +224,7 @@ namespace vmsOpenAcars.Services
                             (w.Type == "vor" || w.Type == "ndb" || w.Type == "dme")
                             && string.IsNullOrEmpty(w.Freq)))
                         {
-                            if (!lookup.TryGetValue(wp.Ident, out var task)) continue;
+                            if (!lookup.TryGetValue(wp.Ident, out Task<vmsOpenAcars.Models.NavData.NavNavaid> task)) continue;
                             var n = task.Status == System.Threading.Tasks.TaskStatus.RanToCompletion
                                 ? task.Result : null;
                             if (n == null) continue;

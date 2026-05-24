@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.6.1  
+**Versión actual:** v0.6.2  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -14,7 +14,7 @@ vmsOpenAcars/
 ├── Core/Flight/          → FlightManager.cs  (máquina de estados de vuelo)
 │   └── FlightTimer.cs
 ├── Db/                   → RunwayService.cs  (solo tipos resultado — RunwayTouchdownResult, IlsData, ApproachInfo…)
-├── Helpers/              → AppConfig, Constants, UnitConverter, L (localización)
+├── Helpers/              → AppConfig, Constants, UnitConverter, L (localización), SystemInfoHelper
 ├── Models/               → Aircraft, Flight, FlightScoreData, TouchdownData, TakeoffData,
 │                           SimbriefPlan, Pirep, FlightRecord, ApproachTrackPoint
 ├── Services/             → ApiService, FsuipcService, ScoringService, MetarService,
@@ -325,6 +325,38 @@ OnFlightPhaseChanged(Approach)
 
 ---
 
+## SystemInfoHelper — v0.6.2
+
+`Helpers/SystemInfoHelper.cs` — clase `internal static`. Recopila información de hardware y simulador para el log local y para la tabla ACARS de phpVMS.
+
+**Propiedades públicas (inicializadas en `Initialize()` al arrancar):**
+- `OsSummary` — `"{ProductName} / RAM {n} GB"` (detecta Windows 11 por `CurrentBuildNumber >= 22000`)
+- `GpuSummary` — `"{DriverDesc} / VRAM {n} GB"` (o `VRAM ?` si el adaptador no reporta VRAM)
+- `SimSummary` — asignado en `SetSimVersion(simName)` al conectar FSUIPC
+
+**Selección de GPU (`GetBestGpu`):**
+- Lee `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968...}` (adaptadores de vídeo).
+- Filtra adaptadores virtuales (`IsVirtualAdapter`): Microsoft Basic, Hyper-V, Remote Desktop, VMware, VirtualBox, Parsec, VDDM.
+- Criterio **rango primario** (`DiscreteRank`), VRAM como desempate secundario:
+  - NVIDIA / GeForce / Quadro / RTX / GTX → rango 3
+  - AMD Radeon RX / Pro / AMD Radeon / Intel Arc → rango 2
+  - otros → rango 1
+  - Intel (integrado) → rango 0
+- Portatiles NVIDIA Optimus: la GPU discreta es `Render-Only Device` (VRAM = 0 en registro); la iGPU Intel reporta ~1 GB de memoria compartida. El criterio de rango garantiza que NVIDIA (3) siempre gane a Intel (0) aunque su VRAM sea 0. VRAM se muestra como `?` en ese caso.
+- VRAM > 4 GB: usa `HardwareInformation.MemorySize` como QWORD (8 bytes), correcto para GPU de 8/16/24 GB.
+
+**RAM:** P/Invoke `GlobalMemoryStatusEx` (kernel32) — sin dependencia de WMI.
+
+**Versión de simulador (`SetSimVersion` → `BuildSimSummary`):** busca el proceso en ejecución (`FlightSimulator2024`, `FlightSimulator`, `X-Plane`, `Prepar3D`), lee `FileVersionInfo.ProductVersion`, recorta a 3 partes.
+
+**Uso:**
+- `MainForm` llama `Initialize()` al arrancar (tras `ConnectViewModelEvents`), luego loguea `OsSummary` y `GpuSummary` en el panel de log local.
+- `MainViewModel.OnFsuipcConnected` llama `SetSimVersion` y loguea `SimSummary`.
+- `ApiService.PrefileFlight` incluye `GetPrefileNotes()` en el campo `notes` del prefile de phpVMS (`notes = vmsOpenAcars vX.Y.Z\n{OsSummary}\n{GpuSummary}\n{SimSummary}`).
+- `MainViewModel.StartFlight` (al inicio del vuelo) envía un `AcarsPositionUpdate` con 4 `AcarsPosition` entries — `log` = OsSummary, GpuSummary, SimSummary y `"{AircraftType} / {Developer}"` — a la tabla ACARS de phpVMS vía `SendPositionUpdate`, en `Task.Run` background, `status = "ground"`.
+
+---
+
 ## OSD Overlay — v0.5.4
 
 ### OsdOverlayForm — `UI/Forms/OsdOverlayForm.cs`
@@ -466,6 +498,8 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `UI/Forms/MainForm.cs` | — | `OnOsdMessage` handler → `OsdAudio.Play()` + `_osd.ShowMessage()` |
 | `UI/Forms/OsdOverlayForm.cs` | — | OSD overlay completo (v0.4.6) |
 | `Helpers/OsdAudio.cs` | — | Chimes de cabina por severidad; 4 EmbeddedResource WAV (v0.5.4) |
+| `Helpers/SystemInfoHelper.cs` | — | `Initialize()` — OS/RAM/GPU al arrancar; `SetSimVersion(name)` — sim+versión al conectar; `GetPrefileNotes()` — bloque texto para campo `notes` del prefile; rango-primario GPU (NVIDIA Optimus safe); P/Invoke RAM; FileVersionInfo sim (v0.6.2) |
+| `ViewModels/MainViewModel.cs` | ~1448 | `StartFlight()` → al iniciar vuelo envía `AcarsPositionUpdate` con 4 entradas `log` (OsSummary, GpuSummary, SimSummary, AircraftType/Developer) a la tabla ACARS de phpVMS (v0.6.2) |
 | `Services/UIService.cs` | ~143 | `SetPhaseText()` |
 | `Services/UIService.cs` | ~186 | `SetAirStatus()` |
 | `UI/Forms/SettingsForm.cs` | — | Sección Landing Log con OpenFileDialog (CheckFileExists=false) |

@@ -174,6 +174,10 @@ namespace vmsOpenAcars.UI.Forms
             InitializeButtons();
             InitializeViewModel();
             ConnectViewModelEvents();
+            _uiService?.AddLog($"vmsOpenAcars v{vmsOpenAcars.Core.Helpers.AppInfo.Version}", Theme.MainText);
+            SystemInfoHelper.Initialize();
+            _uiService?.AddLog(SystemInfoHelper.OsSummary,  Theme.SecondaryText);
+            _uiService?.AddLog(SystemInfoHelper.GpuSummary, Theme.SecondaryText);
             _viewModel?.Start();
             // Verificar actualizaciones al iniciar (no bloquea la UI)
             this.Shown += async (s, e) => await CheckForUpdatesAsync();

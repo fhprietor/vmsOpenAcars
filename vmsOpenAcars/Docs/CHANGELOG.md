@@ -2,6 +2,19 @@
 
 ---
 
+## [0.6.2] — 2026-05-24
+
+### Added
+
+- **Log de sistema en la tabla ACARS de phpVMS al iniciar el vuelo** — al pulsar START y confirmar el inicio del vuelo, se envía automáticamente un `AcarsPositionUpdate` con hasta 4 entradas `log` a la tabla ACARS del servidor phpVMS: sistema operativo + RAM, GPU + VRAM, simulador + versión, y tipo de aeronave / fabricante del add-on. Cada entrada aparece como fila independiente en el historial ACARS del PIREP con `status = "ground"`. El envío es asíncrono (`Task.Run`), no bloquea la interfaz y usa la posición actual del avión como coordenadas de la entrada.
+- **Líneas de información de sistema en el log local al arrancar** — al iniciar la aplicación el log muestra: (1) versión de vmsOpenAcars, (2) sistema operativo y RAM, (3) GPU y VRAM. Al conectar FSUIPC se añade una cuarta línea con el simulador y su versión. Todas estas líneas también se incluyen en el campo `notes` del prefile phpVMS.
+- **`SystemInfoHelper`** — nueva clase `Helpers/SystemInfoHelper.cs` que recopila información de hardware sin WMI:
+  - **OS + RAM**: nombre del SO desde el registro (`ProductName`; detecta Windows 11 por `CurrentBuildNumber >= 22000`) + RAM total vía P/Invoke `GlobalMemoryStatusEx` (kernel32, sin WMI).
+  - **GPU**: lectura directa de `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968...}`. Selección por **rango discreto primario** (NVIDIA/GeForce/RTX/GTX/Quadro = 3 · AMD Radeon RX/Pro/Intel Arc = 2 · otros = 1 · Intel integrado = 0); la VRAM es desempate secundario dentro del mismo rango. Garantiza que en portátiles NVIDIA Optimus (GPU discreta como `Render-Only Device` con VRAM = 0 en registro) se muestre la GPU dedicada y no la iGPU Intel. Filtra adaptadores virtuales (Hyper-V, VMware, VirtualBox, Parsec, VDDM, Remote Desktop). VRAM leída como QWORD (8 bytes), soporta tarjetas >4 GB.
+  - **Simulador**: `FileVersionInfo` del proceso activo (`FlightSimulator2024`, `FlightSimulator`, `X-Plane`, `Prepar3D`), versión recortada a 3 partes.
+
+---
+
 ## [0.6.1] — 2026-05-23
 
 ### Added

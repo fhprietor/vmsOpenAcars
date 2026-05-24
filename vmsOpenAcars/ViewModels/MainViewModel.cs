@@ -1050,6 +1050,9 @@ namespace vmsOpenAcars.ViewModels
 
             // Mostrar solo el simulador por ahora
             OnLog?.Invoke(_("Log_SimulatorConnected", _fsuipc.SimulatorName), Theme.SecondaryText);
+            SystemInfoHelper.SetSimVersion(_fsuipc.SimulatorName);
+            if (!string.IsNullOrEmpty(SystemInfoHelper.SimSummary))
+                OnLog?.Invoke(SystemInfoHelper.SimSummary, Theme.SecondaryText);
 
             // La información del avión se mostrará cuando esté lista (evento OnAircraftInfoReady)
 
@@ -1447,6 +1450,26 @@ namespace vmsOpenAcars.ViewModels
                 string acLine = string.IsNullOrEmpty(acDev) ? $"✈️ {acType}" : $"✈️ {acType}  [{acDev}]";
                 OnLog?.Invoke(_("Log_SimRunning", _fsuipc.SimulatorName), Theme.MainText);
                 OnLog?.Invoke(acLine, Theme.MainText);
+
+                // Enviar info de sistema a la tabla ACARS de phpVMS al inicio del vuelo
+                string _startPirepId = _flightManager.ActivePirepId;
+                if (!string.IsNullOrEmpty(_startPirepId))
+                {
+                    double sLat = _flightManager.CurrentLat;
+                    double sLon = _flightManager.CurrentLon;
+                    int    sHdg = (int)_fsuipc.CurrentHeading;
+                    string acLogEntry = string.IsNullOrEmpty(acDev) ? acType : $"{acType} / {acDev}";
+                    var logPositions = new System.Collections.Generic.List<AcarsPosition>();
+                    if (!string.IsNullOrEmpty(SystemInfoHelper.OsSummary))
+                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.OsSummary,  status = "ground", source = "vmsOpenAcars" });
+                    if (!string.IsNullOrEmpty(SystemInfoHelper.GpuSummary))
+                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.GpuSummary, status = "ground", source = "vmsOpenAcars" });
+                    if (!string.IsNullOrEmpty(SystemInfoHelper.SimSummary))
+                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.SimSummary, status = "ground", source = "vmsOpenAcars" });
+                    logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = acLogEntry, status = "ground", source = "vmsOpenAcars" });
+                    var startupUpdate = new AcarsPositionUpdate { positions = logPositions.ToArray() };
+                    Task.Run(async () => await _apiService.SendPositionUpdate(_startPirepId, startupUpdate));
+                }
 
                 LogNavDataPrefetch(plan.Origin,      isOrigin: true);
                 LogNavDataPrefetch(plan.Destination, isOrigin: false);

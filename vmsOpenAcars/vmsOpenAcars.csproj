@@ -157,6 +157,7 @@
     <Compile Include="Core\Flight\FlightTimer.cs" />
     <Compile Include="Core\Helpers\AppInfo.cs" />
     <Compile Include="Helpers\AppConfig.cs" />
+    <Compile Include="Helpers\SystemInfoHelper.cs" />
     <Compile Include="Helpers\Constants.cs" />
     <Compile Include="Helpers\FlightPhaseHelper.cs" />
     <Compile Include="Helpers\L.cs" />

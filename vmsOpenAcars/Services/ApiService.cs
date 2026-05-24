@@ -8,6 +8,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Core.Helpers;
+using vmsOpenAcars.Helpers;
 
 namespace vmsOpenAcars.Services
 {
@@ -333,6 +334,7 @@ namespace vmsOpenAcars.Services
                 distance = 0,
                 flight_time = 0,
                 fuel_used = 0,
+                notes = SystemInfoHelper.GetPrefileNotes(),
                 source_name = $"vmsOpenAcars/{appVersion}",
                 state = "in_progress"
             };

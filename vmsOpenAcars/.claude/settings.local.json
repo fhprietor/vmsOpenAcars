@@ -21,7 +21,8 @@
       "Bash(Get-Content \"D:\\\\Desarrollo\\\\Projects\\\\vmsOpenAcars\\\\vmsOpenAcars\\\\UI\\\\Forms\\\\MapForm.cs\")",
       "Bash(Measure-Object -Line)",
       "PowerShell(Get-Content *)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(powershell *)"
     ]
   }
 }
