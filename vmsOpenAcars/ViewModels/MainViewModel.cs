@@ -193,6 +193,8 @@ namespace vmsOpenAcars.ViewModels
         private bool     _cabinOnRunwaySent;
         private DateTime _cabinCruiseCheckStart = DateTime.MinValue;
         private double   _lastGroundSpeedKt;
+        private DateTime _lastCheckpointSent = DateTime.MinValue;
+        private const    int CheckpointIntervalSeconds = 60;
         private bool   _wasOnRunwayForEntry  = false;
         private bool   _wasOnRunwayForExit   = false;
         private int    _pendingRunwayOnCount = 0;
@@ -1161,6 +1163,10 @@ namespace vmsOpenAcars.ViewModels
                     }
                     OnAcarsStatusChanged?.Invoke(success);
                 }
+
+                // Checkpoint de penalizaciones cada 60 s
+                if ((DateTime.UtcNow - _lastCheckpointSent).TotalSeconds >= CheckpointIntervalSeconds)
+                    await SendScoringCheckpointAsync();
             }
             UpdateSimulatorName();
         }
@@ -1173,6 +1179,17 @@ namespace vmsOpenAcars.ViewModels
         public async Task TriggerMetarFetchAsync() => await _metarService.FetchNowAsync();
 
         public SimbriefPlan ActivePlan => _flightManager?.ActivePlan;
+
+        public void UpdateProcedureOverrides(
+            string originRwy, string sidName, string destRwy, string starName)
+        {
+            var plan = _flightManager?.ActivePlan;
+            if (plan == null) return;
+            if (originRwy != null) plan.OriginRunway      = originRwy;
+            if (sidName   != null) plan.SidName           = sidName;
+            if (destRwy   != null) plan.DestinationRunway = destRwy;
+            if (starName  != null) plan.StarName          = starName;
+        }
 
         public void SetActivePlan(SimbriefPlan plan)
         {
@@ -1483,6 +1500,7 @@ namespace vmsOpenAcars.ViewModels
                 _cabinCruiseSent       = false;
                 _cabinOnRunwaySent     = false;
                 _cabinCruiseCheckStart = DateTime.MinValue;
+                _lastCheckpointSent    = DateTime.MinValue;
                 _procFixIdx            = 0;
                 _procSpdViolations     = 0;
                 _procFixAnnounced      = false;
@@ -1510,6 +1528,7 @@ namespace vmsOpenAcars.ViewModels
                 _cabinCruiseSent       = false;
                 _cabinOnRunwaySent     = false;
                 _cabinCruiseCheckStart = DateTime.MinValue;
+                _lastCheckpointSent    = DateTime.MinValue;
                 _procFixIdx            = 0;
                 _procSpdViolations     = 0;
                 _procFixAnnounced      = false;
@@ -1533,6 +1552,7 @@ namespace vmsOpenAcars.ViewModels
                 _cabinCruiseSent       = false;
                 _cabinOnRunwaySent     = false;
                 _cabinCruiseCheckStart = DateTime.MinValue;
+                _lastCheckpointSent    = DateTime.MinValue;
                 _procFixIdx            = 0;
                 _procSpdViolations     = 0;
                 _procFixAnnounced      = false;
@@ -1564,6 +1584,7 @@ namespace vmsOpenAcars.ViewModels
                 _cabinCruiseSent       = false;
                 _cabinOnRunwaySent     = false;
                 _cabinCruiseCheckStart = DateTime.MinValue;
+                _lastCheckpointSent    = DateTime.MinValue;
                 OnLog?.Invoke("✅ Vuelo reportado, listo para siguiente vuelo", Theme.Success);
                 OnFlightEnded?.Invoke();
                 SaveLandingRecord(pendingRecord);
@@ -1733,42 +1754,176 @@ namespace vmsOpenAcars.ViewModels
                 return true; // En caso de error, permitir continuar
             }
         }
+        // ── Scoring checkpoint ────────────────────────────────────────────────────
+
+        private string BuildCheckpointLog()
+        {
+            var fm = _flightManager;
+            return $"SC:ov={fm.OverspeedCount}" +
+                   $",lt={fm.LightsViolationCount}" +
+                   $",sa={fm.StabilizedApproachDeductions}" +
+                   $",qnh={fm.QnhViolationCount}" +
+                   $",it={(fm.IsOfflineFlight ? 1 : 0)}" +
+                   $",od={(fm.DepartedLate ? 1 : 0)}" +
+                   $",spd={_procSpdViolations}" +    // ViewModel counter, not FlightManager (updated only at PIREP time)
+                   $",lz={fm.LocalizerViolations}" +
+                   $",bm={(fm.BelowMinimums ? 1 : 0)}" +
+                   $",ts={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+        }
+
+        private async Task SendScoringCheckpointAsync()
+        {
+            string pirepId = _flightManager?.ActivePirepId;
+            if (string.IsNullOrEmpty(pirepId)) return;
+
+            _lastCheckpointSent = DateTime.UtcNow;
+
+            double lat = _flightManager.CurrentLat;
+            double lon = _flightManager.CurrentLon;
+            int    hdg = (int)_fsuipc.CurrentHeading;
+
+            var chk = new AcarsPositionUpdate
+            {
+                positions = new[]
+                {
+                    new AcarsPosition
+                    {
+                        lat    = lat,
+                        lon    = lon,
+                        heading = hdg,
+                        status  = "CHK",
+                        log     = BuildCheckpointLog(),
+                        source  = "vmsOpenAcars"
+                    }
+                }
+            };
+
+            await _apiService.SendPositionUpdate(pirepId, chk);
+        }
+
+        // ── Resume helpers ────────────────────────────────────────────────────────
+
+        private async Task ResumeFromAcarsHistoryAsync(string pirepId)
+        {
+            var acars = await _apiService.GetPirepAcarsAsync(pirepId);
+            if (acars == null || acars.Count == 0) return;
+
+            // Mostrar los últimos 20 registros no-CHK en el log
+            var nonChk = acars
+                .Where(a => a.status != "CHK" && !string.IsNullOrEmpty(a.log))
+                .ToList();
+            var displayEntries = nonChk.Skip(Math.Max(0, nonChk.Count - 20));
+
+            foreach (var entry in displayEntries)
+                OnLog?.Invoke($"  [{entry.status ?? "SCH"}]  {entry.log}", Theme.MainText);
+
+            // Buscar el último checkpoint CHK
+            var lastChk = acars
+                .LastOrDefault(a => a.status == "CHK" && !string.IsNullOrEmpty(a.log));
+
+            if (lastChk != null)
+                TryRestoreScoringCheckpoint(lastChk.log);
+            else
+                OnOsdMessage?.Invoke("RESUME  NO CHECKPOINT FOUND", OsdSeverity.Warning);
+        }
+
+        private void TryRestoreScoringCheckpoint(string log)
+        {
+            // Format: SC:ov=1,lt=2,sa=-10,qnh=1,it=0,od=0,spd=0,lz=0,bm=0,ts=<unix>
+            if (string.IsNullOrEmpty(log) || !log.StartsWith("SC:")) return;
+
+            try
+            {
+                var fields = new System.Collections.Generic.Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var part in log.Substring(3).Split(','))
+                {
+                    var kv = part.Split('=');
+                    if (kv.Length == 2 && int.TryParse(kv[1], out int val))
+                        fields[kv[0]] = val;
+                }
+
+                int  Get(string k) => fields.TryGetValue(k, out var v) ? v : 0;
+                bool GetB(string k) => Get(k) != 0;
+
+                _flightManager.SetResumedPenalties(
+                    overspeed:  Get("ov"),
+                    lights:     Get("lt"),
+                    stabilized: Get("sa"),
+                    qnh:        Get("qnh"),
+                    offline:    GetB("it"),
+                    late:       GetB("od"),
+                    procSpd:    0,          // not tracked in FlightManager during flight
+                    localizer:  Get("lz"),
+                    belowMins:  GetB("bm"));
+                _procSpdViolations = Get("spd"); // ViewModel counter
+
+                long ts = 0;
+                if (fields.TryGetValue("ts", out var tsInt)) ts = tsInt;
+                var checkpointTime = ts > 0
+                    ? DateTimeOffset.FromUnixTimeSeconds(ts).UtcDateTime
+                    : DateTime.UtcNow;
+
+                OnLog?.Invoke($"  [CHK]  Penalties restored — ov={Get("ov")} lt={Get("lt")} " +
+                              $"sa={Get("sa")} qnh={Get("qnh")} spd={Get("spd")} " +
+                              $"lz={Get("lz")} (checkpoint {(int)(DateTime.UtcNow - checkpointTime).TotalMinutes} min ago)",
+                              Theme.Success);
+                OnOsdMessage?.Invoke("RESUME  PENALTIES RESTORED", OsdSeverity.Success);
+            }
+            catch
+            {
+                OnLog?.Invoke("  [CHK]  Could not parse scoring checkpoint", Theme.Warning);
+            }
+        }
+
+        private async Task ResumeFromSimbriefAsync(Models.Pirep pirep)
+        {
+            try
+            {
+                string simbriefUser = System.Configuration.ConfigurationManager.AppSettings["simbrief_user"];
+                if (string.IsNullOrEmpty(simbriefUser)) return;
+
+                var plan = await _simbriefEnhancedService.FetchAndParseOFP(simbriefUser);
+                if (plan == null) return;
+
+                // Only load the plan if origin+dest match the resumed PIREP
+                bool originMatch = string.Equals(plan.Origin, pirep.Origin, StringComparison.OrdinalIgnoreCase);
+                bool destMatch   = string.Equals(plan.Destination, pirep.Destination, StringComparison.OrdinalIgnoreCase);
+
+                if (originMatch && destMatch)
+                {
+                    SetActivePlan(plan);
+                    OnLog?.Invoke($"  [OFP]  SimBrief plan loaded — {plan.Origin}→{plan.Destination}  FL{plan.CruiseAltitude / 100}", Theme.Success);
+                }
+                else
+                {
+                    OnLog?.Invoke($"  [OFP]  SimBrief plan mismatch ({plan.Origin}→{plan.Destination}), skipped", Theme.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke($"  [OFP]  SimBrief reload failed: {ex.Message}", Theme.Warning);
+            }
+        }
+
         /// <summary>
         /// Llamado justo después de un login exitoso.
-        /// Busca PIREPs IN_PROGRESS con última actualización dentro de los últimos
-        /// 20 minutos y ofrece al usuario retomar el vuelo.
+        /// Busca PIREPs IN_PROGRESS y ofrece al usuario retomar el vuelo.
         /// </summary>
         private async Task CheckAndResumeFlight(Pilot pilot)
         {
-            const int ResumeWindowMinutes = 20;
-
             try
             {
                 var activePireps = await _apiService.GetActivePireps();
                 if (!activePireps.Any()) return;
 
-                // Filtrar por ventana de 20 minutos usando updated_at (o created_at como fallback)
-                var resumable = activePireps
-                    .Where(p =>
-                    {
-                        var raw = !string.IsNullOrEmpty(p.UpdatedAt) ? p.UpdatedAt : p.CreatedAt;
-                        if (!DateTime.TryParse(raw, null,
-                            System.Globalization.DateTimeStyles.RoundtripKind, out var dt))
-                            return false;
-                        return (DateTime.UtcNow - dt.ToUniversalTime()).TotalMinutes <= ResumeWindowMinutes;
-                    })
-                    .ToList();
-
-                if (!resumable.Any()) return;
-
-                // Tomar el más reciente
-                var candidate = resumable
+                // Tomar el más reciente — sin filtro de tiempo (cualquier IN_PROGRESS es retomable)
+                var candidate = activePireps
                     .OrderByDescending(p => p.UpdatedAt ?? p.CreatedAt)
                     .First();
 
                 // Obtener detalle completo del PIREP
                 var detail = await _apiService.GetPirepDetail(candidate.Id);
-                if (detail == null) detail = candidate; // fallback a datos del listado
+                if (detail == null) detail = candidate;
 
                 var lastUpdate = !string.IsNullOrEmpty(detail.UpdatedAt) ? detail.UpdatedAt : detail.CreatedAt;
                 var minutesAgo = "";
@@ -1791,9 +1946,16 @@ namespace vmsOpenAcars.ViewModels
                 if (result == DialogResult.Yes)
                 {
                     _flightManager.ResumeFlight(detail, pilot);
+                    _lastCheckpointSent = DateTime.MinValue;
                     UpdateFlightInfo();
                     OnButtonStateChanged?.Invoke("ABORT", Color.Red, true);
                     OnLog?.Invoke(_("Log_FlightResumed"), Theme.Success);
+
+                    // Recuperar historial ACARS + penalizaciones acumuladas
+                    await ResumeFromAcarsHistoryAsync(detail.Id);
+
+                    // Recargar OFP de SimBrief si coincide con el vuelo
+                    await ResumeFromSimbriefAsync(detail);
                 }
                 else
                 {

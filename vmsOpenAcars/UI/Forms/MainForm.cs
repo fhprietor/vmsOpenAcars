@@ -1912,6 +1912,8 @@ namespace vmsOpenAcars.UI.Forms
             if (_mapForm == null || _mapForm.IsDisposed)
             {
                 _mapForm = new MapForm();
+                _mapForm.OnProcedureChanged += (orgRwy, sid, dstRwy, star) =>
+                    _viewModel.UpdateProcedureOverrides(orgRwy, sid, dstRwy, star);
                 int x = Right + 6;
                 if (x + _mapForm.Width > Screen.FromControl(this).WorkingArea.Right)
                     x = Left + 40;
@@ -2123,6 +2125,11 @@ private void UpdateMetarPanel(MetarData[] metars)
                 _metarConditionColors[i]  = ConditionToColor(_metarDataArray[i]?.Condition ?? MetarCondition.Unknown);
                 _metarPanels[i]?.Invalidate();
             }
+
+            if (_mapForm != null && !_mapForm.IsDisposed)
+                _mapForm.SetMetarData(
+                    _metarDataArray[0]?.WindDir, _metarDataArray[0]?.WindSpeedKt,
+                    _metarDataArray[1]?.WindDir, _metarDataArray[1]?.WindSpeedKt);
         }
 
         private void UpdateMetarPanelState(MetarFetchState state)

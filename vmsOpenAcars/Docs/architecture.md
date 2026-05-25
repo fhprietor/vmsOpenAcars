@@ -1,6 +1,6 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.6.2  
+> Versión del documento: 0.6.4  
 > Última actualización: 2026-05-24
 
 ---
@@ -939,3 +939,20 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 - `pdfium.dll` se copia siempre al directorio de salida (`CopyToOutputDirectory=Always`)
 - `Languages/*.json` se copian con `PreserveNewest`
 - `SeedMockData()` en `LandingLogService` solo compila en configuración **Debug** (`#if DEBUG`)
+
+### Binding Redirects y SQLite (v0.6.3)
+
+El `.csproj` tiene `<AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>`, que hace que MSBuild genere redirects automáticamente analizando el árbol de dependencias. El problema: si el equipo del desarrollador no tiene `System.Data.SQLite` en su GAC, el auto-generador no produce ninguna entrada para SQLite y, al volcar el resultado sobre el `exe.config` de salida, elimina el redirect manual que sí estaba en `App.config`.
+
+La solución (añadida en v0.6.3) es `<GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>` en el mismo `<PropertyGroup>`. Con esta flag, los redirects auto-generados se escriben como un tipo de output separado y no sobreescriben el contenido manual del `App.config`, preservando el redirect de SQLite en todos los builds.
+
+El redirect manual en `App.config` es:
+
+```xml
+<dependentAssembly>
+  <assemblyIdentity name="System.Data.SQLite" publicKeyToken="db937bc2d44ff139" culture="neutral" />
+  <bindingRedirect oldVersion="0.0.0.0-1.0.119.0" newVersion="1.0.119.0" />
+</dependentAssembly>
+```
+
+Cubre cualquier versión anterior de SQLite que pueda estar registrada en el GAC del usuario (p. ej. 1.0.115.5 instalada por Visual Studio o SQL Server Tools) y la redirige a la 1.0.119.0 que se distribuye con vmsOpenAcars.

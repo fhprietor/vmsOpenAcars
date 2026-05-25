@@ -537,6 +537,33 @@ namespace vmsOpenAcars.Services
             }
         }
 
+        /// <summary>
+        /// Retrieves the ACARS position history for an active PIREP.
+        /// Returns all position entries recorded so far (newest last).
+        /// </summary>
+        public async Task<List<Models.AcarsPosition>> GetPirepAcarsAsync(string pirepId)
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_baseUrl}api/pireps/{pirepId}/acars");
+                if (!response.IsSuccessStatusCode) return new List<Models.AcarsPosition>();
+
+                var content = await response.Content.ReadAsStringAsync();
+                var json = JObject.Parse(content);
+
+                // phpVMS returns { "data": [ ... ] }
+                var dataToken = json["data"];
+                if (dataToken == null) return new List<Models.AcarsPosition>();
+
+                return dataToken.ToObject<List<Models.AcarsPosition>>()
+                       ?? new List<Models.AcarsPosition>();
+            }
+            catch
+            {
+                return new List<Models.AcarsPosition>();
+            }
+        }
+
         #endregion
 
         #region Pilot & Airport Data

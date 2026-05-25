@@ -2,6 +2,63 @@
 
 ---
 
+## [0.6.5] — 2026-05-24 (en desarrollo)
+
+### Added
+
+- **Sidebar de procedimientos en MapForm (estilo Navigraph Maps)** — panel lateral izquierdo que permite cambiar en tiempo real la pista, SID/transición, STAR/transición y aproximación de salida y llegada:
+  - Panel colapsable (230 px expandido / 18 px colapsado, botón `◀`/`▶`).
+  - Sección **ORIGIN**: label de aeropuerto (ICAO + nombre), selector de pista, SID, transición SID. Chip de viento HW/TW + XW calculado con el METAR en vigor.
+  - Sección **DESTINATION**: igual + STAR, transición STAR, aproximación, contador de aproximaciones disponibles para la pista seleccionada.
+  - **Validación de compatibilidad** al cambiar pista: si el SID/STAR activo no aplica a la nueva pista se muestra un `EcamDialog` de confirmación; si el usuario rechaza, el combo se revierte. El approach se borra silenciosamente en cualquier cambio de pista destino (siempre runway-specific).
+  - **Overlay de aproximación** independiente (`_approachOverlay`, sobre la ruta enroute pero bajo el marcador de avión): trayectoria de legs con coordenadas, extended centerline ±5 NM (semitransparente punteado), missed approach (cian punteado). Color approach = magenta `#FF00C8`, missed = cian `#00C8FF`. No toca `LoadRoute` al cambiar approach.
+  - **Chips de viento** actualizados en tiempo real desde `MainForm.UpdateMetarPanel` → `MapForm.SetMetarData()` (índice 0 = ORIG, índice 1 = DEST).
+  - **Callback `OnProcedureChanged`** (`Action<string, string, string, string>`) — disparado en cada `RedrawRoute`; `MainForm` lo suscribe y llama `MainViewModel.UpdateProcedureOverrides` para mantener el plan activo sincronizado.
+  - `RedrawRoute()` — redibujar la ruta completa con el estado actual del sidebar sin cambiar el par de aeropuertos.
+  - `MainViewModel.UpdateProcedureOverrides(originRwy, sidName, destRwy, starName)` — actualiza los campos `OriginRunway`, `SidName`, `DestinationRunway`, `StarName` del plan activo.
+
+### Changed
+
+- **`LoadRoute`** guarda `_currentWaypoints/Icao/AltIcao` para `RedrawRoute`. Las selecciones del sidebar se resetean a los valores del plan de SimBrief solo cuando cambia el par de aeropuertos (no en cada llamada sucesiva de redibujado).
+- **`InitMap`** — `_approachOverlay` insertado entre `_waypointOverlay` y `_aircraftOverlay`.
+
+---
+
+## [0.6.4] — 2026-05-24
+
+### Added
+
+- **Recuperación de vuelo activo con historial ACARS, penalizaciones y OFP** — al retomar un PIREP `IN_PROGRESS` tras reiniciar la app, el sistema ahora:
+  - **Lee el historial ACARS** de phpVMS (`GET /api/pireps/{id}/acars`) y muestra los últimos 20 registros no-CHK en el log para reconstruir el contexto del vuelo.
+  - **Parsea el último checkpoint de penalizaciones** (registro con `status = "CHK"`) y restaura todos los contadores de scoring: overspeed, luces, aproximación inestable, QNH, vuelo offline, salida tardía, velocidades en procedimientos, localizer violations y below minimums. Si no hay checkpoint previo, muestra un OSD de aviso.
+  - **Recarga el OFP de SimBrief** — si el usuario tiene `simbrief_user` configurado, descarga automáticamente el último plan activo y lo carga si el origen/destino coincide con el PIREP. El mapa, la ruta y el FMA se populan exactamente igual que al iniciar un vuelo nuevo.
+- **Checkpoints de penalizaciones cada 60 s** — mientras hay un vuelo activo, cada 60 segundos se envía automáticamente un registro `AcarsPosition { status = "CHK" }` al servidor phpVMS con el estado actual de todas las penalizaciones en el formato compacto `SC:ov=N,lt=N,sa=N,qnh=N,it=N,od=N,spd=N,lz=N,bm=N,ts=<unix>`. Estos registros son los que la recuperación anterior parsea al retomar el vuelo.
+- **Sin límite de tiempo para retomar vuelos** — eliminado el filtro de 20 minutos en `CheckAndResumeFlight`; cualquier PIREP `IN_PROGRESS` (independientemente de cuándo fue la última actualización) se ofrece para retomar.
+
+### Changed
+
+- **`FlightManager`**: añadidas propiedades públicas de solo lectura para todos los contadores de penalizaciones (`OverspeedCount`, `LightsViolationCount`, `StabilizedApproachDeductions`, `QnhViolationCount`, `IsOfflineFlight`, `DepartedLate`, `ProcedureSpdViolations`, `LocalizerViolations`, `BelowMinimums`) y nuevo método `SetResumedPenalties()` para restaurarlos al retomar.
+- **`ApiService`**: nuevo método `GetPirepAcarsAsync(pirepId)` — `GET /api/pireps/{id}/acars`, retorna `List<AcarsPosition>`.
+
+---
+
+## [0.6.3] — 2026-05-24
+
+### Fixed
+
+- **Conflicto de versión de System.Data.SQLite en equipos con GAC** — en Windows con software corporativo o de desarrollo instalado (Visual Studio, SQL Server Tools, etc.) el GAC puede contener una versión anterior de `System.Data.SQLite.dll` (p. ej. 1.0.115.5) que entraba en conflicto con la 1.0.119.0 incluida en vmsOpenAcars, produciendo el error `0x80131040` ("La definición del manifiesto del ensamblado no coincide con la referencia"). El `App.config` ya tenía el binding redirect correcto (`0.0.0.0-1.0.119.0 → 1.0.119.0`), pero `<AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>` en el `.csproj` podía hacer que MSBuild sobreescribiera ese redirect en el `exe.config` de salida si el equipo del desarrollador no tenía SQLite en su propio GAC. Corregido añadiendo `<GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>` al `.csproj`, que preserva los redirects manuales del `App.config` en el output sin que la generación automática los sobreescriba.
+
+  > **Usuarios afectados:** editar manualmente `vmsOpenAcars.exe.config` en la carpeta de instalación y verificar que existe el bloque siguiente dentro de `<runtime><assemblyBinding>`:
+  > ```xml
+  > <dependentAssembly>
+  >   <assemblyIdentity name="System.Data.SQLite" publicKeyToken="db937bc2d44ff139" culture="neutral" />
+  >   <bindingRedirect oldVersion="0.0.0.0-1.0.119.0" newVersion="1.0.119.0" />
+  > </dependentAssembly>
+  > ```
+  > Los builds posteriores a v0.6.3 incluyen este redirect de forma fiable.
+
+---
+
 ## [0.6.2] — 2026-05-24
 
 ### Added

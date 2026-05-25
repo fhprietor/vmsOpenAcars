@@ -243,6 +243,17 @@ namespace vmsOpenAcars.Core.Flight
         public double TouchdownCenterlineFt => _touchdownCenterlineDeviationFt;
         public string TouchdownRunwayName   => _touchdownRunwayName;
         public double TouchdownGForce       => _touchdownGForce;
+
+        // ── Penalty state (read by MainViewModel for checkpoint encoding/decoding) ──
+        public int  OverspeedCount               => _overspeedCount;
+        public int  LightsViolationCount         => _lightsViolationCount;
+        public int  StabilizedApproachDeductions => _stabilizedApproachDeductions;
+        public int  QnhViolationCount            => _qnhViolationCount;
+        public bool IsOfflineFlight              => _isOfflineFlight;
+        public bool DepartedLate                 => _departedLate;
+        public int  ProcedureSpdViolations       => _procedureSpdViolations;
+        public int  LocalizerViolations          => _localizerViolations;
+        public bool BelowMinimums                => _belowMinimums;
         public FlightPhase CurrentPhase { get; private set; }
         public int CurrentGroundSpeed { get; private set; }
         public double CurrentFuel { get; private set; }
@@ -1257,8 +1268,27 @@ namespace vmsOpenAcars.Core.Flight
             _approachGateEvaluated = false; _prevApproachAgl = double.MaxValue;
             _stabilizedApproachDeductions = 0; _hasLandedThisFlight = false;
             _taOsdSent = false; _tlOsdSent = false; _destQnhChecked = false; _originQnhChecked = false;
-
         }
+
+        /// <summary>
+        /// Restaura las penalizaciones acumuladas de una sesión anterior a partir del
+        /// último checkpoint SCH encontrado en el historial ACARS de phpVMS.
+        /// Solo llamar justo después de ResumeFlight().
+        /// </summary>
+        public void SetResumedPenalties(int overspeed, int lights, int stabilized,
+            int qnh, bool offline, bool late, int procSpd, int localizer, bool belowMins)
+        {
+            _overspeedCount               = overspeed;
+            _lightsViolationCount         = lights;
+            _stabilizedApproachDeductions = stabilized;
+            _qnhViolationCount            = qnh;
+            _isOfflineFlight              = offline;
+            _departedLate                 = late;
+            _procedureSpdViolations       = procSpd;
+            _localizerViolations          = localizer;
+            _belowMinimums                = belowMins;
+        }
+
         /// <summary>
         /// Updates the flight phase based on current telemetry using relative thresholds.
         /// </summary>

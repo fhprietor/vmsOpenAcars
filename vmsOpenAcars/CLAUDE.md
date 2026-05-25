@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.6.2  
+**Versión actual:** v0.6.5 (en desarrollo)  
 **IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
 
 ## Estructura de carpetas
@@ -480,6 +480,7 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `ViewModels/MainViewModel.cs` | — | `LogNavDataPrefetch(icao, isOrigin)` — prefetch + diagnóstico + inyección TA/TL en FlightManager (v0.4.19) |
 | `ViewModels/MainViewModel.cs` | ~562 | `HandleTaxiPositionUpdate()` — criterio **angular** (>25°) para cambio de taxiway (v0.5.8); debounce 2 ciclos para entrada/backtrack de pista (v0.5.5); pasa `heading` a `FindNearestTaxiway` (v0.4.17) |
 | `UI/Forms/MapForm.cs` | — | Ventana no-modal GMap.NET: marcador `AircraftMarker` amarillo girado por heading, modo FOLLOW, proveedores OSM/ESRI/Carto Dark, barra de estado lat/lon/HDG/Z (v0.5.8). `LoadRoute(waypoints, originIcao, originRunway, destIcao, destRunway, altIcao, sidName, starName)` — dibuja ruta suavizada con fly-by/fly-over (v0.5.8), proyecciones virtuales sin SID (`ComputeDepartureArc` + ext3nm/waypoint 2-5 NM) y sin STAR (`thr-5nm` + `FindArrivalRunway`), waypoint alineado a ~10 NM para STAR desalineada o sin STAR (v0.6.1), waypoints ambient origen (≤20 NM) y destino solo con zoom ≥ 10, anillos 5/10 NM al umbral, línea punteada al alterno, icono logo.png, redimensionado por bordes (Padding=6 + WM_NCHITTEST) (v0.6.1) |
+| `UI/Forms/MapForm.cs` | — | **Sidebar de procedimientos** (v0.6.5): `BuildSidebar()` — panel 230 px DockStyle.Left con botón toggle `◀`/`▶`; sección ORIGIN (runway, SID, trans) y DESTINATION (runway, STAR, trans, approach). `PopulateSidebar(orgRwys, dstRwys, sids, stars, approaches, ils, orgInfo, dstInfo)` — rellena combos desde caché NavData al final del Task.Run de `LoadRoute`. `OnOriginRunwayChanged`/`OnDestRunwayChanged` — validan compatibilidad SID/STAR con `EcamDialog.Show`; approach siempre se borra al cambiar pista destino. `RedrawRoute()` — dispara `OnProcedureChanged` y llama `LoadRoute` con estado actual del sidebar. `DrawApproachOverlay(app, rwy, ils)` — dibuja legs, extended centerline ±5 NM y missed approach en `_approachOverlay` (capa independiente entre waypoints y aircraft). `SetMetarData(orgDir, orgSpd, dstDir, dstSpd)` — actualiza chips de viento HW/TW+XW en tiempo real. Transiciones: `NavProcedure.Name` con punto `"MGN3C.MGN"` → base=`"MGN3C"`, trans=`"MGN"`; sin punto → solo `"Direct"`. |
 | `Services/NavDataCache.cs` | — | Caché SQLite persistente (`NavData_cache.sqlite`, junto al exe) para datos estáticos de NavData. Tablas: `meta`, `airport_entries` (icao+data_type PK; data_type ∈ block/sids/stars/ils/waypoints), `navaid_entries`. Invalidación automática por ciclo AIRAC: `SyncAirac(airac, validUntil)` purga entradas del ciclo anterior; `Initialize()` auto-purga al arrancar si `airac_valid_until` expiró. Integrado en `NavDataClient` — check caché antes de cada petición HTTP, store tras fetch. ~96% menos peticiones por sesión (v0.6.1) |
 | `ViewModels/MainViewModel.cs` | ~177 | `_pendingTaxiway`, `_pendingTaxiwayCount` — histéresis de taxiway (v0.4.17); `_pendingRunwayOnCount` — debounce de entrada a pista (v0.5.5); `TaxiwayChangeHeadingThreshold = 25.0` — umbral angular para criterio de cambio de calle (v0.5.8) |
 | `ViewModels/MainViewModel.cs` | — | `OnMapPositionUpdate` event (`Action<double, double, double>`) — dispara lat/lon/heading cada 5 ciclos de `RawDataUpdated` (~250 ms, independiente de la tasa de telemetría adaptativa); `_mapUpdateCounter` en `OnRawDataUpdated` (v0.5.8) |
@@ -500,6 +501,8 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `Helpers/OsdAudio.cs` | — | Chimes de cabina por severidad; 4 EmbeddedResource WAV (v0.5.4) |
 | `Helpers/SystemInfoHelper.cs` | — | `Initialize()` — OS/RAM/GPU al arrancar; `SetSimVersion(name)` — sim+versión al conectar; `GetPrefileNotes()` — bloque texto para campo `notes` del prefile; rango-primario GPU (NVIDIA Optimus safe); P/Invoke RAM; FileVersionInfo sim (v0.6.2) |
 | `ViewModels/MainViewModel.cs` | ~1448 | `StartFlight()` → al iniciar vuelo envía `AcarsPositionUpdate` con 4 entradas `log` (OsSummary, GpuSummary, SimSummary, AircraftType/Developer) a la tabla ACARS de phpVMS (v0.6.2) |
+| `vmsOpenAcars.csproj` | línea 15 | `<GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>` junto a `AutoGenerateBindingRedirects` — impide que el auto-generador de MSBuild sobreescriba el binding redirect manual de SQLite en el exe.config de salida (v0.6.3) |
+| `App.config` | runtime/assemblyBinding | Binding redirect `System.Data.SQLite 0.0.0.0-1.0.119.0 → 1.0.119.0` — cubre versiones anteriores en GAC de equipos con software corporativo/VS/SQL Server Tools instalado (v0.6.3) |
 | `Services/UIService.cs` | ~143 | `SetPhaseText()` |
 | `Services/UIService.cs` | ~186 | `SetAirStatus()` |
 | `UI/Forms/SettingsForm.cs` | — | Sección Landing Log con OpenFileDialog (CheckFileExists=false) |
@@ -508,6 +511,11 @@ FilePirep() → ScoringService.Calculate(FlightScoreData)
 | `ViewModels/MainViewModel.cs` | — | `_cabinAnnouncements`, `_cabinCruiseSent`, `_cabinOnRunwaySent`, `_cabinCruiseCheckStart`, `_lastGroundSpeedKt`; `TestCabinAnnouncementAsync(phase)` + `SetCabinVolume(volume)` públicos (v0.5.9/0.5.10) |
 | `ViewModels/MainViewModel.cs` | — | `OnOsdMessage` event (`Action<string, OsdSeverity>`) |
 | `ViewModels/MainViewModel.cs` | — | `SetActivePlan()` → `OnButtonStateChanged("START", enabled=true)` (v0.4.6) |
+| `ViewModels/MainViewModel.cs` | — | `UpdateProcedureOverrides(originRwy, sidName, destRwy, starName)` — actualiza `OriginRunway`/`SidName`/`DestinationRunway`/`StarName` del plan activo; llamado desde `MainForm` vía `OnProcedureChanged` del sidebar del mapa (v0.6.5) |
+| `ViewModels/MainViewModel.cs` | — | `BuildCheckpointLog()` → formato compacto `SC:ov=N,lt=N,sa=N,qnh=N,it=N,od=N,spd=N,lz=N,bm=N,ts=<unix>`; `SendScoringCheckpointAsync()` → envía `AcarsPosition { status="CHK" }` cada 60 s mientras vuelo activo; `_lastCheckpointSent` + `CheckpointIntervalSeconds=60`; se resetea en los 3 exit paths (v0.6.4) |
+| `ViewModels/MainViewModel.cs` | — | `ResumeFromAcarsHistoryAsync(pirepId)` → `GET /api/pireps/{id}/acars`; muestra últimos 20 registros no-CHK en log; parsea último CHK → `TryRestoreScoringCheckpoint()`; `ResumeFromSimbriefAsync(pirep)` → recarga OFP si origen/destino coincide; `CheckAndResumeFlight` sin límite de tiempo (v0.6.4) |
+| `Core/Flight/FlightManager.cs` | — | Propiedades `OverspeedCount`, `LightsViolationCount`, `StabilizedApproachDeductions`, `QnhViolationCount`, `IsOfflineFlight`, `DepartedLate`, `ProcedureSpdViolations`, `LocalizerViolations`, `BelowMinimums` (solo lectura) + `SetResumedPenalties()` — restaura todos los contadores al retomar vuelo (v0.6.4) |
+| `Services/ApiService.cs` | — | `GetPirepAcarsAsync(pirepId)` → `GET /api/pireps/{id}/acars`; retorna `List<AcarsPosition>`; parse `data[]` del JSON (v0.6.4) |
 
 ---
 

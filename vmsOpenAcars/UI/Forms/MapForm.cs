@@ -23,6 +23,7 @@ namespace vmsOpenAcars.UI.Forms
         private GMapOverlay    _routeOverlay;
         private GMapOverlay    _ambientOverlay;
         private GMapOverlay    _waypointOverlay;
+        private GMapOverlay    _approachOverlay;
         private GMapOverlay    _aircraftOverlay;
         private AircraftMarker _aircraftMarker;
         private Label          _lblStatus;
@@ -32,6 +33,39 @@ namespace vmsOpenAcars.UI.Forms
         private bool           _dragging;
         private Point          _dragStart;
         private SpinnerOverlay _spinner;
+
+        // ── Sidebar ───────────────────────────────────────────────────────────────
+        private Panel    _sidebarPanel;
+        private Panel    _sidebarContent;
+        private Button   _btnToggleSidebar;
+        private bool     _sidebarExpanded = true;
+        private bool     _populatingSidebar;
+
+        private ComboBox _cmbOriginRwy, _cmbSid, _cmbSidTrans;
+        private ComboBox _cmbDestRwy,   _cmbStar, _cmbStarTrans, _cmbApproach;
+        private Label    _lblOriginAirport, _lblDestAirport;
+        private Label    _lblOriginWind,    _lblDestWind, _lblApproachCount;
+
+        private string _selOriginRunway, _selDestRunway;
+        private string _selSidName,      _selSidTransition;
+        private string _selStarName,     _selStarTransition;
+        private string _selApproachKey;
+
+        private List<NavRunway>    _sbOriginRunways, _sbDestRunways;
+        private List<NavProcedure> _sbSids, _sbStars;
+        private List<NavApproach>  _sbApproaches;
+        private List<NavIls>       _sbIls;
+
+        private IList<SimbriefWaypoint> _currentWaypoints;
+        private string _currentOriginIcao, _currentDestIcao, _currentAltIcao;
+
+        private int? _metarOriginWindDir, _metarOriginWindSpd;
+        private int? _metarDestWindDir,   _metarDestWindSpd;
+
+        private static readonly Color _clrApproach = Color.FromArgb(255,  0, 200);
+        private static readonly Color _clrMissed   = Color.FromArgb(  0, 200, 255);
+
+        public event Action<string, string, string, string> OnProcedureChanged;
 
         public MapForm()
         {
@@ -229,6 +263,8 @@ namespace vmsOpenAcars.UI.Forms
 
             Controls.Add(_map);
             Controls.Add(bar);
+            BuildSidebar();
+            Controls.Add(_sidebarPanel);
             Controls.Add(titleBar);   // Top — mayor prioridad de docking
         }
 
@@ -281,11 +317,13 @@ namespace vmsOpenAcars.UI.Forms
             _routeOverlay       = new GMapOverlay("route");
             _ambientOverlay     = new GMapOverlay("ambient");
             _waypointOverlay    = new GMapOverlay("waypoints");
+            _approachOverlay    = new GMapOverlay("approach");
             _aircraftOverlay    = new GMapOverlay("aircraft");
             _map.Overlays.Add(_routeShadowOverlay);
             _map.Overlays.Add(_routeOverlay);
             _map.Overlays.Add(_ambientOverlay);
             _map.Overlays.Add(_waypointOverlay);
+            _map.Overlays.Add(_approachOverlay);
             _map.Overlays.Add(_aircraftOverlay);
 
             _map.OnMapZoomChanged += () => UpdateZoomInStatus();
@@ -393,6 +431,23 @@ namespace vmsOpenAcars.UI.Forms
         {
             if (IsDisposed || !IsHandleCreated) return;
             if (waypoints == null || waypoints.Count < 2) return;
+
+            // ── Guardar estado para RedrawRoute y sidebar ─────────────────────────────
+            bool airportChanged = originIcao != _currentOriginIcao || destIcao != _currentDestIcao;
+            _currentWaypoints  = waypoints;
+            _currentOriginIcao = originIcao;
+            _currentDestIcao   = destIcao;
+            _currentAltIcao    = altIcao;
+            if (airportChanged)
+            {
+                _selOriginRunway   = originRunway;
+                _selDestRunway     = destRunway;
+                _selSidName        = sidName;
+                _selSidTransition  = null;
+                _selStarName       = starName;
+                _selStarTransition = null;
+                _selApproachKey    = null;
+            }
 
             var wps = waypoints.ToList();
 
@@ -974,6 +1029,31 @@ namespace vmsOpenAcars.UI.Forms
                     catch { }
                 }
 
+                // ── Recopilar datos para el sidebar (todos en caché) ─────────────────
+                List<NavRunway>    sbOrgRwys = null, sbDstRwys = null;
+                List<NavProcedure> sbSids = null, sbStars = null;
+                List<NavApproach>  sbApps = null;
+                List<NavIls>       sbIls  = null;
+                NavAirportInfo     sbOrgInfo = null, sbDstInfo = null;
+                try
+                {
+                    if (!string.IsNullOrEmpty(originIcao))
+                    {
+                        sbOrgRwys = NavDataClient.GetRunways(originIcao);
+                        sbSids    = NavDataClient.GetSids(originIcao);
+                        sbOrgInfo = NavDataClient.GetAirportInfo(originIcao);
+                    }
+                    if (!string.IsNullOrEmpty(destIcao))
+                    {
+                        sbDstRwys = NavDataClient.GetRunways(destIcao);
+                        sbStars   = NavDataClient.GetStars(destIcao);
+                        sbApps    = NavDataClient.GetApproaches(destIcao);
+                        sbIls     = NavDataClient.GetIls(destIcao);
+                        sbDstInfo = NavDataClient.GetAirportInfo(destIcao);
+                    }
+                }
+                catch { }
+
                 // ── Actualizar UI ─────────────────────────────────────────
                 if (IsDisposed || !IsHandleCreated) return;
                 BeginInvoke((Action)(() =>
@@ -1021,6 +1101,8 @@ namespace vmsOpenAcars.UI.Forms
                         _map.SetZoomToFitRect(fitRect);
                     }
 
+                    PopulateSidebar(sbOrgRwys, sbDstRwys, sbSids, sbStars,
+                        sbApps, sbIls, sbOrgInfo, sbDstInfo);
                     _spinner.StopSpin();
                 }));
             });
@@ -1771,6 +1853,696 @@ namespace vmsOpenAcars.UI.Forms
                 _lblStatus.Text =
                     $"  {lat:F4}°  {lon:F4}°   HDG {heading:F0}°  Z:{(int)_map.Zoom}";
             }));
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // ── Sidebar de procedimientos ────────────────────────────────────────────────
+        // ══════════════════════════════════════════════════════════════════════════════
+
+        private void BuildSidebar()
+        {
+            const int W        = 230;
+            const int TW       = 18;
+            const int ItemW    = W - TW - 12;   // 6 px padding cada lado
+
+            _sidebarPanel = new Panel
+            {
+                Dock      = DockStyle.Left,
+                Width     = W,
+                BackColor = Color.FromArgb(14, 20, 28),
+            };
+
+            _btnToggleSidebar = new Button
+            {
+                Dock      = DockStyle.Right,
+                Width     = TW,
+                Text      = "◀",
+                BackColor = Color.FromArgb(25, 35, 48),
+                ForeColor = Color.FromArgb(120, 160, 200),
+                FlatStyle = FlatStyle.Flat,
+                Font      = new Font("Consolas", 7, FontStyle.Bold),
+                TabStop   = false,
+            };
+            _btnToggleSidebar.FlatAppearance.BorderSize = 0;
+            _btnToggleSidebar.Click += (s, e) =>
+            {
+                _sidebarExpanded        = !_sidebarExpanded;
+                _sidebarContent.Visible = _sidebarExpanded;
+                _sidebarPanel.Width     = _sidebarExpanded ? W : TW;
+                _btnToggleSidebar.Text  = _sidebarExpanded ? "◀" : "▶";
+            };
+
+            _sidebarContent = new Panel
+            {
+                Dock       = DockStyle.Fill,
+                BackColor  = Color.FromArgb(14, 20, 28),
+                AutoScroll = true,
+            };
+
+            // Construye controles de top a bottom mediante coordenadas absolutas
+            int y = 8;
+            Action<Control, int> place = (ctl, h) =>
+            {
+                ctl.Location = new Point(6, y);
+                ctl.Width    = ItemW;
+                if (h > 0) ctl.Height = h;
+                _sidebarContent.Controls.Add(ctl);
+                y += ctl.Height + 3;
+            };
+
+            // ── ORIGIN ──────────────────────────────────────────────────────────────
+            place(MakeSectionHeader("ORIGIN"), 18);
+            _lblOriginAirport = new Label
+            {
+                Text = "—", ForeColor = Color.White,
+                Font = new Font("Consolas", 8, FontStyle.Bold),
+                AutoSize = false,
+            };
+            place(_lblOriginAirport, 16);
+
+            _lblOriginWind = new Label
+            {
+                Text = "", ForeColor = Color.FromArgb(150, 200, 100),
+                Font = new Font("Consolas", 7), AutoSize = false,
+            };
+            place(_lblOriginWind, 14);
+            y += 2;
+
+            place(MakeSideLabel("Runway"), 14);
+            _cmbOriginRwy = MakeSideCombo();
+            place(_cmbOriginRwy, 22);
+
+            place(MakeSideLabel("SID"), 14);
+            _cmbSid = MakeSideCombo();
+            place(_cmbSid, 22);
+
+            place(MakeSideLabel("Trans."), 14);
+            _cmbSidTrans = MakeSideCombo();
+            place(_cmbSidTrans, 22);
+
+            y += 10;
+
+            // ── DESTINATION ─────────────────────────────────────────────────────────
+            place(MakeSectionHeader("DESTINATION"), 18);
+            _lblDestAirport = new Label
+            {
+                Text = "—", ForeColor = Color.White,
+                Font = new Font("Consolas", 8, FontStyle.Bold),
+                AutoSize = false,
+            };
+            place(_lblDestAirport, 16);
+
+            _lblDestWind = new Label
+            {
+                Text = "", ForeColor = Color.FromArgb(150, 200, 100),
+                Font = new Font("Consolas", 7), AutoSize = false,
+            };
+            place(_lblDestWind, 14);
+            y += 2;
+
+            place(MakeSideLabel("Runway"), 14);
+            _cmbDestRwy = MakeSideCombo();
+            place(_cmbDestRwy, 22);
+
+            place(MakeSideLabel("STAR"), 14);
+            _cmbStar = MakeSideCombo();
+            place(_cmbStar, 22);
+
+            place(MakeSideLabel("Trans."), 14);
+            _cmbStarTrans = MakeSideCombo();
+            place(_cmbStarTrans, 22);
+
+            place(MakeSideLabel("Approach"), 14);
+            _cmbApproach = MakeSideCombo();
+            place(_cmbApproach, 22);
+
+            _lblApproachCount = new Label
+            {
+                Text = "", ForeColor = Color.FromArgb(130, 160, 195),
+                Font = new Font("Consolas", 7), AutoSize = false,
+            };
+            place(_lblApproachCount, 14);
+
+            // Conectar eventos
+            _cmbOriginRwy.SelectedIndexChanged += OnOriginRunwayChanged;
+            _cmbSid.SelectedIndexChanged       += OnSidChanged;
+            _cmbSidTrans.SelectedIndexChanged  += OnSidTransChanged;
+            _cmbDestRwy.SelectedIndexChanged   += OnDestRunwayChanged;
+            _cmbStar.SelectedIndexChanged      += OnStarChanged;
+            _cmbStarTrans.SelectedIndexChanged += OnStarTransChanged;
+            _cmbApproach.SelectedIndexChanged  += OnApproachChanged;
+
+            _sidebarPanel.Controls.Add(_sidebarContent);
+            _sidebarPanel.Controls.Add(_btnToggleSidebar);
+        }
+
+        private static Label MakeSectionHeader(string text)
+        {
+            return new Label
+            {
+                Text      = text,
+                ForeColor = Color.FromArgb(0, 180, 255),
+                Font      = new Font("Consolas", 8, FontStyle.Bold),
+                AutoSize  = false,
+                TextAlign = ContentAlignment.MiddleLeft,
+            };
+        }
+
+        private static Label MakeSideLabel(string text)
+        {
+            return new Label
+            {
+                Text      = text,
+                ForeColor = Color.FromArgb(140, 160, 180),
+                Font      = new Font("Consolas", 7),
+                AutoSize  = false,
+                TextAlign = ContentAlignment.MiddleLeft,
+            };
+        }
+
+        private static ComboBox MakeSideCombo()
+        {
+            return new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor     = Color.FromArgb(25, 35, 48),
+                ForeColor     = Color.White,
+                Font          = new Font("Consolas", 8),
+            };
+        }
+
+        // ── PopulateSidebar ──────────────────────────────────────────────────────────
+
+        private void PopulateSidebar(
+            List<NavRunway>    originRunways, List<NavRunway>    destRunways,
+            List<NavProcedure> sids,          List<NavProcedure> stars,
+            List<NavApproach>  approaches,    List<NavIls>       ils,
+            NavAirportInfo     originInfo,    NavAirportInfo     destInfo)
+        {
+            if (_sidebarPanel == null || IsDisposed || !IsHandleCreated) return;
+
+            _sbOriginRunways = originRunways;
+            _sbDestRunways   = destRunways;
+            _sbSids          = sids;
+            _sbStars         = stars;
+            _sbApproaches    = approaches;
+            _sbIls           = ils;
+
+            _populatingSidebar = true;
+            try
+            {
+                if (originInfo != null && !string.IsNullOrEmpty(_currentOriginIcao))
+                {
+                    string n = originInfo.Name ?? "";
+                    if (n.Length > 18) n = n.Substring(0, 18);
+                    _lblOriginAirport.Text = $"{_currentOriginIcao}  {n}";
+                }
+                else
+                    _lblOriginAirport.Text = _currentOriginIcao ?? "—";
+
+                if (destInfo != null && !string.IsNullOrEmpty(_currentDestIcao))
+                {
+                    string n = destInfo.Name ?? "";
+                    if (n.Length > 18) n = n.Substring(0, 18);
+                    _lblDestAirport.Text = $"{_currentDestIcao}  {n}";
+                }
+                else
+                    _lblDestAirport.Text = _currentDestIcao ?? "—";
+
+                FillRunwayCombo(_cmbOriginRwy, originRunways, ref _selOriginRunway);
+                FillProcBaseCombo(_cmbSid, sids, _selOriginRunway, ref _selSidName);
+                FillProcTransCombo(_cmbSidTrans, sids, _selSidName, ref _selSidTransition);
+
+                FillRunwayCombo(_cmbDestRwy, destRunways, ref _selDestRunway);
+                FillProcBaseCombo(_cmbStar, stars, _selDestRunway, ref _selStarName);
+                FillProcTransCombo(_cmbStarTrans, stars, _selStarName, ref _selStarTransition);
+                FillApproachCombo(_cmbApproach, approaches, _selDestRunway, ref _selApproachKey);
+
+                int appCount = approaches?.Count(a => RunwayMatchesApproach(a, _selDestRunway)) ?? 0;
+                _lblApproachCount.Text = appCount > 0
+                    ? $"{appCount} approach{(appCount > 1 ? "es" : "")} available"
+                    : "";
+
+                UpdateWindLabel(_lblOriginWind, originRunways, _selOriginRunway,
+                    _metarOriginWindDir, _metarOriginWindSpd);
+                UpdateWindLabel(_lblDestWind, destRunways, _selDestRunway,
+                    _metarDestWindDir, _metarDestWindSpd);
+            }
+            finally
+            {
+                _populatingSidebar = false;
+            }
+        }
+
+        // ── Combo fill helpers ───────────────────────────────────────────────────────
+
+        private sealed class ApproachItem
+        {
+            public string Key   { get; }
+            public string Label { get; }
+            public ApproachItem(string key, string label) { Key = key; Label = label; }
+            public override string ToString() => Label;
+        }
+
+        private static void FillRunwayCombo(
+            ComboBox cmb, List<NavRunway> runways, ref string selection)
+        {
+            string cur = selection;
+            cmb.Items.Clear();
+            cmb.Items.Add("(none)");
+            if (runways != null)
+                foreach (var r in runways.OrderBy(r => r.Name))
+                    cmb.Items.Add(r.Name);
+            SelectOrDefault(cmb, cur, 0);
+            selection = SelectedRunwayName(cmb);
+        }
+
+        private static IEnumerable<string> GetProcBaseNames(
+            IEnumerable<NavProcedure> procs, string runwayFilter)
+        {
+            return (procs ?? Enumerable.Empty<NavProcedure>())
+                .Where(p => string.IsNullOrEmpty(runwayFilter)
+                         || string.IsNullOrEmpty(p.Runway)
+                         || ProcedureAppliesToRunway(p.Runway, runwayFilter))
+                .Select(p =>
+                {
+                    int dot = p.Name.IndexOf('.');
+                    return dot > 0 ? p.Name.Substring(0, dot) : p.Name;
+                })
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(n => n);
+        }
+
+        private static void FillProcBaseCombo(
+            ComboBox cmb, List<NavProcedure> procs, string runwayFilter,
+            ref string selection)
+        {
+            string cur = selection;
+            cmb.Items.Clear();
+            cmb.Items.Add("(none)");
+            foreach (var n in GetProcBaseNames(procs, runwayFilter))
+                cmb.Items.Add(n);
+            SelectOrDefault(cmb, cur, 0);
+            selection = cmb.SelectedIndex > 0 ? cmb.SelectedItem as string : null;
+        }
+
+        private static void FillProcTransCombo(
+            ComboBox cmb, List<NavProcedure> procs, string baseName, ref string selection)
+        {
+            string cur = selection;
+            cmb.Items.Clear();
+            cmb.Items.Add("Direct");
+
+            if (!string.IsNullOrEmpty(baseName) && procs != null)
+            {
+                var trans = procs
+                    .Where(p =>
+                    {
+                        int dot = p.Name.IndexOf('.');
+                        string bn = dot > 0 ? p.Name.Substring(0, dot) : p.Name;
+                        return string.Equals(bn, baseName, StringComparison.OrdinalIgnoreCase)
+                            && dot > 0;
+                    })
+                    .Select(p => p.Name.Substring(p.Name.IndexOf('.') + 1))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(t => t);
+
+                foreach (var t in trans)
+                    cmb.Items.Add(t);
+            }
+
+            SelectOrDefault(cmb, cur, 0);
+            selection = cmb.SelectedIndex > 0 ? cmb.SelectedItem as string : null;
+        }
+
+        private static bool RunwayMatchesApproach(NavApproach app, string runway)
+        {
+            if (string.IsNullOrEmpty(runway) || string.IsNullOrEmpty(app.Runway)) return true;
+            if (string.Equals(app.Runway, runway, StringComparison.OrdinalIgnoreCase)) return true;
+            string prefix = runway.TrimEnd('L', 'R', 'C');
+            return string.Equals(app.Runway, prefix + "B", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void FillApproachCombo(
+            ComboBox cmb, List<NavApproach> approaches, string runway, ref string selection)
+        {
+            string cur = selection;
+            cmb.Items.Clear();
+            cmb.Items.Add(new ApproachItem("", "(none)"));
+
+            if (approaches != null)
+            {
+                foreach (var a in approaches
+                    .Where(a => RunwayMatchesApproach(a, runway))
+                    .OrderBy(a => a.Type).ThenBy(a => a.Suffix ?? ""))
+                {
+                    string key   = $"{a.Type}{a.Suffix ?? ""}_{a.Runway ?? ""}";
+                    string label = string.IsNullOrEmpty(a.Suffix)
+                        ? $"{a.Type} {a.Runway}"
+                        : $"{a.Type}{a.Suffix} {a.Runway}";
+                    cmb.Items.Add(new ApproachItem(key, label));
+                }
+            }
+
+            if (!string.IsNullOrEmpty(cur))
+            {
+                for (int i = 1; i < cmb.Items.Count; i++)
+                {
+                    if ((cmb.Items[i] as ApproachItem)?.Key == cur)
+                    { cmb.SelectedIndex = i; return; }
+                }
+            }
+            cmb.SelectedIndex = 0;
+            selection = null;
+        }
+
+        private static void SelectOrDefault(ComboBox cmb, string value, int defaultIndex)
+        {
+            if (!string.IsNullOrEmpty(value))
+            {
+                for (int i = 0; i < cmb.Items.Count; i++)
+                {
+                    if (string.Equals(cmb.Items[i]?.ToString(), value,
+                            StringComparison.OrdinalIgnoreCase))
+                    { cmb.SelectedIndex = i; return; }
+                }
+            }
+            cmb.SelectedIndex = defaultIndex;
+        }
+
+        private static string SelectedRunwayName(ComboBox cmb)
+            => cmb.SelectedIndex > 0 ? cmb.SelectedItem as string : null;
+
+        // ── Wind chip update ─────────────────────────────────────────────────────────
+
+        private static void UpdateWindLabel(
+            Label lbl, List<NavRunway> runways, string runwayName,
+            int? windDir, int? windSpd)
+        {
+            if (windDir == null || windSpd == null || windSpd == 0
+                || string.IsNullOrEmpty(runwayName) || runways == null)
+            {
+                lbl.Text = "";
+                return;
+            }
+            var rwy = runways.FirstOrDefault(r =>
+                string.Equals(r.Name, runwayName, StringComparison.OrdinalIgnoreCase));
+            if (rwy == null) { lbl.Text = ""; return; }
+
+            double rwyCourse = GeodesicBearing(
+                rwy.ThresholdLat, rwy.ThresholdLon, rwy.EndLat, rwy.EndLon);
+            double angle = (windDir.Value - rwyCourse + 360) % 360;
+            double hw    = Math.Cos(angle * Math.PI / 180) * windSpd.Value;
+            double xw    = Math.Sin(angle * Math.PI / 180) * windSpd.Value;
+
+            string hwStr = hw >= 0
+                ? $"HW {(int)Math.Round(Math.Abs(hw))}kt"
+                : $"TW {(int)Math.Round(Math.Abs(hw))}kt";
+            lbl.Text = $"{hwStr}  XW {(int)Math.Round(Math.Abs(xw))}kt";
+        }
+
+        // ── SetMetarData (called from MainForm) ──────────────────────────────────────
+
+        public void SetMetarData(int? originWindDir, int? originWindSpeedKt,
+                                 int? destWindDir,   int? destWindSpeedKt)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            BeginInvoke((Action)(() =>
+            {
+                if (IsDisposed) return;
+                _metarOriginWindDir = originWindDir;
+                _metarOriginWindSpd = originWindSpeedKt;
+                _metarDestWindDir   = destWindDir;
+                _metarDestWindSpd   = destWindSpeedKt;
+                if (_sidebarPanel == null) return;
+                UpdateWindLabel(_lblOriginWind, _sbOriginRunways, _selOriginRunway,
+                    _metarOriginWindDir, _metarOriginWindSpd);
+                UpdateWindLabel(_lblDestWind, _sbDestRunways, _selDestRunway,
+                    _metarDestWindDir, _metarDestWindSpd);
+            }));
+        }
+
+        // ── RedrawRoute ──────────────────────────────────────────────────────────────
+
+        private void RedrawRoute()
+        {
+            if (_currentWaypoints == null) return;
+            OnProcedureChanged?.Invoke(
+                _selOriginRunway, _selSidName, _selDestRunway, _selStarName);
+            LoadRoute(_currentWaypoints,
+                _currentOriginIcao, _selOriginRunway,
+                _currentDestIcao,   _selDestRunway,
+                _currentAltIcao,
+                _selSidName,        _selStarName);
+        }
+
+        // ── Combo event handlers ─────────────────────────────────────────────────────
+
+        private void OnOriginRunwayChanged(object sender, EventArgs e)
+        {
+            if (_populatingSidebar || _sbSids == null) return;
+            string newRwy = SelectedRunwayName(_cmbOriginRwy);
+            if (newRwy == _selOriginRunway) return;
+
+            if (!string.IsNullOrEmpty(_selSidName) &&
+                !GetProcBaseNames(_sbSids, newRwy)
+                    .Contains(_selSidName, StringComparer.OrdinalIgnoreCase))
+            {
+                string msg = $"Changing to runway {newRwy ?? "(none)"} makes SID " +
+                             $"[{_selSidName}] incompatible.\nClear SID and continue?";
+                if (EcamDialog.Show(this, msg, "RUNWAY CHANGE", EcamDialogButtons.YesNo)
+                    != DialogResult.Yes)
+                {
+                    _populatingSidebar = true;
+                    SelectOrDefault(_cmbOriginRwy, _selOriginRunway, 0);
+                    _populatingSidebar = false;
+                    return;
+                }
+                _selSidName       = null;
+                _selSidTransition = null;
+            }
+
+            _selOriginRunway   = newRwy;
+            _populatingSidebar = true;
+            FillProcBaseCombo(_cmbSid, _sbSids, _selOriginRunway, ref _selSidName);
+            FillProcTransCombo(_cmbSidTrans, _sbSids, _selSidName, ref _selSidTransition);
+            UpdateWindLabel(_lblOriginWind, _sbOriginRunways, _selOriginRunway,
+                _metarOriginWindDir, _metarOriginWindSpd);
+            _populatingSidebar = false;
+            RedrawRoute();
+        }
+
+        private void OnDestRunwayChanged(object sender, EventArgs e)
+        {
+            if (_populatingSidebar || _sbStars == null) return;
+            string newRwy = SelectedRunwayName(_cmbDestRwy);
+            if (newRwy == _selDestRunway) return;
+
+            if (!string.IsNullOrEmpty(_selStarName) &&
+                !GetProcBaseNames(_sbStars, newRwy)
+                    .Contains(_selStarName, StringComparer.OrdinalIgnoreCase))
+            {
+                string msg = $"Changing to runway {newRwy ?? "(none)"} makes STAR " +
+                             $"[{_selStarName}] incompatible and clears the approach.\nContinue?";
+                if (EcamDialog.Show(this, msg, "RUNWAY CHANGE", EcamDialogButtons.YesNo)
+                    != DialogResult.Yes)
+                {
+                    _populatingSidebar = true;
+                    SelectOrDefault(_cmbDestRwy, _selDestRunway, 0);
+                    _populatingSidebar = false;
+                    return;
+                }
+                _selStarName        = null;
+                _selStarTransition  = null;
+            }
+
+            _selDestRunway  = newRwy;
+            _selApproachKey = null;
+            _populatingSidebar = true;
+            FillProcBaseCombo(_cmbStar, _sbStars, _selDestRunway, ref _selStarName);
+            FillProcTransCombo(_cmbStarTrans, _sbStars, _selStarName, ref _selStarTransition);
+            FillApproachCombo(_cmbApproach, _sbApproaches, _selDestRunway, ref _selApproachKey);
+            int appCount = _sbApproaches?
+                .Count(a => RunwayMatchesApproach(a, _selDestRunway)) ?? 0;
+            _lblApproachCount.Text = appCount > 0
+                ? $"{appCount} approach{(appCount > 1 ? "es" : "")} available"
+                : "";
+            UpdateWindLabel(_lblDestWind, _sbDestRunways, _selDestRunway,
+                _metarDestWindDir, _metarDestWindSpd);
+            _populatingSidebar = false;
+            ClearApproachOverlay();
+            RedrawRoute();
+        }
+
+        private void OnSidChanged(object sender, EventArgs e)
+        {
+            if (_populatingSidebar) return;
+            string newSid = _cmbSid.SelectedIndex > 0 ? _cmbSid.SelectedItem as string : null;
+            if (newSid == _selSidName) return;
+            _selSidName       = newSid;
+            _selSidTransition = null;
+            _populatingSidebar = true;
+            FillProcTransCombo(_cmbSidTrans, _sbSids, _selSidName, ref _selSidTransition);
+            _populatingSidebar = false;
+            RedrawRoute();
+        }
+
+        private void OnSidTransChanged(object sender, EventArgs e)
+        {
+            if (_populatingSidebar) return;
+            string newTrans = _cmbSidTrans.SelectedIndex > 0
+                ? _cmbSidTrans.SelectedItem as string : null;
+            if (newTrans == _selSidTransition) return;
+            _selSidTransition = newTrans;
+            RedrawRoute();
+        }
+
+        private void OnStarChanged(object sender, EventArgs e)
+        {
+            if (_populatingSidebar) return;
+            string newStar = _cmbStar.SelectedIndex > 0 ? _cmbStar.SelectedItem as string : null;
+            if (newStar == _selStarName) return;
+            _selStarName       = newStar;
+            _selStarTransition = null;
+            _populatingSidebar = true;
+            FillProcTransCombo(_cmbStarTrans, _sbStars, _selStarName, ref _selStarTransition);
+            _populatingSidebar = false;
+            RedrawRoute();
+        }
+
+        private void OnStarTransChanged(object sender, EventArgs e)
+        {
+            if (_populatingSidebar) return;
+            string newTrans = _cmbStarTrans.SelectedIndex > 0
+                ? _cmbStarTrans.SelectedItem as string : null;
+            if (newTrans == _selStarTransition) return;
+            _selStarTransition = newTrans;
+            RedrawRoute();
+        }
+
+        private void OnApproachChanged(object sender, EventArgs e)
+        {
+            if (_populatingSidebar) return;
+            string newKey = (_cmbApproach.SelectedItem as ApproachItem)?.Key;
+            if (string.IsNullOrEmpty(newKey)) newKey = null;
+            if (newKey == _selApproachKey) return;
+            _selApproachKey = newKey;
+
+            if (_selApproachKey == null)
+            {
+                ClearApproachOverlay();
+                return;
+            }
+
+            var app = _sbApproaches?.FirstOrDefault(a =>
+                $"{a.Type}{a.Suffix ?? ""}_{a.Runway ?? ""}" == _selApproachKey);
+            if (app == null) return;
+
+            var destRwy = _sbDestRunways?.FirstOrDefault(r =>
+                string.Equals(r.Name, _selDestRunway, StringComparison.OrdinalIgnoreCase));
+            var ils = _sbIls?.FirstOrDefault(i =>
+                string.Equals(i.Runway, _selDestRunway, StringComparison.OrdinalIgnoreCase));
+            DrawApproachOverlay(app, destRwy, ils);
+        }
+
+        // ── Approach overlay ─────────────────────────────────────────────────────────
+
+        private void ClearApproachOverlay()
+        {
+            if (_approachOverlay == null || IsDisposed || !IsHandleCreated) return;
+            if (InvokeRequired) { BeginInvoke((Action)ClearApproachOverlay); return; }
+            _approachOverlay.Routes.Clear();
+            _approachOverlay.Markers.Clear();
+            _map?.Refresh();
+        }
+
+        private void DrawApproachOverlay(NavApproach app, NavRunway rwy, NavIls ils)
+        {
+            if (_approachOverlay == null || IsDisposed || !IsHandleCreated) return;
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)(() => DrawApproachOverlay(app, rwy, ils)));
+                return;
+            }
+
+            _approachOverlay.Routes.Clear();
+            _approachOverlay.Markers.Clear();
+
+            var approachPen    = new Pen(_clrApproach, 2.5f);
+            var missedPen      = new Pen(_clrMissed, 1.5f)   { DashStyle = DashStyle.Dash };
+            var centerlinePen  = new Pen(
+                Color.FromArgb(140, _clrApproach.R, _clrApproach.G, _clrApproach.B), 1.0f)
+                { DashStyle = DashStyle.Dot };
+            var shadowPen      = new Pen(Color.FromArgb(100, 0, 0, 0), 4.5f);
+
+            // ── Trayectoria de legs ──────────────────────────────────────────────
+            var legPts = new List<PointLatLng>();
+            if (app.Legs != null)
+                foreach (var leg in app.Legs)
+                    if (leg.Lat.HasValue && leg.Lon.HasValue)
+                        legPts.Add(new PointLatLng(leg.Lat.Value, leg.Lon.Value));
+
+            if (rwy != null && legPts.Count > 0)
+                legPts.Add(new PointLatLng(rwy.ThresholdLat, rwy.ThresholdLon));
+
+            if (legPts.Count >= 2)
+            {
+                _approachOverlay.Routes.Add(
+                    new GMapRoute(legPts, "app_shadow") { Stroke = shadowPen });
+                _approachOverlay.Routes.Add(
+                    new GMapRoute(legPts, "app")        { Stroke = approachPen });
+            }
+
+            // ── Extended centerline (5 NM before → 0.5 NM past threshold) ──────
+            if (rwy != null)
+            {
+                double appBrg = GeodesicBearing(
+                    rwy.ThresholdLat, rwy.ThresholdLon, rwy.EndLat, rwy.EndLon);
+                if (HeadingDiff(appBrg, rwy.Heading) > 90)
+                    appBrg = (appBrg + 180) % 360;
+                if (ils?.LocTrueHeading.HasValue == true)
+                    appBrg = ils.LocTrueHeading.Value;
+
+                double oppBrg  = (appBrg + 180) % 360;
+                double cosLat  = Math.Cos(rwy.ThresholdLat * Math.PI / 180);
+
+                double extRad  = oppBrg * Math.PI / 180;
+                double ext5Lat = rwy.ThresholdLat + (5.0 * 1852.0 * Math.Cos(extRad)) / 111320;
+                double ext5Lon = rwy.ThresholdLon + (5.0 * 1852.0 * Math.Sin(extRad)) / (111320 * cosLat);
+
+                double innRad   = appBrg * Math.PI / 180;
+                double inn5Lat  = rwy.ThresholdLat + (0.5 * 1852.0 * Math.Cos(innRad)) / 111320;
+                double inn5Lon  = rwy.ThresholdLon + (0.5 * 1852.0 * Math.Sin(innRad)) / (111320 * cosLat);
+
+                var clPts = new List<PointLatLng>
+                {
+                    new PointLatLng(ext5Lat, ext5Lon),
+                    new PointLatLng(rwy.ThresholdLat, rwy.ThresholdLon),
+                    new PointLatLng(inn5Lat, inn5Lon),
+                };
+                _approachOverlay.Routes.Add(
+                    new GMapRoute(clPts, "centerline") { Stroke = centerlinePen });
+            }
+
+            // ── Missed approach ──────────────────────────────────────────────────
+            if (app.MissedLegs != null)
+            {
+                var missedPts = new List<PointLatLng>();
+                foreach (var leg in app.MissedLegs)
+                    if (leg.Lat.HasValue && leg.Lon.HasValue)
+                        missedPts.Add(new PointLatLng(leg.Lat.Value, leg.Lon.Value));
+                if (missedPts.Count >= 2)
+                    _approachOverlay.Routes.Add(
+                        new GMapRoute(missedPts, "missed") { Stroke = missedPen });
+            }
+
+            // ── Umbral de pista ──────────────────────────────────────────────────
+            if (rwy != null)
+                _approachOverlay.Markers.Add(new FixMarker(
+                    new PointLatLng(rwy.ThresholdLat, rwy.ThresholdLon),
+                    rwy.Name, "rwy"));
+
+            _map?.Refresh();
         }
     }
 
