@@ -48,6 +48,10 @@ namespace vmsOpenAcars.Services
         private static readonly ConcurrentDictionary<string, Task<List<NavIls>>> _ilsCache
             = new ConcurrentDictionary<string, Task<List<NavIls>>>(StringComparer.OrdinalIgnoreCase);
 
+        // Airspace session cache — keyed by tile bucket "lat:lon:radius"
+        private static readonly ConcurrentDictionary<string, List<NavAirspace>> _airspaceMemCache
+            = new ConcurrentDictionary<string, List<NavAirspace>>(StringComparer.Ordinal);
+
         // Weather cache — keyed by ICAO, stores result + fetch timestamp for 5-min TTL.
         private static readonly ConcurrentDictionary<string, (NavWeather Data, DateTime FetchedAt)> _weatherCache
             = new ConcurrentDictionary<string, (NavWeather, DateTime)>(StringComparer.OrdinalIgnoreCase);
@@ -434,6 +438,47 @@ namespace vmsOpenAcars.Services
                 }
             }
             catch { return null; }
+        }
+
+        // ── Airspaces ─────────────────────────────────────────────────────────────
+
+        public static async Task<List<NavAirspace>> GetAirspacesAsync(double lat, double lon)
+        {
+            // Bucket to nearest integer degree to maximise cache hits across nearby calls
+            string tileKey = $"{(int)Math.Round(lat)}:{(int)Math.Round(lon)}";
+
+            // 1 — session in-memory
+            if (_airspaceMemCache.TryGetValue(tileKey, out var memHit))
+                return memHit;
+
+            // 2 — SQLite persistent (7-day TTL)
+            string cachedJson = NavDataCache.TryGetAirspace(tileKey);
+            if (cachedJson != null)
+            {
+                var fromDb = JsonConvert.DeserializeObject<List<NavAirspace>>(cachedJson);
+                if (fromDb != null)
+                {
+                    _airspaceMemCache[tileKey] = fromDb;
+                    return fromDb;
+                }
+            }
+
+            // 3 — HTTP fetch (server always returns 200 nm coverage, full pagination)
+            try
+            {
+                string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/airspaces/" +
+                             $"?lat={lat.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}" +
+                             $"&lon={lon.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}";
+                var result = await FetchAsync<NavAirspacesResponse>(url).ConfigureAwait(false);
+                var list   = result?.Airspaces ?? new List<NavAirspace>();
+                if (list.Count > 0)
+                {
+                    _airspaceMemCache[tileKey] = list;
+                    NavDataCache.StoreAirspace(tileKey, JsonConvert.SerializeObject(list));
+                }
+                return list;
+            }
+            catch { return new List<NavAirspace>(); }
         }
 
         // ── Cabin Announcements ───────────────────────────────────────────────────

@@ -10,12 +10,14 @@ namespace vmsOpenAcars.Helpers
     internal static class SystemInfoHelper
     {
         public static string OsSummary  { get; private set; } = string.Empty;
+        public static string CpuSummary { get; private set; } = string.Empty;
         public static string GpuSummary { get; private set; } = string.Empty;
         public static string SimSummary { get; private set; } = string.Empty;
 
         public static void Initialize()
         {
             try { OsSummary = $"{GetOsName()} / RAM {GetRamString()}"; } catch { }
+            try { CpuSummary = GetCpuString(); } catch { }
             try
             {
                 var (gpuName, vramStr) = GetBestGpu();
@@ -72,6 +74,17 @@ namespace vmsOpenAcars.Helpers
             return "?";
         }
 
+        private static string GetCpuString()
+        {
+            string name = Registry.GetValue(
+                @"HKEY_LOCAL_MACHINE\HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+                "ProcessorNameString", null) as string;
+            if (string.IsNullOrWhiteSpace(name)) return string.Empty;
+            name = name.Trim();
+            int threads = Environment.ProcessorCount;
+            return $"{name} / {threads} threads";
+        }
+
         // Returns (name, vramString) of the best GPU:
         // — excludes virtual/software adapters
         // — picks the one with most VRAM (discrete GPUs always have more than integrated)
@@ -112,6 +125,12 @@ namespace vmsOpenAcars.Helpers
                 }
             }
             catch { }
+
+            // Registry stores MemorySize as a 4-byte DWORD on many drivers.
+            // All common VRAM sizes (4/8/12/16/24 GB) are exact multiples of 4 GB = 2^32,
+            // which overflows uint32 to exactly 0. DXGI reports the correct SIZE_T value.
+            if (bestVram == 0)
+                bestVram = TryGetVramViaDxgi(bestName != "?" ? bestName : null);
 
             string vramStr = bestVram > 0
                 ? $"{(int)Math.Round(bestVram / (1024.0 * 1024.0 * 1024.0))} GB"
@@ -198,6 +217,54 @@ namespace vmsOpenAcars.Helpers
             return simName;
         }
 
+        // ── DXGI VRAM fallback ────────────────────────────────────────────────
+
+        [DllImport("dxgi.dll", PreserveSig = true)]
+        private static extern int CreateDXGIFactory(
+            [In] ref Guid riid,
+            [MarshalAs(UnmanagedType.IUnknown)] out object ppFactory);
+
+        private static ulong TryGetVramViaDxgi(string gpuName)
+        {
+            var iid = new Guid("7b7166ec-21c7-44ae-b21a-c9ae321ae369");
+            try
+            {
+                if (CreateDXGIFactory(ref iid, out object factoryObj) < 0 || factoryObj == null)
+                    return 0;
+                var factory = factoryObj as IDXGIFactory_SIH;
+                if (factory == null) { Marshal.ReleaseComObject(factoryObj); return 0; }
+                try
+                {
+                    ulong bestMatch = 0, bestAny = 0;
+                    const int DXGI_ERROR_NOT_FOUND = unchecked((int)0x887A0002);
+                    for (uint i = 0; ; i++)
+                    {
+                        int hr = factory.EnumAdapters(i, out IDXGIAdapter_SIH adapter);
+                        if (hr == DXGI_ERROR_NOT_FOUND) break;
+                        if (hr < 0 || adapter == null) break;
+                        try
+                        {
+                            if (adapter.GetDesc(out DxgiAdapterDesc_SIH d) < 0) continue;
+                            ulong vram = (ulong)d.DedicatedVideoMemory;
+                            if (vram == 0) continue;
+                            if (vram > bestAny) bestAny = vram;
+                            if (!string.IsNullOrEmpty(gpuName) && d.Description != null)
+                            {
+                                bool match =
+                                    d.Description.IndexOf(gpuName, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    gpuName.IndexOf(d.Description, StringComparison.OrdinalIgnoreCase) >= 0;
+                                if (match && vram > bestMatch) bestMatch = vram;
+                            }
+                        }
+                        finally { Marshal.ReleaseComObject(adapter); }
+                    }
+                    return bestMatch > 0 ? bestMatch : bestAny;
+                }
+                finally { Marshal.ReleaseComObject(factory); }
+            }
+            catch { return 0; }
+        }
+
         // ── P/Invoke ──────────────────────────────────────────────────────────
 
         [StructLayout(LayoutKind.Sequential)]
@@ -216,5 +283,59 @@ namespace vmsOpenAcars.Helpers
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+    }
+
+    // ── DXGI COM declarations ─────────────────────────────────────────────────
+    // Vtable order must match the DXGI SDK headers exactly (IUnknown slots are
+    // implicit with InterfaceIsIUnknown; IDXGIObject methods precede each interface).
+
+    [ComImport, Guid("2411e7e1-12ac-4ccf-bd14-9798e8534dc0"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IDXGIAdapter_SIH
+    {
+        // IDXGIObject
+        [PreserveSig] int SetPrivateData(ref Guid name, uint dataSize, IntPtr pData);
+        [PreserveSig] int SetPrivateDataInterface(ref Guid name, IntPtr pUnknown);
+        [PreserveSig] int GetPrivateData(ref Guid name, ref uint pDataSize, IntPtr pData);
+        [PreserveSig] int GetParent(ref Guid riid, out IntPtr ppParent);
+        // IDXGIAdapter
+        [PreserveSig] int EnumOutputs(uint output, out IntPtr ppOutput);
+        [PreserveSig] int GetDesc(out DxgiAdapterDesc_SIH pDesc);
+        [PreserveSig] int CheckInterfaceSupport(ref Guid interfaceName, out long pUMDVersion);
+    }
+
+    [ComImport, Guid("7b7166ec-21c7-44ae-b21a-c9ae321ae369"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IDXGIFactory_SIH
+    {
+        // IDXGIObject
+        [PreserveSig] int SetPrivateData(ref Guid name, uint dataSize, IntPtr pData);
+        [PreserveSig] int SetPrivateDataInterface(ref Guid name, IntPtr pUnknown);
+        [PreserveSig] int GetPrivateData(ref Guid name, ref uint pDataSize, IntPtr pData);
+        [PreserveSig] int GetParent(ref Guid riid, out IntPtr ppParent);
+        // IDXGIFactory
+        [PreserveSig] int EnumAdapters(uint adapter, out IDXGIAdapter_SIH ppAdapter);
+        [PreserveSig] int MakeWindowAssociation(IntPtr windowHandle, uint flags);
+        [PreserveSig] int GetWindowAssociation(out IntPtr pWindowHandle);
+        [PreserveSig] int CreateSwapChain(IntPtr pDevice, IntPtr pDesc, out IntPtr ppSwapChain);
+        [PreserveSig] int CreateSoftwareAdapter(IntPtr module, out IDXGIAdapter_SIH ppAdapter);
+    }
+
+    // Mirrors native DXGI_ADAPTER_DESC layout (64-bit): Description[128] = 256 B,
+    // 4×UINT = 16 B, 3×SIZE_T (UIntPtr) = 24 B, LUID (DWORD+LONG) = 8 B → 304 B total.
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct DxgiAdapterDesc_SIH
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string  Description;
+        public uint    VendorId;
+        public uint    DeviceId;
+        public uint    SubSysId;
+        public uint    Revision;
+        public UIntPtr DedicatedVideoMemory;
+        public UIntPtr DedicatedSystemMemory;
+        public UIntPtr SharedSystemMemory;
+        public uint    LuidLow;
+        public int     LuidHigh;
     }
 }

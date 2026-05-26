@@ -198,6 +198,7 @@
     <Compile Include="Services\LandingLogService.cs" />
     <Compile Include="Services\CabinAnnouncementService.cs" />
     <Compile Include="Services\NavDataCache.cs" />
+    <Compile Include="Services\AirspaceMonitorService.cs" />
     <Compile Include="Services\NavDataClient.cs" />
     <Compile Include="Services\NavDataService.cs" />
     <Compile Include="Services\UIService.cs" />

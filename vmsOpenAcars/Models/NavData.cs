@@ -265,6 +265,61 @@ namespace vmsOpenAcars.Models.NavData
         public List<NavAirportWaypoint> Waypoints { get; set; } = new List<NavAirportWaypoint>();
     }
 
+    // ── Airspaces ─────────────────────────────────────────────────────────────────
+
+    internal class NavAirspacesResponse
+    {
+        [JsonProperty("airspaces")]
+        public List<NavAirspace> Airspaces { get; set; } = new List<NavAirspace>();
+    }
+
+    internal class NavAirspace
+    {
+        [JsonProperty("id")]          public string                Id          { get; set; }
+        [JsonProperty("name")]        public string                Name        { get; set; }
+        [JsonProperty("type")]        public string                Type        { get; set; }
+        [JsonProperty("icao_class")]  public string                IcaoClass   { get; set; }
+        [JsonProperty("country")]     public string                Country     { get; set; }
+        [JsonProperty("upper_limit")] public NavAirspaceLimit      UpperLimit  { get; set; }
+        [JsonProperty("lower_limit")] public NavAirspaceLimit      LowerLimit  { get; set; }
+        [JsonProperty("geometry")]    public NavAirspaceGeometry   Geometry    { get; set; }
+        [JsonProperty("frequencies")] public List<NavAirspaceFreq> Frequencies { get; set; } = new List<NavAirspaceFreq>();
+        [JsonProperty("on_demand")]   public bool                  OnDemand    { get; set; }
+        [JsonProperty("by_notam")]    public bool                  ByNotam     { get; set; }
+        [JsonProperty("remarks")]     public string                Remarks     { get; set; }
+
+        // Extracts the ICAO prefix from names like "SKBO / BOGOTA" → "SKBO"
+        public string ExtractIcao()
+        {
+            if (string.IsNullOrEmpty(Name)) return null;
+            int slash = Name.IndexOf('/');
+            string prefix = (slash > 0 ? Name.Substring(0, slash) : Name).Trim();
+            return prefix.Length >= 2 && prefix.Length <= 6 ? prefix : null;
+        }
+    }
+
+    internal class NavAirspaceLimit
+    {
+        [JsonProperty("value_ft")]  public double? ValueFt   { get; set; }
+        [JsonProperty("reference")] public string  Reference { get; set; }  // "GND","MSL","STD"
+        [JsonProperty("display")]   public string  Display   { get; set; }  // "GND","5000ft MSL","FL095","UNL"
+    }
+
+    internal class NavAirspaceGeometry
+    {
+        [JsonProperty("type")]        public string             Type        { get; set; }
+        // GeoJSON: each point is [longitude, latitude]
+        [JsonProperty("coordinates")] public List<List<double[]>> Coordinates { get; set; }
+    }
+
+    internal class NavAirspaceFreq
+    {
+        [JsonProperty("mhz")]     public string Mhz     { get; set; }
+        [JsonProperty("type")]    public string Type    { get; set; }  // "Tower","Approach","Centre"…
+        [JsonProperty("name")]    public string Name    { get; set; }
+        [JsonProperty("primary")] public bool   Primary { get; set; }
+    }
+
     // ── Cabin Announcements ───────────────────────────────────────────────────────
 
     internal class BriefingCheckResult

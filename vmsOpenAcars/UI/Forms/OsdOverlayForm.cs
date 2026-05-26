@@ -63,6 +63,7 @@ namespace vmsOpenAcars.UI.Forms
             _flashTimer.Tick += FlashTick;
 
             PositionOnScreen(AppConfig.OsdScreenIndex);
+        var _ = Handle; // Force HWND creation so ShowMessage works before first Show()
         }
 
         private void PositionOnScreen(int screenIndex)

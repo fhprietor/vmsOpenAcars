@@ -443,6 +443,11 @@ namespace vmsOpenAcars.UI.Forms
                 ForeColor = Color.White,
                 Font      = new Font("Consolas", 10)
             };
+            chkOsdEnabled.CheckedChanged += (s, ev) =>
+            {
+                AppConfig.OsdEnabled = chkOsdEnabled.Checked;
+                SaveConfigKey("osd_enabled", chkOsdEnabled.Checked.ToString().ToLower());
+            };
             right.Controls.Add(chkOsdEnabled, 1, 3);
 
             // row 4 — Duration
@@ -456,6 +461,11 @@ namespace vmsOpenAcars.UI.Forms
                 BackColor = Color.FromArgb(50, 50, 60),
                 ForeColor = Color.White,
                 Font      = new Font("Consolas", 10)
+            };
+            nudOsdDuration.ValueChanged += (s, ev) =>
+            {
+                AppConfig.OsdDurationSeconds = (int)nudOsdDuration.Value;
+                SaveConfigKey("osd_duration_seconds", ((int)nudOsdDuration.Value).ToString());
             };
             right.Controls.Add(nudOsdDuration, 1, 4);
 
@@ -471,6 +481,11 @@ namespace vmsOpenAcars.UI.Forms
                 BackColor = Color.FromArgb(50, 50, 60),
                 ForeColor = Color.White,
                 Font      = new Font("Consolas", 10)
+            };
+            nudOsdOpacity.ValueChanged += (s, ev) =>
+            {
+                AppConfig.OsdOpacity = (int)nudOsdOpacity.Value;
+                SaveConfigKey("osd_opacity", ((int)nudOsdOpacity.Value).ToString());
             };
             right.Controls.Add(nudOsdOpacity, 1, 5);
 
@@ -491,6 +506,11 @@ namespace vmsOpenAcars.UI.Forms
                 AutoSize  = true,
                 Checked   = true,
                 Margin    = new Padding(0, 6, 8, 0)
+            };
+            chkOsdSound.CheckedChanged += (s, ev) =>
+            {
+                AppConfig.OsdSoundEnabled = chkOsdSound.Checked;
+                SaveConfigKey("osd_sound_enabled", chkOsdSound.Checked.ToString().ToLower());
             };
             btnTestOsd = new Button
             {
@@ -564,7 +584,7 @@ namespace vmsOpenAcars.UI.Forms
             trkCabinVolume = new TrackBar
             {
                 Minimum       = 0,
-                Maximum       = 100,
+                Maximum       = 200,
                 TickFrequency = 10,
                 SmallChange   = 5,
                 LargeChange   = 10,
@@ -705,7 +725,7 @@ namespace vmsOpenAcars.UI.Forms
 
             int cabinVol = 80;
             if (int.TryParse(ConfigurationManager.AppSettings["cabin_announcements_volume"], out int cabinVolParsed))
-                cabinVol = Math.Max(0, Math.Min(100, cabinVolParsed));
+                cabinVol = Math.Max(0, Math.Min(200, cabinVolParsed));
             trkCabinVolume.Value  = cabinVol;
             lblCabinVolVal.Text   = cabinVol + "%";
         }
@@ -740,11 +760,8 @@ namespace vmsOpenAcars.UI.Forms
                 txtSimbriefCi.Text.Trim()                          != Cfg("simbrief_civalue", "30")          ||
                 txtSimbriefExtraRmk.Text.Trim()                    != Cfg("simbrief_extrarmk")               ||
                 txtNavDataApiKey.Text.Trim()                       != Cfg("navdata_api_key")                 ||
-                txtLandingLogPath.Text.Trim()                      != Cfg("landing_log_path")                ||
-                chkOsdEnabled.Checked.ToString().ToLower()         != Cfg("osd_enabled",          "true").ToLower() ||
-                chkOsdSound.Checked.ToString().ToLower()           != Cfg("osd_sound_enabled",    "true").ToLower() ||
-                ((int)nudOsdDuration.Value).ToString()             != Cfg("osd_duration_seconds", "4")      ||
-                ((int)nudOsdOpacity.Value).ToString()              != Cfg("osd_opacity",          "90");
+                txtLandingLogPath.Text.Trim()                      != Cfg("landing_log_path");
+                // osd_* and cabin_announcements_* are auto-saved on change — excluded from HasChanges
         }
 
         // ── Test handlers ─────────────────────────────────────────────────────
@@ -810,6 +827,8 @@ namespace vmsOpenAcars.UI.Forms
                     lblCabinStatus.ForeColor = result.StartsWith("OK")
                         ? Color.FromArgb(100, 220, 100)
                         : Color.FromArgb(220, 100, 100);
+                    if (result.StartsWith("OK"))
+                        TestOsdCallback?.Invoke("CABIN TEST  —  " + p.Replace('_', ' ').ToUpper(), OsdSeverity.Info);
                     btnTestCabin.Enabled = true;
                 };
                 menu.Items.Add(item);
@@ -842,11 +861,7 @@ namespace vmsOpenAcars.UI.Forms
                 SetValue(config, "navdata_api_key",   txtNavDataApiKey.Text.Trim());
                 SetValue(config, "landing_log_path",  txtLandingLogPath.Text.Trim());
 
-                SetValue(config, "osd_enabled",                  chkOsdEnabled.Checked.ToString().ToLower());
-                SetValue(config, "osd_sound_enabled",            chkOsdSound.Checked.ToString().ToLower());
-                SetValue(config, "osd_duration_seconds",         ((int)nudOsdDuration.Value).ToString());
-                SetValue(config, "osd_opacity",                  ((int)nudOsdOpacity.Value).ToString());
-                // cabin_announcements_enabled and cabin_announcements_volume are auto-saved on change
+                // osd_* and cabin_announcements_* are auto-saved on change — not saved here
 
                 config.Save(ConfigurationSaveMode.Modified);
                 ConfigurationManager.RefreshSection("appSettings");

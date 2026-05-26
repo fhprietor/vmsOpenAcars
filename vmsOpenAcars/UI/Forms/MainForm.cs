@@ -177,6 +177,7 @@ namespace vmsOpenAcars.UI.Forms
             _uiService?.AddLog($"vmsOpenAcars v{vmsOpenAcars.Core.Helpers.AppInfo.Version}", Theme.MainText);
             SystemInfoHelper.Initialize();
             _uiService?.AddLog(SystemInfoHelper.OsSummary,  Theme.SecondaryText);
+            _uiService?.AddLog(SystemInfoHelper.CpuSummary, Theme.SecondaryText);
             _uiService?.AddLog(SystemInfoHelper.GpuSummary, Theme.SecondaryText);
             _viewModel?.Start();
             // Verificar actualizaciones al iniciar (no bloquea la UI)
@@ -204,8 +205,7 @@ namespace vmsOpenAcars.UI.Forms
                     _viewModel = new MainViewModel(flightManager, fsuipc, apiService, phpVmsFlightService, simbriefEnhancedService);
                     _uiService = new UIService(this, flightManager, apiService);
 
-                    if (AppConfig.OsdEnabled)
-                        _osd = new OsdOverlayForm();
+                    _osd = new OsdOverlayForm();
                 }
             }
             catch (Exception ex)
@@ -264,6 +264,12 @@ namespace vmsOpenAcars.UI.Forms
             {
                 if (_mapForm != null && !_mapForm.IsDisposed)
                     _mapForm.UpdatePosition(lat, lon, hdg);
+            };
+
+            _viewModel.OnAirspacesReady += airspaces =>
+            {
+                if (_mapForm != null && !_mapForm.IsDisposed)
+                    _mapForm.SetAirspaces(airspaces);
             };
 
             _viewModel.OnPlanChanged += plan =>
@@ -2375,9 +2381,14 @@ private void UpdateMetarPanel(MetarData[] metars)
 
                 // OSD
                 { "osd_enabled",          "true" },
+                { "osd_sound_enabled",    "true" },
                 { "osd_duration_seconds", "4" },
                 { "osd_screen_index",     "1" },
                 { "osd_opacity",          "90" },
+
+                // Cabin Announcements
+                { "cabin_announcements_enabled", "true" },
+                { "cabin_announcements_volume",  "80" },
 
                 // Cliente
                 { "ClientSettingsProvider.ServiceUri", "" }

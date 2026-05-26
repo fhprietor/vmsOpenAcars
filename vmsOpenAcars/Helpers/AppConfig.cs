@@ -56,9 +56,20 @@ namespace vmsOpenAcars.Helpers
         /// <summary>Full path to the landing-log SQLite database (e.g. landing_log.sqlite).</summary>
         public static string LandingLogPath => ConfigurationManager.AppSettings["landing_log_path"] ?? "";
 
-        // OSD Overlay
-        public static bool OsdEnabled      => GetBool("osd_enabled",       true);
-        public static bool OsdSoundEnabled => GetBool("osd_sound_enabled", true);
+        // OSD Overlay (backing fields allow live updates from SettingsForm)
+        private static bool _osdEnabled = GetBool("osd_enabled", true);
+        public static bool OsdEnabled
+        {
+            get => _osdEnabled;
+            set => _osdEnabled = value;
+        }
+
+        private static bool _osdSoundEnabled = GetBool("osd_sound_enabled", true);
+        public static bool OsdSoundEnabled
+        {
+            get => _osdSoundEnabled;
+            set => _osdSoundEnabled = value;
+        }
 
         // Cabin Announcements (backing fields allow live updates from SettingsForm)
         private static bool _cabinAnnouncementsEnabled = GetBool("cabin_announcements_enabled", true);
@@ -74,10 +85,22 @@ namespace vmsOpenAcars.Helpers
             get => _cabinAnnouncementsVolume;
             set => _cabinAnnouncementsVolume = value;
         }
-        public static int  OsdDurationSeconds => GetInt("osd_duration_seconds", 4);
-        public static int  OsdScreenIndex     => GetInt("osd_screen_index",     1);
+        private static int _osdDurationSeconds = GetInt("osd_duration_seconds", 4);
+        public static int OsdDurationSeconds
+        {
+            get => _osdDurationSeconds;
+            set => _osdDurationSeconds = value;
+        }
+
+        public static int OsdScreenIndex => GetInt("osd_screen_index", 1);
+
+        private static int _osdOpacity = GetInt("osd_opacity", 90);
         /// <summary>OSD opacity as integer percentage 10–100 (e.g. 90 = 90%).</summary>
-        public static int  OsdOpacity         => GetInt("osd_opacity", 90);
+        public static int OsdOpacity
+        {
+            get => _osdOpacity;
+            set => _osdOpacity = value;
+        }
 
         private static int GetInt(string key, int defaultValue)
         {

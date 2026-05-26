@@ -202,9 +202,13 @@ namespace vmsOpenAcars.Services
                             "airac_cycle TEXT NOT NULL, json_data TEXT NOT NULL, " +
                             "PRIMARY KEY (icao, data_type))",
 
-                        "CREATE TABLE IF NOT EXISTS navaid_entries (" +
+                            "CREATE TABLE IF NOT EXISTS navaid_entries (" +
                             "cache_key TEXT PRIMARY KEY, " +
                             "airac_cycle TEXT NOT NULL, json_data TEXT NOT NULL)",
+
+                        "CREATE TABLE IF NOT EXISTS airspace_entries (" +
+                            "tile_key TEXT PRIMARY KEY, " +
+                            "cached_at TEXT NOT NULL, json_data TEXT NOT NULL)",
                     };
                     foreach (var ddl in tables)
                     {
@@ -218,6 +222,66 @@ namespace vmsOpenAcars.Services
             }
         }
 
+        // ── Airspaces (TTL 7 días, no vinculado al AIRAC) ─────────────────────────
+
+        /// <summary>
+        /// Recupera JSON de espacios aéreos para una tile key.
+        /// Devuelve null si no hay entrada o si el TTL de 7 días expiró.
+        /// </summary>
+        public static string TryGetAirspace(string tileKey)
+        {
+            if (_dbPath == null) return null;
+            lock (_lock)
+            {
+                try
+                {
+                    using (var conn = Open())
+                    using (var cmd  = conn.CreateCommand())
+                    {
+                        cmd.CommandText =
+                            "SELECT json_data, cached_at FROM airspace_entries WHERE tile_key=@k";
+                        cmd.Parameters.AddWithValue("@k", tileKey);
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            if (!reader.Read()) return null;
+                            string json     = reader.GetString(0);
+                            string cachedAt = reader.GetString(1);
+                            if (DateTime.TryParse(cachedAt,
+                                   System.Globalization.CultureInfo.InvariantCulture,
+                                   System.Globalization.DateTimeStyles.RoundtripKind, out var dt)
+                                && (DateTime.UtcNow - dt).TotalDays < 7)
+                                return json;
+                            return null;
+                        }
+                    }
+                }
+                catch { return null; }
+            }
+        }
+
+        /// <summary>Guarda (o actualiza) los espacios aéreos para una tile key.</summary>
+        public static void StoreAirspace(string tileKey, string json)
+        {
+            if (_dbPath == null || string.IsNullOrEmpty(json)) return;
+            lock (_lock)
+            {
+                try
+                {
+                    using (var conn = Open())
+                        Run(conn, null,
+                            @"INSERT OR REPLACE INTO airspace_entries
+                              (tile_key,cached_at,json_data) VALUES (@k,@d,@j)",
+                            "@k", tileKey,
+                            "@d", DateTime.UtcNow.ToString("O",
+                                      System.Globalization.CultureInfo.InvariantCulture),
+                            "@j", json);
+                }
+                catch { }
+            }
+        }
+
+        // ── Internos ──────────────────────────────────────────────────────────────
+
         private static void PurgeAll()
         {
             lock (_lock)
@@ -228,6 +292,7 @@ namespace vmsOpenAcars.Services
                     {
                         Run(conn, null, "DELETE FROM airport_entries");
                         Run(conn, null, "DELETE FROM navaid_entries");
+                        Run(conn, null, "DELETE FROM airspace_entries");
                     }
                 }
                 catch { }

@@ -1,544 +1,255 @@
 # vmsOpenAcars — Guía para Claude
 
-## Qué es el proyecto
+## Proyecto
 
-Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador via FSUIPC/XUIPC, los procesa y los envía a la API REST de phpVMS.
+Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.6.5 (en desarrollo)  
-**IDE:** Visual Studio 2017 (el usuario compila desde el IDE, nunca desde CLI)
+**Versión actual:** v0.6.6  
+**IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
-## Estructura de carpetas
+## Stack
 
-```
-vmsOpenAcars/
-├── Core/Flight/          → FlightManager.cs  (máquina de estados de vuelo)
-│   └── FlightTimer.cs
-├── Db/                   → RunwayService.cs  (solo tipos resultado — RunwayTouchdownResult, IlsData, ApproachInfo…)
-├── Helpers/              → AppConfig, Constants, UnitConverter, L (localización), SystemInfoHelper
-├── Models/               → Aircraft, Flight, FlightScoreData, TouchdownData, TakeoffData,
-│                           SimbriefPlan, Pirep, FlightRecord, ApproachTrackPoint
-├── Services/             → ApiService, FsuipcService, ScoringService, MetarService,
-│                           IvaoService, SimbriefEnhancedService, LandingLogService,
-│                           CabinAnnouncementService
-├── ViewModels/           → MainViewModel.cs  (coordinación UI ↔ dominio)
-├── UI/Forms/             → MainForm, SettingsForm, MetarDecodeForm, OFPViewerForm,
-│                           FlightHistoryForm, LandingAnalysisForm, EcamDialog,
-│                           OsdOverlayForm
-├── Docs/                 → BRIEFING.md (guía de usuario final)
-└── Controls/             → GaugeControl, LinearGauge, EngineMonitorPanel
-```
-
-## Stack tecnológico
-
-- **FSUIPC** (FSUIPCClientDLL 3.3.16) — lectura de datos del simulador
-- **System.Data.SQLite** (1.0.119) — LittleNavMap BD + landing_log.sqlite
-- **System.Windows.Forms.DataVisualization** — gráficos de aproximación (incluido en .NET 4.8)
-- **Newtonsoft.Json** — serialización REST
-- **NAudio** (2.3.0) — reproducción MP3 sincrónica en background thread (`AudioFileReader` + `WaveOutEvent`); usado en `CabinAnnouncementService`
-- **phpVMS v7** — backend de la aerolínea virtual (API REST)
-- **SimBrief** — planes de vuelo / OFP
+- **FSUIPC** (FSUIPCClientDLL 3.3.16) · **NAudio** (2.3.0) · **Newtonsoft.Json** · **GMap.NET**
+- **System.Data.SQLite** (1.0.119) — `landing_log.sqlite` + `NavData_cache.sqlite` + LittleNavMap BD
+- **phpVMS v7** — backend REST · **SimBrief** — planes de vuelo / OFP
 
 ---
 
-## Estado actual del sistema — todo implementado y funcional
+## Scoring — `Services/ScoringService.cs`
 
-### Scoring de aterrizaje — `Services/ScoringService.cs`
+14 criterios + 1 bonificación. Parte de 100, deduce (mín 0), luego bonus (máx 100):
 
-14 criterios de deducción + 1 bonificación. Puntuación parte de 100, deduce (mínimo = 0) y luego aplica el bonus (máximo = 100):
-
-| Criterio | Deducción máx | Umbrales / condición |
+| Criterio | Máx | Umbrales / condición |
 |---|---|---|
-| Landing Rate | 40 pts | ≤100=0, ≤200=5, ≤300=15, ≤400=25, ≤600=35, >600=40 |
-| G-Force | 15 pts | ≤1.3g=0, ≤1.5g=7, >1.5g=15 (omitido si dato = 0) |
-| Bank Angle | 10 pts | ≤2°=0, ≤5°=5, >5°=10 |
-| Pitch Angle | 10 pts | 1°–7°=0 (ideal nose-up); <−2°=10; −2°–1°=5; >8°=5 |
-| Overspeed | 15 pts | 0=0, 1=7, ≥2=15 |
-| Lights Compliance | 10 pts | 5 pts por violación, cap 10; Beacon exempto en aeronaves con switch compartido beacon/strobe (ver `BeaconStrobeSharedAircraft`) |
-| Stabilized Approach (1000 ft) | 15 pts | 6 criterios al cruzar 1000 ft AGL ↓: speed fuera [Vref−Vref+X]=−5, VS<−1000=−5, VS>−100=−5, bank>7°=−3, pitch fuera [−2.5°,+10°]=−3, gear up=−5, flaps<50%=−4 |
-| QNH Compliance | 10 pts | 5 pts si Δ>2 hPa — salida: TakeoffRoll (vs METAR origen); climb: TA+1000 ft (vs STD 1013); llegada: TL−1000 ft MSL si NavData tiene TL, si no 1000 ft AGL |
-| IVAO Offline | 5 pts | −5 si piloto no conectado a IVAO al iniciar TaxiOut |
-| On-Time Departure | 5 pts | −5 si Blocks Off difiere >10 min del STD (`sched_out`) |
-| Touchdown Zone | 7 pts | ≤1500 ft=0, ≤2500=3, >2500=7 — activo solo si `TouchdownDistanceFt > 0` (requiere NavData API) |
-| Centreline Deviation | 7 pts | ≤10 ft=0, ≤30=3, >30=7 — activo solo si `CenterlineDeviationFt > 0` (requiere NavData API) |
-| Localizer Alignment | 5 pts | activo si ILS detectado **y** piloto sintoniza ILS. ILS not tuned=−3; heading >5° (x2 max)=−1 each; cap 5. Si NAV1 difiere >0.05 MHz del ILS esperado al cruzar 1000 ft AGL, el criterio completo se omite (aproximación RNP/visual) |
-| Minimums Compliance | 5 pts | −5 si `BelowMinimums = true` (descendió bajo DA sin aterrizar). Omitido si Localizer Alignment fue omitido |
-
-| Bonificación | Valor | Condición |
-|---|---|---|
-| Single Engine Taxi | +5 pts (cap 100) | Aeronave multi-motor que rueda ≥50 % del tiempo de movimiento con un solo motor en TaxiOut o TaxiIn (`SingleEngineTaxi = true`, `_bothEnginesRunning = true`) |
-
-### NavDataService — `Services/NavDataService.cs` (v0.4.18+)
-
-Reemplaza a `RunwayService`. Misma interfaz pública; datos vía `NavDataClient` en lugar de SQLite.
-
-```csharp
-bool IsAvailable  // siempre true
-void PrefetchAirport(icao)  // dispara carga en caché; llamar al iniciar vuelo
-RunwayTouchdownResult FindTouchdownRunway(airport, lat, lon, heading)
-RunwayTouchdownResult FindTakeoffRunway(airport, lat, lon, heading)
-RunwayEntry           FindRunwayEntry(airport, lat, lon, heading)
-string                FindNearestTaxiway(airport, lat, lon, heading)  // heading opcional; penaliza ×2,5 segmentos >50° (v0.4.17)
-double                FindTaxiwaySegmentBearing(airport, taxiwayName, lat, lon)  // bearing del segmento más cercano de una calle dada (v0.5.8)
-HoldingPoint          FindHoldingPoint(airport, lat, lon, heading)    // usa datos holdshort de la API
-ParkingSpot           FindNearestParking(airport, lat, lon)
-RunwayTouchdownResult GetRunwayThreshold(airport, lat, lon, heading)
-(double DistNm, double LateralFt) ComputeApproachMetrics(...)        // public static
-IlsData              GetIlsForRunway(airport, runwayName)
-ApproachInfo         GetApproachType(airport, runwayName)
-IList<ApproachFix>   GetApproachFixes(airport, runwayName)           // firma cambiada desde v0.4.18 (antes int approachId)
-```
-
-### NavDataClient — `Services/NavDataClient.cs` (v0.6.1)
-
-Cliente HTTP estático con caché por ICAO (en memoria) y caché SQLite persistente (`NavDataCache`) entre sesiones:
-
-```csharp
-static bool IsReachable  // true tras primer fetch exitoso
-static bool IsKeyValid   // true si la key pasó el check en /airport/LEMD/runways/
-static void PrefetchAirport(icao)  // GetOrAdd en caché; no bloquea
-static List<NavRunway>    GetRunways(icao)
-static List<NavTaxiway>   GetTaxiways(icao)
-static List<NavParking>   GetParkings(icao)
-static List<NavHoldShort> GetHoldShorts(icao)
-static List<NavApproach>  GetApproaches(icao)
-static NavAirportInfo     GetAirportInfo(icao)   // transition_altitude_ft / transition_level_ft — double?, null si no disponible
-static Task<NavApiTestResult> TestApiAsync(string apiKeyOverride = null)
-    // Paso 1: GET /status/ → reachability
-    // Paso 2: GET /airport/LEMD/runways/ con key → 401/403 = key inválida
-    // NavApiTestResult { bool Reachable, bool KeyValid, NavStatusResponse NavStatus }
-static Task<BriefingCheckResult> CheckAnnouncementAsync(string phase, string lang)
-    // GET /briefing/check/?phase=&lang= → { available: bool, version: string }
-static Task<byte[]> FetchBytesAsync(string path)
-    // GET {NavDataApiUrl}/{path} — descarga binaria; usado por CabinAnnouncementService
-```
-
-- Caché: `ConcurrentDictionary<string, Task<NavAirportCache>>` — `GetOrAdd` + `GetAwaiter().GetResult()` (seguro en `Task.Run`).
-- Carga paralela: `Task.WhenAll` de **6** endpoints por aeropuerto (añadido `/airport/{icao}/` para `NavAirportInfo`).
-- Todos los endpoints usan la forma singular `/airport/` (no `/airports/`).
-- Auth: `X-API-Key` + `X-Origin-Domain` de `AppConfig.NavDataApiKey/Domain`.
-- Configuración en `App.config`: `navdata_api_url`, `navdata_api_key`, `navdata_api_domain`.
-
-`RunwayTouchdownResult` incluye: `ThresholdDistanceFt`, `CenterlineDeviationFt`, `RunwayName`, `ThresholdLat`, `ThresholdLon`, `ThresholdHeading`.
-
-**Geometría flat-earth** (`ProjectOnRunway` y `WithinFootprint` en NavDataService):
-```
-dN = (lat - thLat) * 111320
-dE = (lon - thLon) * 111320 * cos(thLat_rad)
-along = dE * sin(bearing_rad) + dN * cos(bearing_rad)   → dist al umbral (metros)
-cross = dE * cos(bearing_rad) - dN * sin(bearing_rad)   → desviación centreline (metros)
-ThresholdDistanceFt = Math.Max(0.0, along * 3.28084)    // ← Math.Max(0,...) es crítico
-```
-
-> **Importante (v0.5.7):** `bearing_rad` usa el **bearing geográfico verdadero** de la pista, calculado desde las coordenadas WGS-84 `EndLat/EndLon → ThresholdLat/ThresholdLon` mediante `TrueRunwayBearing(NavRunway)`. NavData publica rumbos magnéticos (`rwy.Heading`); usarlos como eje de proyección geográfica produce un error cross-track de `along × sin(magvar)` — hasta 600 ft en aeropuertos con variación ≥13°. Este error afectaba a dos funciones:
-> - **`WithinFootprint`**: proyectaba el avión en eje magnético → calle de rodaje a 513 ft del centreline aparecía a solo 90 ft → falso backtrack (caso TJSJ RWY 08, var. −14°W).
-> - **`ProjectOnRunway`** (touchdown metrics): usaba el heading verdadero del *avión* como proxy, que incluye el ángulo de crab en viento cruzado — irrelevante para desviación de centreline (caso SKBO RWY 14L: aterrizaje en eje ILS con crab de 3°, reportado como 226 ft de desviación).
-> `rwy.Heading` (magnético) se conserva **únicamente** en `HeadingDelta` para la selección de pista; la variación magnética no impacta esa clasificación (umbrales 45°/135°).
+| Landing Rate | 40 | ≤100=0, ≤200=5, ≤300=15, ≤400=25, ≤600=35, >600=40 |
+| G-Force | 15 | ≤1.3g=0, ≤1.5g=7, >1.5g=15 (omitido si dato=0) |
+| Bank Angle | 10 | ≤2°=0, ≤5°=5, >5°=10 |
+| Pitch Angle | 10 | 1°–7°=0; <−2°=10; −2°–1°=5; >8°=5 |
+| Overspeed | 15 | 0=0, 1=7, ≥2=15 |
+| Lights Compliance | 10 | 5 pts/violación cap 10; Beacon exempto en `BeaconStrobeSharedAircraft` (DH8D) |
+| Stabilized Approach 1000 ft | 15 | speed±Vref=−5, VS<−1000=−5, VS>−100=−5, bank>7°=−3, pitch±límites=−3, gear up=−5, flaps<50%=−4 |
+| QNH Compliance | 10 | Δ>2 hPa=−5: salida vs METAR origen; climb vs STD 1013 (tras TA); llegada vs QNH (bajo TL) |
+| IVAO Offline | 5 | −5 si desconectado al iniciar TaxiOut |
+| On-Time Departure | 5 | −5 si Blocks Off difiere >10 min de `sched_out` |
+| Touchdown Zone | 7 | ≤1500 ft=0, ≤2500=3, >2500=7 — activo si `TouchdownDistanceFt>0` |
+| Centreline Deviation | 7 | ≤10 ft=0, ≤30=3, >30=7 — activo si `CenterlineDeviationFt>0` |
+| Localizer Alignment | 5 | ILS not tuned=−3; heading>5°=−1 each (cap 2). Omitido si NAV1 difiere >0.05 MHz del ILS esperado a 1000 ft AGL |
+| Minimums Compliance | 5 | −5 si `BelowMinimums=true`. Omitido si Localizer fue omitido |
+| **Single Engine Taxi** | **+5** | Multi-motor ≥50% de movimiento con un motor en TaxiOut o TaxiIn |
 
 ---
 
-### CabinAnnouncementService — `Services/CabinAnnouncementService.cs` (v0.5.9)
+## NavData
 
-Reproducción de anuncios de cabina pregrabados. Descarga MP3 desde `/briefing/check/` + `/briefing/download/` de la NavData API, los cachea en `%TEMP%\vmsacars\briefing\` y los reproduce en orden FIFO (chime WAV → MP3).
+### NavDataService — `Services/NavDataService.cs`
 
-**Idioma nativo** determinado por `Pilot.AirlineCountry` (ISO-2). Países hispanohablantes (`SpanishCountries` hashset) → `"es"`; resto → `"en"`. Vuelo internacional (prefijos ICAO origen ≠ destino) con aerolínea no anglohablante → cola inglés + idioma nativo. Vuelo doméstico → solo idioma nativo.
+```csharp
+void PrefetchAirport(icao)
+RunwayTouchdownResult FindTouchdownRunway / FindTakeoffRunway / GetRunwayThreshold(airport, lat, lon, heading)
+RunwayEntry    FindRunwayEntry(airport, lat, lon, heading)
+string         FindNearestTaxiway(airport, lat, lon, heading)       // penaliza ×2.5 segmentos >50°
+double         FindTaxiwaySegmentBearing(airport, taxiwayName, lat, lon)
+HoldingPoint   FindHoldingPoint / ParkingSpot FindNearestParking
+IlsData        GetIlsForRunway / ApproachInfo GetApproachType / IList<ApproachFix> GetApproachFixes
+(double DistNm, double LateralFt) ComputeApproachMetrics(...)  // static
+```
 
-**Supresión:** `aircraftSeats > 0 && aircraftSeats < 40` → `PrefetchAsync` retorna inmediatamente. `aircraftSeats == 0` (dato no disponible en API) → no suprime (safe default).
+**Geometría flat-earth** (`ProjectOnRunway`/`WithinFootprint`):
+- `along = dE·sin(bearing) + dN·cos(bearing)` → dist al umbral; `Math.Max(0,…)` es crítico
+- `cross = dE·cos(bearing) - dN·sin(bearing)` → desviación centreline
+- `bearing_rad` es el **bearing geográfico verdadero** via `TrueRunwayBearing(rwy)` (threshold→end WGS-84). Usar `rwy.Heading` (magnético) produce hasta 600 ft de error en aeropuertos con variación ≥13° (casos TJSJ −14°W, SKBO crab 3°).
 
-**Reproducción:** NAudio `AudioFileReader` + `WaveOutEvent` + `ManualResetEventSlim(false)`. El `Task.Run` bloquea hasta `PlaybackStopped`; el chime usa `System.Media.SoundPlayer` desde recurso embebido `chime_warning.wav`. `_currentOutput` (volatile `WaveOutEvent`) y `_currentReader` (volatile `AudioFileReader`) permiten stop en tiempo real y cambio de volumen en caliente.
+### NavDataClient — `Services/NavDataClient.cs`
 
-**Volumen:** `AppConfig.CabinAnnouncementsVolume` (int 0–100, default 80, backing field con setter). `SetVolume(int)` actualiza `AppConfig` Y `_currentReader?.Volume` inmediatamente. Cadena live: `trkCabinVolume.ValueChanged` → `CabinVolumeChangedCallback` (SettingsForm) → `MainViewModel.SetCabinVolume()` → `CabinAnnouncementService.SetVolume()`. Clave `App.config`: `cabin_announcements_volume` (default `80`).
+```csharp
+static bool IsReachable, IsKeyValid, IsAiracExpired
+static void PrefetchAirport(icao)
+static List<NavRunway/Taxiway/Parking/HoldShort/Approach> Get*(icao)
+static NavAirportInfo     GetAirportInfo(icao)          // transition_altitude/level_ft → double?
+static List<NavProcedure> GetSids / GetStars(icao)
+static List<NavIls>       GetIls(icao)
+static List<NavAirportWaypoint> GetAirportWaypoints(icao, radiusNm)
+static Task<List<NavAirspace>>  GetAirspacesAsync(lat, lon)   // sin radius_nm; servidor devuelve 200 nm fijos
+static Task<NavApiTestResult>   TestApiAsync(apiKeyOverride)  // llama NavDataCache.SyncAirac()
+static Task<BriefingCheckResult> CheckAnnouncementAsync(phase, lang)
+static Task<byte[]>              FetchBytesAsync(path)
+static Task<NavWeather>          GetWeatherAsync(icao)        // TTL 5 min en memoria
+```
 
-**Stop:** `StopCurrent()` llama `_currentOutput?.Stop()` → dispara `PlaybackStopped` → `done.Set()` → el hilo `Task.Run` termina limpiamente. Llamado en `TestAnnouncementAsync` (reemplaza anuncio en curso al seleccionar nuevo test) y en `Reset()` (exit paths del vuelo).
+Caché por capas: (1) `ConcurrentDictionary` en sesión por ICAO → (2) `NavDataCache` SQLite por AIRAC → para airspaces: (3) `_airspaceMemCache` en sesión + (4) `airspace_entries` SQLite TTL 7 días.
 
-**Campos en MainViewModel:** `_cabinAnnouncements` (instancia), `_cabinCruiseSent`, `_cabinOnRunwaySent`, `_cabinCruiseCheckStart`, `_lastGroundSpeedKt`. Reset en `StartFlight()` y en los tres exit paths (`SendPirep`, `AbortFlight`, `CancelFlight`).
+Auth: `X-API-Key` + `X-Origin-Domain` de `App.config` (`navdata_api_key`, `navdata_api_domain`).
 
-**`AppConfig.CabinAnnouncementsEnabled`** — backing field con setter; toggle live desde Settings sin reinicio. Clave `App.config`: `cabin_announcements_enabled` (default `true`). **Auto-saved** en `CheckedChanged` vía `SaveConfigKey` — no requiere Save ni cierra el diálogo.
+### NavDataCache — `Services/NavDataCache.cs`
 
-**Test desde SettingsForm:** `Func<string, Task<string>> TestCabinAnnouncementCallback` (callback async inyectado desde `MainForm`). `TestAnnouncementAsync(phase, lang)` para el audio actual, descarga bajo demanda si no está en `_paths`, encola chime + MP3 y devuelve `"OK  [{fmt}  {kb} KB]  {filename}"` o `"Phase not available from API"`.
+SQLite `NavData_cache.sqlite` junto al exe. Tres tablas:
+- `airport_entries (icao, data_type PK, airac_cycle, json_data)` — data_type ∈ block/sids/stars/ils/waypoints
+- `navaid_entries (cache_key PK, airac_cycle, json_data)`
+- `airspace_entries (tile_key PK, cached_at, json_data)` — TTL 7 días, **no vinculado al AIRAC**
 
-**Auto-save de controles de cabina:** `chkCabinAnnouncements` y `trkCabinVolume` usan `SaveConfigKey(key, value)` (helper privado en `SettingsForm`) para persistir en `App.config` en el acto. Excluidos de `HasChanges()` y `BtnSave_Click` — cambiarlos no activa el botón Save.
+`SyncAirac(cycle, validUntil)` purga `airport_entries` y `navaid_entries` del ciclo anterior (no toca airspaces). `Initialize()` auto-purga todo si `airac_valid_until` expiró.
 
-**Fases y triggers en `MainViewModel`:**
+Tile key airspaces: `"{round(lat)}:{round(lon)}"` — bucketing a 1° para maximizar hits de caché.
+
+### AirspaceMonitorService — `Services/AirspaceMonitorService.cs` (v0.6.6)
+
+Monitorea espacios aéreos de la ruta activa e IVAO ATC/ATIS. Thread-safe; eventos en thread-pool.
+
+```csharp
+event Action<NavAirspace>                  OnAirspaceAlert    // Prohibited/Restricted/Danger
+event Action<NavAirspace, NavAirspaceFreq> OnAirspaceEntered  // CTR/TMA/RMZ entrada
+event Action<NavAirspace>                  OnAirspaceExited   // CTR/TMA/RMZ salida
+event Action<IList<IvaoAtcStation>>        OnAtcUpdated       // poll IVAO completo (3 min)
+
+Task InitRouteAsync(originIcao, destIcao)  // fetch origen(200nm) + dest(200nm) + midpoint si dist>100nm
+void CheckPosition(lat, lon, altFt)        // ray-casting GeoJSON + límites verticales
+void TriggerIvaoRefresh()
+```
+
+IVAO polling: `GET https://api.ivao.aero/v2/tracker/whazzup` → `root["clients"]["atcs"]`. Callsign `{ICAO}_{POS}` — match por ICAO exacto o prefijo 2 chars FIR.
+
+**Integración MainViewModel:** `WireAirspaceMonitor()` en constructor. `InitRouteAsync` en `StartFlight()` → dispara `OnAirspacesReady` → `MapForm.SetAirspaces()`. `CheckPosition` throttleado a 30 s en `OnRawDataUpdated`. `TriggerIvaoRefresh()` en fases Descent y Approach. `Reset()` en los 3 exit paths.
+
+**MapForm.SetAirspaces:** `GMapPolygon` por tipo — Prohibited=rojo, Restricted=naranja, Danger=amarillo, CTR=cyan, TMA=azul, ATZ=azul claro, RMZ=violeta. GeoJSON `[lon,lat]` → `PointLatLng(lat,lon)`.
+
+`IvaoAtcStation` (en `AirspaceMonitorService.cs`): `Callsign`, `Icao`, `Position`, `Frequency`, `AtisLines`. DTOs airspace en `Models/NavData.cs`: `NavAirspace`, `NavAirspaceLimit`, `NavAirspaceGeometry`, `NavAirspaceFreq`.
+
+---
+
+## CabinAnnouncementService — `Services/CabinAnnouncementService.cs` (v0.5.9)
+
+Anuncios pregrabados: fetch `/briefing/check/` + `/briefing/download/`, caché `%TEMP%\vmsacars\briefing\`, reproducción FIFO chime WAV → MP3.
+
+**Idioma:** `Pilot.AirlineCountry` (ISO-2) → `SpanishCountries` hashset → `"es"` o `"en"`. Internacional con aerolínea no anglohablante → inglés primero + nativo. Doméstico → solo nativo.
+
+**Supresión:** `aircraftSeats ∈ (0,40)` → `PrefetchAsync` retorna sin hacer nada.
+
+**Reproducción:** NAudio `AudioFileReader` + `WaveOutEvent` + `ManualResetEventSlim`. `_currentOutput`/`_currentReader` (volatile) para stop en tiempo real y volumen en caliente.
+
+**Fases:**
 
 | Fase | Trigger |
 |---|---|
 | `boarding` | `PrefetchAsync()` completado en `StartFlight()` |
-| `taxi_out` | `OnFlightPhaseChanged(TaxiOut)` |
-| `on_runway` | `LandingLightChanged(on=true)` o `StrobeLightChanged(on=true)`, GS ≤ 40 kt, flag `_cabinOnRunwaySent` |
-| `cruise` | `OnRawDataUpdated`: Enroute + AGL > 10 000 ft sostenido 30 s, flag `_cabinCruiseSent` |
-| `top_of_descent` | `OnFlightPhaseChanged(Descent)` |
-| `approach` | `OnFlightPhaseChanged(Approach)` |
-| `taxi_in` | `OnFlightPhaseChanged(TaxiIn)` |
+| `taxi_out` / `top_of_descent` / `approach` / `taxi_in` | `OnFlightPhaseChanged` |
+| `on_runway` | `LandingLight` o `StrobeLight` changed(on=true), GS ≤ 40 kt, una vez |
+| `cruise` | Enroute + AGL > 10 000 ft sostenido 30 s |
+
+**Settings:** `chkCabinAnnouncements` (live, auto-save), `trkCabinVolume` (0–100, live, auto-save), `btnTestCabin` (7 fases). Callbacks inyectados desde MainForm. Clave App.config: `cabin_announcements_enabled` / `cabin_announcements_volume`.
 
 ---
 
-### Panel FMA — `UI/Forms/MainForm.cs`
-
-```
-outer (TableLayoutPanel 2 cols: 70% izq / 30% der)
-├── [col 0] planLines (3 filas Percent 33%)
-│   ├── _lblFmaPlanLine1  → "{Airline}{FlightNo}  {Orig}/{OrigIATA}  {Dest}/{DestIATA}  CI {CI}  {Fecha}  {Reg} {Tipo}"
-│   ├── _lblFmaPlanLine2  → "PAX {n}  FUEL {block}  TRIP {trip}  CARGO {cargo}  FL{alt}  AVG WIND {dir}/{spd}  AVG ISA {isa}"
-│   └── _lblFmaPlanLine3  → "RTE  {Route}"
-└── [col 1] rightCol (3 filas Percent 33%)
-    ├── lblPhase          → "PHASE BOARDING" / "PHASE TAXIOUT" / etc.
-    ├── lblAir            → "GROUND" / "AIRBORNE" / "---"
-    └── _lblDepartureCdw  → cuenta atrás de salida (20pt bold Consolas)
-```
-
----
-
-### SimBrief — `Models/SimbriefPlan.cs` / `SimbriefWaypoint.cs`
-
-- `BlockFuel` ← `fuel.plan_ramp`
-- `TripFuel`  ← `fuel.enroute_burn`
-- `DepartureFuel` ← `fuel.plan_ramp` (alias)
-- `ScheduledOutTime` ← `times.sched_out` (Unix, blocks-off — countdown ETD en FMA)
-- `ScheduledOffTime` ← `times.sched_off` (Unix, wheels-off = sched_out + taxi_out — fecha en FMA)
-- `OriginRunway` / `DestinationRunway` ← `origin.plan_rwy` / `destination.plan_rwy` — pistas asignadas, pasadas a `LoadRoute`
-- `SidName` / `StarName` ← procedimiento SID/STAR del plan, pasados a `LoadRoute` para resolución en NavData
-- `Alternate` ← `alternate.icao_code` — aeropuerto alterno, dibujado como línea punteada en el mapa
-- `SimbriefWaypoint.IsSidStar` ← `navlog.fix[].is_sid_star == "1"` — distingue fixes reales de SID/STAR de waypoints normales de subida/bajada (v0.6.1)
-
----
-
-## Landing Analysis — v0.3.16
-
-### Base de datos: `landing_log.sqlite`
-
-Ruta configurada en `App.config` → clave `landing_log_path` (vacío por defecto).  
-En SettingsForm sección "Landing Log": usa `OpenFileDialog` con `CheckFileExists = false`.
-
-**Tablas:**
-- `flights` — un registro por vuelo (rate, G, dist, cl, score, METAR, runway, ruta…)
-- `approach_track` — puntos de trayectoria (cada 2 s, AGL < 3000 ft)
-
-### Archivos del sistema Landing Analysis
-
-| Archivo | Propósito |
-|---|---|
-| `Models/FlightRecord.cs` | POCO tabla `flights` |
-| `Models/ApproachTrackPoint.cs` | POCO tabla `approach_track` |
-| `Services/LandingLogService.cs` | CRUD SQLite: `SaveFlight`, `GetFlights`, `GetTrackPoints`, `DeleteFlight`, `HasFlights`, `SeedMockData` |
-| `UI/Forms/FlightHistoryForm.cs` | Modal: historial DataGridView con comparación y borrado |
-| `UI/Forms/LandingAnalysisForm.cs` | No-modal: 4 gráficos con modo comparación |
-
-### LandingLogService — métodos clave
-
-- `SaveFlight(FlightRecord, IList<ApproachTrackPoint>)` — INSERT en transacción, dos comandos separados (INSERT + `SELECT last_insert_rowid()`)
-- `DeleteFlight(int id)` — borra en transacción: primero `approach_track`, luego `flights`
-- `SeedMockData()` — 5 vuelos SKRG RWY 01 (thLat=6.149458, thLon=-75.423049, thHdg=359.66°); solo disponible en `#if DEBUG`
-
-### FlightHistoryForm
-
-- `MultiSelect = true` en el DataGridView
-- Botones (derecha → izquierda): CLOSE · VIEW ANALYSIS · COMPARE · DELETE
-- `UpdateButtonStates()`: VIEW ANALYSIS activo con exactamente 1 seleccionado; COMPARE con 2-5; DELETE con ≥1
-- DELETE usa `EcamDialog.Show(this, msg, "CONFIRM DELETE", EcamDialogButtons.YesNo)` para confirmación
-- COMPARE: `_grid.SelectedRows.Cast<DataGridViewRow>().Select(r => r.Tag as FlightRecord).OrderBy(f => f.FlightDate)`
-- SEED DEMO DATA solo en `#if DEBUG`
-
-### LandingAnalysisForm
-
-**Constructor:** `LandingAnalysisForm(IList<(FlightRecord Record, List<ApproachTrackPoint> Track)> flights)`
-
-- `IsComparison` → `_flights.Count > 1`
-- Modo single: header con 7 celdas de stats; modo comparison: una fila por vuelo con punto de color + stats inline incluyendo fecha `MM-dd HH:mm`
-- 4 gráficos: VERTICAL (AGL ft), LATERAL (desviación ft ± signed), IAS (kt), VS (fpm)
-- Eje X invertido: 5 NM izquierda → 0 (umbral) derecha
-- Líneas de referencia: planeo 3° (AGL = dist × 319), centreline cero, Vref promedio
-- Suavizado Gaussiano (window=7, σ=window/4): aplicado a LATERAL, IAS, VS — NO a VERTICAL
-- Nombres de series en comparación: `"{rec.FlightNumber} #{i+1}"` (único, evita `ArgumentException` con mismo callsign)
-- Paleta de colores: azul, naranja, verde, violeta, dorado (`TrackColors[]`)
-
-### Flujo de captura de aproximación
-
-```
-Phase → Approach
-    → _approachBuffer.Clear(), _approachThreshold = null
-OnRawDataUpdated (cada 50 ms, fase = Approach)
-    → si _approachThreshold == null:
-         GetRunwayThreshold(dest, lat, lon, hdg)
-         requiere heading-delta ≤15° AND |cross| ≤2 NM AND along<0
-         si null → no captura, reintenta el siguiente ciclo
-    → al adquirir pista: Task.Run(LoadApproachData(dest, runway))
-    → si AGL<3000 ft && ≥2 s elapsed:
-         ComputeApproachMetrics(threshold, lat, lon) → distNm, lateralFt
-         _approachBuffer.Add(ApproachTrackPoint)
-SendPirep()
-    → SnapshotLandingRecord()          ← captura plan + touchdown ANTES de FilePirep
-    → FilePirep() → ResetFlightState() ← aquí se borran _activePlan y touchdown data
-    → éxito → SaveLandingRecord(record)
-        → record.Score = LastFlightScore  ← LastFlightScore NO se resetea en ResetFlightState
-        → LandingLogService.SaveFlight(record, _approachBuffer)
-        → _approachBuffer.Clear()
-        → log de diagnóstico (éxito o motivo de fallo)
-```
-
-> **Importante:** `FilePirep()` llama internamente a `ResetFlightState()`, que pone `_activePlan = null`
-> y resetea todos los campos de touchdown. `SnapshotLandingRecord()` debe ejecutarse **antes** de
-> awaitar `FilePirep()`. `LastFlightScore` es la única propiedad que no se resetea y puede leerse
-> de forma segura después.
-
-### Propiedades públicas añadidas a FlightManager
+## SystemInfoHelper — `Helpers/SystemInfoHelper.cs` (v0.6.6)
 
 ```csharp
-public double TouchdownDistanceFt   => _touchdownDistanceFt;
-public double TouchdownCenterlineFt => _touchdownCenterlineDeviationFt;
-public string TouchdownRunwayName   => _touchdownRunwayName;
-public double TouchdownGForce       => _touchdownGForce;
-// ILS / Approach (v0.4.4)
-public void SetApproachData(IlsData ils, ApproachInfo approach, IList<ApproachFix> fixes)
+static string OsSummary   // "{ProductName} / RAM {n} GB" — detecta Win11 por BuildNumber ≥22000
+static string CpuSummary  // "{ProcessorNameString} / {ProcessorCount} threads"
+static string GpuSummary  // "{DriverDesc} / VRAM {n} GB"  (o "VRAM ?")
+static string SimSummary  // asignado en SetSimVersion() al conectar FSUIPC
 ```
 
-### ILS / Approach Detection — v0.4.4
+**GPU** (`GetBestGpu`): registro `HKLM\...\{4d36e968...}`. Rango: NVIDIA=3, AMD/Arc=2, otros=1, Intel=0. Filtra adaptadores virtuales. Fallback DXGI COM P/Invoke (`CreateDXGIFactory`) cuando VRAM del registro=0 — necesario para GPUs ≥4 GB (DWORD overflow) y Optimus Render-Only.
 
-**Result types (en `Db/RunwayService.cs`):**
+**CPU** (`GetCpuString`): `HKLM\HARDWARE\DESCRIPTION\System\CentralProcessor\0\ProcessorNameString` + `Environment.ProcessorCount`.
 
-| Clase | Propiedades clave |
-|---|---|
-| `IlsData` | `FrequencyMhz`, `Course`, `GlideSlopePitch`, `RunwayName`, `ThresholdLat/Lon/ElevFt` |
-| `ApproachInfo` | `ApproachId`, `Type`, `RunwayName`, `HasVerticalGuidance` |
-| `ApproachFix` | `Name`, `FixType` (IF/FAF/MAP), `Lat`, `Lon`, `AltitudeFt` |
-
-**Flujo de carga de datos de aproximación:**
-```
-OnFlightPhaseChanged(Approach)
-    → GetRunwayThreshold() → _approachThreshold (ya existente)
-    → Task.Run(() => LoadApproachData(dest, rwyName))
-        → GetIlsForRunway()  → ils
-        → GetApproachType()  → approach
-        → GetApproachFixes() → fixes
-        → _flightManager.SetApproachData(ils, approach, fixes)
-```
-
-**Lógica de scoring ILS en FlightManager:**
-- Al cruzar 1000 ft AGL (`CheckStabilizedApproachGate`): compara `data.Nav1FrequencyMhz` con `_expectedIls.FrequencyMhz` (tolerancia ±0.05 MHz).
-  - Si coincide (±0.05 MHz): ILS confirmado, scoring normal.
-  - Si **no** coincide (piloto vuela RNP, visual u otro procedimiento): se anulan `_expectedIls = null` y `_daAltitudeFt = 0`. Los criterios Localizer Alignment y Minimums Compliance quedan **completamente omitidos** — sin penalización. El log registra `Log_IlsApproachSkipped`.
-- Por debajo de 500 ft AGL (`CheckApproachBelowGate`): monitorea desviación de rumbo vs curso ILS. Si |hdgDelta| > 5°: `_localizerViolations++` (cap 2). Comprueba DA para `_belowMinimums`. Solo se ejecuta si `_expectedIls != null`.
-- Secuenciación de fixes: avanza `_nextFixIndex` cuando la aeronave está a <0.5 NM del siguiente fix.
-
-**FsuipcService — nuevos offsets:**
-- `0x0350 · INT16` — NAV1 active frequency (BCD). Formato: `(freq − 100) × 100` como 4 dígitos BCD → `100 + d3×10 + d2 + d1×0.1 + d0×0.01` (e.g. `0x1070` = 110.70 MHz, `0x1130` = 111.30 MHz)
-- `0x0C4E · INT16` — NAV1 OBS / ILS course (0–359°)
-
----
-
-## SystemInfoHelper — v0.6.2
-
-`Helpers/SystemInfoHelper.cs` — clase `internal static`. Recopila información de hardware y simulador para el log local y para la tabla ACARS de phpVMS.
-
-**Propiedades públicas (inicializadas en `Initialize()` al arrancar):**
-- `OsSummary` — `"{ProductName} / RAM {n} GB"` (detecta Windows 11 por `CurrentBuildNumber >= 22000`)
-- `GpuSummary` — `"{DriverDesc} / VRAM {n} GB"` (o `VRAM ?` si el adaptador no reporta VRAM)
-- `SimSummary` — asignado en `SetSimVersion(simName)` al conectar FSUIPC
-
-**Selección de GPU (`GetBestGpu`):**
-- Lee `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968...}` (adaptadores de vídeo).
-- Filtra adaptadores virtuales (`IsVirtualAdapter`): Microsoft Basic, Hyper-V, Remote Desktop, VMware, VirtualBox, Parsec, VDDM.
-- Criterio **rango primario** (`DiscreteRank`), VRAM como desempate secundario:
-  - NVIDIA / GeForce / Quadro / RTX / GTX → rango 3
-  - AMD Radeon RX / Pro / AMD Radeon / Intel Arc → rango 2
-  - otros → rango 1
-  - Intel (integrado) → rango 0
-- Portatiles NVIDIA Optimus: la GPU discreta es `Render-Only Device` (VRAM = 0 en registro); la iGPU Intel reporta ~1 GB de memoria compartida. El criterio de rango garantiza que NVIDIA (3) siempre gane a Intel (0) aunque su VRAM sea 0. VRAM se muestra como `?` en ese caso.
-- VRAM > 4 GB: usa `HardwareInformation.MemorySize` como QWORD (8 bytes), correcto para GPU de 8/16/24 GB.
-
-**RAM:** P/Invoke `GlobalMemoryStatusEx` (kernel32) — sin dependencia de WMI.
-
-**Versión de simulador (`SetSimVersion` → `BuildSimSummary`):** busca el proceso en ejecución (`FlightSimulator2024`, `FlightSimulator`, `X-Plane`, `Prepar3D`), lee `FileVersionInfo.ProductVersion`, recorta a 3 partes.
-
-**Uso:**
-- `MainForm` llama `Initialize()` al arrancar (tras `ConnectViewModelEvents`), luego loguea `OsSummary` y `GpuSummary` en el panel de log local.
-- `MainViewModel.OnFsuipcConnected` llama `SetSimVersion` y loguea `SimSummary`.
-- `ApiService.PrefileFlight` incluye `GetPrefileNotes()` en el campo `notes` del prefile de phpVMS (`notes = vmsOpenAcars vX.Y.Z\n{OsSummary}\n{GpuSummary}\n{SimSummary}`).
-- `MainViewModel.StartFlight` (al inicio del vuelo) envía un `AcarsPositionUpdate` con 4 `AcarsPosition` entries — `log` = OsSummary, GpuSummary, SimSummary y `"{AircraftType} / {Developer}"` — a la tabla ACARS de phpVMS vía `SendPositionUpdate`, en `Task.Run` background, `status = "ground"`.
+**Uso en StartFlight:** batch ACARS de 5 entradas `log` → phpVMS: versión, CPU, GPU, OS, NavData AIRAC.
+**Prefile:** `GetPrefileNotes()` → campo `notes` phpVMS (versión + OS + GPU + Sim).
 
 ---
 
 ## OSD Overlay — v0.5.4
 
-### OsdOverlayForm — `UI/Forms/OsdOverlayForm.cs`
+TopMost, click-through, centrado en pantalla configurada, 40 px desde borde. Thread-safe. Audio: `OsdAudio.Play(severity)`, 4 WAV EmbeddedResource.
 
-Ventana TopMost, sin borde, click-through (`WM_NCHITTEST → HTTRANSPARENT`), sin entrada en taskbar. Centrada horizontalmente en la pantalla configurada, 40 px desde el borde superior.
+App.config: `osd_enabled`, `osd_sound_enabled`, `osd_duration_seconds` (def 4), `osd_screen_index`, `osd_opacity` (def 90).
 
-```csharp
-public enum OsdSeverity { Info, Success, Warning, Critical }
-public void ShowMessage(string text, OsdSeverity severity, int durationMs = 4000)
-public void HideOsd()
-```
+**Triggers OSD (MainViewModel → OnOsdMessage):**
 
-`ShowMessage()` es thread-safe. Recalcula posición en cada llamada con `Screen.Bounds` (no `WorkingArea`).
-
-**Animación:** FadeIn (0.06/tick) → Hold → FadeOut (0.04/tick). Critical: `_flashTimer` (220 ms, 3 ciclos on/off) antes del Hold.
-
-### OsdAudio — `Helpers/OsdAudio.cs` (v0.5.4)
-
-Chimes de cabina sincronizados con cada `OsdSeverity`. Cuatro WAV compilados como `EmbeddedResource` (`Resources/Audio/chime_*.wav`), pre-cargados en `SoundPlayer` estáticos al arrancar. Reproducción async fire-and-forget; no bloquea UI.
-
-```csharp
-public static void Play(OsdSeverity severity, bool forcePlay = false)
-```
-
-`forcePlay = true` omite la comprobación de `AppConfig.OsdSoundEnabled` (usado por el TEST en Settings). El mapeo de severidad a archivo es: Info → `chime_info.wav`, Success → `chime_success.wav`, Warning → `chime_warning.wav`, Critical → `chime_critical.wav`.
-
-### Configuración — App.config
-
-| Clave | Default | Helper |
+| Momento | Texto | Sev |
 |---|---|---|
-| `osd_enabled` | true | `AppConfig.OsdEnabled` |
-| `osd_sound_enabled` | true | `AppConfig.OsdSoundEnabled` |
-| `osd_duration_seconds` | 4 | `AppConfig.OsdDurationMs` (× 1000) |
-| `osd_screen_index` | 0 | `AppConfig.OsdScreenIndex` |
-| `osd_opacity` | 90 | `AppConfig.OsdOpacity` |
-
-### Puntos de disparo (MainViewModel → `OnOsdMessage`)
-
-| Momento | Texto | Severidad |
-|---|---|---|
-| `StartFlight()` ok | `ACARS ACTIVE` | Success |
-| Fase TaxiOut | `TAXI OUT` | Info |
-| Fase TakeoffRoll | `TAKEOFF ROLL` | Info |
-| Fase Enroute | `CRUISE` | Info |
-| Fase Descent | `DESCENDING` | Info |
-| Fase Approach | `APPROACH` | Info |
-| Fase OnBlock | `ON BLOCK` | Info |
-| Touchdown | `<calificación>  −XXX fpm  X.Xg` | Success/Info/Warning/Critical según fpm |
-| Touch-and-go | `TOUCH AND GO` | Warning |
+| StartFlight ok | `ACARS ACTIVE` | Success |
+| TaxiOut / TakeoffRoll / Cruise / Descending / Approach / OnBlock | texto de fase | Info |
+| Touchdown | `<calificación>  −XXX fpm  X.Xg` | según fpm |
 | PIREP filed | `PIREP FILED — SCORE: XX/100` | Success |
-| Climb ≥ 10 000 ft AGL | `10 000 FT` | Info — flag `_passing10kFtSent`; se resetea con el vuelo |
-| Descent ≤ 10 500 ft AGL, landing lights apagadas | `LANDING LT OFF` | Warning (solo aviso, sin penalización) — flag `_landingLightReminderSent` en FlightManager; se resetea si AGL > 10 500 ft (v0.4.15) |
-| Penalty lights (pushback/taxi/takeoff/below 9 500 ft AGL) | `PENALTY  NAV/TAXI/STROBE/LANDING LT  −5 PTS` | Warning |
-| Transition Altitude (climb) | `TRANS ALT  SET STD 1013` | Warning — solo si `transition_altitude_ft` no es null en NavData (v0.4.19) |
-| Transition Level (descent) | `TRANS LEVEL  SET QNH` | Warning — solo si `transition_level_ft` no es null en NavData (v0.4.19) |
-| Penalty QNH | `PENALTY  QNH  −5 PTS` | Warning |
+| Climb ≥10 000 ft AGL | `10 000 FT` | Info |
+| Descent ≤10 500 ft luces apagadas | `LANDING LT OFF` | Warning |
+| Penalty lights | `PENALTY  <LT>  −5 PTS` | Warning |
+| TA / TL | `TRANS ALT SET STD 1013` / `TRANS LEVEL SET QNH` | Warning |
 | Overspeed | `OVERSPEED  XXX KTS` | Critical |
-| Unstabilized approach | `UNSTABILIZED  −N PTS` | Critical |
-| Go-around | `GO AROUND` | Warning |
-| Single-engine taxi detectado (TaxiOut o TaxiIn) | `SINGLE ENGINE TAXI  +5 PTS` | Success — disparado desde `CheckProcedureAtPhaseEntry(TakeoffRoll)` o desde el bloque OnBlock en `TaxiIn` (v0.5.2) |
-
-### Integración en MainForm
-
-```csharp
-_viewModel.OnOsdMessage += (text, severity) =>
-    _osd.ShowMessage(text, severity, AppConfig.OsdDurationMs);
-```
-
-MENU button (antes del botón START) → submenú "Test OSD" con 4 opciones (Info/Success/Warning/Critical).
+| Unstabilized | `UNSTABILIZED  −N PTS` | Critical |
+| Single engine taxi | `SINGLE ENGINE TAXI  +5 PTS` | Success |
+| Airspace Prohibited/Restricted/Danger | `AIRSPACE  {TYPE}  {ICAO}` | Critical |
+| Airspace CTR/TMA/RMZ entrada | `{TYPE}  {ICAO}  {freq} MHz` | Info |
 
 ---
 
-## Flujo completo del scoring (touchdown zone + centreline)
+## Landing Analysis
 
+SQLite `landing_log.sqlite`. Tablas: `flights` (1/vuelo) + `approach_track` (puntos 2 s, AGL<3000 ft).
+
+**Orden crítico en SendPirep:**
 ```
-FSUIPC → TouchdownDetected(lat, lon, heading)
-    → MainViewModel.LookupRunwayData()  [Task.Run]
-    → NavDataService.FindTouchdownRunway()
-    → FlightManager.SetRunwayTouchdownData(distFt, clFt, rwyName)
-FilePirep() → ScoringService.Calculate(FlightScoreData)
-    → TDZ y CL activos si dist/cl > 0
-→ ApiService.FilePirep() → phpVMS
-→ LandingLogService.SaveFlight()
+SnapshotLandingRecord()   ← ANTES de await FilePirep — captura plan + touchdown
+await FilePirep()         ← llama ResetFlightState() → _activePlan=null, touchdown data=0
+éxito → record.Score = LastFlightScore  ← única propiedad que NO se resetea
+      → LandingLogService.SaveFlight(record, _approachBuffer)
 ```
+
+`LandingAnalysisForm`: 4 gráficos VERTICAL/LATERAL/IAS/VS, eje X 5NM→0. Suavizado Gaussiano (window=7) en LATERAL/IAS/VS, no en VERTICAL.
 
 ---
 
-## Referencias de líneas clave
+## ILS / Approach Detection — v0.4.4
 
-| Archivo | Línea aprox. | Contenido |
-|---|---|---|
-| `Services/NavDataService.cs` | — | `ProjectOnRunway()` con `WithinFootprint` para desambiguar pistas paralelas (v0.4.18); `TrueRunwayBearing()` — bearing geográfico verdadero desde coords threshold→end, usado en `WithinFootprint` y proyección final de touchdown (v0.5.7); `FindTaxiwaySegmentBearing()` — bearing del segmento más cercano de una calle dada (v0.5.8) |
-| `Services/NavDataService.cs` | — | `NextIntersection()` — próxima intersección de calle de rodaje adelante (v0.4.18) |
-| `Services/NavDataClient.cs` | — | HTTP client estático con caché ICAO en memoria + `NavDataCache` SQLite persistente; 6 endpoints por aeropuerto; `TestApiAsync` llama `NavDataCache.SyncAirac()` (v0.4.19/v0.6.1); `CheckAnnouncementAsync`, `FetchBytesAsync` (v0.5.9); `GetAirportWaypoints(icao, radiusNm)` (v0.6.1) |
-| `Services/NavDataCache.cs` | — | Caché SQLite persistente para datos estáticos NavData; tablas `meta`/`airport_entries`/`navaid_entries`; invalidación por ciclo AIRAC (v0.6.1) |
-| `Services/CabinAnnouncementService.cs` | — | Prefetch, cola FIFO y reproducción de anuncios de cabina; NAudio para MP3; `TestAnnouncementAsync` para Settings (v0.5.9) |
-| `Models/NavData.cs` | — | DTOs de la API NavData (NavRunway, NavTaxiway, NavApproach, NavAirportInfo, NavAirportWaypoint, etc.) (v0.4.18/19); `BriefingCheckResult` (v0.5.9) |
-| `Models/Pilot.cs` | — | `AirlineCountry` (ISO-2, para idioma de anuncios) · `AircraftSeats` (total_seats de subfleet, para supresión en aviones pequeños) (v0.5.9) |
-| `Models/SimbriefPlan.cs` | — | `BlockFuel`, `TripFuel`; `OriginRunway`, `DestinationRunway`, `SidName`, `StarName`, `Alternate` (v0.6.1) |
-| `Models/SimbriefWaypoint.cs` | — | `IsSidStar` — `true` si `is_sid_star == "1"` en el navlog de SimBrief; distingue fixes reales de SID/STAR de waypoints de subida/bajada sin procedimiento (v0.6.1) |
-| `Services/ScoringService.cs` | ~213 | Touchdown Zone + Centreline deductions |
-| `Services/ScoringService.cs` | ~247 | Localizer Alignment + Minimums Compliance deductions (v0.4.4) |
-| `Models/FlightScoreData.cs` | ~85 | `TouchdownDistanceFt`, `CenterlineDeviationFt`, `RunwayName` |
-| `Models/FlightScoreData.cs` | ~125 | `SingleEngineTaxi` (v0.5.2) — bool; `true` → ScoringService aplica +5 pts bonus |
-| `Core/Flight/FlightManager.cs` | ~61 | Variables privadas touchdown |
-| `Core/Flight/FlightManager.cs` | ~83 | `_originTransitionAltFt`, `_destTransitionLevelFt`, `_taOsdSent`, `_tlOsdSent`, `_originQnhChecked`, `_destQnhChecked` (v0.4.19) |
-| `Core/Flight/FlightManager.cs` | ~86 | `_singleEngineTaxiDetected`, `_bothEnginesRunning`, `_taxiOut/InMovingCycles`, `_taxiOut/InSingleEngineCycles`, `SingleEngineTaxiMinRatio = 0.5` (v0.5.2) |
-| `Core/Flight/FlightManager.cs` | ~59 | `_fuelAtTakeoffRoll`, `_fuelAtTaxiInStart` — snapshots de combustible para log de consumo por fase (v0.5.2) |
-| `Core/Flight/FlightManager.cs` | ~355 | `TransitionTo()` — registra en log el nombre de la nueva fase via `OnLog` (excepto Idle) (v0.5.5) |
-| `Core/Flight/FlightManager.cs` | ~79 | `_passing10kFtSent` — flag OSD callout 10 000 ft AGL en climb (v0.5.5) |
-| `Core/Flight/FlightManager.cs` | ~672 | `CheckViolations()` — bloques TA OSD, STD pressure check, TL OSD, QNH destino, 10 000 ft callout (v0.4.19/v0.5.5) |
-| `Core/Flight/FlightManager.cs` | ~448 | `CheckStdPressure()` — compara altímetro vs 1013.25, penaliza si Δ>2 hPa (v0.4.19) |
-| `Core/Flight/FlightManager.cs` | ~852 | `SetRunwayTouchdownData()` |
-| `Core/Flight/FlightManager.cs` | ~870 | `SetApproachData()` — carga ILS/approach/fixes para scoring (v0.4.4) |
-| `Core/Flight/FlightManager.cs` | ~870 | `SetOriginTransitionAlt()`, `SetDestTransitionLevel()` — inyectados desde LogNavDataPrefetch (v0.4.19) |
-| `Core/Flight/FlightManager.cs` | ~705 | `CheckApproachBelowGate()` — localizer alignment + DA check (v0.4.4) |
-| `Core/Flight/FlightManager.cs` | ~580 | `CheckViolations()` beacon exemption: `BeaconStrobeSharedAircraft` (DH8D) |
-| `Core/Flight/FlightManager.cs` | ~1022 | Touchdown detection con guardia de fase: solo Descent/Approach/Landing (evita falsos touchdowns en Takeoff/Climb) |
-| `ViewModels/MainViewModel.cs` | 535-560 | `LookupRunwayData()` post-touchdown |
-| `ViewModels/MainViewModel.cs` | 620-637 | `LookupTakeoffRunwayData()` |
-| `ViewModels/MainViewModel.cs` | — | `LogNavDataPrefetch(icao, isOrigin)` — prefetch + diagnóstico + inyección TA/TL en FlightManager (v0.4.19) |
-| `ViewModels/MainViewModel.cs` | ~562 | `HandleTaxiPositionUpdate()` — criterio **angular** (>25°) para cambio de taxiway (v0.5.8); debounce 2 ciclos para entrada/backtrack de pista (v0.5.5); pasa `heading` a `FindNearestTaxiway` (v0.4.17) |
-| `UI/Forms/MapForm.cs` | — | Ventana no-modal GMap.NET: marcador `AircraftMarker` amarillo girado por heading, modo FOLLOW, proveedores OSM/ESRI/Carto Dark, barra de estado lat/lon/HDG/Z (v0.5.8). `LoadRoute(waypoints, originIcao, originRunway, destIcao, destRunway, altIcao, sidName, starName)` — dibuja ruta suavizada con fly-by/fly-over (v0.5.8), proyecciones virtuales sin SID (`ComputeDepartureArc` + ext3nm/waypoint 2-5 NM) y sin STAR (`thr-5nm` + `FindArrivalRunway`), waypoint alineado a ~10 NM para STAR desalineada o sin STAR (v0.6.1), waypoints ambient origen (≤20 NM) y destino solo con zoom ≥ 10, anillos 5/10 NM al umbral, línea punteada al alterno, icono logo.png, redimensionado por bordes (Padding=6 + WM_NCHITTEST) (v0.6.1) |
-| `UI/Forms/MapForm.cs` | — | **Sidebar de procedimientos** (v0.6.5): `BuildSidebar()` — panel 230 px DockStyle.Left con botón toggle `◀`/`▶`; sección ORIGIN (runway, SID, trans) y DESTINATION (runway, STAR, trans, approach). `PopulateSidebar(orgRwys, dstRwys, sids, stars, approaches, ils, orgInfo, dstInfo)` — rellena combos desde caché NavData al final del Task.Run de `LoadRoute`. `OnOriginRunwayChanged`/`OnDestRunwayChanged` — validan compatibilidad SID/STAR con `EcamDialog.Show`; approach siempre se borra al cambiar pista destino. `RedrawRoute()` — dispara `OnProcedureChanged` y llama `LoadRoute` con estado actual del sidebar. `DrawApproachOverlay(app, rwy, ils)` — dibuja legs, extended centerline ±5 NM y missed approach en `_approachOverlay` (capa independiente entre waypoints y aircraft). `SetMetarData(orgDir, orgSpd, dstDir, dstSpd)` — actualiza chips de viento HW/TW+XW en tiempo real. Transiciones: `NavProcedure.Name` con punto `"MGN3C.MGN"` → base=`"MGN3C"`, trans=`"MGN"`; sin punto → solo `"Direct"`. |
-| `Services/NavDataCache.cs` | — | Caché SQLite persistente (`NavData_cache.sqlite`, junto al exe) para datos estáticos de NavData. Tablas: `meta`, `airport_entries` (icao+data_type PK; data_type ∈ block/sids/stars/ils/waypoints), `navaid_entries`. Invalidación automática por ciclo AIRAC: `SyncAirac(airac, validUntil)` purga entradas del ciclo anterior; `Initialize()` auto-purga al arrancar si `airac_valid_until` expiró. Integrado en `NavDataClient` — check caché antes de cada petición HTTP, store tras fetch. ~96% menos peticiones por sesión (v0.6.1) |
-| `ViewModels/MainViewModel.cs` | ~177 | `_pendingTaxiway`, `_pendingTaxiwayCount` — histéresis de taxiway (v0.4.17); `_pendingRunwayOnCount` — debounce de entrada a pista (v0.5.5); `TaxiwayChangeHeadingThreshold = 25.0` — umbral angular para criterio de cambio de calle (v0.5.8) |
-| `ViewModels/MainViewModel.cs` | — | `OnMapPositionUpdate` event (`Action<double, double, double>`) — dispara lat/lon/heading cada 5 ciclos de `RawDataUpdated` (~250 ms, independiente de la tasa de telemetría adaptativa); `_mapUpdateCounter` en `OnRawDataUpdated` (v0.5.8) |
-| `Services/LocalizationService.cs` | ~20 | Respeta idioma configurado en `App.config` (v0.4.19); antes forzaba `"es"` |
-| `ViewModels/MainViewModel.cs` | ~210 | Approach capture start log: `Lnm_ApproachCaptureStart` (pista, AGL, distancia) |
-| `Services/MetarService.cs` | ~57 | `DoFetchAsync` refactorizado v0.4.10: wrappers `SafeFetch*` independientes, `OnMetarUpdated` en finally, evento `OnLog`, `ParseMetarToken` en try/catch |
-| `Services/WeatherService.cs` | | QNH-only (usado por scoring) — independiente de MetarService (panel de METARs) |
-| `UI/Forms/MainForm.cs` | ~2013 | `UpdateMetarPanel` usa `BeginInvoke(..., new object[] {metars})` — evita covarianza de arrays en `params object[]` (v0.4.10) |
-| `UI/Forms/MainForm.cs` | ~2031 | `UpdateMetarPanelState` usa `BeginInvoke` no-bloqueante (v0.4.10) |
-| `ViewModels/MainViewModel.cs` | ~1101 | `SendPirep()` → llama `SnapshotLandingRecord()` antes de `FilePirep()` |
-| `ViewModels/MainViewModel.cs` | ~1120 | `SnapshotLandingRecord()` — captura plan+touchdown antes del reset |
-| `ViewModels/MainViewModel.cs` | ~1138 | `SaveLandingRecord(FlightRecord)` — añade Score y persiste a SQLite |
-| `UI/Forms/MainForm.cs` | ~1018 | Construcción del panel FMA |
-| `UI/Forms/MainForm.cs` | ~1490 | Update loop FMA plan lines |
-| `UI/Forms/MainForm.cs` | — | Botón LOGBOOK (9.º botón) · Botón MENU (10.º) · Botón START (11.º) · Botón minimizar `─` en header (v0.5.5) |
-| `UI/Forms/MainForm.cs` | — | `OnOsdMessage` handler → `OsdAudio.Play()` + `_osd.ShowMessage()` |
-| `UI/Forms/OsdOverlayForm.cs` | — | OSD overlay completo (v0.4.6) |
-| `Helpers/OsdAudio.cs` | — | Chimes de cabina por severidad; 4 EmbeddedResource WAV (v0.5.4) |
-| `Helpers/SystemInfoHelper.cs` | — | `Initialize()` — OS/RAM/GPU al arrancar; `SetSimVersion(name)` — sim+versión al conectar; `GetPrefileNotes()` — bloque texto para campo `notes` del prefile; rango-primario GPU (NVIDIA Optimus safe); P/Invoke RAM; FileVersionInfo sim (v0.6.2) |
-| `ViewModels/MainViewModel.cs` | ~1448 | `StartFlight()` → al iniciar vuelo envía `AcarsPositionUpdate` con 4 entradas `log` (OsSummary, GpuSummary, SimSummary, AircraftType/Developer) a la tabla ACARS de phpVMS (v0.6.2) |
-| `vmsOpenAcars.csproj` | línea 15 | `<GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>` junto a `AutoGenerateBindingRedirects` — impide que el auto-generador de MSBuild sobreescriba el binding redirect manual de SQLite en el exe.config de salida (v0.6.3) |
-| `App.config` | runtime/assemblyBinding | Binding redirect `System.Data.SQLite 0.0.0.0-1.0.119.0 → 1.0.119.0` — cubre versiones anteriores en GAC de equipos con software corporativo/VS/SQL Server Tools instalado (v0.6.3) |
-| `Services/UIService.cs` | ~143 | `SetPhaseText()` |
-| `Services/UIService.cs` | ~186 | `SetAirStatus()` |
-| `UI/Forms/SettingsForm.cs` | — | Sección Landing Log con OpenFileDialog (CheckFileExists=false) |
-| `UI/Forms/SettingsForm.cs` | — | Sección OSD: checkBox + numericUpDown duration/opacity/screen |
-| `UI/Forms/SettingsForm.cs` | — | Sección Cabin Announcements: `chkCabinAnnouncements` (toggle live) + `btnTestCabin` (menú 7 fases) + `trkCabinVolume` (0–100, live) + `lblCabinStatus`; `TestCabinAnnouncementCallback` + `CabinVolumeChangedCallback` inyectados desde MainForm (v0.5.9/0.5.10) |
-| `ViewModels/MainViewModel.cs` | — | `_cabinAnnouncements`, `_cabinCruiseSent`, `_cabinOnRunwaySent`, `_cabinCruiseCheckStart`, `_lastGroundSpeedKt`; `TestCabinAnnouncementAsync(phase)` + `SetCabinVolume(volume)` públicos (v0.5.9/0.5.10) |
-| `ViewModels/MainViewModel.cs` | — | `OnOsdMessage` event (`Action<string, OsdSeverity>`) |
-| `ViewModels/MainViewModel.cs` | — | `SetActivePlan()` → `OnButtonStateChanged("START", enabled=true)` (v0.4.6) |
-| `ViewModels/MainViewModel.cs` | — | `UpdateProcedureOverrides(originRwy, sidName, destRwy, starName)` — actualiza `OriginRunway`/`SidName`/`DestinationRunway`/`StarName` del plan activo; llamado desde `MainForm` vía `OnProcedureChanged` del sidebar del mapa (v0.6.5) |
-| `ViewModels/MainViewModel.cs` | — | `BuildCheckpointLog()` → formato compacto `SC:ov=N,lt=N,sa=N,qnh=N,it=N,od=N,spd=N,lz=N,bm=N,ts=<unix>`; `SendScoringCheckpointAsync()` → envía `AcarsPosition { status="CHK" }` cada 60 s mientras vuelo activo; `_lastCheckpointSent` + `CheckpointIntervalSeconds=60`; se resetea en los 3 exit paths (v0.6.4) |
-| `ViewModels/MainViewModel.cs` | — | `ResumeFromAcarsHistoryAsync(pirepId)` → `GET /api/pireps/{id}/acars`; muestra últimos 20 registros no-CHK en log; parsea último CHK → `TryRestoreScoringCheckpoint()`; `ResumeFromSimbriefAsync(pirep)` → recarga OFP si origen/destino coincide; `CheckAndResumeFlight` sin límite de tiempo (v0.6.4) |
-| `Core/Flight/FlightManager.cs` | — | Propiedades `OverspeedCount`, `LightsViolationCount`, `StabilizedApproachDeductions`, `QnhViolationCount`, `IsOfflineFlight`, `DepartedLate`, `ProcedureSpdViolations`, `LocalizerViolations`, `BelowMinimums` (solo lectura) + `SetResumedPenalties()` — restaura todos los contadores al retomar vuelo (v0.6.4) |
-| `Services/ApiService.cs` | — | `GetPirepAcarsAsync(pirepId)` → `GET /api/pireps/{id}/acars`; retorna `List<AcarsPosition>`; parse `data[]` del JSON (v0.6.4) |
+Carga al entrar en fase Approach → `Task.Run(LoadApproachData)` → `FlightManager.SetApproachData(ils, approach, fixes)`.
+
+A 1000 ft AGL: compara `Nav1FrequencyMhz` vs `_expectedIls.FrequencyMhz` (±0.05 MHz).
+- Coincide → ILS confirmado, scoring normal.
+- No coincide → anula ILS, omite Localizer + Minimums sin penalizar (`Log_IlsApproachSkipped`).
+
+Bajo 500 ft AGL: `_localizerViolations++` si |hdgDelta|>5° (cap 2). Check DA para `_belowMinimums`.
+
+FsuipcService offsets: `0x0350 INT16` NAV1 freq BCD (`100+d3×10+d2+d1×0.1+d0×0.01`), `0x0C4E INT16` NAV1 OBS.
 
 ---
 
-## Detección de fases — umbrales clave
+## Detección de fases — umbrales
 
 | Transición | Condición | Debounce |
 |---|---|---|
-| Climb → Enroute | VS < 200 fpm + cerca de crucero, o timeout 5 min + VS < 100 fpm | 10 s |
-| Climb → Descent | VS < −500 fpm **y** alt < máx−500 ft | 20 s |
-| Enroute → Climb (step) | VS > 500 fpm + alt < crucero−500 ft | 10 s |
-| Enroute → Descent | VS < −500 fpm **y** alt < máx−500 ft | 20 s |
-| Descent → Approach | dist < 10% totalDist o AGL < aglThreshold | inmediato |
-| Descent → Climb | VS > 500 fpm (sin estar en zona approach) | 20 s |
-| Approach → Go-around | VS > 600 fpm + AGL 100–3000 ft + ≥30 s en Approach | 10 s |
+| Climb → Enroute | VS<200 fpm + cerca crucero, o timeout 5 min + VS<100 fpm | 10 s |
+| Climb/Enroute → Descent | VS<−500 fpm **y** alt<máx−500 ft | 20 s |
+| Enroute → Climb step | VS>500 fpm + alt<crucero−500 ft | 10 s |
+| Descent → Approach | dist<10% totalDist o AGL<aglThreshold | inmediato |
+| Approach → Go-around | VS>600 fpm + AGL 100–3000 ft + ≥30 s en Approach | 10 s |
 
-Los umbrales elevados (−500 fpm, 20 s) evitan que cambios de QNH o turbulencia suave (~100 fpm) disparen falsas transiciones.
+Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia leve (~100 fpm).
 
-## Próximas áreas de desarrollo (sin prioridad definida)
+---
 
-- **Touch-and-go real** — el guard de 5 s filtra rebotes, pero un T&G real reinicia el estado ILS/approach. Verificar que scoring y approach buffer se resetean correctamente para el segundo aterrizaje.
-- **MetarRaw en logbook** — `FlightRecord.MetarRaw` existe en el esquema pero no se popula en `SnapshotLandingRecord()`; el METAR de destino podría obtenerse de `MetarService` en ese momento.
-- **ILS - aeropuertos sin ILS en NavData** — si la API no devuelve ILS para una pista concreta, `ApproachInfo` será null aunque la pista tenga ILS físico. El scoring de Localizer Alignment y Minimums no se evaluará en esos casos.
-- **DA calculada** — actualmente DA = threshold elevation + 200 ft (constante conservadora). Podría calcularse dinámicamente desde el `approach_leg` runway threshold fix cuando esté disponible en la API.
-- **TA/TL null en NavData** — la API devuelve `transition_altitude_ft` y `transition_level_ft` como `null` cuando el aeropuerto no tiene ese dato. Ambos campos son `double?` en `NavAirportInfo`; la guarda `info?.TransitionAltitudeFt > 0` evalúa a `false` cuando es null, así que los OSD de TA/TL y el check de STD pressure simplemente no se activan. Podría añadirse un fallback basado en valores regionales estándar.
-- **Mapa: arcos DME/RF desde procedimientos** — `InterpolateArcLegs` ya interpola legs AF/RF de SID y STAR en `allPts`. Si hay legs `AF`/`RF` con `center_lat`/`center_lon` definidos, los arcos circulares se insertan directamente en la polilínea antes de `BuildSmoothedRoutes`. Verificar con procedimientos que usan múltiples arcos encadenados.
-- **NavData caché: purga selectiva por aeropuerto** — actualmente `SyncAirac` borra todas las entradas del ciclo anterior en bloque. Podría añadirse `PurgeAirport(icao)` para invalidar un aeropuerto puntualmente (útil si la API actualiza datos de ciclo sin cambiar el número AIRAC).
+## Referencias de archivos clave
+
+| Archivo | Contenido relevante |
+|---|---|
+| `Core/Flight/FlightManager.cs` | `CheckStabilizedApproachGate` / `CheckApproachBelowGate`; `CheckViolations` (TA/TL/QNH/10k ft); `SetRunwayTouchdownData`; `SetApproachData`; `SetOriginTransitionAlt/SetDestTransitionLevel`; `TransitionTo` (log fase); `SetResumedPenalties` (resume v0.6.4); `BeaconStrobeSharedAircraft` (DH8D beacon exemption) |
+| `Services/NavDataService.cs` | `ProjectOnRunway` + `WithinFootprint`; `TrueRunwayBearing`; `FindTaxiwaySegmentBearing`; `NextIntersection` |
+| `Services/NavDataClient.cs` | `LoadAirportAsync` (6 endpoints paralelos); `GetAirspacesAsync` (sin radius_nm, caché 2 capas); `GetWeatherAsync` (TTL 5 min) |
+| `Services/NavDataCache.cs` | `CreateSchema` (3 tablas); `TryGetAirspace/StoreAirspace` (TTL 7 días); `SyncAirac` (purga airport+navaid, no airspaces) |
+| `Services/AirspaceMonitorService.cs` | `InitRouteAsync`; `CheckPosition` (ray-casting GeoJSON); `PollIvaoAsync` (whazzup); timer 3 min |
+| `Services/CabinAnnouncementService.cs` | `PrefetchAsync`; cola FIFO; NAudio playback; `TestAnnouncementAsync` |
+| `Models/NavData.cs` | `NavAirspace`, `NavAirspaceGeometry` (GeoJSON [lon,lat]), `NavAirspaceFreq`; `BriefingCheckResult` |
+| `ViewModels/MainViewModel.cs` | `WireAirspaceMonitor`; `StartFlight` (batch ACARS 5 entradas + airspace init); `HandleTaxiPositionUpdate` (criterio angular 25°); `SnapshotLandingRecord` → `SaveLandingRecord`; `SendScoringCheckpointAsync` (CHK 60 s, v0.6.4); `ResumeFromAcarsHistoryAsync` (v0.6.4) |
+| `UI/Forms/MapForm.cs` | `LoadRoute` (ruta suavizada, SID/STAR virtual); `BuildSidebar` (procedimientos, v0.6.5); `DrawApproachOverlay`; `SetAirspaces` (polígonos GeoJSON, v0.6.6) |
+| `Helpers/SystemInfoHelper.cs` | `GetBestGpu` (DXGI fallback, rango 0–3); `GetCpuString` (registro + ProcessorCount) |
+| `Services/ScoringService.cs` | TDZ + Centreline ~213; Localizer + Minimums ~247 |
+| `vmsOpenAcars.csproj` | `GenerateBindingRedirectsOutputType=true` — impide sobreescribir binding redirect manual de SQLite |
+
+---
+
+## Próximas áreas
+
+- **Touch-and-go real** — scoring y approach buffer deben resetearse para el segundo aterrizaje.
+- **MetarRaw en logbook** — `FlightRecord.MetarRaw` existe pero no se popula en `SnapshotLandingRecord`.
+- **DA calculada** — actualmente threshold elevation + 200 ft; podría calcularse desde `approach_leg`.
+- **TA/TL fallback regional** — cuando NavData devuelve `null`, sin OSD ni check STD.
+- **Panel ATC/ATIS** — `IvaoAtcStation` se loguea pero no tiene UI dedicada (panel o tooltip).

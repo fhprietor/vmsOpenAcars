@@ -199,7 +199,7 @@ namespace vmsOpenAcars.Services
             using (var output = new WaveOutEvent())
             using (var done   = new ManualResetEventSlim(false))
             {
-                reader.Volume  = Math.Max(0f, Math.Min(1f,
+                reader.Volume  = Math.Max(0f, Math.Min(2.0f,
                     AppConfig.CabinAnnouncementsVolume / 100f));
                 _currentReader = reader;
                 _currentOutput = output;
@@ -217,7 +217,7 @@ namespace vmsOpenAcars.Services
             AppConfig.CabinAnnouncementsVolume = volume;
             var reader = _currentReader;
             if (reader != null)
-                reader.Volume = Math.Max(0f, Math.Min(1f, volume / 100f));
+                reader.Volume = Math.Max(0f, Math.Min(2.0f, volume / 100f));
         }
 
         private static string DetectFormat(string filePath)

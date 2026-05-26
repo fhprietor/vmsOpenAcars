@@ -315,7 +315,7 @@
   "Log_ErrorFlightProgress":  "❌ Error actualizando progreso: {0}",
   "Log_NavDataApiDown":       "⚠️ NavData API: no disponible ({0})",
   "Log_NavDataApiNoKey":      "⚠️ NavData API: API key inválida — scoring de pista desactivado",
-  "Log_NavDataApiOk":         "🗺️ NavData API: {0}  AIRAC {1} — activo",
+  "Log_NavDataApiOk":         "🗺️ NavData API: AIRAC {1} — activo",
   "Log_NavDataPrefetchOk":    "🗺️ NavData {0}: {1} pistas, {2} calles, {3} gates, {4} aprox",
   "Log_NavDataPrefetchEmpty": "⚠️ NavData {0}: sin datos — aeropuerto no disponible en la API",
   "Log_NavDataAiracExpired":  "⚠️ NavData AIRAC {0} expirado el {1} — actualiza el ciclo en los ajustes de NavData",

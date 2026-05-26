@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
+using vmsOpenAcars.Core.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.UI;
@@ -77,7 +78,8 @@ namespace vmsOpenAcars.ViewModels
         public event Action OnFlightEnded;
         public event Action<MetarData[]>     OnMetarUpdated;
         public event Action<MetarFetchState> OnMetarStateChanged;
-        public event Action<string, OsdSeverity> OnOsdMessage;
+        public event Action<string, OsdSeverity>    OnOsdMessage;
+        internal event Action<IList<NavAirspace>>   OnAirspacesReady;
 
         public MainViewModel(
             FlightManager flightManager,
@@ -93,6 +95,44 @@ namespace vmsOpenAcars.ViewModels
             _simbriefEnhancedService = simbriefEnhancedService;
 
             SubscribeToEvents();
+            WireAirspaceMonitor();
+        }
+
+        private void WireAirspaceMonitor()
+        {
+            _airspaceMonitor.OnAirspaceAlert += a =>
+            {
+                string icao = a.ExtractIcao() ?? a.Name;
+                OnLog?.Invoke($"⚠️ AIRSPACE  {a.Type.ToUpper()}  {icao}", Theme.Warning);
+                OnOsdMessage?.Invoke($"AIRSPACE  {a.Type.ToUpper()}  {icao}", OsdSeverity.Critical);
+            };
+
+            _airspaceMonitor.OnAirspaceEntered += (a, freq) =>
+            {
+                string icao    = a.ExtractIcao() ?? a.Name;
+                string freqStr = freq != null ? $"  {freq.Mhz} MHz" : string.Empty;
+                OnLog?.Invoke($"📡 {a.Type}  {icao}{freqStr}", Theme.MainText);
+                OnOsdMessage?.Invoke($"{a.Type}  {icao}{freqStr}", OsdSeverity.Info);
+            };
+
+            _airspaceMonitor.OnAirspaceExited += a =>
+            {
+                string icao = a.ExtractIcao() ?? a.Name;
+                OnLog?.Invoke($"📡 {a.Type}  {icao}  —  left", Theme.SecondaryText);
+            };
+
+            _airspaceMonitor.OnAtcUpdated += stations =>
+            {
+                if (stations.Count == 0) return;
+                foreach (var s in stations.OrderBy(x => x.Icao).ThenBy(x => x.Position))
+                {
+                    string freq = s.Frequency > 0 ? $"  {s.Frequency:F3}" : string.Empty;
+                    if (s.Position == "ATIS" && s.AtisLines.Count > 0)
+                        OnLog?.Invoke($"📻 {s.Callsign}{freq}  —  {s.AtisLines[0]}", Theme.SecondaryText);
+                    else
+                        OnLog?.Invoke($"📻 {s.Callsign}{freq}", Theme.SecondaryText);
+                }
+            };
         }
 
         private void SubscribeToEvents()
@@ -188,11 +228,13 @@ namespace vmsOpenAcars.ViewModels
         private string _lastUiPhase = string.Empty;
         private string _lastUiPosition = string.Empty;
         private FlightPhase _prevPhase = FlightPhase.Idle;
-        private readonly CabinAnnouncementService _cabinAnnouncements = new CabinAnnouncementService();
+        private readonly CabinAnnouncementService  _cabinAnnouncements  = new CabinAnnouncementService();
+        private readonly AirspaceMonitorService    _airspaceMonitor     = new AirspaceMonitorService();
         private bool     _cabinCruiseSent;
         private bool     _cabinOnRunwaySent;
-        private DateTime _cabinCruiseCheckStart = DateTime.MinValue;
+        private DateTime _cabinCruiseCheckStart   = DateTime.MinValue;
         private double   _lastGroundSpeedKt;
+        private DateTime _lastAirspaceCheckUtc    = DateTime.MinValue;
         private DateTime _lastCheckpointSent = DateTime.MinValue;
         private const    int CheckpointIntervalSeconds = 60;
         private bool   _wasOnRunwayForEntry  = false;
@@ -240,6 +282,14 @@ namespace vmsOpenAcars.ViewModels
             {
                 _mapUpdateCounter = 0;
                 OnMapPositionUpdate?.Invoke(e.Latitude, e.Longitude, e.HeadingDeg);
+            }
+
+            // Airspace position check — throttled to every 30 s, active flight only
+            if (_flightManager?.CurrentPhase != FlightPhase.Idle &&
+                (DateTime.UtcNow - _lastAirspaceCheckUtc).TotalSeconds >= 30)
+            {
+                _lastAirspaceCheckUtc = DateTime.UtcNow;
+                _airspaceMonitor.CheckPosition(e.Latitude, e.Longitude, e.AltitudeFeet);
             }
 
             // Cabin announcements — GS tracking + cruise 30 s sustained check
@@ -437,10 +487,12 @@ namespace vmsOpenAcars.ViewModels
                 case FlightPhase.Descent:
                     OnOsdMessage?.Invoke("DESCENDING", OsdSeverity.Info);
                     _cabinAnnouncements.QueueAnnouncement("top_of_descent");
+                    _airspaceMonitor.TriggerIvaoRefresh();
                     break;
                 case FlightPhase.Approach:
                     OnOsdMessage?.Invoke("APPROACH", OsdSeverity.Info);
                     _cabinAnnouncements.QueueAnnouncement("approach");
+                    _airspaceMonitor.TriggerIvaoRefresh();
                     break;
                 case FlightPhase.TaxiIn:
                     _cabinAnnouncements.QueueAnnouncement("taxi_in");
@@ -1475,15 +1527,16 @@ namespace vmsOpenAcars.ViewModels
                     double sLat = _flightManager.CurrentLat;
                     double sLon = _flightManager.CurrentLon;
                     int    sHdg = (int)_fsuipc.CurrentHeading;
-                    string acLogEntry = string.IsNullOrEmpty(acDev) ? acType : $"{acType} / {acDev}";
                     var logPositions = new System.Collections.Generic.List<AcarsPosition>();
-                    if (!string.IsNullOrEmpty(SystemInfoHelper.OsSummary))
-                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.OsSummary,  status = "ground", source = "vmsOpenAcars" });
+                    logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = $"vmsOpenAcars v{AppInfo.Version}", status = "ground", source = "vmsOpenAcars" });
+                    if (!string.IsNullOrEmpty(SystemInfoHelper.CpuSummary))
+                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.CpuSummary, status = "ground", source = "vmsOpenAcars" });
                     if (!string.IsNullOrEmpty(SystemInfoHelper.GpuSummary))
                         logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.GpuSummary, status = "ground", source = "vmsOpenAcars" });
-                    if (!string.IsNullOrEmpty(SystemInfoHelper.SimSummary))
-                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.SimSummary, status = "ground", source = "vmsOpenAcars" });
-                    logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = acLogEntry, status = "ground", source = "vmsOpenAcars" });
+                    if (!string.IsNullOrEmpty(SystemInfoHelper.OsSummary))
+                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.OsSummary,  status = "ground", source = "vmsOpenAcars" });
+                    if (NavDataClient.IsReachable && !string.IsNullOrEmpty(NavDataClient.AiracCycle))
+                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = $"NavData API: AIRAC {NavDataClient.AiracCycle}", status = "ground", source = "vmsOpenAcars" });
                     var startupUpdate = new AcarsPositionUpdate { positions = logPositions.ToArray() };
                     Task.Run(async () => await _apiService.SendPositionUpdate(_startPirepId, startupUpdate));
                 }
@@ -1501,6 +1554,7 @@ namespace vmsOpenAcars.ViewModels
                 _cabinOnRunwaySent     = false;
                 _cabinCruiseCheckStart = DateTime.MinValue;
                 _lastCheckpointSent    = DateTime.MinValue;
+                _lastAirspaceCheckUtc  = DateTime.MinValue;
                 _procFixIdx            = 0;
                 _procSpdViolations     = 0;
                 _procFixAnnounced      = false;
@@ -1509,6 +1563,17 @@ namespace vmsOpenAcars.ViewModels
                     plan.Destination,
                     _flightManager.ActivePilot?.AirlineCountry ?? "",
                     _flightManager.ActivePilot?.AircraftSeats  ?? 0));
+                string _orig = plan.Origin, _dest = plan.Destination;
+                Task.Run(async () =>
+                {
+                    await _airspaceMonitor.InitRouteAsync(_orig, _dest);
+                    var airspaces = _airspaceMonitor.GetAirspaces();
+                    if (airspaces.Count > 0)
+                    {
+                        OnLog?.Invoke($"🗺️ {airspaces.Count} airspaces loaded for route", Theme.SecondaryText);
+                        OnAirspacesReady?.Invoke(airspaces);
+                    }
+                });
             }
         }
 
@@ -1525,6 +1590,7 @@ namespace vmsOpenAcars.ViewModels
             {
                 OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), false);
                 _cabinAnnouncements.Reset();
+                _airspaceMonitor.Reset();
                 _cabinCruiseSent       = false;
                 _cabinOnRunwaySent     = false;
                 _cabinCruiseCheckStart = DateTime.MinValue;
@@ -1549,6 +1615,7 @@ namespace vmsOpenAcars.ViewModels
             {
                 OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), false);
                 _cabinAnnouncements.Reset();
+                _airspaceMonitor.Reset();
                 _cabinCruiseSent       = false;
                 _cabinOnRunwaySent     = false;
                 _cabinCruiseCheckStart = DateTime.MinValue;
@@ -1581,6 +1648,7 @@ namespace vmsOpenAcars.ViewModels
                 _lastTelemetry = null;
                 _lastPositionUpdate = DateTime.MinValue;
                 _cabinAnnouncements.Reset();
+                _airspaceMonitor.Reset();
                 _cabinCruiseSent       = false;
                 _cabinOnRunwaySent     = false;
                 _cabinCruiseCheckStart = DateTime.MinValue;

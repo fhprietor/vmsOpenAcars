@@ -19,6 +19,7 @@ namespace vmsOpenAcars.UI.Forms
     public class MapForm : Form
     {
         private GMapControl    _map;
+        private GMapOverlay    _airspaceOverlay;
         private GMapOverlay    _routeShadowOverlay;
         private GMapOverlay    _routeOverlay;
         private GMapOverlay    _ambientOverlay;
@@ -313,12 +314,14 @@ namespace vmsOpenAcars.UI.Forms
             _map.BackColor   = Color.FromArgb(30, 40, 50);
 
             // Overlays en orden de pintado: sombra → ruta → ambient → fixes → avión (encima de todo)
+            _airspaceOverlay    = new GMapOverlay("airspaces");
             _routeShadowOverlay = new GMapOverlay("route_shadow");
             _routeOverlay       = new GMapOverlay("route");
             _ambientOverlay     = new GMapOverlay("ambient");
             _waypointOverlay    = new GMapOverlay("waypoints");
             _approachOverlay    = new GMapOverlay("approach");
             _aircraftOverlay    = new GMapOverlay("aircraft");
+            _map.Overlays.Add(_airspaceOverlay);
             _map.Overlays.Add(_routeShadowOverlay);
             _map.Overlays.Add(_routeOverlay);
             _map.Overlays.Add(_ambientOverlay);
@@ -2262,6 +2265,48 @@ namespace vmsOpenAcars.UI.Forms
         }
 
         // ── SetMetarData (called from MainForm) ──────────────────────────────────────
+
+        internal void SetAirspaces(IList<NavAirspace> airspaces)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            if (InvokeRequired) { BeginInvoke(new Action(() => SetAirspaces(airspaces))); return; }
+
+            _airspaceOverlay.Polygons.Clear();
+            if (airspaces == null) return;
+
+            foreach (var a in airspaces)
+            {
+                if (a.Geometry?.Coordinates == null || a.Geometry.Coordinates.Count == 0) continue;
+                var ring = a.Geometry.Coordinates[0];
+                if (ring == null || ring.Count < 3) continue;
+
+                // GeoJSON: [lon, lat] → GMap.NET: PointLatLng(lat, lon)
+                var pts = ring.Select(p => new PointLatLng(p[1], p[0])).ToList();
+
+                Color fill, stroke;
+                float strokeW = 1.5f;
+                switch (a.Type)
+                {
+                    case "Prohibited": fill = Color.FromArgb(40, 220, 0,   0);   stroke = Color.FromArgb(190, 200, 0,   0);   break;
+                    case "Restricted": fill = Color.FromArgb(35, 255, 100, 0);   stroke = Color.FromArgb(170, 220, 80,  0);   break;
+                    case "Danger":     fill = Color.FromArgb(35, 220, 190, 0);   stroke = Color.FromArgb(160, 180, 150, 0);   break;
+                    case "CTR":        fill = Color.FromArgb(25, 0,   180, 255); stroke = Color.FromArgb(140, 0,   160, 230); break;
+                    case "TMA":        fill = Color.FromArgb(15, 0,   100, 210); stroke = Color.FromArgb(110, 0,   90,  190); strokeW = 1.0f; break;
+                    case "ATZ":        fill = Color.FromArgb(20, 100, 200, 255); stroke = Color.FromArgb(120, 80,  180, 240); strokeW = 1.0f; break;
+                    case "RMZ":        fill = Color.FromArgb(15, 180, 100, 220); stroke = Color.FromArgb(110, 160, 80,  200); strokeW = 1.0f; break;
+                    default:           fill = Color.FromArgb(10, 150, 150, 150); stroke = Color.FromArgb(80,  120, 120, 120); strokeW = 1.0f; break;
+                }
+
+                var poly = new GMapPolygon(pts, a.Name ?? a.Type)
+                {
+                    Fill   = new SolidBrush(fill),
+                    Stroke = new Pen(stroke, strokeW),
+                };
+                _airspaceOverlay.Polygons.Add(poly);
+            }
+
+            _map.Refresh();
+        }
 
         public void SetMetarData(int? originWindDir, int? originWindSpeedKt,
                                  int? destWindDir,   int? destWindSpeedKt)
