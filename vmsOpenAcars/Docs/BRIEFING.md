@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.6.4**
+**Versión 0.6.7**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -416,14 +416,53 @@ Ve a **Settings → OSD** para ajustar duración, pantalla y opacidad. Usa **MEN
 
 El botón **MAP** abre una ventana no modal con un mapa en tiempo real sincronizado con la posición del simulador. Se actualiza cada ~250 ms independientemente de la fase de vuelo.
 
+> **Novedad v0.6.7:** el mapa muestra los espacios aéreos y las posiciones ATC de IVAO en cuanto se carga un OFP válido, sin necesidad de iniciar el vuelo. Basta con hacer FETCH OFP + ACCEPT y luego abrir MAP.
+
 ### Controles
 
 | Control | Función |
 |---|---|
 | **FOLLOW** (checkbox) | Activa el auto-centrado: el mapa sigue al avión automáticamente. Desactívalo para explorar el mapa libremente con el ratón. |
-| **Dropdown de proveedor** | Cambia la capa de mapa entre las dos opciones disponibles. |
+| **Dropdown de proveedor** | Cambia la capa de mapa entre las opciones disponibles. |
 | **+ / −** | Aumenta o reduce el nivel de zoom. También puedes hacer scroll con la rueda del ratón. |
 | **Arrastrar (botón izq.)** | Desplaza el mapa manualmente (solo activo si FOLLOW está desactivado). |
+
+### Capas (v0.6.7)
+
+Cuatro checkboxes en la barra inferior permiten activar o desactivar capas en tiempo real:
+
+| Capa | Contenido |
+|---|---|
+| **TILES** | Tiles del proveedor de mapa (calles / satélite). Al desactivarla el mapa queda en negro, útil para ver solo la ruta. |
+| **ROUTE** | Ruta, waypoints, SID/STAR, overlay de aproximación y línea al alterno. |
+| **SPACES** | Polígonos de espacios aéreos: Prohibited (rojo), Restricted (naranja), Danger (amarillo), CTR (cyan), TMA (azul), ATZ (azul claro), RMZ (violeta). |
+| **IVAO** | Posiciones ATC de IVAO: formas geográficas TWR/GND/DEL + text-box APP/CTR/DEP. |
+
+### Posiciones ATC de IVAO (v0.6.7)
+
+Las posiciones activas en IVAO se representan como formas geográficas de **20 nm de radio** que escalan con el zoom, al estilo de la WebEye de IVAO:
+
+| Posición | Forma | Color |
+|---|---|---|
+| **TWR** | Círculo de 20 nm | Rojo (borde semitransparente, relleno muy transparente) |
+| **GND** | Estrella 4 puntas N/S/E/W | Amarillo |
+| **DEL** | Estrella 4 puntas NE/SE/SW/NW (45°) | Naranja |
+| **APP / CTR / DEP** | Text-box de texto | Color según tipo |
+
+- Las puntas de la estrella GND/DEL tienen exactamente la misma distancia al ARP que el borde del círculo TWR (20 nm), de modo que cuando TWR y GND coexisten los extremos de la estrella rozan el borde del círculo.
+- El nombre ICAO del aeropuerto aparece centrado en el ARP.
+- Pasa el ratón por el ICAO para ver un tooltip con las posiciones activas, frecuencias y ATIS.
+
+### Marcador de aeronave (v0.6.7)
+
+El avión se dibuja con una **silueta diferente según la categoría**:
+
+| Categoría | Silueta |
+|---|---|
+| Jet (turbofan) | Fuselaje estrecho con alas en flecha |
+| Turboprop | Alas más anchas con motores de hélice |
+| Pistón | Aeronave ligera |
+| Helicóptero / desconocido | Silueta genérica |
 
 ### Proveedores de mapa
 
@@ -431,10 +470,6 @@ El botón **MAP** abre una ventana no modal con un mapa en tiempo real sincroniz
 |---|---|
 | **Street (Carto)** | Mapa de calles limpio y legible, ideal para aeropuertos y navegación en tierra. Sin API key. |
 | **Satellite (ESRI)** | Imágenes satelitales de ESRI World Imagery. Útil para identificar pistas y terminales visualmente. Sin API key. |
-
-### Marcador de aeronave
-
-El avión aparece como una flecha amarilla que apunta en la dirección del heading real, con una sombra para mejor visibilidad sobre fondos claros.
 
 ### Barra de estado
 
@@ -525,4 +560,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.6.1 — que tengas buen vuelo.*
+*vmsOpenAcars v0.6.7 — que tengas buen vuelo.*

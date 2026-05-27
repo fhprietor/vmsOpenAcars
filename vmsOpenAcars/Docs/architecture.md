@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.6.4  
-> Última actualización: 2026-05-24
+> Versión del documento: 0.6.7  
+> Última actualización: 2026-05-26
 
 ---
 
@@ -166,16 +166,18 @@ Servicio de lectura del simulador. Opera en un timer a **50 ms** e interpola los
 
 **Detección de eventos con debounce:**
 
-| Evento | Debounce |
-|---|---|
-| NAV light | 1.5 s |
-| STROBE light | 1.5 s |
-| BEACON light | 1.5 s |
-| LANDING light | 1.5 s |
-| TAXI light | 1.5 s |
-| Parking Brake | 2.0 s |
-| Flaps | 500 ms + histéresis 1% |
-| Touchdown / Liftoff | 2.0 s + umbral GS |
+| Evento | Tipo | Umbral |
+|---|---|---|
+| NAV light | Hold (v0.6.7) | 2.5 s estable |
+| STROBE light | Hold (v0.6.7) | 2.5 s estable |
+| BEACON light | Hold (v0.6.7) | 2.5 s estable |
+| LANDING light | Hold (v0.6.7) | 2.5 s estable |
+| TAXI light | Hold (v0.6.7) | 2.5 s estable |
+| Parking Brake | Cooldown | 2.0 s |
+| Flaps | Cooldown | 500 ms + histéresis 1% |
+| Touchdown / Liftoff | Cooldown | 2.0 s + umbral GS |
+
+> **Hold vs. Cooldown:** el hold debounce exige que el nuevo estado se mantenga estable `N` segundos antes de disparar el evento — cualquier revertido cancela el contador. El cooldown dispara inmediatamente y bloquea repetidos durante `N` segundos. Para las luces se usa hold porque los glitches del sim (~1.6 s) revertían el estado antes de que expirara el cooldown anterior (1.5 s), generando falsos positivos.
 
 **Telemetría adaptativa por fase:**
 
@@ -557,28 +559,102 @@ _viewModel.OnOsdMessage += (text, severity) =>
 
 ---
 
-### MapForm — `UI/Forms/MapForm.cs` (v0.5.8)
+### MapForm — `UI/Forms/MapForm.cs` (v0.6.7)
 
-Ventana no-modal con mapa en movimiento basado en **GMap.NET 17.2.0**. Se abre con el botón MAP (reemplaza MSG no utilizado) y se mantiene sincronizada con la posición del simulador.
+Ventana no-modal con mapa en movimiento basado en **GMap.NET 17.2.0**. Se abre con el botón MAP y se mantiene sincronizada con la posición del simulador.
 
-**Actualización de posición:** evento `OnMapPositionUpdate(lat, lon, heading)` disparado cada 5 ciclos de `RawDataUpdated` (50 ms × 5 = ~250 ms) desde `MainViewModel.OnRawDataUpdated`. Al estar en el evento raw y no en el adaptativo, la cadencia es constante independientemente de la fase de vuelo (taxi, crucero, etc.). Thread-safe vía `BeginInvoke`.
+**Actualización de posición:** evento `OnMapPositionUpdate(lat, lon, heading)` disparado cada 5 ciclos de `RawDataUpdated` (~250 ms) desde `MainViewModel`. Thread-safe vía `BeginInvoke`.
 
-**Marcador de aeronave (`AircraftMarker`):** subclase de `GMapMarker`. Dibuja una flecha amarilla de 4 puntos (nariz, cola derecha, muesca central, cola izquierda) girada por heading mediante `g.RotateTransform()`. Incluye sombra translúcida offset (+1.5 px).
+**Overlays:**
 
-**Controles de la barra inferior:**
-- Label de coordenadas/heading/zoom
-- Checkbox FOLLOW (auto-centra el mapa en el avión)
-- Dropdown de proveedor: OpenStreetMap (defecto) / ESRI World Imagery (satélite, sin API key)
-- Botones zoom + / −
+| Overlay | Contenido |
+|---|---|
+| `_routeOverlay` | Polilínea de ruta suavizada (Bézier) |
+| `_waypointOverlay` | Marcadores de waypoints (fixes, SID/STAR, navaids) |
+| `_ambientOverlay` | Waypoints ambient de origen/destino (zoom ≥ 10) |
+| `_approachOverlay` | Legs de aproximación + extended centerline + missed approach |
+| `_airspaceOverlay` | Polígonos GeoJSON de espacios aéreos |
+| `_atcOverlay` | Formas ATC IVAO (círculo/estrella) + label markers + text-box área |
+| `_aircraftOverlay` | Marcador de aeronave |
+
+**Capas toggleables (v0.6.7):** cuatro `CheckBox` en la barra inferior con `DockStyle.Right`:
+- **TILES**: conmuta entre el proveedor activo y `EmptyProvider.Instance`.
+- **ROUTE**: `_routeOverlay.IsVisibile` + `_waypointOverlay.IsVisibile` + `_ambientOverlay.IsVisibile` + `_approachOverlay.IsVisibile`.
+- **SPACES**: `_airspaceOverlay.IsVisibile`.
+- **IVAO**: `_atcOverlay.IsVisibile`.
+
+> Nota: `GMapOverlay.IsVisibile` — así deletreado en GMap.NET (no `IsVisible`).
+
+**Marcador de aeronave (`AircraftMarker`, v0.6.7):** dibuja siluetas diferentes según `FsuipcService.AircraftCategory`. Tamaño 32×32 px, centrado en la posición. `public FsuipcService.AircraftCategory Category { get; set; }` — actualizado desde `MainForm.SetAircraftCategory()` al abrir el mapa y al cambiar el OFP. `GetShape(cat)` devuelve `PointF[]` por categoría; la rotación por heading se aplica con `g.RotateTransform()`.
+
+**ATC IVAO (v0.6.7) — `SetAtcStations(IList<IvaoAtcStation>)`:**
+
+Posiciones locales (TWR/GND/DEL) agrupadas por ICAO. Para cada grupo:
+1. `MakeCirclePolygon` si hay TWR (primer polígono — capa inferior).
+2. `MakeStarPolygon(startDeg=0)` si hay GND (N/S/E/W).
+3. `MakeStarPolygon(startDeg=45)` si hay DEL (NE/SE/SW/NW).
+4. `AtcLabelMarker` con ICAO text + dot — `TooltipContent` = posiciones + frecuencias.
+
+Posiciones de área (APP/CTR/DEP/FSS): `AtcStationMarker` text-box sin cambios.
+
+**Conversión geográfica para polígonos de 20 nm:**
+```
+latDelta = R / 60.0 × cos(θ_rad)
+lonDelta = R / 60.0 / cos(lat_rad) × sin(θ_rad)
+```
+donde θ es el azimut desde el Norte (grados) y R es el radio en nm. Los 8 vértices de la estrella alternan `outerNm` / `innerNm` a pasos de 45° desde `startDeg`.
+
+**Espacios aéreos — `SetAirspaces(IList<NavAirspace>)` (v0.6.7):** opacidades reducidas al 50 % respecto a v0.6.6. GeoJSON `[lon, lat]` → `PointLatLng(lat, lon)`. Fill α ∈ 5–20, stroke α ∈ 40–95.
 
 **Proveedores de mapa:**
 
-| Opción | Provider | Descripción |
-|---|---|---|
-| OpenStreetMap | `GMapProviders.OpenStreetMap` | Mapa de calles/aeropuertos, gratuito global |
-| Satellite (ESRI) | `GMapProviders.ArcGIS_World_Imagery` | Imágenes satelitales, gratuito no-comercial |
+| Opción | Provider |
+|---|---|
+| Dark (Carto) | `GMapProviders.GoogleChinaSatelliteMap` remapeado a Carto Dark (defecto) |
+| Street (Carto) | `GMapProviders.OpenStreetMap` |
+| Satellite (ESRI) | `GMapProviders.ArcGIS_World_Imagery` |
 
-**Modo de acceso:** `GMaps.Instance.Mode = AccessMode.ServerAndCache` — descarga tiles al primer uso y los conserva en caché local.
+Preferencia persistida en `App.config` clave `map_provider_index`.
+
+**Controles de la barra inferior (de izquierda a derecha):**
+Status label · TILES · ROUTE · SPACES · IVAO · [+] [−] · dropdown proveedor · FOLLOW
+
+---
+
+### AirspaceMonitorService — `Services/AirspaceMonitorService.cs` (v0.6.7)
+
+Monitorea espacios aéreos de la ruta activa e IVAO ATC/ATIS. Thread-safe; eventos en thread-pool.
+
+**Eventos:**
+
+```csharp
+event Action<NavAirspace>                  OnAirspaceAlert    // Prohibited/Restricted/Danger entrada
+event Action<NavAirspace, NavAirspaceFreq> OnAirspaceEntered  // CTR/TMA/RMZ entrada
+event Action<NavAirspace>                  OnAirspaceExited   // CTR/TMA/RMZ salida
+event Action<IList<IvaoAtcStation>>        OnAtcUpdated       // poll IVAO completo (cada 3 min)
+```
+
+**Flujo de inicialización:**
+
+```
+SetActivePlan() / StartFlight()
+    → Task.Run → InitRouteAsync(origin, dest)
+         → NavDataClient.GetAirspacesAsync(oLat, oLon)   // origen (200 nm fijos)
+         → NavDataClient.GetAirspacesAsync(dLat, dLon)   // destino
+         → NavDataClient.GetAirspacesAsync(mLat, mLon)   // midpoint (si dist > 100 nm)
+         → deduplicar por Id → relevant.Add(originIcao) + relevant.Add(destIcao)  ← v0.6.7
+         → _pollTimer (dueTime=0, period=3 min) → PollIvaoAsync()
+```
+
+> **Por qué se añaden origin/dest explícitamente (v0.6.7):** `_relevantIcaos` se construía únicamente a partir de `ExtractIcao()` de los objetos airspace. Si ningún airspace devuelto coincidía con el ICAO del aeropuerto (p. ej. SKRG cuya CTR puede tener nombre distinto), las posiciones TWR/GND/DEL del aeropuerto quedaban filtradas en `PollIvaoAsync`.
+
+**IVAO polling:** `GET https://api.ivao.aero/v2/tracker/whazzup` → `root["clients"]["atcs"]`. Callsign `{ICAO}_{POS}`:
+- Match exacto: `relevant.Contains(icao)`
+- Match FIR: `icao.StartsWith(r.Substring(0, 2))` para cualquier `r` en `_relevantIcaos`
+
+**`CheckPosition(lat, lon, altFt)`:** ray-casting GeoJSON en anillo exterior (`Coordinates[0]`) + comprobación de límites verticales. Dispara `OnAirspaceAlert` (Prohibited/Restricted/Danger) o `OnAirspaceEntered/Exited` (CTR/TMA/ATZ/RMZ/CTA) al entrar/salir. Throttleado a 30 s en `MainViewModel.OnRawDataUpdated`.
+
+**`IvaoAtcStation`:** `Callsign`, `Icao`, `Position`, `Frequency`, `AtisLines`, `AtisText`.
 
 ---
 

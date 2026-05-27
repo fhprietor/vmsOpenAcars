@@ -2,7 +2,43 @@
 
 ---
 
-## [0.6.5] — 2026-05-24 (en desarrollo)
+## [0.6.7] — 2026-05-26
+
+### Added
+
+- **Mapa: ATC geográfico estilo WebEye** — las posiciones IVAO se representan como `GMapPolygon` escalados geográficamente (20 nm de radio), reemplazando el dot de 10 px en espacio de pantalla:
+  - **TWR** → círculo de radio 20 nm, borde rojo (α 170) + relleno rojo muy transparente (α 30).
+  - **GND** → estrella de 4 puntas alineada N/S/E/W, radio exterior 20 nm, radio interior 7.6 nm (0.38×), amarillo.
+  - **DEL** → estrella de 4 puntas rotada 45° (puntas NE/SE/SW/NW), mismos radios, naranja.
+  - Las puntas de GND y DEL rozan el borde del círculo TWR cuando coexisten (mismo radio 20 nm).
+  - `AtcLabelMarker` centrado en ARP: texto ICAO 7 pt Consolas Bold con sombra de 4 px para visibilidad sobre formas de color + punto de 4 px en el centro.
+  - Helpers privados en `MapForm`: `MakeCirclePolygon(lat, lon, radiusNm, fill, stroke, n=72)` y `MakeStarPolygon(lat, lon, outerNm, innerRatio, startDeg, fill, stroke)`.
+  - APP / CTR / DEP / FSS siguen usando `AtcStationMarker` (text-box) sin cambios.
+- **Mapa: capas toggleables en tiempo real** — cuatro `CheckBox` en la barra inferior permiten activar/desactivar capas independientemente sin recargar el mapa:
+  - **TILES** — oculta los tiles del proveedor (usa `EmptyProvider`), mantiene la vista y el zoom.
+  - **ROUTE** — oculta/muestra la ruta, waypoints, SID/STAR, overlay de aproximación y línea al alterno.
+  - **SPACES** — oculta/muestra los polígonos de espacio aéreo (Prohibited/Restricted/Danger/CTR/TMA…).
+  - **IVAO** — oculta/muestra las formas geográficas ATC y los `AtcStationMarker` de área.
+- **Mapa: icono de aeronave por categoría** — `AircraftMarker` dibuja una silueta diferente según `FsuipcService.AircraftCategory`:
+  - Jet (categoría A/B) — silueta de avión de fuselaje estrecho.
+  - Turboprop (categoría C) — silueta con motores de hélice más anchos.
+  - Piston (categoría D) — silueta de aeronave ligera.
+  - Helicopter / Unknown — silueta genérica / flecha.
+  - `SetAircraftCategory(FsuipcService.AircraftCategory cat)` en `MapForm`; llamado desde `MainForm` al abrir el mapa y al cambiar el OFP.
+- **Mapa: ATC e airspaces visibles sin iniciar vuelo** — `SetActivePlan()` en `MainViewModel` lanza `InitRouteAsync` en segundo plano en cuanto se acepta el OFP, sin necesidad de pulsar START. Al abrir el mapa (`BtnMap_Click`), `MainForm` pre-carga airspaces y estaciones ATC ya disponibles.
+
+### Fixed
+
+- **IVAO ATC filtrado por `_relevantIcaos` — SKRG_TWR y posiciones locales no visibles** — `_relevantIcaos` se construía únicamente a partir de los objetos de espacio aéreo devueltos por NavData; si ningún airspace alrededor del aeropuerto tenía un `ExtractIcao()` que coincidiera exactamente, las posiciones TWR/GND/DEL quedaban filtradas. Corregido añadiendo `originIcao` y `destIcao` explícitamente al set en `InitRouteAsync`, garantizando que el ATC local de salida y llegada siempre pasa el filtro.
+- **Debounce de luces — falsos positivos por parpadeo del simulador (~1.6 s)** — el modelo anterior (cooldown 1.5 s: dispara inmediatamente, bloquea repetidos) era sensible a glitches breves del sim que cambiaban el estado de una luz por 1–2 ciclos. Reemplazado por un **hold debounce de 2.5 s**: el nuevo estado debe mantenerse estable durante 2.5 s continuos antes de disparar el evento; cualquier revertido del estado cancela el contador.
+
+### Changed
+
+- **Opacidad de airspaces reducida al 50 %** respecto a v0.6.6 para evitar confusión visual con las formas ATC de IVAO. Valores de ejemplo: Prohibited fill (20,220,0,0) / stroke (95,200,0,0), CTR fill (12,0,180,255) / stroke (70,0,160,230).
+
+---
+
+## [0.6.5] — 2026-05-24
 
 ### Added
 
