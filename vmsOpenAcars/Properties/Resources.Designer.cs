@@ -59,5 +59,12 @@ namespace vmsOpenAcars.Properties {
                 resourceCulture = value;
             }
         }
+
+        internal static global::System.Drawing.Bitmap mapa {
+            get {
+                object obj = ResourceManager.GetObject("mapa", resourceCulture);
+                return ((global::System.Drawing.Bitmap)(obj));
+            }
+        }
     }
 }

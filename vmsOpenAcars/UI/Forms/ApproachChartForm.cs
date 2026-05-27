@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using vmsOpenAcars.Models.NavData;
@@ -23,10 +24,15 @@ namespace vmsOpenAcars.UI.Forms
         private Panel          _pnlProfile;
         private Panel          _pnlLoading;
         private Label          _lblHeader;
+        private Panel          _pnlTable;
 
         // ── DPI scaling ──────────────────────────────────────────────────────────────
-        private float _scale = 1f;
+        [DllImport("user32.dll")] private static extern int GetDpiForWindow(IntPtr hwnd);
+        private int   _lastDpi = 96;
+        private float _scale   = 1f;
         private float S(float px) => px * _scale;
+        private Font  CF(float pt, FontStyle style = FontStyle.Regular)
+            => new Font("Consolas", S(pt * 1.3f), style);
 
         // ── Data ─────────────────────────────────────────────────────────────────────
         private readonly string         _icao;
@@ -47,7 +53,10 @@ namespace vmsOpenAcars.UI.Forms
         private static readonly Color DaColor     = Color.FromArgb(255, 80, 80);
         private static readonly Color LabelColor  = Color.FromArgb(255, 220, 80);
         private static readonly Color AxisColor   = Color.FromArgb(80, 100, 120);
-        private static readonly Color RwyColor    = Color.FromArgb(180, 180, 180);
+        private static readonly Color RwyColor     = Color.FromArgb(180, 180, 180);
+        private static readonly Color TransLegColor = Color.FromArgb(120, 150, 200);
+        private static readonly Color FinalLegColor = Color.FromArgb(235, 235, 255);
+        private static readonly Color GroundColor   = Color.FromArgb(55, 45, 20);
 
         // ── Constructor ──────────────────────────────────────────────────────────────
 
@@ -56,7 +65,12 @@ namespace vmsOpenAcars.UI.Forms
             _icao        = icao;
             _preselected = preselected;
             InitLayout();
-            this.Shown += (s, e) => { UpdateScale(DeviceDpi); _ = LoadDataAsync(); };
+            this.Shown += (s, e) =>
+            {
+                _lastDpi = GetDpiForWindow(Handle);
+                if (_lastDpi > 0) UpdateScale(_lastDpi);
+                _ = LoadDataAsync();
+            };
         }
 
         // ── Layout ───────────────────────────────────────────────────────────────────
@@ -120,20 +134,33 @@ namespace vmsOpenAcars.UI.Forms
             };
             _pnlLoading.Controls.Add(_lblLoading);
 
+            // Minimums table
+            _pnlTable = new Panel { Dock = DockStyle.Bottom, Height = 96, BackColor = Color.FromArgb(10, 15, 22) };
+            _pnlTable.Paint += PaintMinTable;
+
             Controls.Add(_pnlLoading);
             Controls.Add(_split);
+            Controls.Add(_pnlTable);
             Controls.Add(_pnlHeader);
             Controls.Add(_toolbar);
 
-            SizeChanged += (s, e) => { _pnlPlan.Invalidate(); _pnlProfile.Invalidate(); };
+            SizeChanged += (s, e) => { _pnlPlan.Invalidate(); _pnlProfile.Invalidate(); _pnlTable.Invalidate(); };
         }
 
         // ── DPI handling ─────────────────────────────────────────────────────────────
 
-        protected override void OnDpiChanged(DpiChangedEventArgs e)
+        protected override void WndProc(ref Message m)
         {
-            base.OnDpiChanged(e);
-            UpdateScale(e.DeviceDpiNew);
+            base.WndProc(ref m);
+            if (m.Msg == 0x0003) // WM_MOVE — fires whenever the window is dragged
+            {
+                int dpi = GetDpiForWindow(Handle);
+                if (dpi > 0 && dpi != _lastDpi)
+                {
+                    _lastDpi = dpi;
+                    UpdateScale(dpi);
+                }
+            }
         }
 
         private void UpdateScale(int dpi)
@@ -142,6 +169,7 @@ namespace vmsOpenAcars.UI.Forms
             RelayoutControls();
             _pnlPlan.Invalidate();
             _pnlProfile.Invalidate();
+            _pnlTable.Invalidate();
         }
 
         private void RelayoutControls()
@@ -164,6 +192,8 @@ namespace vmsOpenAcars.UI.Forms
             var oldLoad = _lblLoading.Font;
             _lblLoading.Font  = new Font("Consolas", S(11));
             oldLoad?.Dispose();
+
+            _pnlTable.Height = (int)S(96);
 
             int min1 = (int)S(200), min2 = (int)S(120);
             _split.Panel1MinSize = min1;
@@ -218,6 +248,7 @@ namespace vmsOpenAcars.UI.Forms
             UpdateHeader();
             _pnlPlan.Invalidate();
             _pnlProfile.Invalidate();
+            _pnlTable.Invalidate();
         }
 
         private void UpdateHeader()
@@ -269,15 +300,19 @@ namespace vmsOpenAcars.UI.Forms
 
             if (_selected == null) return;
 
+            // Approach name — top-left
+            using (var br = new SolidBrush(Color.FromArgb(210, 225, 255)))
+            using (var fn = CF(8f, FontStyle.Bold))
+                g.DrawString(_selected.DisplayName.ToUpperInvariant(), fn, br, S(10), S(8));
+
             var app = _selected;
             var rwy = GetRunway(app);
             var ils = GetIls(app);
 
-            // Collect all geo points
-            var allLegs    = app.Legs.Concat(app.MissedLegs).ToList();
-            var geoPoints  = allLegs.Where(l => l.Lat.HasValue && l.Lon.HasValue)
-                                    .Select(l => new PointF((float)l.Lon.Value, (float)l.Lat.Value))
-                                    .ToList();
+            // Collect geo points — only approach legs (not missed approach) drive the viewport
+            var geoPoints  = app.Legs.Where(l => l.Lat.HasValue && l.Lon.HasValue)
+                                     .Select(l => new PointF((float)l.Lon.Value, (float)l.Lat.Value))
+                                     .ToList();
             if (rwy != null)
             {
                 geoPoints.Add(new PointF((float)rwy.ThresholdLon, (float)rwy.ThresholdLat));
@@ -345,12 +380,17 @@ namespace vmsOpenAcars.UI.Forms
                     g.DrawPolygon(p, corners);
             }
 
+            // ── Approach cone + distance tick marks ───────────────────────────────────
+            if (rwy != null)
+                DrawApproachCone(g, toScreen, rwy, app, ils);
+
             // ── Draw approach legs ────────────────────────────────────────────────────
             int fafIdx  = app.FafIndex ?? -1;
             var mapPt   = app.MissedLegs.FirstOrDefault(l => l.Lat.HasValue && l.Lon.HasValue);
 
-            DrawLegPath(g, toScreen, app.Legs,      new Pen(LegColor,    1.5f),  false);
-            DrawLegPath(g, toScreen, app.MissedLegs, new Pen(MissedColor, 1.5f) { DashStyle = DashStyle.Dash }, false);
+            DrawApproachLegs(g, toScreen, app, fafIdx);
+            using (var p = new Pen(MissedColor, 1.5f) { DashStyle = DashStyle.Dash })
+                DrawLegRange(g, toScreen, app.MissedLegs, 0, app.MissedLegs.Count, p, false);
 
             // ── Fix symbols & labels ──────────────────────────────────────────────────
             for (int i = 0; i < app.Legs.Count; i++)
@@ -382,28 +422,87 @@ namespace vmsOpenAcars.UI.Forms
 
             // North arrow
             DrawNorthArrow(g, w, h);
+
+            // Section border
+            using (var p = new Pen(Color.FromArgb(55, 75, 105), 1))
+                g.DrawRectangle(p, 0, 0, w - 1, h - 1);
         }
 
-        private void DrawLegPath(Graphics g, Func<double, double, PointF> toScreen,
-                                  List<NavApproachLeg> legs, Pen pen, bool dashed)
+        private void DrawApproachLegs(Graphics g, Func<double, double, PointF> toScreen, NavApproach app, int fafIdx)
         {
-            using (pen)
+            int n = app.Legs.Count;
+            if (n == 0) return;
+            int splitAt = (fafIdx >= 0 && fafIdx < n) ? fafIdx : n;
+            if (splitAt > 0)
             {
-                PointF? prev = null;
-                foreach (var leg in legs)
-                {
-                    if (!leg.Lat.HasValue || !leg.Lon.HasValue) { prev = null; continue; }
-                    var cur = toScreen(leg.Lat.Value, leg.Lon.Value);
+                using (var p = new Pen(TransLegColor, 1f))
+                    DrawLegRange(g, toScreen, app.Legs, 0, splitAt + 1, p, true);
+            }
+            if (splitAt < n)
+            {
+                using (var p = new Pen(FinalLegColor, 2f))
+                    DrawLegRange(g, toScreen, app.Legs, splitAt, n, p, true);
+            }
+        }
 
-                    if (prev.HasValue)
+        private void DrawLegRange(Graphics g, Func<double, double, PointF> toScreen,
+                                   List<NavApproachLeg> legs, int startIdx, int endIdx, Pen pen, bool drawLabels)
+        {
+            PointF? prev = null;
+            for (int i = startIdx; i < endIdx && i < legs.Count; i++)
+            {
+                var leg = legs[i];
+                if (!leg.Lat.HasValue || !leg.Lon.HasValue) { prev = null; continue; }
+                var cur = toScreen(leg.Lat.Value, leg.Lon.Value);
+                if (prev.HasValue)
+                {
+                    if (leg.Type == "AF" && leg.CenterLat.HasValue && leg.CenterLon.HasValue)
+                        DrawDmeArc(g, toScreen, prev.Value, cur, leg, pen);
+                    else
                     {
-                        if (leg.Type == "AF" && leg.CenterLat.HasValue && leg.CenterLon.HasValue)
-                            DrawDmeArc(g, toScreen, prev.Value, cur, leg, pen);
-                        else
-                            g.DrawLine(pen, prev.Value, cur);
+                        g.DrawLine(pen, prev.Value, cur);
+                        if (drawLabels)
+                        {
+                            DrawDirectionArrow(g, prev.Value, cur, pen.Color);
+                            if (leg.DistanceNm > 0.1)
+                                DrawSegmentLabel(g, prev.Value, cur, leg.DistanceNm, leg.Course, pen.Color);
+                        }
                     }
-                    prev = cur;
                 }
+                prev = cur;
+            }
+        }
+
+        private void DrawDirectionArrow(Graphics g, PointF from, PointF to, Color c)
+        {
+            float dx = to.X - from.X, dy = to.Y - from.Y;
+            float len = (float)Math.Sqrt(dx * dx + dy * dy);
+            if (len < S(25)) return;
+            float ux = dx / len, uy = dy / len;
+            float mx = (from.X + to.X) / 2, my = (from.Y + to.Y) / 2;
+            float al = S(5f), aw = S(2.5f);
+            using (var br = new SolidBrush(Color.FromArgb(180, c)))
+                g.FillPolygon(br, new PointF[] {
+                    new PointF(mx + ux * al, my + uy * al),
+                    new PointF(mx - uy * aw, my + ux * aw),
+                    new PointF(mx + uy * aw, my - ux * aw),
+                });
+        }
+
+        private void DrawSegmentLabel(Graphics g, PointF from, PointF to, double distNm, double course, Color lineColor)
+        {
+            float dx = to.X - from.X, dy = to.Y - from.Y;
+            float len = (float)Math.Sqrt(dx * dx + dy * dy);
+            if (len < S(28)) return;
+            float mx = (from.X + to.X) / 2, my = (from.Y + to.Y) / 2;
+            float nx = -dy / len, ny = dx / len;
+            float off = S(9);
+            using (var br = new SolidBrush(Color.FromArgb(200, lineColor)))
+            using (var fn = new Font("Consolas", S(5.5f)))
+            {
+                g.DrawString($"{distNm:F1}", fn, br, mx + nx * off - S(8), my + ny * off - S(5));
+                if (course > 0)
+                    g.DrawString($"{course:F0}°", fn, br, mx + nx * off - S(8), my + ny * off + S(3));
             }
         }
 
@@ -434,7 +533,11 @@ namespace vmsOpenAcars.UI.Forms
             {
                 float r = S(5);
                 using (var p = new Pen(FafColor, 1.5f))
+                {
                     g.DrawEllipse(p, pt.X - r, pt.Y - r, r * 2, r * 2);
+                    g.DrawLine(p, pt.X - r, pt.Y, pt.X + r, pt.Y);
+                    g.DrawLine(p, pt.X, pt.Y - r, pt.X, pt.Y + r);
+                }
             }
             else if (isIaf)
             {
@@ -536,6 +639,19 @@ namespace vmsOpenAcars.UI.Forms
             Func<double, float> toX = dist => ml + (float)((1.0 - dist / maxDist) * pw);
             Func<double, float> toY = alt  => mt + ph - (float)((alt - minAlt) / (maxAlt - minAlt) * ph);
 
+            // Ground fill at runway elevation
+            {
+                float groundY = toY(rwyElev);
+                float baseY   = mt + ph;
+                if (groundY < baseY)
+                {
+                    using (var br = new SolidBrush(Color.FromArgb(130, GroundColor)))
+                        g.FillRectangle(br, ml, groundY, pw, baseY - groundY);
+                    using (var p = new Pen(Color.FromArgb(180, 130, 100, 40), 1.5f))
+                        g.DrawLine(p, ml, groundY, ml + pw, groundY);
+                }
+            }
+
             // Grid
             using (var gridPen = new Pen(Color.FromArgb(30, AxisColor), 1) { DashStyle = DashStyle.Dot })
             {
@@ -565,20 +681,34 @@ namespace vmsOpenAcars.UI.Forms
             // Glideslope / glidepath / staircase
             int fafIdx = app.FafIndex.HasValue && app.FafIndex.Value < n ? app.FafIndex.Value : FindFafFallback(legs);
 
-            string vg = app.VerticalGuidance;
-            if (vg == "ils_gs" && ils?.Glideslope != null)
+            // Determine glidepath from best available source
+            double? gpAngle  = null;
+            Color   gpColor  = GsColor;
+            bool    gpDashed = false;
+
+            if (ils?.Glideslope != null)
             {
-                DrawGlidepath(g, toX, toY, fafIdx, distFromThr, legs, ils.Glideslope.PitchDeg, rwyElev, GsColor, false);
+                gpAngle = ils.Glideslope.PitchDeg;
+                gpColor = GsColor;
             }
-            else if (vg == "vnav_path" && fafIdx >= 0 && legs[fafIdx].VerticalAngle.HasValue)
+            else if (fafIdx >= 0 && fafIdx < n && legs[fafIdx].VerticalAngle.HasValue)
             {
-                double angle = Math.Abs(legs[fafIdx].VerticalAngle.Value);
-                DrawGlidepath(g, toX, toY, fafIdx, distFromThr, legs, angle, rwyElev, VnavColor, false);
+                gpAngle = Math.Abs(legs[fafIdx].VerticalAngle.Value);
+                string vg2 = app.VerticalGuidance ?? "";
+                if (vg2 == "advisory") { gpColor = AxisColor; gpDashed = true; }
+                else                   { gpColor = VnavColor; }
             }
-            else if (vg == "advisory" && fafIdx >= 0 && legs[fafIdx].VerticalAngle.HasValue)
+            else
             {
-                double angle = Math.Abs(legs[fafIdx].VerticalAngle.Value);
-                DrawGlidepath(g, toX, toY, fafIdx, distFromThr, legs, angle, rwyElev, AxisColor, true);
+                // Try any leg with a vertical angle
+                foreach (var lg in legs)
+                    if (lg.VerticalAngle.HasValue) { gpAngle = Math.Abs(lg.VerticalAngle.Value); gpColor = VnavColor; break; }
+            }
+
+            if (gpAngle.HasValue)
+            {
+                DrawGlidepathCone(g, toX, toY, fafIdx, distFromThr, legs, gpAngle.Value, rwyElev, gpColor);
+                DrawGlidepath(g, toX, toY, fafIdx, distFromThr, legs, gpAngle.Value, rwyElev, gpColor, gpDashed);
             }
             else
             {
@@ -597,7 +727,9 @@ namespace vmsOpenAcars.UI.Forms
                         g.DrawString($"DA/MDA {da:F0}", profFn, br, ml + S(3), toY(da) - S(11));
                 }
 
-                // Fix ticks
+                // Fix ticks — stagger name labels to avoid overlap
+                float lastNameX  = -999;
+                int   labelRow   = 0;   // 0 = top row, 1 = slightly lower
                 for (int i = 0; i < n; i++)
                 {
                     var leg = legs[i];
@@ -608,9 +740,14 @@ namespace vmsOpenAcars.UI.Forms
 
                     if (!string.IsNullOrEmpty(leg.Fix))
                     {
-                        Color lc = (i == 0) ? LegColor : (i == fafIdx) ? FafColor : Color.FromArgb(170, 170, 170);
+                        Color lc = (i == 0) ? LegColor : (i == fafIdx) ? FafColor : Color.FromArgb(180, 180, 180);
+                        if (x - lastNameX < S(30)) labelRow = 1 - labelRow;
+                        else labelRow = 0;
+                        float ny = mt + S(2) + labelRow * S(10);
                         using (var br = new SolidBrush(lc))
-                            g.DrawString(leg.Fix, profFn, br, x - S(10), mt + S(2));
+                        using (var fixFn = new Font("Consolas", S(6.5f), i == fafIdx ? FontStyle.Bold : FontStyle.Regular))
+                            g.DrawString(leg.Fix, fixFn, br, x - S(10), ny);
+                        lastNameX = x;
                     }
 
                     if (leg.AltitudeFt > 0)
@@ -631,6 +768,10 @@ namespace vmsOpenAcars.UI.Forms
                     g.DrawString("NM from threshold →", profFn, br, ml + pw / 2 - S(50), mt + ph + S(16));
                 }
             }
+
+            // Section border
+            using (var p = new Pen(Color.FromArgb(55, 75, 105), 1))
+                g.DrawRectangle(p, 0, 0, _pnlProfile.ClientSize.Width - 1, _pnlProfile.ClientSize.Height - 1);
         }
 
         private void DrawGlidepath(Graphics g, Func<double, float> toX, Func<double, float> toY,
@@ -667,6 +808,328 @@ namespace vmsOpenAcars.UI.Forms
                     g.DrawLine(p, x2, y1, x2, y2);   // step down
                 }
             }
+        }
+
+        // ── Approach cone (plan view) ─────────────────────────────────────────────────
+
+        private void DrawApproachCone(Graphics g, Func<double, double, PointF> toScreen,
+                                       NavRunway rwy, NavApproach app, NavIls ils)
+        {
+            double crsRad  = TrueRunwayBearing(rwy) * Math.PI / 180.0;
+            double oppRad  = crsRad + Math.PI;
+            double cosLat  = Math.Cos(rwy.ThresholdLat * Math.PI / 180);
+            double thrLon  = rwy.ThresholdLon, thrLat = rwy.ThresholdLat;
+
+            // Use actual loc_width / 2 when available, else default by approach type
+            double halfDeg = ils?.LocWidth != null ? ils.LocWidth.Value / 2.0
+                           : (app.Type == "ILS" || app.Type == "LOC") ? 2.0 : 2.5;
+            double halfRad    = halfDeg * Math.PI / 180.0;
+            double d5         = 5.0 / 60.0;
+
+            var thrScreen  = toScreen(thrLat, thrLon);
+            var leftFarPt  = new { Lat = thrLat + d5 * Math.Cos(oppRad - halfRad),
+                                   Lon = thrLon + d5 / cosLat * Math.Sin(oppRad - halfRad) };
+            var rightFarPt = new { Lat = thrLat + d5 * Math.Cos(oppRad + halfRad),
+                                   Lon = thrLon + d5 / cosLat * Math.Sin(oppRad + halfRad) };
+            var lScreen = toScreen(leftFarPt.Lat,  leftFarPt.Lon);
+            var rScreen = toScreen(rightFarPt.Lat, rightFarPt.Lon);
+
+            // Filled cone
+            using (var br = new SolidBrush(Color.FromArgb(20, 100, 160, 255)))
+                g.FillPolygon(br, new[] { thrScreen, lScreen, rScreen });
+            // Cone edges
+            using (var p = new Pen(Color.FromArgb(55, 110, 160, 220), 1) { DashStyle = DashStyle.Dash })
+            {
+                g.DrawLine(p, thrScreen, lScreen);
+                g.DrawLine(p, thrScreen, rScreen);
+            }
+
+            // Distance tick marks: 1–5 NM along extended centerline
+            for (int nm = 1; nm <= 5; nm++)
+            {
+                double d = nm / 60.0;
+                double tLon = thrLon + d / cosLat * Math.Sin(oppRad);
+                double tLat = thrLat + d           * Math.Cos(oppRad);
+                var tickSc  = toScreen(tLat, tLon);
+
+                // Perpendicular direction via a 0.5 NM offset along the centerline
+                double nLon = thrLon + (d + 0.5 / 60.0) / cosLat * Math.Sin(oppRad);
+                double nLat = thrLat + (d + 0.5 / 60.0)           * Math.Cos(oppRad);
+                var    nSc  = toScreen(nLat, nLon);
+                float ddx = nSc.X - tickSc.X, ddy = nSc.Y - tickSc.Y;
+                float dlen = (float)Math.Sqrt(ddx * ddx + ddy * ddy);
+                if (dlen < 0.5f) continue;
+                float perpX = -ddy / dlen, perpY = ddx / dlen;
+                float tlen  = S(6);
+
+                using (var p = new Pen(Color.FromArgb(100, 180, 180, 180), 1))
+                    g.DrawLine(p,
+                        tickSc.X - perpX * tlen, tickSc.Y - perpY * tlen,
+                        tickSc.X + perpX * tlen, tickSc.Y + perpY * tlen);
+                using (var br = new SolidBrush(Color.FromArgb(140, 180, 200, 200)))
+                using (var fn = new Font("Consolas", S(5.5f)))
+                    g.DrawString($"{nm}", fn, br, tickSc.X + S(3), tickSc.Y - S(7));
+            }
+        }
+
+        // ── Glidepath cone (profile view) ────────────────────────────────────────────
+
+        private void DrawGlidepathCone(Graphics g, Func<double, float> toX, Func<double, float> toY,
+            int fafIdx, double[] dist, List<NavApproachLeg> legs, double angleDeg, double rwyElev, Color color)
+        {
+            if (fafIdx < 0 || fafIdx >= legs.Count) return;
+            double fafDist = dist[fafIdx];
+            double fafAlt  = legs[fafIdx].AltitudeFt > 0
+                ? legs[fafIdx].AltitudeFt
+                : rwyElev + fafDist * 6076 * Math.Tan(angleDeg * Math.PI / 180);
+
+            double loAngle = Math.Max(angleDeg - 0.5, 0.3);
+            double hiAngle = angleDeg + 0.5;
+            double hiAlt   = rwyElev + fafDist * 6076 * Math.Tan(hiAngle * Math.PI / 180);
+            double loAlt   = rwyElev + fafDist * 6076 * Math.Tan(loAngle * Math.PI / 180);
+
+            var cone = new PointF[]
+            {
+                new PointF(toX(fafDist), toY(hiAlt)),
+                new PointF(toX(fafDist), toY(loAlt)),
+                new PointF(toX(0),       toY(rwyElev + 40)),
+                new PointF(toX(0),       toY(rwyElev + 80)),
+            };
+            using (var br = new SolidBrush(Color.FromArgb(28, color)))
+                g.FillPolygon(br, cone);
+        }
+
+        // ── Minimums table ────────────────────────────────────────────────────────────
+
+        private void PaintMinTable(object sender, PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(Color.FromArgb(10, 15, 22));
+
+            int tw = _pnlTable.ClientSize.Width;
+            int th = _pnlTable.ClientSize.Height;
+
+            // Top separator line
+            using (var p = new Pen(Color.FromArgb(60, 80, 110), 1))
+                g.DrawLine(p, 0, 0, tw, 0);
+
+            if (_selected == null) return;
+
+            var app     = _selected;
+            var rwy     = GetRunway(app);
+            var ils     = GetIls(app);
+            var info    = _airportInfo;
+            double rwyElev = rwy?.ElevationFt ?? info?.ElevationFt ?? 0;
+
+            // Determine glidepath angle
+            double? gsAngle = null;
+            if (ils?.Glideslope != null)
+                gsAngle = ils.Glideslope.PitchDeg;
+            else
+            {
+                int fi = app.FafIndex ?? -1;
+                if (fi >= 0 && fi < app.Legs.Count && app.Legs[fi].VerticalAngle.HasValue)
+                    gsAngle = Math.Abs(app.Legs[fi].VerticalAngle.Value);
+            }
+
+            // Determine final approach course
+            double faCourse = 0;
+            for (int i = app.Legs.Count - 1; i >= 0; i--)
+                if (app.Legs[i].Course > 0) { faCourse = app.Legs[i].Course; break; }
+
+            // DA/MDA
+            double da = FindDaMda(app.Legs);
+            double agl = da > 0 ? da - rwyElev : 0;
+
+            // Vertical guidance label — ILS presence wins over VerticalGuidance field
+            string vgLabel = "NON-PRECISION";
+            if (ils?.Glideslope != null)                          vgLabel = "PRECISION (ILS)";
+            else if (app.VerticalGuidance == "vnav_path")         vgLabel = "APV / VNAV";
+            else if (app.VerticalGuidance == "advisory")          vgLabel = "ADVISORY VNAV";
+            else if (app.HasVerticalAngle)                        vgLabel = "APV (VERT ANGLE)";
+
+            // Navaid string
+            string navStr = "—";
+            if (ils != null)
+                navStr = $"ILS  {ils.FrequencyMhz:F2} MHz";
+            else if (app.Navaid != null)
+            {
+                var nav = app.Navaid;
+                navStr = nav.FrequencyMhz.HasValue  ? $"{nav.Type}  {nav.Ident}  {nav.FrequencyMhz:F2} MHz"
+                       : nav.FrequencyKhz.HasValue  ? $"{nav.Type}  {nav.Ident}  {nav.FrequencyKhz:F0} kHz"
+                       : $"{nav.Type}  {nav.Ident}";
+            }
+
+            // ── Layout constants ──────────────────────────────────────────────────────
+            float pad  = S(10);
+            float lh   = S(15);
+            float sep1 = S(170), sep2 = S(380), sep3 = S(540);
+            Color hdrC = Color.FromArgb(130, 150, 175);   // column headers
+            Color valC = Color.FromArgb(225, 225, 250);   // values
+            Color acc1 = Color.FromArgb(255, 215, 70);    // altitude/navaid
+            Color acc2 = Color.FromArgb(255, 100, 100);   // DA/MDA
+            Color acc3 = Color.FromArgb(80,  210, 120);   // guidance type
+
+            // Vertical separators
+            using (var p = new Pen(Color.FromArgb(50, 70, 100), 1))
+            {
+                g.DrawLine(p, sep1, S(4), sep1, th - S(4));
+                g.DrawLine(p, sep2, S(4), sep2, th - S(4));
+                if (sep3 < tw - S(10)) g.DrawLine(p, sep3, S(4), sep3, th - S(4));
+            }
+
+            using (var hFn = new Font("Consolas", S(6.0f)))
+            using (var vFn = new Font("Consolas", S(7.0f), FontStyle.Bold))
+            using (var sFn = new Font("Consolas", S(6.5f)))
+            {
+                // ── Col 1: Approach identification ────────────────────────────────────
+                float cy = S(7);
+
+                using (var br = new SolidBrush(Color.FromArgb(200, 220, 255)))
+                    g.DrawString(app.DisplayName.ToUpperInvariant(), vFn, br, pad, cy);
+                cy += lh;
+
+                using (var hBr = new SolidBrush(hdrC))
+                using (var vBr = new SolidBrush(Color.FromArgb(160, 200, 255)))
+                {
+                    g.DrawString("NAV", hFn, hBr, pad, cy);
+                    g.DrawString(navStr, hFn, vBr, pad + S(28), cy);
+                }
+                cy += lh - S(1);
+
+                if (gsAngle.HasValue)
+                {
+                    using (var hBr = new SolidBrush(hdrC))
+                    using (var vBr = new SolidBrush(GsColor))
+                    {
+                        g.DrawString("GS", hFn, hBr, pad, cy);
+                        g.DrawString($"{gsAngle:F2}°", hFn, vBr, pad + S(28), cy);
+                    }
+                    cy += lh - S(1);
+                }
+
+                if (faCourse > 0)
+                {
+                    using (var hBr = new SolidBrush(hdrC))
+                    using (var vBr = new SolidBrush(valC))
+                    {
+                        g.DrawString("CRS", hFn, hBr, pad, cy);
+                        g.DrawString($"{faCourse:F0}°M", hFn, vBr, pad + S(28), cy);
+                    }
+                }
+
+                // ── Col 2: Minimums ───────────────────────────────────────────────────
+                float col2 = sep1 + pad;
+                cy = S(7);
+
+                using (var br = new SolidBrush(hdrC))
+                    g.DrawString("MINIMUMS", hFn, br, col2, cy);
+                cy += lh;
+
+                if (da > 0)
+                {
+                    using (var br = new SolidBrush(acc2))
+                        g.DrawString($"DA/MDA", hFn, br, col2, cy);
+                    cy += lh - S(3);
+                    using (var br = new SolidBrush(acc1))
+                        g.DrawString($"{da:F0} ft MSL", sFn, br, col2, cy);
+                    cy += lh - S(1);
+                    using (var br = new SolidBrush(Color.FromArgb(200, 200, 200)))
+                        g.DrawString($"({agl:F0} ft AGL)", hFn, br, col2, cy);
+                    cy += lh;
+                }
+                else
+                {
+                    using (var br = new SolidBrush(hdrC))
+                        g.DrawString("DA/MDA  —", hFn, br, col2, cy);
+                    cy += lh;
+                }
+
+                using (var br = new SolidBrush(acc3))
+                    g.DrawString(vgLabel, hFn, br, col2, cy);
+
+                // ── Col 3: Airport / Runway ───────────────────────────────────────────
+                float col3 = sep2 + pad;
+                cy = S(7);
+
+                using (var br = new SolidBrush(hdrC))
+                    g.DrawString("AIRPORT / RUNWAY", hFn, br, col3, cy);
+                cy += lh;
+
+                if (info != null)
+                {
+                    using (var hBr = new SolidBrush(hdrC))
+                    using (var vBr = new SolidBrush(valC))
+                    {
+                        g.DrawString("ELEV", hFn, hBr, col3, cy);
+                        g.DrawString($"{info.ElevationFt:F0} ft", hFn, vBr, col3 + S(38), cy);
+                    }
+                    cy += lh - S(1);
+
+                    if (info.TransitionAltitudeFt.HasValue)
+                    {
+                        using (var hBr = new SolidBrush(hdrC))
+                        using (var vBr = new SolidBrush(Color.FromArgb(255, 175, 60)))
+                        {
+                            g.DrawString("TA  ", hFn, hBr, col3, cy);
+                            g.DrawString($"{info.TransitionAltitudeFt:F0} ft", hFn, vBr, col3 + S(38), cy);
+                        }
+                        cy += lh - S(1);
+                    }
+
+                    if (info.TransitionLevelFt.HasValue)
+                    {
+                        using (var hBr = new SolidBrush(hdrC))
+                        using (var vBr = new SolidBrush(Color.FromArgb(255, 175, 60)))
+                        {
+                            g.DrawString("TL  ", hFn, hBr, col3, cy);
+                            g.DrawString($"FL{info.TransitionLevelFt / 100:F0}", hFn, vBr, col3 + S(38), cy);
+                        }
+                        cy += lh - S(1);
+                    }
+                }
+
+                if (rwy != null)
+                {
+                    using (var hBr = new SolidBrush(hdrC))
+                    using (var vBr = new SolidBrush(valC))
+                    {
+                        g.DrawString("RWY ", hFn, hBr, col3, cy);
+                        g.DrawString($"{rwy.Name}  {rwy.ElevationFt:F0} ft  {((int)(rwy.LengthFt / 100)) * 100} ft", hFn, vBr, col3 + S(38), cy);
+                    }
+                }
+
+                // ── Col 4: AIRAC / Flags ──────────────────────────────────────────────
+                if (sep3 < tw - S(10))
+                {
+                    float col4 = sep3 + pad;
+                    cy = S(7);
+
+                    using (var br = new SolidBrush(hdrC))
+                        g.DrawString("AIRAC", hFn, br, col4, cy);
+                    cy += lh;
+                    using (var br = new SolidBrush(valC))
+                        g.DrawString(NavDataClient.AiracCycle ?? "—", sFn, br, col4, cy);
+                    cy += lh;
+
+                    if (app.HasGpsOverlay)
+                    {
+                        using (var br = new SolidBrush(Color.FromArgb(80, 200, 255)))
+                            g.DrawString("GPS OVERLAY", hFn, br, col4, cy);
+                        cy += lh - S(1);
+                    }
+                    if (app.HasVerticalAngle)
+                    {
+                        using (var br = new SolidBrush(Color.FromArgb(120, 220, 120)))
+                            g.DrawString("VERT GUIDANCE", hFn, br, col4, cy);
+                    }
+                }
+            }
+
+            // Outer border
+            using (var p = new Pen(Color.FromArgb(55, 75, 105), 1))
+                g.DrawRectangle(p, 0, 0, tw - 1, th - 1);
         }
 
         // ── Helpers ──────────────────────────────────────────────────────────────────

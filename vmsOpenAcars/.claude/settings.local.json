@@ -22,7 +22,10 @@
       "Bash(Measure-Object -Line)",
       "PowerShell(Get-Content *)",
       "Bash(git *)",
-      "Bash(powershell *)"
+      "Bash(powershell *)",
+      "WebSearch",
+      "Bash(findstr /r /s \"status\\\\s*=\" *.cs ViewModels\\\\*.cs Services\\\\*.cs Models\\\\*.cs)",
+      "Bash(findstr -i \"acars\\\\|position\\\\|ground\\\\|airborne\\\\|sch\")"
     ]
   }
 }

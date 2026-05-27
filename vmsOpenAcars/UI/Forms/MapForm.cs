@@ -1995,6 +1995,27 @@ namespace vmsOpenAcars.UI.Forms
                 y += ctl.Height + 3;
             };
 
+            var _chartIconImage = Properties.Resources.mapa;
+            var _chartTip       = new ToolTip { ShowAlways = true };
+            // Añade el icono de carta al lado derecho del combo recién colocado.
+            // onClick=null → icono visible pero no activo (funcionalidad pendiente).
+            Action<ComboBox, EventHandler, string> addChartIcon = (cmb, onClick, tipText) =>
+            {
+                cmb.Width = ItemW - 24;
+                var icon = new PictureBox
+                {
+                    Image     = _chartIconImage,
+                    SizeMode  = PictureBoxSizeMode.Zoom,
+                    Location  = new Point(6 + ItemW - 21, cmb.Top + 1),
+                    Size      = new Size(20, 20),
+                    BackColor = Color.FromArgb(14, 20, 28),
+                    Cursor    = onClick != null ? Cursors.Hand : Cursors.Default,
+                };
+                if (onClick != null) icon.Click += onClick;
+                if (!string.IsNullOrEmpty(tipText)) _chartTip.SetToolTip(icon, tipText);
+                _sidebarContent.Controls.Add(icon);
+            };
+
             // ── ORIGIN ──────────────────────────────────────────────────────────────
             place(MakeSectionHeader("ORIGIN"), 18);
             _lblOriginAirport = new Label
@@ -2020,6 +2041,7 @@ namespace vmsOpenAcars.UI.Forms
             place(MakeSideLabel("SID"), 14);
             _cmbSid = MakeSideCombo();
             place(_cmbSid, 22);
+            addChartIcon(_cmbSid, null, null);
 
             place(MakeSideLabel("Trans."), 14);
             _cmbSidTrans = MakeSideCombo();
@@ -2052,6 +2074,7 @@ namespace vmsOpenAcars.UI.Forms
             place(MakeSideLabel("STAR"), 14);
             _cmbStar = MakeSideCombo();
             place(_cmbStar, 22);
+            addChartIcon(_cmbStar, null, null);
 
             place(MakeSideLabel("Trans."), 14);
             _cmbStarTrans = MakeSideCombo();
@@ -2060,6 +2083,7 @@ namespace vmsOpenAcars.UI.Forms
             place(MakeSideLabel("Approach"), 14);
             _cmbApproach = MakeSideCombo();
             place(_cmbApproach, 22);
+            addChartIcon(_cmbApproach, (s, e) => OpenApproachChart(), "Open Approach Chart");
 
             _lblApproachCount = new Label
             {
@@ -2067,17 +2091,6 @@ namespace vmsOpenAcars.UI.Forms
                 Font = new Font("Consolas", 7), AutoSize = false,
             };
             place(_lblApproachCount, 14);
-
-            var lnkChart = new LinkLabel
-            {
-                Text      = "📋 APPROACH CHART",
-                AutoSize  = true,
-                Font      = new Font("Consolas", 7, FontStyle.Regular),
-                LinkColor = Color.FromArgb(80, 160, 220),
-                Padding   = new Padding(0, 3, 0, 3),
-            };
-            lnkChart.LinkClicked += (s, e) => OpenApproachChart();
-            place(lnkChart, 18);
 
             // Conectar eventos
             _cmbOriginRwy.SelectedIndexChanged += OnOriginRunwayChanged;
