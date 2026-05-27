@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.6.7  
+**Versión actual:** v0.6.8  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -249,7 +249,8 @@ Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia le
 | `Services/CabinAnnouncementService.cs` | `PrefetchAsync`; cola FIFO; NAudio playback; `TestAnnouncementAsync` |
 | `Models/NavData.cs` | `NavAirspace`, `NavAirspaceGeometry` (GeoJSON [lon,lat]), `NavAirspaceFreq`; `BriefingCheckResult` |
 | `ViewModels/MainViewModel.cs` | `WireAirspaceMonitor`; `StartFlight` + `SetActivePlan` (v0.6.7: airspace init en ambos); `GetAircraftCategory()` (v0.6.7: lee `FsuipcService.EngineCategory`); `HandleTaxiPositionUpdate` (criterio angular 25°); `SnapshotLandingRecord` → `SaveLandingRecord`; `SendScoringCheckpointAsync` (CHK 60 s, v0.6.4); `ResumeFromAcarsHistoryAsync` (v0.6.4) |
-| `UI/Forms/MapForm.cs` | `LoadRoute` (ruta suavizada, SID/STAR virtual); `BuildSidebar` (procedimientos, v0.6.5); `DrawApproachOverlay`; `SetAirspaces` (polígonos GeoJSON, opacidad 50%, v0.6.7); `SetAtcStations` (formas geográficas TWR/GND/DEL, v0.6.7); `SetAircraftCategory` (icono por categoría A-D, v0.6.7); capas toggleables TILES/ROUTE/SPACES/IVAO (CheckBox barra inferior, v0.6.7) |
+| `UI/Forms/MapForm.cs` | `LoadRoute` (ruta suavizada, SID/STAR virtual); `BuildSidebar` (procedimientos, v0.6.5; link APPROACH CHART v0.6.8); `DrawApproachOverlay`; `SetAirspaces` (polígonos GeoJSON, opacidad 50%, v0.6.7); `SetAtcStations` (formas geográficas TWR/GND/DEL, v0.6.7); `SetAircraftCategory` (icono por categoría A-D, v0.6.7); capas toggleables TILES/ROUTE/SPACES/IVAO (CheckBox barra inferior, v0.6.7) |
+| `UI/Forms/ApproachChartForm.cs` | Carta de aproximación dinámica GDI+ (v0.6.8). Plan view: north-up, legs, arcos AF (DrawDmeArc), símbolos IAF/FAF/MAP. Profile view: glideslope naranja (ils_gs), glidepath verde (vnav_path), advisory punteado, escalera (null); DA/MDA rojo. Datos: `NavDataClient.PrefetchAirport` → GetApproaches/GetIls/GetRunways/GetAirportInfo. Se abre desde `OpenApproachChart()` en MapForm |
 | `Helpers/SystemInfoHelper.cs` | `GetBestGpu` (DXGI fallback, rango 0–3); `GetCpuString` (registro + ProcessorCount) |
 | `Services/ScoringService.cs` | TDZ + Centreline ~213; Localizer + Minimums ~247 |
 | `vmsOpenAcars.csproj` | `GenerateBindingRedirectsOutputType=true` — impide sobreescribir binding redirect manual de SQLite |
@@ -260,6 +261,6 @@ Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia le
 
 - **Touch-and-go real** — scoring y approach buffer deben resetearse para el segundo aterrizaje.
 - **MetarRaw en logbook** — `FlightRecord.MetarRaw` existe pero no se popula en `SnapshotLandingRecord`.
-- **DA calculada** — actualmente threshold elevation + 200 ft; podría calcularse desde `approach_leg`.
 - **TA/TL fallback regional** — cuando NavData devuelve `null`, sin OSD ni check STD.
 - **Panel ATC/ATIS detallado** — las formas geográficas ya muestran tipo y frecuencia vía tooltip; podría añadirse un panel lateral persistente con lista de todas las posiciones activas y ATIS completo.
+- **Approach chart — leg CI/PI/FA** — tipos de leg sin coordenadas propias (course-to-intercept, etc.) actualmente omitidos; podrían renderizarse desde el fix anterior + curso.

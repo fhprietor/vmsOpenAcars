@@ -2,6 +2,22 @@
 
 ---
 
+## [0.6.8] — 2026-05-27
+
+### Added
+
+- **Cartas de aproximación dinámicas** (`ApproachChartForm`) — ventana no-modal 960×720 px, paleta oscura, redimensionable. Se abre desde el botón **"📋 APPROACH CHART"** en el sidebar de destino del mapa.
+  - **Plan view (GDI+ north-up):** bounding-box automático de todos los legs, escala flat-earth, extended centerline punteada (5 NM), rectángulo de pista, legs approach (línea sólida blanco/cyan para missed), arcos DME (`AF` leg con `DrawDmeArc`). Símbolos en fixes: triángulo = IAF, círculo verde = FAF, cuadrado cyan = MAP, punto = intermedio. Labels con ident, altitud con descriptor (`+`/`-`/`B`) y velocidad en kt.
+  - **Profile view (GDI+ cross-section):** eje X = NM desde threshold (recorrido inverso de `legs[]`); eje Y = ft MSL. Glideslope naranja (`ils_gs`): línea sólida desde FAF a threshold+50 ft usando `NavIls.Glideslope.PitchDeg`. Glidepath verde (`vnav_path`): ángulo de `legs[FafIndex].VerticalAngle`. Advisory gris punteado. Escalera de escalones (`null`/non-precision). DA/MDA línea roja punteada horizontal (último leg con `AltDescriptor="A"`). Ticks de fix con ident y altitud.
+  - **Selector de approach:** ComboBox con todos los approaches del aeropuerto, ordenado por pista y tipo; preselecciona el approach activo en el sidebar del mapa.
+  - **Header informativo:** nombre de aproximación, ICAO + nombre del aeropuerto, frecuencia ILS o VOR/NDB, elevación pista, TA, TL, ciclo AIRAC.
+  - **Carga de datos:** `NavDataClient.PrefetchAirport` + GetApproaches/GetIls/GetRunways/GetAirportInfo; muestra panel "Loading…" mientras carga; reutiliza caché si el aeropuerto ya fue prefetchado en `StartFlight`.
+- **`NavApproach`:** campos `ApproachName`, `VerticalGuidance`, `FafIndex`, `Navaid` + propiedad calculada `DisplayName`.
+- **`NavApproachLeg`:** campos `FixType`, `FixRegion`, `TurnDirection`, `Rnp`, `SpeedLimitType`, `DmeRadiusNm`, `DmeRadial`, `CenterFix`, `CenterFixRegion`, `CenterLat`, `CenterLon`.
+- **`NavNavaid`:** campos `Region`, `VorType`, `NdbType`, `MagVar`.
+
+---
+
 ## [0.6.7] — 2026-05-26
 
 ### Added

@@ -2068,6 +2068,17 @@ namespace vmsOpenAcars.UI.Forms
             };
             place(_lblApproachCount, 14);
 
+            var lnkChart = new LinkLabel
+            {
+                Text      = "📋 APPROACH CHART",
+                AutoSize  = true,
+                Font      = new Font("Consolas", 7, FontStyle.Regular),
+                LinkColor = Color.FromArgb(80, 160, 220),
+                Padding   = new Padding(0, 3, 0, 3),
+            };
+            lnkChart.LinkClicked += (s, e) => OpenApproachChart();
+            place(lnkChart, 18);
+
             // Conectar eventos
             _cmbOriginRwy.SelectedIndexChanged += OnOriginRunwayChanged;
             _cmbSid.SelectedIndexChanged       += OnSidChanged;
@@ -2668,6 +2679,16 @@ namespace vmsOpenAcars.UI.Forms
             var ils = _sbIls?.FirstOrDefault(i =>
                 string.Equals(i.Runway, _selDestRunway, StringComparison.OrdinalIgnoreCase));
             DrawApproachOverlay(app, destRwy, ils);
+        }
+
+        private void OpenApproachChart()
+        {
+            if (string.IsNullOrEmpty(_currentDestIcao)) return;
+            NavApproach preselected = null;
+            if (_selApproachKey != null)
+                preselected = _sbApproaches?.FirstOrDefault(a =>
+                    $"{a.Type}{a.Suffix ?? ""}_{a.Runway ?? ""}" == _selApproachKey);
+            new ApproachChartForm(_currentDestIcao, preselected).Show(this);
         }
 
         // ── Approach overlay ─────────────────────────────────────────────────────────

@@ -104,24 +104,43 @@ namespace vmsOpenAcars.Models.NavData
         [JsonProperty("fix_ident")]          public string              FixIdent         { get; set; }
         [JsonProperty("has_gps_overlay")]    public bool                HasGpsOverlay    { get; set; }
         [JsonProperty("has_vertical_angle")] public bool                HasVerticalAngle { get; set; }
+        [JsonProperty("approach_name")]      public string              ApproachName     { get; set; }
+        [JsonProperty("vertical_guidance")]  public string              VerticalGuidance { get; set; }
+        [JsonProperty("faf_index")]          public int?                FafIndex         { get; set; }
+        [JsonProperty("navaid")]             public NavNavaid           Navaid           { get; set; }
         [JsonProperty("legs")]               public List<NavApproachLeg> Legs            { get; set; } = new List<NavApproachLeg>();
         [JsonProperty("missed_legs")]        public List<NavApproachLeg> MissedLegs      { get; set; } = new List<NavApproachLeg>();
+
+        public string DisplayName => !string.IsNullOrEmpty(ApproachName)
+            ? ApproachName
+            : string.IsNullOrEmpty(Suffix) ? $"{Type} RWY {Runway}" : $"{Type} {Suffix} RWY {Runway}";
     }
 
     internal class NavApproachLeg
     {
-        [JsonProperty("type")]            public string  Type           { get; set; }
-        [JsonProperty("fix")]             public string  Fix            { get; set; }
-        [JsonProperty("lat")]             public double? Lat            { get; set; }
-        [JsonProperty("lon")]             public double? Lon            { get; set; }
-        [JsonProperty("course")]          public double  Course         { get; set; }
-        [JsonProperty("distance_nm")]     public double  DistanceNm     { get; set; }
-        [JsonProperty("altitude_ft")]     public double  AltitudeFt     { get; set; }
-        [JsonProperty("altitude2_ft")]    public double  Altitude2Ft    { get; set; }
-        [JsonProperty("alt_descriptor")]  public string  AltDescriptor  { get; set; }
-        [JsonProperty("speed_kts")]       public int?    SpeedKts       { get; set; }
-        [JsonProperty("vertical_angle")]  public double? VerticalAngle  { get; set; }
-        [JsonProperty("is_flyover")]      public bool    IsFlyover      { get; set; }
+        [JsonProperty("type")]                   public string  Type           { get; set; }
+        [JsonProperty("fix")]                    public string  Fix            { get; set; }
+        [JsonProperty("fix_type")]               public string  FixType        { get; set; }
+        [JsonProperty("fix_region")]             public string  FixRegion      { get; set; }
+        [JsonProperty("lat")]                    public double? Lat            { get; set; }
+        [JsonProperty("lon")]                    public double? Lon            { get; set; }
+        [JsonProperty("course")]                 public double  Course         { get; set; }
+        [JsonProperty("distance_nm")]            public double  DistanceNm     { get; set; }
+        [JsonProperty("altitude_ft")]            public double  AltitudeFt     { get; set; }
+        [JsonProperty("altitude2_ft")]           public double  Altitude2Ft    { get; set; }
+        [JsonProperty("alt_descriptor")]         public string  AltDescriptor  { get; set; }
+        [JsonProperty("speed_kts")]              public int?    SpeedKts       { get; set; }
+        [JsonProperty("speed_limit_type")]       public string  SpeedLimitType { get; set; }
+        [JsonProperty("vertical_angle")]         public double? VerticalAngle  { get; set; }
+        [JsonProperty("turn_direction")]         public string  TurnDirection  { get; set; }
+        [JsonProperty("is_flyover")]             public bool    IsFlyover      { get; set; }
+        [JsonProperty("rnp")]                    public double? Rnp            { get; set; }
+        [JsonProperty("dme_radius_nm")]          public double? DmeRadiusNm    { get; set; }
+        [JsonProperty("dme_radial")]             public double? DmeRadial      { get; set; }
+        [JsonProperty("recommended_fix")]        public string  CenterFix      { get; set; }
+        [JsonProperty("recommended_fix_region")] public string  CenterFixRegion{ get; set; }
+        [JsonProperty("recommended_fix_lat")]    public double? CenterLat      { get; set; }
+        [JsonProperty("recommended_fix_lon")]    public double? CenterLon      { get; set; }
     }
 
     // ── Airport info ──────────────────────────────────────────────────────────────
@@ -154,8 +173,12 @@ namespace vmsOpenAcars.Models.NavData
         [JsonProperty("ident")]         public string  Ident        { get; set; }
         [JsonProperty("type")]          public string  Type         { get; set; }
         [JsonProperty("name")]          public string  Name         { get; set; }
+        [JsonProperty("region")]        public string  Region       { get; set; }
+        [JsonProperty("vor_type")]      public string  VorType      { get; set; }
+        [JsonProperty("ndb_type")]      public string  NdbType      { get; set; }
         [JsonProperty("frequency_mhz")] public double? FrequencyMhz { get; set; }
         [JsonProperty("frequency_khz")] public double? FrequencyKhz { get; set; }
+        [JsonProperty("mag_var")]       public double? MagVar       { get; set; }
         [JsonProperty("lat")]           public double  Lat          { get; set; }
         [JsonProperty("lon")]           public double  Lon          { get; set; }
     }

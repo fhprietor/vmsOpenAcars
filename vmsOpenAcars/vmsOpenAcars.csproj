@@ -210,6 +210,9 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="UI\Forms\FlightPlannerForm.cs" />
+    <Compile Include="UI\Forms\ApproachChartForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="UI\Forms\LandingAnalysisForm.cs">
       <SubType>Form</SubType>
     </Compile>
