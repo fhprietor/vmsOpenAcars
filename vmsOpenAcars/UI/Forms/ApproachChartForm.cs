@@ -13,12 +13,20 @@ namespace vmsOpenAcars.UI.Forms
     internal sealed class ApproachChartForm : Form
     {
         // ── UI controls ──────────────────────────────────────────────────────────────
-        private ComboBox _cmbApproach;
-        private Panel    _pnlHeader;
-        private Panel    _pnlPlan;
-        private Panel    _pnlProfile;
-        private Panel    _pnlLoading;
-        private Label    _lblHeader;
+        private Panel          _toolbar;
+        private Label          _lblApproach;
+        private SplitContainer _split;
+        private Label          _lblLoading;
+        private ComboBox       _cmbApproach;
+        private Panel          _pnlHeader;
+        private Panel          _pnlPlan;
+        private Panel          _pnlProfile;
+        private Panel          _pnlLoading;
+        private Label          _lblHeader;
+
+        // ── DPI scaling ──────────────────────────────────────────────────────────────
+        private float _scale = 1f;
+        private float S(float px) => px * _scale;
 
         // ── Data ─────────────────────────────────────────────────────────────────────
         private readonly string         _icao;
@@ -29,7 +37,7 @@ namespace vmsOpenAcars.UI.Forms
         private NavApproach             _selected;
         private readonly NavApproach    _preselected;
 
-        // ── Colors / fonts ───────────────────────────────────────────────────────────
+        // ── Colors ───────────────────────────────────────────────────────────────────
         private static readonly Color BgColor     = Color.FromArgb(15, 22, 32);
         private static readonly Color LegColor    = Color.FromArgb(220, 220, 220);
         private static readonly Color MissedColor = Color.FromArgb(0, 200, 255);
@@ -40,10 +48,6 @@ namespace vmsOpenAcars.UI.Forms
         private static readonly Color LabelColor  = Color.FromArgb(255, 220, 80);
         private static readonly Color AxisColor   = Color.FromArgb(80, 100, 120);
         private static readonly Color RwyColor    = Color.FromArgb(180, 180, 180);
-        private static readonly Font  FixFont     = new Font("Consolas", 7, FontStyle.Bold);
-        private static readonly Font  AxisFont    = new Font("Consolas", 6.5f);
-        private static readonly Font  HeaderFont  = new Font("Consolas", 8, FontStyle.Bold);
-        private static readonly Font  SubFont     = new Font("Consolas", 7.5f);
 
         // ── Constructor ──────────────────────────────────────────────────────────────
 
@@ -52,7 +56,7 @@ namespace vmsOpenAcars.UI.Forms
             _icao        = icao;
             _preselected = preselected;
             InitLayout();
-            this.Shown += (s, e) => _ = LoadDataAsync();
+            this.Shown += (s, e) => { UpdateScale(DeviceDpi); _ = LoadDataAsync(); };
         }
 
         // ── Layout ───────────────────────────────────────────────────────────────────
@@ -67,8 +71,8 @@ namespace vmsOpenAcars.UI.Forms
             StartPosition   = FormStartPosition.CenterParent;
 
             // Toolbar
-            var toolbar = new Panel { Dock = DockStyle.Top, Height = 36, BackColor = Color.FromArgb(20, 30, 42) };
-            var lbl = new Label { Text = "Approach:", ForeColor = Color.FromArgb(140, 160, 180),
+            _toolbar     = new Panel { Dock = DockStyle.Top, Height = 36, BackColor = Color.FromArgb(20, 30, 42) };
+            _lblApproach = new Label { Text = "Approach:", ForeColor = Color.FromArgb(140, 160, 180),
                 Font = new Font("Consolas", 8), AutoSize = true, Top = 9, Left = 8 };
             _cmbApproach = new ComboBox
             {
@@ -77,21 +81,21 @@ namespace vmsOpenAcars.UI.Forms
                 Top = 6, Left = 80, Width = 340,
             };
             _cmbApproach.SelectedIndexChanged += (s, e) => OnApproachSelected();
-            toolbar.Controls.Add(lbl);
-            toolbar.Controls.Add(_cmbApproach);
+            _toolbar.Controls.Add(_lblApproach);
+            _toolbar.Controls.Add(_cmbApproach);
 
             // Header
             _pnlHeader = new Panel { Dock = DockStyle.Top, Height = 54, BackColor = Color.FromArgb(18, 26, 38) };
             _lblHeader = new Label
             {
                 Dock = DockStyle.Fill, ForeColor = Color.FromArgb(200, 220, 240),
-                Font = SubFont, TextAlign = ContentAlignment.MiddleLeft,
+                Font = new Font("Consolas", 7.5f), TextAlign = ContentAlignment.MiddleLeft,
                 Padding = new Padding(10, 0, 0, 0),
             };
             _pnlHeader.Controls.Add(_lblHeader);
 
             // Split: plan (top) + profile (bottom)
-            var split = new SplitContainer
+            _split = new SplitContainer
             {
                 Dock = DockStyle.Fill, Orientation = Orientation.Horizontal,
                 BackColor = BgColor, BorderStyle = BorderStyle.None,
@@ -104,24 +108,69 @@ namespace vmsOpenAcars.UI.Forms
             _pnlProfile = new Panel { Dock = DockStyle.Fill, BackColor = BgColor };
             _pnlProfile.Paint += PaintProfileView;
 
-            split.Panel1.Controls.Add(_pnlPlan);
-            split.Panel2.Controls.Add(_pnlProfile);
+            _split.Panel1.Controls.Add(_pnlPlan);
+            _split.Panel2.Controls.Add(_pnlProfile);
 
             // Loading overlay
             _pnlLoading = new Panel { Dock = DockStyle.Fill, BackColor = BgColor, Visible = true };
-            var lblLoading = new Label
+            _lblLoading  = new Label
             {
                 Text = "Loading NavData…", ForeColor = Color.FromArgb(100, 140, 180),
                 Font = new Font("Consolas", 11), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter,
             };
-            _pnlLoading.Controls.Add(lblLoading);
+            _pnlLoading.Controls.Add(_lblLoading);
 
             Controls.Add(_pnlLoading);
-            Controls.Add(split);
+            Controls.Add(_split);
             Controls.Add(_pnlHeader);
-            Controls.Add(toolbar);
+            Controls.Add(_toolbar);
 
             SizeChanged += (s, e) => { _pnlPlan.Invalidate(); _pnlProfile.Invalidate(); };
+        }
+
+        // ── DPI handling ─────────────────────────────────────────────────────────────
+
+        protected override void OnDpiChanged(DpiChangedEventArgs e)
+        {
+            base.OnDpiChanged(e);
+            UpdateScale(e.DeviceDpiNew);
+        }
+
+        private void UpdateScale(int dpi)
+        {
+            _scale = dpi / 96f;
+            RelayoutControls();
+            _pnlPlan.Invalidate();
+            _pnlProfile.Invalidate();
+        }
+
+        private void RelayoutControls()
+        {
+            _toolbar.Height    = (int)S(36);
+            _lblApproach.Top   = (int)S(9);
+            _lblApproach.Left  = (int)S(8);
+            _lblApproach.Font  = new Font("Consolas", S(8));
+            _cmbApproach.Top   = (int)S(6);
+            _cmbApproach.Left  = (int)S(80);
+            _cmbApproach.Width = (int)S(340);
+            _cmbApproach.Font  = new Font("Consolas", S(8));
+
+            _pnlHeader.Height = (int)S(54);
+
+            var oldHdr = _lblHeader.Font;
+            _lblHeader.Font   = new Font("Consolas", S(7.5f));
+            oldHdr?.Dispose();
+
+            var oldLoad = _lblLoading.Font;
+            _lblLoading.Font  = new Font("Consolas", S(11));
+            oldLoad?.Dispose();
+
+            int min1 = (int)S(200), min2 = (int)S(120);
+            _split.Panel1MinSize = min1;
+            _split.Panel2MinSize = min2;
+            int available = _split.Height - _split.SplitterWidth;
+            if (available > min1 + min2)
+                _split.SplitterDistance = Math.Max(min1, Math.Min((int)S(400), available - min2));
         }
 
         // ── Data loading ─────────────────────────────────────────────────────────────
@@ -326,8 +375,8 @@ namespace vmsOpenAcars.UI.Forms
                     var pt = toScreen(ml.Lat.Value, ml.Lon.Value);
                     DrawFixSymbol(g, pt, false, false, true);
                     using (var br = new SolidBrush(MissedColor))
-                    using (var fn = new Font("Consolas", 6.5f, FontStyle.Bold))
-                        g.DrawString("MAP", fn, br, pt.X + 5, pt.Y - 10);
+                    using (var fn = new Font("Consolas", S(6.5f), FontStyle.Bold))
+                        g.DrawString("MAP", fn, br, pt.X + S(5), pt.Y - S(10));
                 }
             }
 
@@ -379,71 +428,69 @@ namespace vmsOpenAcars.UI.Forms
             g.DrawArc(pen, rect, startAngle, sweep);
         }
 
-        private static void DrawFixSymbol(Graphics g, PointF pt, bool isIaf, bool isFaf, bool isMap)
+        private void DrawFixSymbol(Graphics g, PointF pt, bool isIaf, bool isFaf, bool isMap)
         {
             if (isFaf)
             {
+                float r = S(5);
                 using (var p = new Pen(FafColor, 1.5f))
-                {
-                    float r = 5;
                     g.DrawEllipse(p, pt.X - r, pt.Y - r, r * 2, r * 2);
-                }
             }
             else if (isIaf)
             {
+                float s = S(5);
                 using (var p = new Pen(LegColor, 1.5f))
-                {
-                    float s = 5;
                     g.DrawPolygon(p, new[] {
                         new PointF(pt.X, pt.Y - s),
                         new PointF(pt.X + s, pt.Y + s),
                         new PointF(pt.X - s, pt.Y + s),
                     });
-                }
             }
             else if (isMap)
             {
+                float s = S(4);
                 using (var p = new Pen(MissedColor, 1.5f))
-                {
-                    float s = 4;
                     g.DrawRectangle(p, pt.X - s, pt.Y - s, s * 2, s * 2);
-                }
             }
             else
             {
+                float r = S(2.5f);
                 using (var br = new SolidBrush(Color.FromArgb(160, LegColor)))
-                    g.FillEllipse(br, pt.X - 2.5f, pt.Y - 2.5f, 5, 5);
+                    g.FillEllipse(br, pt.X - r, pt.Y - r, r * 2, r * 2);
             }
         }
 
-        private static void DrawFixLabel(Graphics g, PointF pt, NavApproachLeg leg, bool important)
+        private void DrawFixLabel(Graphics g, PointF pt, NavApproachLeg leg, bool important)
         {
             if (string.IsNullOrEmpty(leg.Fix)) return;
             Color c = important ? Color.White : Color.FromArgb(190, 190, 190);
             using (var br = new SolidBrush(c))
-                g.DrawString(leg.Fix, FixFont, br, pt.X + 6, pt.Y - 10);
+            using (var fn = new Font("Consolas", S(7f), FontStyle.Bold))
+                g.DrawString(leg.Fix, fn, br, pt.X + S(6), pt.Y - S(10));
 
             if (leg.AltitudeFt > 0)
             {
-                string alt  = FormatAlt(leg.AltDescriptor, leg.AltitudeFt);
+                string alt = FormatAlt(leg.AltDescriptor, leg.AltitudeFt);
                 using (var br = new SolidBrush(LabelColor))
-                    g.DrawString(alt, AxisFont, br, pt.X + 6, pt.Y + 2);
+                using (var fn = new Font("Consolas", S(6.5f)))
+                    g.DrawString(alt, fn, br, pt.X + S(6), pt.Y + S(2));
             }
             if (leg.SpeedKts.HasValue)
             {
                 using (var br = new SolidBrush(Color.FromArgb(160, 200, 255)))
-                    g.DrawString($"{leg.SpeedKts}kt", AxisFont, br, pt.X + 6, pt.Y + 12);
+                using (var fn = new Font("Consolas", S(6.5f)))
+                    g.DrawString($"{leg.SpeedKts}kt", fn, br, pt.X + S(6), pt.Y + S(12));
             }
         }
 
-        private static void DrawNorthArrow(Graphics g, int w, int h)
+        private void DrawNorthArrow(Graphics g, int w, int h)
         {
-            float x = w - 28, y = h - 44, len = 16;
+            float x = w - S(28), y = h - S(44), len = S(16);
             using (var p = new Pen(Color.FromArgb(160, 200, 200, 200), 1.5f))
                 g.DrawLine(p, x, y + len, x, y);
             using (var br = new SolidBrush(Color.FromArgb(180, 200, 200, 200)))
-            using (var fn = new Font("Consolas", 7, FontStyle.Bold))
-                g.DrawString("N", fn, br, x - 4, y - 12);
+            using (var fn = new Font("Consolas", S(7f), FontStyle.Bold))
+                g.DrawString("N", fn, br, x - S(4), y - S(12));
         }
 
         // ── Profile view ─────────────────────────────────────────────────────────────
@@ -481,7 +528,7 @@ namespace vmsOpenAcars.UI.Forms
             maxAlt = maxAlt * 1.08;
 
             // Margins
-            int ml = 55, mr = 20, mt = 16, mb = 30;
+            int ml = (int)S(55), mr = (int)S(20), mt = (int)S(16), mb = (int)S(30);
             int pw = _pnlProfile.ClientSize.Width  - ml - mr;
             int ph = _pnlProfile.ClientSize.Height - mt - mb;
             if (pw < 10 || ph < 10) return;
@@ -506,12 +553,13 @@ namespace vmsOpenAcars.UI.Forms
             }
 
             // Axis labels
-            using (var br = new SolidBrush(AxisColor))
+            using (var br    = new SolidBrush(AxisColor))
+            using (var axFn  = new Font("Consolas", S(6.5f)))
             {
                 for (double d = 0; d <= maxDist + 0.01; d += NiceStep(maxDist, 6))
-                    g.DrawString($"{d:F0}", AxisFont, br, toX(d) - 6, mt + ph + 4);
+                    g.DrawString($"{d:F0}", axFn, br, toX(d) - S(6), mt + ph + S(4));
                 for (double a = Math.Ceiling(minAlt / 500) * 500; a <= maxAlt; a += NiceAltStep(maxAlt - minAlt))
-                    g.DrawString($"{a:F0}", AxisFont, br, 2, toY(a) - 7);
+                    g.DrawString($"{a:F0}", axFn, br, S(2), toY(a) - S(7));
             }
 
             // Glideslope / glidepath / staircase
@@ -539,50 +587,53 @@ namespace vmsOpenAcars.UI.Forms
 
             // DA / MDA line
             double da = FindDaMda(legs);
-            if (da > rwyElev)
+            using (var profFn = new Font("Consolas", S(6.5f)))
             {
-                using (var p = new Pen(DaColor, 1) { DashStyle = DashStyle.Dash })
-                    g.DrawLine(p, ml, toY(da), ml + pw, toY(da));
-                using (var br = new SolidBrush(DaColor))
-                    g.DrawString($"DA/MDA {da:F0}", AxisFont, br, ml + 3, toY(da) - 11);
-            }
-
-            // Fix ticks
-            for (int i = 0; i < n; i++)
-            {
-                var leg = legs[i];
-                float x = toX(distFromThr[i]);
-
-                using (var p = new Pen(Color.FromArgb(100, AxisColor), 1))
-                    g.DrawLine(p, x, mt, x, mt + ph);
-
-                if (!string.IsNullOrEmpty(leg.Fix))
+                if (da > rwyElev)
                 {
-                    Color lc = (i == 0) ? LegColor : (i == fafIdx) ? FafColor : Color.FromArgb(170, 170, 170);
-                    using (var br = new SolidBrush(lc))
-                        g.DrawString(leg.Fix, AxisFont, br, x - 10, mt + 2);
+                    using (var p = new Pen(DaColor, 1) { DashStyle = DashStyle.Dash })
+                        g.DrawLine(p, ml, toY(da), ml + pw, toY(da));
+                    using (var br = new SolidBrush(DaColor))
+                        g.DrawString($"DA/MDA {da:F0}", profFn, br, ml + S(3), toY(da) - S(11));
                 }
 
-                if (leg.AltitudeFt > 0)
+                // Fix ticks
+                for (int i = 0; i < n; i++)
                 {
-                    string alt = FormatAlt(leg.AltDescriptor, leg.AltitudeFt);
-                    using (var br = new SolidBrush(LabelColor))
-                        g.DrawString(alt, AxisFont, br, x - 14, toY(leg.AltitudeFt) - 13);
+                    var leg = legs[i];
+                    float x = toX(distFromThr[i]);
 
-                    using (var p = new Pen(Color.FromArgb(50, LabelColor), 1) { DashStyle = DashStyle.Dot })
-                        g.DrawLine(p, x - 10, toY(leg.AltitudeFt), x + 10, toY(leg.AltitudeFt));
+                    using (var p = new Pen(Color.FromArgb(100, AxisColor), 1))
+                        g.DrawLine(p, x, mt, x, mt + ph);
+
+                    if (!string.IsNullOrEmpty(leg.Fix))
+                    {
+                        Color lc = (i == 0) ? LegColor : (i == fafIdx) ? FafColor : Color.FromArgb(170, 170, 170);
+                        using (var br = new SolidBrush(lc))
+                            g.DrawString(leg.Fix, profFn, br, x - S(10), mt + S(2));
+                    }
+
+                    if (leg.AltitudeFt > 0)
+                    {
+                        string alt = FormatAlt(leg.AltDescriptor, leg.AltitudeFt);
+                        using (var br = new SolidBrush(LabelColor))
+                            g.DrawString(alt, profFn, br, x - S(14), toY(leg.AltitudeFt) - S(13));
+
+                        using (var p = new Pen(Color.FromArgb(50, LabelColor), 1) { DashStyle = DashStyle.Dot })
+                            g.DrawLine(p, x - S(10), toY(leg.AltitudeFt), x + S(10), toY(leg.AltitudeFt));
+                    }
                 }
-            }
 
-            // Profile axis titles
-            using (var br = new SolidBrush(AxisColor))
-            {
-                g.DrawString("ft MSL", AxisFont, br, 2, mt);
-                g.DrawString("NM from threshold →", AxisFont, br, ml + pw / 2 - 50, mt + ph + 16);
+                // Profile axis titles
+                using (var br = new SolidBrush(AxisColor))
+                {
+                    g.DrawString("ft MSL", profFn, br, S(2), mt);
+                    g.DrawString("NM from threshold →", profFn, br, ml + pw / 2 - S(50), mt + ph + S(16));
+                }
             }
         }
 
-        private static void DrawGlidepath(Graphics g, Func<double, float> toX, Func<double, float> toY,
+        private void DrawGlidepath(Graphics g, Func<double, float> toX, Func<double, float> toY,
             int fafIdx, double[] dist, List<NavApproachLeg> legs, double angleDeg, double rwyElev,
             Color color, bool dashed)
         {
@@ -597,8 +648,8 @@ namespace vmsOpenAcars.UI.Forms
                 g.DrawLine(p, pt1, pt2);
 
             using (var br = new SolidBrush(color))
-            using (var fn = new Font("Consolas", 6.5f))
-                g.DrawString($"{angleDeg:F1}°", fn, br, (pt1.X + pt2.X) / 2 + 3, (pt1.Y + pt2.Y) / 2 - 10);
+            using (var fn = new Font("Consolas", S(6.5f)))
+                g.DrawString($"{angleDeg:F1}°", fn, br, (pt1.X + pt2.X) / 2 + S(3), (pt1.Y + pt2.Y) / 2 - S(10));
         }
 
         private static void DrawStaircase(Graphics g, Func<double, float> toX, Func<double, float> toY,
