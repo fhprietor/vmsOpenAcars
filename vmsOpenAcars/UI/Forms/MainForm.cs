@@ -272,12 +272,21 @@ namespace vmsOpenAcars.UI.Forms
                     _mapForm.SetAirspaces(airspaces);
             };
 
+            _viewModel.OnAtcStationsUpdated += stations =>
+            {
+                if (_mapForm != null && !_mapForm.IsDisposed)
+                    _mapForm.SetAtcStations(stations);
+            };
+
             _viewModel.OnPlanChanged += plan =>
             {
                 if (_mapForm != null && !_mapForm.IsDisposed)
+                {
                     _mapForm.LoadRoute(plan?.Waypoints, plan?.Origin, plan?.OriginRunway,
                         plan?.Destination, plan?.DestinationRunway, plan?.Alternate,
                         plan?.SidName, plan?.StarName);
+                    _mapForm.SetAircraftCategory(_viewModel.GetAircraftCategory());
+                }
 
                 if (btnOfp != null)
                 {
@@ -1925,6 +1934,11 @@ namespace vmsOpenAcars.UI.Forms
                     x = Left + 40;
                 _mapForm.Location = new Point(x, Top);
                 _mapForm.Show();
+                var airspaces = _viewModel.GetAirspaces();
+                if (airspaces?.Count > 0) _mapForm.SetAirspaces(airspaces);
+                var atc = _viewModel.GetAtcStations();
+                if (atc?.Count > 0) _mapForm.SetAtcStations(atc);
+                _mapForm.SetAircraftCategory(_viewModel.GetAircraftCategory());
                 var plan = _viewModel.ActivePlan;
                 if (plan?.Waypoints?.Count > 1)
                     _mapForm.LoadRoute(plan.Waypoints, plan.Origin, plan.OriginRunway,

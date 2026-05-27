@@ -79,7 +79,8 @@ namespace vmsOpenAcars.ViewModels
         public event Action<MetarData[]>     OnMetarUpdated;
         public event Action<MetarFetchState> OnMetarStateChanged;
         public event Action<string, OsdSeverity>    OnOsdMessage;
-        internal event Action<IList<NavAirspace>>   OnAirspacesReady;
+        internal event Action<IList<NavAirspace>>     OnAirspacesReady;
+        internal event Action<IList<IvaoAtcStation>> OnAtcStationsUpdated;
 
         public MainViewModel(
             FlightManager flightManager,
@@ -124,15 +125,40 @@ namespace vmsOpenAcars.ViewModels
             _airspaceMonitor.OnAtcUpdated += stations =>
             {
                 if (stations.Count == 0) return;
-                foreach (var s in stations.OrderBy(x => x.Icao).ThenBy(x => x.Position))
+                // One compact line per ICAO: "📻 SKBO  GND 121.900  TWR 118.100  APP 119.100"
+                foreach (var grp in stations
+                    .Where(s => s.Position != "ATIS")
+                    .GroupBy(s => s.Icao, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(g => g.Key))
                 {
-                    string freq = s.Frequency > 0 ? $"  {s.Frequency:F3}" : string.Empty;
-                    if (s.Position == "ATIS" && s.AtisLines.Count > 0)
-                        OnLog?.Invoke($"📻 {s.Callsign}{freq}  —  {s.AtisLines[0]}", Theme.SecondaryText);
-                    else
-                        OnLog?.Invoke($"📻 {s.Callsign}{freq}", Theme.SecondaryText);
+                    var parts = grp
+                        .OrderBy(s => AtcPosOrder(s.Position))
+                        .Select(s => s.Frequency > 0
+                            ? $"{s.Position} {s.Frequency:F3}"
+                            : s.Position);
+                    OnLog?.Invoke($"📻 {grp.Key}  {string.Join("  ", parts)}", Theme.SecondaryText);
                 }
+                OnAtcStationsUpdated?.Invoke(stations);
             };
+        }
+
+        public IList<IvaoAtcStation> GetAtcStations() => _airspaceMonitor.GetAtcStations();
+        internal IList<NavAirspace>  GetAirspaces()   => _airspaceMonitor.GetAirspaces();
+        internal FsuipcService.AircraftCategory GetAircraftCategory()
+        {
+            var cat = _fsuipc?.EngineCategory ?? FsuipcService.AircraftCategory.Unknown;
+            if (cat != FsuipcService.AircraftCategory.Unknown) return cat;
+            return _fsuipc?.GetAircraftCategory() ?? FsuipcService.AircraftCategory.Unknown;
+        }
+
+        private static int AtcPosOrder(string pos)
+        {
+            switch (pos)
+            {
+                case "DEL": return 0; case "GND": return 1; case "TWR": return 2;
+                case "DEP": return 3; case "APP": return 4; case "CTR": return 5;
+                default: return 6;
+            }
         }
 
         private void SubscribeToEvents()
@@ -1263,6 +1289,19 @@ namespace vmsOpenAcars.ViewModels
             _procSpdViolations  = 0;
             _procFixAnnounced   = false;
             Task.Run(() => LoadProcedureRestrictions(plan));
+
+            // Start airspace + IVAO polling immediately so the map shows ATC before flight start
+            string _planOrig = plan.Origin, _planDest = plan.Destination;
+            Task.Run(async () =>
+            {
+                await _airspaceMonitor.InitRouteAsync(_planOrig, _planDest);
+                var airspaces = _airspaceMonitor.GetAirspaces();
+                if (airspaces.Count > 0)
+                {
+                    OnLog?.Invoke($"🗺️ {airspaces.Count} airspaces loaded for route", Theme.SecondaryText);
+                    OnAirspacesReady?.Invoke(airspaces);
+                }
+            });
         }
 
         public void UpdateFlightInfo()
@@ -1528,15 +1567,15 @@ namespace vmsOpenAcars.ViewModels
                     double sLon = _flightManager.CurrentLon;
                     int    sHdg = (int)_fsuipc.CurrentHeading;
                     var logPositions = new System.Collections.Generic.List<AcarsPosition>();
-                    logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = $"vmsOpenAcars v{AppInfo.Version}", status = "ground", source = "vmsOpenAcars" });
+                    logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = $"vmsOpenAcars v{AppInfo.Version}", type = 2, status = "SCH", source = "vmsOpenAcars" });
                     if (!string.IsNullOrEmpty(SystemInfoHelper.CpuSummary))
-                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.CpuSummary, status = "ground", source = "vmsOpenAcars" });
+                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.CpuSummary, type = 2, status = "SCH", source = "vmsOpenAcars" });
                     if (!string.IsNullOrEmpty(SystemInfoHelper.GpuSummary))
-                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.GpuSummary, status = "ground", source = "vmsOpenAcars" });
+                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.GpuSummary, type = 2, status = "SCH", source = "vmsOpenAcars" });
                     if (!string.IsNullOrEmpty(SystemInfoHelper.OsSummary))
-                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.OsSummary,  status = "ground", source = "vmsOpenAcars" });
+                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = SystemInfoHelper.OsSummary,  type = 2, status = "SCH", source = "vmsOpenAcars" });
                     if (NavDataClient.IsReachable && !string.IsNullOrEmpty(NavDataClient.AiracCycle))
-                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = $"NavData API: AIRAC {NavDataClient.AiracCycle}", status = "ground", source = "vmsOpenAcars" });
+                        logPositions.Add(new AcarsPosition { lat = sLat, lon = sLon, heading = sHdg, log = $"NavData API: AIRAC {NavDataClient.AiracCycle}", type = 2, status = "SCH", source = "vmsOpenAcars" });
                     var startupUpdate = new AcarsPositionUpdate { positions = logPositions.ToArray() };
                     Task.Run(async () => await _apiService.SendPositionUpdate(_startPirepId, startupUpdate));
                 }

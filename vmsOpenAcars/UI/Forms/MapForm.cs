@@ -20,6 +20,7 @@ namespace vmsOpenAcars.UI.Forms
     {
         private GMapControl    _map;
         private GMapOverlay    _airspaceOverlay;
+        private GMapOverlay    _atcOverlay;
         private GMapOverlay    _routeShadowOverlay;
         private GMapOverlay    _routeOverlay;
         private GMapOverlay    _ambientOverlay;
@@ -34,6 +35,14 @@ namespace vmsOpenAcars.UI.Forms
         private bool           _dragging;
         private Point          _dragStart;
         private SpinnerOverlay _spinner;
+        private ToolTip        _atcToolTip;
+
+        // ── Layer toggles ─────────────────────────────────────────────────────────
+        private CheckBox     _chkLayerTiles;
+        private CheckBox     _chkLayerRoute;
+        private CheckBox     _chkLayerSpaces;
+        private CheckBox     _chkLayerIvao;
+        private GMapProvider _savedProvider;
 
         // ── Sidebar ───────────────────────────────────────────────────────────────
         private Panel    _sidebarPanel;
@@ -254,11 +263,51 @@ namespace vmsOpenAcars.UI.Forms
             btnZoomIn.Click  += (s, e) => { if (_map.Zoom < _map.MaxZoom) _map.Zoom++; };
             btnZoomOut.Click += (s, e) => { if (_map.Zoom > _map.MinZoom) _map.Zoom--; };
 
+            _chkLayerTiles  = MakeLayerChk("TILES");
+            _chkLayerRoute  = MakeLayerChk("ROUTE");
+            _chkLayerSpaces = MakeLayerChk("SPACES");
+            _chkLayerIvao   = MakeLayerChk("IVAO");
+
+            _chkLayerTiles.CheckedChanged += (s, e) =>
+            {
+                if (_chkLayerTiles.Checked)
+                    _map.MapProvider = _savedProvider ?? ProviderForIndex(LoadMapProviderIndex());
+                else
+                {
+                    _savedProvider   = _map.MapProvider;
+                    _map.MapProvider = GMap.NET.MapProviders.EmptyProvider.Instance;
+                }
+                _map.Refresh();
+            };
+            _chkLayerRoute.CheckedChanged += (s, e) =>
+            {
+                bool v = _chkLayerRoute.Checked;
+                _routeOverlay.IsVisibile       = v;
+                _routeShadowOverlay.IsVisibile = v;
+                _waypointOverlay.IsVisibile    = v;
+                _map.Refresh();
+            };
+            _chkLayerSpaces.CheckedChanged += (s, e) =>
+            {
+                _airspaceOverlay.IsVisibile = _chkLayerSpaces.Checked;
+                _map.Refresh();
+            };
+            _chkLayerIvao.CheckedChanged += (s, e) =>
+            {
+                _atcOverlay.IsVisibile = _chkLayerIvao.Checked;
+                _map.Refresh();
+            };
+
             bar.Controls.Add(_lblStatus);
             bar.Controls.Add(_chkFollow);
             bar.Controls.Add(_cmbProvider);
             bar.Controls.Add(btnZoomOut);
             bar.Controls.Add(btnZoomIn);
+            // Layer toggles: added last → appear leftmost of the right-docked group
+            bar.Controls.Add(_chkLayerIvao);
+            bar.Controls.Add(_chkLayerSpaces);
+            bar.Controls.Add(_chkLayerRoute);
+            bar.Controls.Add(_chkLayerTiles);
 
             _map = new GMapControl { Dock = DockStyle.Fill };
 
@@ -295,6 +344,17 @@ namespace vmsOpenAcars.UI.Forms
             Font      = new Font("Consolas", 13, FontStyle.Bold),
         };
 
+        private static CheckBox MakeLayerChk(string text) => new CheckBox
+        {
+            Text      = text,
+            Checked   = true,
+            Dock      = DockStyle.Right,
+            Width     = 62,
+            ForeColor = Color.FromArgb(120, 165, 190),
+            Font      = new Font("Consolas", 7, FontStyle.Regular),
+            TextAlign = ContentAlignment.MiddleCenter,
+        };
+
         // ── GMap initialization ───────────────────────────────────────────────────
 
         private void InitMap()
@@ -315,6 +375,7 @@ namespace vmsOpenAcars.UI.Forms
 
             // Overlays en orden de pintado: sombra → ruta → ambient → fixes → avión (encima de todo)
             _airspaceOverlay    = new GMapOverlay("airspaces");
+            _atcOverlay         = new GMapOverlay("atc");
             _routeShadowOverlay = new GMapOverlay("route_shadow");
             _routeOverlay       = new GMapOverlay("route");
             _ambientOverlay     = new GMapOverlay("ambient");
@@ -326,10 +387,31 @@ namespace vmsOpenAcars.UI.Forms
             _map.Overlays.Add(_routeOverlay);
             _map.Overlays.Add(_ambientOverlay);
             _map.Overlays.Add(_waypointOverlay);
+            _map.Overlays.Add(_atcOverlay);
             _map.Overlays.Add(_approachOverlay);
             _map.Overlays.Add(_aircraftOverlay);
 
             _map.OnMapZoomChanged += () => UpdateZoomInStatus();
+
+            _atcToolTip = new ToolTip
+            {
+                AutoPopDelay = 0,
+                InitialDelay = 0,
+                ReshowDelay  = 0,
+                BackColor    = Color.FromArgb(15, 22, 35),
+                ForeColor    = Color.FromArgb(210, 220, 235),
+                IsBalloon    = false,
+            };
+            _map.OnMarkerEnter += m =>
+            {
+                if (!(m is AtcLabelMarker lbl)) return;
+                var pt = _map.PointToClient(Cursor.Position);
+                _atcToolTip.Show(lbl.TooltipContent, _map, pt.X + 14, pt.Y + 14, int.MaxValue);
+            };
+            _map.OnMarkerLeave += m =>
+            {
+                if (m is AtcLabelMarker) _atcToolTip.Hide(_map);
+            };
         }
 
         private void UpdateZoomInStatus()
@@ -2287,14 +2369,14 @@ namespace vmsOpenAcars.UI.Forms
                 float strokeW = 1.5f;
                 switch (a.Type)
                 {
-                    case "Prohibited": fill = Color.FromArgb(40, 220, 0,   0);   stroke = Color.FromArgb(190, 200, 0,   0);   break;
-                    case "Restricted": fill = Color.FromArgb(35, 255, 100, 0);   stroke = Color.FromArgb(170, 220, 80,  0);   break;
-                    case "Danger":     fill = Color.FromArgb(35, 220, 190, 0);   stroke = Color.FromArgb(160, 180, 150, 0);   break;
-                    case "CTR":        fill = Color.FromArgb(25, 0,   180, 255); stroke = Color.FromArgb(140, 0,   160, 230); break;
-                    case "TMA":        fill = Color.FromArgb(15, 0,   100, 210); stroke = Color.FromArgb(110, 0,   90,  190); strokeW = 1.0f; break;
-                    case "ATZ":        fill = Color.FromArgb(20, 100, 200, 255); stroke = Color.FromArgb(120, 80,  180, 240); strokeW = 1.0f; break;
-                    case "RMZ":        fill = Color.FromArgb(15, 180, 100, 220); stroke = Color.FromArgb(110, 160, 80,  200); strokeW = 1.0f; break;
-                    default:           fill = Color.FromArgb(10, 150, 150, 150); stroke = Color.FromArgb(80,  120, 120, 120); strokeW = 1.0f; break;
+                    case "Prohibited": fill = Color.FromArgb(20, 220, 0,   0);   stroke = Color.FromArgb(95,  200, 0,   0);   break;
+                    case "Restricted": fill = Color.FromArgb(17, 255, 100, 0);   stroke = Color.FromArgb(85,  220, 80,  0);   break;
+                    case "Danger":     fill = Color.FromArgb(17, 220, 190, 0);   stroke = Color.FromArgb(80,  180, 150, 0);   break;
+                    case "CTR":        fill = Color.FromArgb(12, 0,   180, 255); stroke = Color.FromArgb(70,  0,   160, 230); break;
+                    case "TMA":        fill = Color.FromArgb( 7, 0,   100, 210); stroke = Color.FromArgb(55,  0,   90,  190); strokeW = 1.0f; break;
+                    case "ATZ":        fill = Color.FromArgb(10, 100, 200, 255); stroke = Color.FromArgb(60,  80,  180, 240); strokeW = 1.0f; break;
+                    case "RMZ":        fill = Color.FromArgb( 7, 180, 100, 220); stroke = Color.FromArgb(55,  160, 80,  200); strokeW = 1.0f; break;
+                    default:           fill = Color.FromArgb( 5, 150, 150, 150); stroke = Color.FromArgb(40,  120, 120, 120); strokeW = 1.0f; break;
                 }
 
                 var poly = new GMapPolygon(pts, a.Name ?? a.Type)
@@ -2306,6 +2388,104 @@ namespace vmsOpenAcars.UI.Forms
             }
 
             _map.Refresh();
+        }
+
+        internal void SetAircraftCategory(FsuipcService.AircraftCategory cat)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            if (InvokeRequired) { BeginInvoke(new Action(() => SetAircraftCategory(cat))); return; }
+            if (_aircraftMarker == null) return;
+            _aircraftMarker.Category = cat;
+            _map.Refresh();
+        }
+
+        internal void SetAtcStations(IList<IvaoAtcStation> stations)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            if (InvokeRequired) { BeginInvoke(new Action(() => SetAtcStations(stations))); return; }
+
+            _atcOverlay.Markers.Clear();
+            _atcOverlay.Polygons.Clear();
+            if (stations == null || stations.Count == 0) { _map.Refresh(); return; }
+
+            foreach (var grp in stations.GroupBy(s => s.Icao, StringComparer.OrdinalIgnoreCase))
+            {
+                var all     = grp.ToList();
+                var nonAtis = all.Where(s => s.Position != "ATIS").ToList();
+                if (nonAtis.Count == 0) continue;
+
+                var info = NavDataClient.GetAirportInfo(grp.Key);
+                if (info == null || (info.Lat == 0 && info.Lon == 0)) continue;
+
+                double lat = info.Lat, lon = info.Lon;
+                var coord  = new PointLatLng(lat, lon);
+                var local  = nonAtis.Where(s => IsLocalAtcPos(s.Position)).ToList();
+                var area   = nonAtis.Where(s => !IsLocalAtcPos(s.Position)).ToList();
+                var atis   = all.Where(s => s.Position == "ATIS").ToList();
+
+                if (local.Count > 0)
+                {
+                    bool hasTwr = local.Any(s => s.Position == "TWR");
+                    bool hasGnd = local.Any(s => s.Position == "GND");
+                    bool hasDel = local.Any(s => s.Position == "DEL");
+                    const double R = 20.0;
+
+                    // Z-order: TWR (bottom) → GND → DEL (top)
+                    if (hasTwr) _atcOverlay.Polygons.Add(MakeCirclePolygon(lat, lon, R,
+                        Color.FromArgb( 30, 220,  50,  50),
+                        new Pen(Color.FromArgb(170, 220,  50,  50), 1.5f)));
+                    if (hasGnd) _atcOverlay.Polygons.Add(MakeStarPolygon(lat, lon, R, 0.38,  0.0,
+                        Color.FromArgb( 30, 220, 190,   0),
+                        new Pen(Color.FromArgb(170, 220, 190,   0), 1.5f)));
+                    if (hasDel) _atcOverlay.Polygons.Add(MakeStarPolygon(lat, lon, R, 0.38, 45.0,
+                        Color.FromArgb( 30, 255, 130,   0),
+                        new Pen(Color.FromArgb(170, 255, 130,   0), 1.5f)));
+
+                    _atcOverlay.Markers.Add(new AtcLabelMarker(coord, grp.Key, local, atis));
+                }
+                if (area.Count > 0)
+                    _atcOverlay.Markers.Add(new AtcStationMarker(coord, grp.Key, area));
+            }
+
+            _map.Refresh();
+        }
+
+        private static bool IsLocalAtcPos(string pos) =>
+            pos == "DEL" || pos == "GND" || pos == "TWR";
+
+        private static GMapPolygon MakeCirclePolygon(double lat, double lon, double radiusNm,
+                                                      Color fill, Pen stroke, int n = 72)
+        {
+            double latR = lat * Math.PI / 180.0;
+            double dLat = radiusNm / 60.0;
+            double dLon = radiusNm / 60.0 / Math.Cos(latR);
+            var pts = new List<PointLatLng>(n);
+            for (int i = 0; i < n; i++)
+            {
+                double a = 2.0 * Math.PI * i / n;
+                pts.Add(new PointLatLng(lat + dLat * Math.Sin(a), lon + dLon * Math.Cos(a)));
+            }
+            return new GMapPolygon(pts, "atc_circle") { Fill = new SolidBrush(fill), Stroke = stroke };
+        }
+
+        private static GMapPolygon MakeStarPolygon(double lat, double lon, double outerNm,
+                                                    double innerRatio, double startDeg, Color fill, Pen stroke)
+        {
+            double latR    = lat * Math.PI / 180.0;
+            double outerLat = outerNm / 60.0;
+            double outerLon = outerNm / 60.0 / Math.Cos(latR);
+            double innerLat = outerLat * innerRatio;
+            double innerLon = outerLon * innerRatio;
+            var pts = new List<PointLatLng>(8);
+            for (int i = 0; i < 8; i++)
+            {
+                double bearing = (startDeg + i * 45.0) * Math.PI / 180.0;
+                bool   isOuter = (i % 2 == 0);
+                double dLa = (isOuter ? outerLat : innerLat) * Math.Cos(bearing);
+                double dLo = (isOuter ? outerLon : innerLon) * Math.Sin(bearing);
+                pts.Add(new PointLatLng(lat + dLa, lon + dLo));
+            }
+            return new GMapPolygon(pts, "atc_star") { Fill = new SolidBrush(fill), Stroke = stroke };
         }
 
         public void SetMetarData(int? originWindDir, int? originWindSpeedKt,
@@ -2954,11 +3134,156 @@ namespace vmsOpenAcars.UI.Forms
         }
     }
 
+    // ── ATC label marker — center dot + ICAO text for local positions (DEL/GND/TWR) ──
+
+    internal sealed class AtcLabelMarker : GMapMarker
+    {
+        private static readonly Font  _f      = new Font("Consolas", 7f, FontStyle.Bold);
+        private static readonly Brush _shadow = new SolidBrush(Color.FromArgb(180, 0, 0, 0));
+        private static readonly Brush _text   = new SolidBrush(Color.FromArgb(230, 230, 240, 255));
+
+        private readonly string _icao;
+        public  readonly string TooltipContent;
+
+        public AtcLabelMarker(PointLatLng pos, string icao,
+                              IList<IvaoAtcStation> local,
+                              IList<IvaoAtcStation> atis)
+            : base(pos)
+        {
+            _icao = icao;
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine(icao);
+            sb.AppendLine(new string('─', 16));
+            foreach (var s in local.OrderBy(s => AtcStationMarker.PosOrder(s.Position)))
+            {
+                var f = s.Frequency > 0 ? s.Frequency.ToString("F3") : "---";
+                sb.AppendLine($"{s.Position,-4} {f}");
+            }
+            foreach (var s in atis)
+            {
+                var f = s.Frequency > 0 ? s.Frequency.ToString("F3") : "---";
+                sb.Append($"ATIS {f}");
+                if (!string.IsNullOrEmpty(s.AtisText))
+                    sb.Append($"  {s.AtisText}");
+                sb.AppendLine();
+            }
+            TooltipContent = sb.ToString().TrimEnd();
+
+            Size   = new Size(48, 14);
+            Offset = new Point(-24, -7);
+        }
+
+        public override void OnRender(Graphics g)
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            var r = LocalArea;
+
+            // Center dot
+            using (var b = new SolidBrush(Color.FromArgb(200, 255, 255, 255)))
+                g.FillEllipse(b, r.X + r.Width / 2 - 2, r.Y + r.Height / 2 - 2, 4, 4);
+
+            // ICAO label with shadow
+            using (var sf = new StringFormat { Alignment = StringAlignment.Center })
+            {
+                float tx = r.X + r.Width / 2f, ty = r.Y;
+                g.DrawString(_icao, _f, _shadow, tx - 1, ty - 1, sf);
+                g.DrawString(_icao, _f, _shadow, tx + 1, ty - 1, sf);
+                g.DrawString(_icao, _f, _shadow, tx - 1, ty + 1, sf);
+                g.DrawString(_icao, _f, _shadow, tx + 1, ty + 1, sf);
+                g.DrawString(_icao, _f, _text,   tx,     ty,     sf);
+            }
+        }
+    }
+
+    // ── ATC station marker — area positions (APP / CTR / DEP / FSS) ───────────────
+
+    internal sealed class AtcStationMarker : GMapMarker
+    {
+        private static readonly Font  _fHead = new Font("Consolas", 7f,   FontStyle.Bold);
+        private static readonly Font  _fRow  = new Font("Consolas", 6.5f, FontStyle.Regular);
+        private static readonly Brush _bg    = new SolidBrush(Color.FromArgb(210, 12, 18, 30));
+        private static readonly Brush _white = new SolidBrush(Color.FromArgb(230, 230, 240));
+
+        private readonly string _icao;
+        private readonly List<(string Pos, string Freq, Color Col)> _rows;
+
+        public AtcStationMarker(PointLatLng pos, string icao, IList<IvaoAtcStation> stations)
+            : base(pos)
+        {
+            _icao = icao;
+            _rows = stations
+                .OrderBy(s => PosOrder(s.Position))
+                .Select(s => (s.Position,
+                              s.Frequency > 0 ? s.Frequency.ToString("F3") : "---",
+                              PosColor(s.Position)))
+                .ToList();
+
+            int w = 90;
+            int h = 17 + _rows.Count * 13 + 2;
+            Size   = new Size(w, h);
+            Offset = new Point(-w / 2, -h - 5);
+        }
+
+        public override void OnRender(Graphics g)
+        {
+            var r = LocalArea;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            g.FillRectangle(_bg, r);
+
+            var borderCol = _rows.Count > 0 ? _rows[0].Col : Color.DimGray;
+            using (var pen = new Pen(Color.FromArgb(180, borderCol.R, borderCol.G, borderCol.B), 1f))
+                g.DrawRectangle(pen, r.X, r.Y, r.Width - 1, r.Height - 1);
+
+            g.DrawString(_icao, _fHead, _white, r.X + 4, r.Y + 1);
+
+            using (var sep = new Pen(Color.FromArgb(55, 160, 160, 180)))
+                g.DrawLine(sep, r.X + 2, r.Y + 14, r.Right - 2, r.Y + 14);
+
+            int y = r.Y + 16;
+            foreach (var (pos, freq, col) in _rows)
+            {
+                using (var dot = new SolidBrush(col))
+                    g.FillEllipse(dot, r.X + 4, y + 3, 5, 5);
+                using (var br = new SolidBrush(Color.FromArgb(210, 210, 225)))
+                    g.DrawString($"{pos,-4} {freq}", _fRow, br, r.X + 12, y);
+                y += 13;
+            }
+        }
+
+        internal static int PosOrder(string p)
+        {
+            switch (p)
+            {
+                case "DEL": return 0; case "GND": return 1; case "TWR": return 2;
+                case "DEP": return 3; case "APP": return 4; case "CTR": return 5;
+                case "FSS": return 6; default: return 7;
+            }
+        }
+
+        internal static Color PosColor(string p)
+        {
+            switch (p)
+            {
+                case "DEL": return Color.FromArgb(255, 215,   0);
+                case "GND": return Color.FromArgb(165, 130,  45);
+                case "TWR": return Color.FromArgb(220,  50,  50);
+                case "DEP": return Color.FromArgb(255,  80, 200);
+                case "APP": return Color.FromArgb(170,  60, 255);
+                case "CTR": return Color.FromArgb( 30, 145, 255);
+                case "FSS": return Color.FromArgb( 30, 190, 175);
+                default:    return Color.FromArgb(155, 155, 165);
+            }
+        }
+    }
+
     // ── Aircraft marker ───────────────────────────────────────────────────────────
 
     internal sealed class AircraftMarker : GMapMarker
     {
-        public double Heading { get; set; }
+        public double            Heading  { get; set; }
+        public FsuipcService.AircraftCategory  Category { get; set; } = FsuipcService.AircraftCategory.Unknown;
 
         private static readonly Brush _body   = new SolidBrush(Color.FromArgb(255, 215, 40));
         private static readonly Pen   _edge   = new Pen(Color.FromArgb(100, 70, 0), 1.5f);
@@ -2967,26 +3292,18 @@ namespace vmsOpenAcars.UI.Forms
         public AircraftMarker(PointLatLng pos, double heading) : base(pos)
         {
             Heading   = heading;
-            Offset    = new Point(0, 0);
-            this.Size = new Size(28, 28);
+            Offset    = new Point(-16, -16);
+            this.Size = new Size(32, 32);
         }
 
         public override void OnRender(Graphics g)
         {
             var state = g.Save();
-
             g.TranslateTransform(LocalPosition.X, LocalPosition.Y);
             g.RotateTransform((float)Heading);
             g.SmoothingMode = SmoothingMode.AntiAlias;
 
-            const int S = 11;
-            var body = new PointF[]
-            {
-                new PointF(  0,          -S),
-                new PointF(  S * 0.55f,  S * 0.65f),
-                new PointF(  0,          S * 0.30f),
-                new PointF( -S * 0.55f,  S * 0.65f),
-            };
+            PointF[] body = GetShape(Category);
 
             g.TranslateTransform(1.5f, 1.5f);
             g.FillPolygon(_shadow, body);
@@ -2996,6 +3313,104 @@ namespace vmsOpenAcars.UI.Forms
             g.DrawPolygon(_edge, body);
 
             g.Restore(state);
+        }
+
+        // Top-down aircraft silhouettes. All shapes face up (heading 0 = North).
+        // Coordinates relative to marker center. Larger S = larger icon.
+        private static PointF[] GetShape(FsuipcService.AircraftCategory cat)
+        {
+            switch (cat)
+            {
+                case FsuipcService.AircraftCategory.Jet:
+                {   // Swept-wing airliner — large wingspan, tapered fuselage
+                    const float S = 13f;
+                    return new PointF[]
+                    {
+                        new PointF( 0,           -S),           // nose
+                        new PointF( 0.10f*S, -0.40f*S),
+                        new PointF( 1.05f*S,  0.20f*S),        // R wingtip leading
+                        new PointF( 0.90f*S,  0.50f*S),        // R wingtip trailing
+                        new PointF( 0.20f*S,  0.30f*S),        // R wing root
+                        new PointF( 0.40f*S,  1.00f*S),        // R stabilizer tip
+                        new PointF( 0.28f*S,  1.12f*S),
+                        new PointF( 0,         0.92f*S),        // tail center
+                        new PointF(-0.28f*S,  1.12f*S),
+                        new PointF(-0.40f*S,  1.00f*S),        // L stabilizer tip
+                        new PointF(-0.20f*S,  0.30f*S),        // L wing root
+                        new PointF(-0.90f*S,  0.50f*S),        // L wingtip trailing
+                        new PointF(-1.05f*S,  0.20f*S),        // L wingtip leading
+                        new PointF(-0.10f*S, -0.40f*S),
+                    };
+                }
+                case FsuipcService.AircraftCategory.Turboprop:
+                {   // Straight-wing regional — shorter, wider chord
+                    const float S = 11f;
+                    return new PointF[]
+                    {
+                        new PointF( 0,           -S),
+                        new PointF( 0.10f*S, -0.30f*S),
+                        new PointF( 0.88f*S,  0.05f*S),        // R wingtip (straight leading edge)
+                        new PointF( 0.78f*S,  0.42f*S),        // R wingtip trailing
+                        new PointF( 0.14f*S,  0.35f*S),
+                        new PointF( 0.30f*S,  0.88f*S),        // R stabilizer
+                        new PointF( 0.18f*S,  0.98f*S),
+                        new PointF( 0,         0.82f*S),
+                        new PointF(-0.18f*S,  0.98f*S),
+                        new PointF(-0.30f*S,  0.88f*S),
+                        new PointF(-0.14f*S,  0.35f*S),
+                        new PointF(-0.78f*S,  0.42f*S),
+                        new PointF(-0.88f*S,  0.05f*S),
+                        new PointF(-0.10f*S, -0.30f*S),
+                    };
+                }
+                case FsuipcService.AircraftCategory.Piston:
+                {   // Small GA — compact, wide straight wings relative to body
+                    const float S = 8f;
+                    return new PointF[]
+                    {
+                        new PointF( 0,           -S),
+                        new PointF( 0.12f*S, -0.20f*S),
+                        new PointF( 0.95f*S,  0.08f*S),        // R wingtip (proportionally wide)
+                        new PointF( 0.82f*S,  0.45f*S),
+                        new PointF( 0.12f*S,  0.35f*S),
+                        new PointF( 0.24f*S,  0.80f*S),
+                        new PointF( 0.14f*S,  0.92f*S),
+                        new PointF( 0,         0.75f*S),
+                        new PointF(-0.14f*S,  0.92f*S),
+                        new PointF(-0.24f*S,  0.80f*S),
+                        new PointF(-0.12f*S,  0.35f*S),
+                        new PointF(-0.82f*S,  0.45f*S),
+                        new PointF(-0.95f*S,  0.08f*S),
+                        new PointF(-0.12f*S, -0.20f*S),
+                    };
+                }
+                case FsuipcService.AircraftCategory.Helicopter:
+                {   // Helicopter — oval body with rotor suggestion
+                    const float S = 9f;
+                    return new PointF[]
+                    {
+                        new PointF( 0,          -S * 0.45f),   // nose
+                        new PointF( S * 0.28f,  -S * 0.20f),
+                        new PointF( S * 0.22f,   S * 0.35f),
+                        new PointF( S * 0.08f,   S * 0.70f),   // tail boom R
+                        new PointF( 0,           S * 0.78f),   // tail
+                        new PointF(-S * 0.08f,   S * 0.70f),
+                        new PointF(-S * 0.22f,   S * 0.35f),
+                        new PointF(-S * 0.28f,  -S * 0.20f),
+                    };
+                }
+                default:
+                {   // Unknown — original triangle arrow
+                    const float S = 11f;
+                    return new PointF[]
+                    {
+                        new PointF(  0,         -S),
+                        new PointF(  S * 0.55f,  S * 0.65f),
+                        new PointF(  0,          S * 0.30f),
+                        new PointF( -S * 0.55f,  S * 0.65f),
+                    };
+                }
+            }
         }
     }
 

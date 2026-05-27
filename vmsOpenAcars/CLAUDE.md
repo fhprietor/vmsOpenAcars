@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.6.6  
+**Versión actual:** v0.6.7  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -91,7 +91,7 @@ SQLite `NavData_cache.sqlite` junto al exe. Tres tablas:
 
 Tile key airspaces: `"{round(lat)}:{round(lon)}"` — bucketing a 1° para maximizar hits de caché.
 
-### AirspaceMonitorService — `Services/AirspaceMonitorService.cs` (v0.6.6)
+### AirspaceMonitorService — `Services/AirspaceMonitorService.cs` (v0.6.7)
 
 Monitorea espacios aéreos de la ruta activa e IVAO ATC/ATIS. Thread-safe; eventos en thread-pool.
 
@@ -106,11 +106,20 @@ void CheckPosition(lat, lon, altFt)        // ray-casting GeoJSON + límites ver
 void TriggerIvaoRefresh()
 ```
 
-IVAO polling: `GET https://api.ivao.aero/v2/tracker/whazzup` → `root["clients"]["atcs"]`. Callsign `{ICAO}_{POS}` — match por ICAO exacto o prefijo 2 chars FIR.
+IVAO polling: `GET https://api.ivao.aero/v2/tracker/whazzup` → `root["clients"]["atcs"]`. Callsign `{ICAO}_{POS}` — match por ICAO exacto o prefijo 2 chars FIR. **`originIcao` y `destIcao` se añaden explícitamente a `_relevantIcaos`** (v0.6.7) — garantiza que TWR/GND/DEL locales siempre se capturan incluso si NavData no devuelve ningún airspace cuyo `ExtractIcao()` coincida.
 
-**Integración MainViewModel:** `WireAirspaceMonitor()` en constructor. `InitRouteAsync` en `StartFlight()` → dispara `OnAirspacesReady` → `MapForm.SetAirspaces()`. `CheckPosition` throttleado a 30 s en `OnRawDataUpdated`. `TriggerIvaoRefresh()` en fases Descent y Approach. `Reset()` en los 3 exit paths.
+**Integración MainViewModel (v0.6.7):** `InitRouteAsync` dispara tanto en `StartFlight()` como en `SetActivePlan()` (background Task) → airspaces + ATC visibles en cuanto se carga el OFP, sin necesidad de iniciar vuelo. `CheckPosition` throttleado a 30 s en `OnRawDataUpdated`. `TriggerIvaoRefresh()` en fases Descent y Approach. `Reset()` en los 3 exit paths.
 
-**MapForm.SetAirspaces:** `GMapPolygon` por tipo — Prohibited=rojo, Restricted=naranja, Danger=amarillo, CTR=cyan, TMA=azul, ATZ=azul claro, RMZ=violeta. GeoJSON `[lon,lat]` → `PointLatLng(lat,lon)`.
+**MapForm.SetAirspaces:** `GMapPolygon` por tipo — opacidades al 50% respecto a v0.6.6. Prohibited=rojo(20,220,0,0 / 95,200,0,0), Restricted=naranja, Danger=amarillo, CTR=cyan, TMA=azul, ATZ=azul claro, RMZ=violeta. GeoJSON `[lon,lat]` → `PointLatLng(lat,lon)`.
+
+**MapForm.SetAtcStations (v0.6.7):** formas geográficas `GMapPolygon` estilo WebEye — radio 20 nm, escalan con el zoom:
+- TWR → círculo, borde rojo (170,220,50,50), relleno rojo muy bajo (30,220,50,50)
+- GND → estrella 4 puntas alineada N/S/E/W, amarillo (170,220,190,0)
+- DEL → estrella 4 puntas rotada 45°, naranja (170,255,130,0)
+- Puntas de GND rozan el borde del círculo de TWR (mismo radio 20 nm)
+- `AtcLabelMarker` centrado en ARP: texto ICAO 7pt Consolas Bold + shadow 4px + dot 4px
+- APP/CTR/DEP/FSS → `AtcStationMarker` text-box sin cambios
+- Helpers: `MakeCirclePolygon(lat, lon, radiusNm, fill, stroke, n=72)` / `MakeStarPolygon(lat, lon, outerNm, innerRatio, startDeg, fill, stroke)`
 
 `IvaoAtcStation` (en `AirspaceMonitorService.cs`): `Callsign`, `Icao`, `Position`, `Frequency`, `AtisLines`. DTOs airspace en `Models/NavData.cs`: `NavAirspace`, `NavAirspaceLimit`, `NavAirspaceGeometry`, `NavAirspaceFreq`.
 
@@ -235,11 +244,12 @@ Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia le
 | `Services/NavDataService.cs` | `ProjectOnRunway` + `WithinFootprint`; `TrueRunwayBearing`; `FindTaxiwaySegmentBearing`; `NextIntersection` |
 | `Services/NavDataClient.cs` | `LoadAirportAsync` (6 endpoints paralelos); `GetAirspacesAsync` (sin radius_nm, caché 2 capas); `GetWeatherAsync` (TTL 5 min) |
 | `Services/NavDataCache.cs` | `CreateSchema` (3 tablas); `TryGetAirspace/StoreAirspace` (TTL 7 días); `SyncAirac` (purga airport+navaid, no airspaces) |
-| `Services/AirspaceMonitorService.cs` | `InitRouteAsync`; `CheckPosition` (ray-casting GeoJSON); `PollIvaoAsync` (whazzup); timer 3 min |
+| `Services/AirspaceMonitorService.cs` | `InitRouteAsync` (v0.6.7: origin/dest ICAOs añadidos a `_relevantIcaos`); `CheckPosition` (ray-casting GeoJSON); `PollIvaoAsync` (whazzup); timer 3 min |
+| `Services/FsuipcService.cs` | Hold debounce 2.5 s luces (v0.6.7): `_pendingXxxState/At` — nuevo estado estable ≥2.5 s antes de disparar evento; elimina falsos positivos por parpadeo ~1.6 s del sim |
 | `Services/CabinAnnouncementService.cs` | `PrefetchAsync`; cola FIFO; NAudio playback; `TestAnnouncementAsync` |
 | `Models/NavData.cs` | `NavAirspace`, `NavAirspaceGeometry` (GeoJSON [lon,lat]), `NavAirspaceFreq`; `BriefingCheckResult` |
-| `ViewModels/MainViewModel.cs` | `WireAirspaceMonitor`; `StartFlight` (batch ACARS 5 entradas + airspace init); `HandleTaxiPositionUpdate` (criterio angular 25°); `SnapshotLandingRecord` → `SaveLandingRecord`; `SendScoringCheckpointAsync` (CHK 60 s, v0.6.4); `ResumeFromAcarsHistoryAsync` (v0.6.4) |
-| `UI/Forms/MapForm.cs` | `LoadRoute` (ruta suavizada, SID/STAR virtual); `BuildSidebar` (procedimientos, v0.6.5); `DrawApproachOverlay`; `SetAirspaces` (polígonos GeoJSON, v0.6.6) |
+| `ViewModels/MainViewModel.cs` | `WireAirspaceMonitor`; `StartFlight` + `SetActivePlan` (v0.6.7: airspace init en ambos); `GetAircraftCategory()` (v0.6.7: lee `FsuipcService.EngineCategory`); `HandleTaxiPositionUpdate` (criterio angular 25°); `SnapshotLandingRecord` → `SaveLandingRecord`; `SendScoringCheckpointAsync` (CHK 60 s, v0.6.4); `ResumeFromAcarsHistoryAsync` (v0.6.4) |
+| `UI/Forms/MapForm.cs` | `LoadRoute` (ruta suavizada, SID/STAR virtual); `BuildSidebar` (procedimientos, v0.6.5); `DrawApproachOverlay`; `SetAirspaces` (polígonos GeoJSON, opacidad 50%, v0.6.7); `SetAtcStations` (formas geográficas TWR/GND/DEL, v0.6.7); `SetAircraftCategory` (icono por categoría A-D, v0.6.7); capas toggleables TILES/ROUTE/SPACES/IVAO (CheckBox barra inferior, v0.6.7) |
 | `Helpers/SystemInfoHelper.cs` | `GetBestGpu` (DXGI fallback, rango 0–3); `GetCpuString` (registro + ProcessorCount) |
 | `Services/ScoringService.cs` | TDZ + Centreline ~213; Localizer + Minimums ~247 |
 | `vmsOpenAcars.csproj` | `GenerateBindingRedirectsOutputType=true` — impide sobreescribir binding redirect manual de SQLite |
@@ -252,4 +262,4 @@ Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia le
 - **MetarRaw en logbook** — `FlightRecord.MetarRaw` existe pero no se popula en `SnapshotLandingRecord`.
 - **DA calculada** — actualmente threshold elevation + 200 ft; podría calcularse desde `approach_leg`.
 - **TA/TL fallback regional** — cuando NavData devuelve `null`, sin OSD ni check STD.
-- **Panel ATC/ATIS** — `IvaoAtcStation` se loguea pero no tiene UI dedicada (panel o tooltip).
+- **Panel ATC/ATIS detallado** — las formas geográficas ya muestran tipo y frecuencia vía tooltip; podría añadirse un panel lateral persistente con lista de todas las posiciones activas y ATIS completo.

@@ -81,6 +81,10 @@ namespace vmsOpenAcars.Services
                         if (!string.IsNullOrEmpty(icao)) relevant.Add(icao);
                     }
 
+                // Always include origin/dest so local ATC (TWR/GND/DEL) is never filtered out
+                relevant.Add(originIcao);
+                relevant.Add(destIcao);
+
                 lock (_lock)
                 {
                     _airspaces     = dict.Values.ToList();
