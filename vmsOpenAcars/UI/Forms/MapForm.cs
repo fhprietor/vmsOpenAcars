@@ -21,6 +21,7 @@ namespace vmsOpenAcars.UI.Forms
         private GMapControl    _map;
         private GMapOverlay    _airspaceOverlay;
         private GMapOverlay    _atcOverlay;
+        private IList<IvaoAtcStation> _lastAtcStations = new List<IvaoAtcStation>();
         private GMapOverlay    _routeShadowOverlay;
         private GMapOverlay    _routeOverlay;
         private GMapOverlay    _ambientOverlay;
@@ -52,14 +53,14 @@ namespace vmsOpenAcars.UI.Forms
         private bool     _populatingSidebar;
 
         private ComboBox _cmbOriginRwy, _cmbSid, _cmbSidTrans;
-        private ComboBox _cmbDestRwy,   _cmbStar, _cmbStarTrans, _cmbApproach;
+        private ComboBox _cmbDestRwy,   _cmbStar, _cmbStarTrans, _cmbApproach, _cmbApproachTrans;
         private Label    _lblOriginAirport, _lblDestAirport;
         private Label    _lblOriginWind,    _lblDestWind, _lblApproachCount;
 
         private string _selOriginRunway, _selDestRunway;
         private string _selSidName,      _selSidTransition;
         private string _selStarName,     _selStarTransition;
-        private string _selApproachKey;
+        private string _selApproachKey,  _selApproachTransition;
 
         private List<NavRunway>    _sbOriginRunways, _sbDestRunways;
         private List<NavProcedure> _sbSids, _sbStars;
@@ -223,8 +224,7 @@ namespace vmsOpenAcars.UI.Forms
             _lblStatus = new Label
             {
                 AutoSize  = false,
-                Dock      = DockStyle.Left,
-                Width     = 380,
+                Dock      = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
                 ForeColor = Color.FromArgb(150, 195, 220),
                 Font      = new Font("Consolas", 8),
@@ -298,16 +298,17 @@ namespace vmsOpenAcars.UI.Forms
                 _map.Refresh();
             };
 
-            bar.Controls.Add(_lblStatus);
             bar.Controls.Add(_chkFollow);
             bar.Controls.Add(_cmbProvider);
             bar.Controls.Add(btnZoomOut);
             bar.Controls.Add(btnZoomIn);
-            // Layer toggles: added last → appear leftmost of the right-docked group
+            // Layer toggles: added in reverse visual order (right→left)
             bar.Controls.Add(_chkLayerIvao);
             bar.Controls.Add(_chkLayerSpaces);
             bar.Controls.Add(_chkLayerRoute);
             bar.Controls.Add(_chkLayerTiles);
+            // Fill label added last → takes remaining space after Right controls
+            bar.Controls.Add(_lblStatus);
 
             _map = new GMapControl { Dock = DockStyle.Fill };
 
@@ -527,11 +528,12 @@ namespace vmsOpenAcars.UI.Forms
             {
                 _selOriginRunway   = originRunway;
                 _selDestRunway     = destRunway;
-                _selSidName        = sidName;
-                _selSidTransition  = null;
-                _selStarName       = starName;
-                _selStarTransition = null;
-                _selApproachKey    = null;
+                _selSidName            = sidName;
+                _selSidTransition      = null;
+                _selStarName           = starName;
+                _selStarTransition     = null;
+                _selApproachKey        = null;
+                _selApproachTransition = null;
             }
 
             var wps = waypoints.ToList();
@@ -705,6 +707,11 @@ namespace vmsOpenAcars.UI.Forms
                 string resolvedSid  = sidProc?.Name;
                 string resolvedStar = starProc?.Name;
 
+                // When NavData legs have coordinates, use them to draw SID/STAR instead of
+                // SimBrief waypoints — this makes sidebar procedure changes visually effective.
+                bool useSidLegs  = sidProc?.Legs?.Any(l => l.Lat.HasValue && l.Lon.HasValue) == true;
+                bool useStarLegs = starProc?.Legs?.Any(l => l.Lat.HasValue && l.Lon.HasValue) == true;
+
                 // Idents de fixes fly-over según legs de NavData
                 var flyoverIdents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var proc in new[] { sidProc, starProc })
@@ -737,7 +744,8 @@ namespace vmsOpenAcars.UI.Forms
                             .ToList();
 
                         // Igual que hasSid: usar IsSidStar para detectar STAR real de SimBrief.
-                        bool hasStar = starFixes.Any(w => w.IsSidStar);
+                        // Also skip no-STAR path when NavData STAR legs will be used.
+                        bool hasStar = starFixes.Any(w => w.IsSidStar) || useStarLegs;
                         if (!hasStar)
                         {
                             NavDataClient.PrefetchAirport(destIcao);
@@ -912,13 +920,37 @@ namespace vmsOpenAcars.UI.Forms
                 // ── Build master point list (lat, lon, stage, isFlyover) ──
                 var allPts = new List<(double Lat, double Lon, string Stage, bool IsFlyover)>();
 
-                // Navlog — omitir apts de salida/llegada cuando ya dibujamos la pista
+                // Navlog — omitir apts de salida/llegada cuando ya dibujamos la pista.
+                // Skip SimBrief CLB/DSC phases when NavData procedure legs replace them.
                 foreach (var wp in wps)
                 {
-                    if (hasDepRwy && wp.Type == "apt" && (wp.Stage ?? "CRZ") == "CLB") continue;
-                    if (hasArrRwy && wp.Type == "apt" && (wp.Stage ?? "CRZ") == "DSC") continue;
+                    string wpStage = wp.Stage ?? "CRZ";
+                    if (hasDepRwy && wp.Type == "apt" && wpStage == "CLB") continue;
+                    if (hasArrRwy && wp.Type == "apt" && wpStage == "DSC") continue;
+                    if (useSidLegs  && wpStage == "CLB") continue;
+                    if (useStarLegs && wpStage == "DSC") continue;
                     bool fo = flyoverIdents.Contains(wp.Ident ?? "");
-                    allPts.Add((wp.Lat, wp.Lon, wp.Stage ?? "CRZ", fo));
+                    allPts.Add((wp.Lat, wp.Lon, wpStage, fo));
+                }
+
+                // Prepend NavData SID legs (ordered from first fix to SID exit)
+                if (useSidLegs)
+                {
+                    var sidPts = sidProc.Legs
+                        .Where(l => l.Lat.HasValue && l.Lon.HasValue)
+                        .Select(l => (l.Lat.Value, l.Lon.Value, "CLB", l.IsFlyover))
+                        .ToList();
+                    allPts.InsertRange(0, sidPts);
+                }
+
+                // Append NavData STAR legs (ordered from STAR entry to last fix)
+                if (useStarLegs)
+                {
+                    var starPts = starProc.Legs
+                        .Where(l => l.Lat.HasValue && l.Lon.HasValue)
+                        .Select(l => (l.Lat.Value, l.Lon.Value, "DSC", l.IsFlyover))
+                        .ToList();
+                    allPts.AddRange(starPts);
                 }
 
                 // No-STAR: el último fix del navlog actúa como fly-over.
@@ -950,7 +982,8 @@ namespace vmsOpenAcars.UI.Forms
                 // No-SID: insertar el punto T (ancla de tangencia) antes del primer fix para
                 // que BuildSmoothedRoutes pueda generar el arco fly-over con la tangente
                 // correcta del arco de salida (inBrg = bearing T→firstFix ≈ tangente del arco).
-                if (noSidStub && allPts.Count > 0)
+                // Suprimido cuando usamos legs de NavData para evitar duplicar el arco.
+                if (noSidStub && !useSidLegs && allPts.Count > 0)
                 {
                     var f = allPts[0];
                     allPts[0] = (f.Lat, f.Lon, f.Stage, true);   // firstPlanFix = fly-over
@@ -1040,9 +1073,16 @@ namespace vmsOpenAcars.UI.Forms
                         isTodToc ? "pseudo" : wp.Type, wp.Freq, restr));
                 }
 
-                // ── Labels SID / STAR desde NavData ──────────────────────
-                AddProcedureLabel(wps, "CLB", resolvedSid,  markers);
-                AddProcedureLabel(wps, "DSC", resolvedStar, markers);
+                // ── Labels SID / STAR — usar coords de NavData cuando la ruta ya las usa ──
+                if (useSidLegs)
+                    AddProcedureLabelFromProc(sidProc,  resolvedSid,  markers);
+                else
+                    AddProcedureLabel(wps, "CLB", resolvedSid,  markers);
+
+                if (useStarLegs)
+                    AddProcedureLabelFromProc(starProc, resolvedStar, markers);
+                else
+                    AddProcedureLabel(wps, "DSC", resolvedStar, markers);
 
                 // ── Waypoints ambient cerca del destino y del origen ─────
                 var routeIdents = new HashSet<string>(
@@ -1202,17 +1242,39 @@ namespace vmsOpenAcars.UI.Forms
             if (procedures == null || procedures.Count == 0) return null;
 
             // Búsqueda directa por nombre (SimBrief general.sid / general.star)
+            // NavData usa nombres con punto: "BIVI3C.01". SimBrief envía el nombre base: "BIVI3C".
+            // Se prueban primero coincidencias exactas (por si el nombre ya incluye el sufijo),
+            // luego coincidencias por nombre base extraído antes del primer punto.
             if (!string.IsNullOrEmpty(nameHint))
             {
+                // Nombre exacto + pista
                 var direct = procedures.FirstOrDefault(p =>
                     string.Equals(p.Name, nameHint, StringComparison.OrdinalIgnoreCase)
                     && (string.IsNullOrEmpty(p.Runway) || string.IsNullOrEmpty(runwayHint)
                         || ProcedureAppliesToRunway(p.Runway, runwayHint)));
                 if (direct != null) return direct;
-                // fallback: coincidencia por nombre ignorando pista
+                // Nombre exacto sin filtro de pista
                 var byName = procedures.FirstOrDefault(p =>
                     string.Equals(p.Name, nameHint, StringComparison.OrdinalIgnoreCase));
                 if (byName != null) return byName;
+                // Nombre base (antes del punto) + pista: "BIVI3C" coincide con "BIVI3C.01"
+                var byBase = procedures.FirstOrDefault(p =>
+                {
+                    int d  = p.Name.IndexOf('.');
+                    string bn = d > 0 ? p.Name.Substring(0, d) : p.Name;
+                    return string.Equals(bn, nameHint, StringComparison.OrdinalIgnoreCase)
+                        && (string.IsNullOrEmpty(p.Runway) || string.IsNullOrEmpty(runwayHint)
+                            || ProcedureAppliesToRunway(p.Runway, runwayHint));
+                });
+                if (byBase != null) return byBase;
+                // Nombre base sin filtro de pista
+                var byBaseAny = procedures.FirstOrDefault(p =>
+                {
+                    int d  = p.Name.IndexOf('.');
+                    string bn = d > 0 ? p.Name.Substring(0, d) : p.Name;
+                    return string.Equals(bn, nameHint, StringComparison.OrdinalIgnoreCase);
+                });
+                if (byBaseAny != null) return byBaseAny;
             }
 
             if (planIdents == null || planIdents.Count == 0) return null;
@@ -1262,39 +1324,56 @@ namespace vmsOpenAcars.UI.Forms
             List<SimbriefWaypoint> wps, string stage, string name, List<GMapMarker> markers)
         {
             if (string.IsNullOrEmpty(name)) return;
-            var fixes = wps
+            var pts = wps
                 .Where(w => (w.Stage ?? "CRZ") == stage && w.Type != "apt")
+                .Select(w => (w.Lat, w.Lon))
                 .ToList();
-            if (fixes.Count < 1) return;
-            string procName = name;
+            AddProcedureLabelFromCoords(pts, name, markers);
+        }
 
-            if (fixes.Count == 1)
+        private static void AddProcedureLabelFromProc(
+            NavProcedure proc, string name, List<GMapMarker> markers)
+        {
+            if (string.IsNullOrEmpty(name) || proc?.Legs == null) return;
+            var pts = proc.Legs
+                .Where(l => l.Lat.HasValue && l.Lon.HasValue)
+                .Select(l => (l.Lat.Value, l.Lon.Value))
+                .ToList();
+            AddProcedureLabelFromCoords(pts, name, markers);
+        }
+
+        private static void AddProcedureLabelFromCoords(
+            List<(double Lat, double Lon)> pts, string name, List<GMapMarker> markers)
+        {
+            if (string.IsNullOrEmpty(name) || pts.Count < 1) return;
+
+            if (pts.Count == 1)
             {
                 markers.Add(new RouteLabelMarker(
-                    new PointLatLng(fixes[0].Lat, fixes[0].Lon), procName, 0f));
+                    new PointLatLng(pts[0].Lat, pts[0].Lon), name, 0f));
                 return;
             }
 
-            for (int i = 0; i < fixes.Count - 1; i++)
+            for (int i = 0; i < pts.Count - 1; i++)
             {
-                double dN = (fixes[i + 1].Lat - fixes[i].Lat) * 111320;
-                double dE = (fixes[i + 1].Lon - fixes[i].Lon) * 111320
-                            * Math.Cos(fixes[i].Lat * Math.PI / 180);
-                if (Math.Sqrt(dN * dN + dE * dE) < 500.0) continue;  // solo omite puntos duplicados
+                double dN = (pts[i + 1].Lat - pts[i].Lat) * 111320;
+                double dE = (pts[i + 1].Lon - pts[i].Lon) * 111320
+                            * Math.Cos(pts[i].Lat * Math.PI / 180);
+                if (Math.Sqrt(dN * dN + dE * dE) < 500.0) continue;
 
-                double midLat = (fixes[i].Lat + fixes[i + 1].Lat) / 2.0;
-                double midLon = (fixes[i].Lon + fixes[i + 1].Lon) / 2.0;
+                double midLat = (pts[i].Lat + pts[i + 1].Lat) / 2.0;
+                double midLon = (pts[i].Lon + pts[i + 1].Lon) / 2.0;
 
                 float screenAngle = (float)(GeodesicBearing(
-                    fixes[i].Lat, fixes[i].Lon,
-                    fixes[i + 1].Lat, fixes[i + 1].Lon) - 90.0);
+                    pts[i].Lat, pts[i].Lon,
+                    pts[i + 1].Lat, pts[i + 1].Lon) - 90.0);
                 screenAngle = ((screenAngle % 360f) + 360f) % 360f;
                 if (screenAngle > 180f) screenAngle -= 360f;
                 if (Math.Abs(screenAngle) > 90f)
                     screenAngle = screenAngle > 0 ? screenAngle - 180f : screenAngle + 180f;
 
                 markers.Add(new RouteLabelMarker(
-                    new PointLatLng(midLat, midLon), procName, screenAngle));
+                    new PointLatLng(midLat, midLon), name, screenAngle));
             }
         }
 
@@ -2085,6 +2164,10 @@ namespace vmsOpenAcars.UI.Forms
             place(_cmbApproach, 22);
             addChartIcon(_cmbApproach, (s, e) => OpenApproachChart(), "Open Approach Chart");
 
+            place(MakeSideLabel("Trans."), 14);
+            _cmbApproachTrans = MakeSideCombo();
+            place(_cmbApproachTrans, 22);
+
             _lblApproachCount = new Label
             {
                 Text = "", ForeColor = Color.FromArgb(130, 160, 195),
@@ -2099,7 +2182,8 @@ namespace vmsOpenAcars.UI.Forms
             _cmbDestRwy.SelectedIndexChanged   += OnDestRunwayChanged;
             _cmbStar.SelectedIndexChanged      += OnStarChanged;
             _cmbStarTrans.SelectedIndexChanged += OnStarTransChanged;
-            _cmbApproach.SelectedIndexChanged  += OnApproachChanged;
+            _cmbApproach.SelectedIndexChanged      += OnApproachChanged;
+            _cmbApproachTrans.SelectedIndexChanged += OnApproachTransChanged;
 
             _sidebarPanel.Controls.Add(_sidebarContent);
             _sidebarPanel.Controls.Add(_btnToggleSidebar);
@@ -2186,6 +2270,10 @@ namespace vmsOpenAcars.UI.Forms
                 FillProcBaseCombo(_cmbStar, stars, _selDestRunway, ref _selStarName);
                 FillProcTransCombo(_cmbStarTrans, stars, _selStarName, ref _selStarTransition);
                 FillApproachCombo(_cmbApproach, approaches, _selDestRunway, ref _selApproachKey);
+                var selApp = _selApproachKey == null ? null
+                    : approaches?.FirstOrDefault(a =>
+                        $"{a.Type}{a.Suffix ?? ""}_{a.Runway ?? ""}" == _selApproachKey);
+                FillApproachTransCombo(_cmbApproachTrans, selApp, ref _selApproachTransition);
 
                 int appCount = approaches?.Count(a => RunwayMatchesApproach(a, _selDestRunway)) ?? 0;
                 _lblApproachCount.Text = appCount > 0
@@ -2303,12 +2391,12 @@ namespace vmsOpenAcars.UI.Forms
             {
                 foreach (var a in approaches
                     .Where(a => RunwayMatchesApproach(a, runway))
-                    .OrderBy(a => a.Type).ThenBy(a => a.Suffix ?? ""))
+                    .OrderBy(a => a.Runway ?? "").ThenBy(a => a.Type).ThenBy(a => a.Suffix ?? ""))
                 {
                     string key   = $"{a.Type}{a.Suffix ?? ""}_{a.Runway ?? ""}";
                     string label = string.IsNullOrEmpty(a.Suffix)
                         ? $"{a.Type} {a.Runway}"
-                        : $"{a.Type}{a.Suffix} {a.Runway}";
+                        : $"{a.Type} {a.Suffix} {a.Runway}";
                     cmb.Items.Add(new ApproachItem(key, label));
                 }
             }
@@ -2318,6 +2406,34 @@ namespace vmsOpenAcars.UI.Forms
                 for (int i = 1; i < cmb.Items.Count; i++)
                 {
                     if ((cmb.Items[i] as ApproachItem)?.Key == cur)
+                    { cmb.SelectedIndex = i; return; }
+                }
+            }
+            cmb.SelectedIndex = 0;
+            selection = null;
+        }
+
+        private static void FillApproachTransCombo(
+            ComboBox cmb, NavApproach approach, ref string selection)
+        {
+            string cur = selection;
+            cmb.Items.Clear();
+            cmb.Items.Add("(none)");
+
+            if (approach?.Transitions != null)
+            {
+                foreach (var t in approach.Transitions
+                    .Where(t => !string.IsNullOrEmpty(t.Fix))
+                    .OrderBy(t => t.Fix))
+                    cmb.Items.Add(t.Fix);
+            }
+
+            if (!string.IsNullOrEmpty(cur))
+            {
+                for (int i = 1; i < cmb.Items.Count; i++)
+                {
+                    if (string.Equals(cmb.Items[i] as string, cur,
+                            StringComparison.OrdinalIgnoreCase))
                     { cmb.SelectedIndex = i; return; }
                 }
             }
@@ -2341,6 +2457,32 @@ namespace vmsOpenAcars.UI.Forms
 
         private static string SelectedRunwayName(ComboBox cmb)
             => cmb.SelectedIndex > 0 ? cmb.SelectedItem as string : null;
+
+        // Returns the subset of allRunways compatible with the given procedure base name.
+        // When procName is null or all variants are runway-agnostic, returns allRunways unchanged.
+        private static List<NavRunway> GetCompatibleRunways(
+            List<NavProcedure> procs, string procName, List<NavRunway> allRunways)
+        {
+            if (string.IsNullOrEmpty(procName) || allRunways == null)
+                return allRunways;
+
+            var constraints = (procs ?? Enumerable.Empty<NavProcedure>())
+                .Where(p =>
+                {
+                    int dot = p.Name.IndexOf('.');
+                    string bn = dot > 0 ? p.Name.Substring(0, dot) : p.Name;
+                    return string.Equals(bn, procName, StringComparison.OrdinalIgnoreCase);
+                })
+                .Select(p => p.Runway)
+                .ToList();
+
+            if (constraints.All(r => string.IsNullOrEmpty(r)))
+                return allRunways;
+
+            return allRunways
+                .Where(r => constraints.Any(pr => ProcedureAppliesToRunway(pr, r.Name)))
+                .ToList();
+        }
 
         // ── Wind chip update ─────────────────────────────────────────────────────────
 
@@ -2428,6 +2570,8 @@ namespace vmsOpenAcars.UI.Forms
             if (IsDisposed || !IsHandleCreated) return;
             if (InvokeRequired) { BeginInvoke(new Action(() => SetAtcStations(stations))); return; }
 
+            _lastAtcStations = stations ?? new List<IvaoAtcStation>();
+
             _atcOverlay.Markers.Clear();
             _atcOverlay.Polygons.Clear();
             if (stations == null || stations.Count == 0) { _map.Refresh(); return; }
@@ -2439,9 +2583,20 @@ namespace vmsOpenAcars.UI.Forms
                 if (nonAtis.Count == 0) continue;
 
                 var info = NavDataClient.GetAirportInfo(grp.Key);
-                if (info == null || (info.Lat == 0 && info.Lon == 0)) continue;
-
-                double lat = info.Lat, lon = info.Lon;
+                double lat, lon;
+                if (info != null && (info.Lat != 0 || info.Lon != 0))
+                {
+                    lat = info.Lat;
+                    lon = info.Lon;
+                }
+                else
+                {
+                    // Fall back to coords embedded in the station by AirspaceMonitorService
+                    var first = grp.FirstOrDefault(s => s.Lat != 0 || s.Lon != 0);
+                    if (first == null) continue;
+                    lat = first.Lat;
+                    lon = first.Lon;
+                }
                 var coord  = new PointLatLng(lat, lon);
                 var local  = nonAtis.Where(s => IsLocalAtcPos(s.Position)).ToList();
                 var area   = nonAtis.Where(s => !IsLocalAtcPos(s.Position)).ToList();
@@ -2605,12 +2760,14 @@ namespace vmsOpenAcars.UI.Forms
                 _selStarTransition  = null;
             }
 
-            _selDestRunway  = newRwy;
-            _selApproachKey = null;
+            _selDestRunway         = newRwy;
+            _selApproachKey        = null;
+            _selApproachTransition = null;
             _populatingSidebar = true;
             FillProcBaseCombo(_cmbStar, _sbStars, _selDestRunway, ref _selStarName);
             FillProcTransCombo(_cmbStarTrans, _sbStars, _selStarName, ref _selStarTransition);
             FillApproachCombo(_cmbApproach, _sbApproaches, _selDestRunway, ref _selApproachKey);
+            FillApproachTransCombo(_cmbApproachTrans, null, ref _selApproachTransition);
             int appCount = _sbApproaches?
                 .Count(a => RunwayMatchesApproach(a, _selDestRunway)) ?? 0;
             _lblApproachCount.Text = appCount > 0
@@ -2632,6 +2789,10 @@ namespace vmsOpenAcars.UI.Forms
             _selSidTransition = null;
             _populatingSidebar = true;
             FillProcTransCombo(_cmbSidTrans, _sbSids, _selSidName, ref _selSidTransition);
+            var compatRwys = GetCompatibleRunways(_sbSids, _selSidName, _sbOriginRunways);
+            FillRunwayCombo(_cmbOriginRwy, compatRwys, ref _selOriginRunway);
+            UpdateWindLabel(_lblOriginWind, _sbOriginRunways, _selOriginRunway,
+                _metarOriginWindDir, _metarOriginWindSpd);
             _populatingSidebar = false;
             RedrawRoute();
         }
@@ -2651,11 +2812,25 @@ namespace vmsOpenAcars.UI.Forms
             if (_populatingSidebar) return;
             string newStar = _cmbStar.SelectedIndex > 0 ? _cmbStar.SelectedItem as string : null;
             if (newStar == _selStarName) return;
-            _selStarName       = newStar;
-            _selStarTransition = null;
-            _populatingSidebar = true;
+            _selStarName           = newStar;
+            _selStarTransition     = null;
+            _populatingSidebar     = true;
             FillProcTransCombo(_cmbStarTrans, _sbStars, _selStarName, ref _selStarTransition);
+            var compatRwys = GetCompatibleRunways(_sbStars, _selStarName, _sbDestRunways);
+            FillRunwayCombo(_cmbDestRwy, compatRwys, ref _selDestRunway);
+            _selApproachKey        = null;
+            _selApproachTransition = null;
+            FillApproachCombo(_cmbApproach, _sbApproaches, _selDestRunway, ref _selApproachKey);
+            FillApproachTransCombo(_cmbApproachTrans, null, ref _selApproachTransition);
+            int appCount = _sbApproaches?
+                .Count(a => RunwayMatchesApproach(a, _selDestRunway)) ?? 0;
+            _lblApproachCount.Text = appCount > 0
+                ? $"{appCount} approach{(appCount > 1 ? "es" : "")} available"
+                : "";
+            UpdateWindLabel(_lblDestWind, _sbDestRunways, _selDestRunway,
+                _metarDestWindDir, _metarDestWindSpd);
             _populatingSidebar = false;
+            ClearApproachOverlay();
             RedrawRoute();
         }
 
@@ -2676,22 +2851,51 @@ namespace vmsOpenAcars.UI.Forms
             if (string.IsNullOrEmpty(newKey)) newKey = null;
             if (newKey == _selApproachKey) return;
             _selApproachKey = newKey;
+            _selApproachTransition = null;
+
+            _populatingSidebar = true;
+            var app = _selApproachKey == null ? null
+                : _sbApproaches?.FirstOrDefault(a =>
+                    $"{a.Type}{a.Suffix ?? ""}_{a.Runway ?? ""}" == _selApproachKey);
+            FillApproachTransCombo(_cmbApproachTrans, app, ref _selApproachTransition);
+            _populatingSidebar = false;
 
             if (_selApproachKey == null)
             {
                 ClearApproachOverlay();
                 return;
             }
-
-            var app = _sbApproaches?.FirstOrDefault(a =>
-                $"{a.Type}{a.Suffix ?? ""}_{a.Runway ?? ""}" == _selApproachKey);
             if (app == null) return;
 
             var destRwy = _sbDestRunways?.FirstOrDefault(r =>
                 string.Equals(r.Name, _selDestRunway, StringComparison.OrdinalIgnoreCase));
             var ils = _sbIls?.FirstOrDefault(i =>
                 string.Equals(i.Runway, _selDestRunway, StringComparison.OrdinalIgnoreCase));
-            DrawApproachOverlay(app, destRwy, ils);
+            DrawApproachOverlay(app, null, destRwy, ils);
+        }
+
+        private void OnApproachTransChanged(object sender, EventArgs e)
+        {
+            if (_populatingSidebar) return;
+            string newTrans = _cmbApproachTrans.SelectedIndex > 0
+                ? _cmbApproachTrans.SelectedItem as string : null;
+            if (newTrans == _selApproachTransition) return;
+            _selApproachTransition = newTrans;
+
+            var app = _selApproachKey == null ? null
+                : _sbApproaches?.FirstOrDefault(a =>
+                    $"{a.Type}{a.Suffix ?? ""}_{a.Runway ?? ""}" == _selApproachKey);
+            if (app == null) return;
+
+            var trans = string.IsNullOrEmpty(_selApproachTransition) ? null
+                : app.Transitions?.FirstOrDefault(t =>
+                    string.Equals(t.Fix, _selApproachTransition,
+                        StringComparison.OrdinalIgnoreCase));
+            var destRwy = _sbDestRunways?.FirstOrDefault(r =>
+                string.Equals(r.Name, _selDestRunway, StringComparison.OrdinalIgnoreCase));
+            var ils = _sbIls?.FirstOrDefault(i =>
+                string.Equals(i.Runway, _selDestRunway, StringComparison.OrdinalIgnoreCase));
+            DrawApproachOverlay(app, trans, destRwy, ils);
         }
 
         private void OpenApproachChart()
@@ -2701,7 +2905,7 @@ namespace vmsOpenAcars.UI.Forms
             if (_selApproachKey != null)
                 preselected = _sbApproaches?.FirstOrDefault(a =>
                     $"{a.Type}{a.Suffix ?? ""}_{a.Runway ?? ""}" == _selApproachKey);
-            new ApproachChartForm(_currentDestIcao, preselected).Show(this);
+            new ApproachChartForm(_currentDestIcao, preselected, _lastAtcStations).Show(this);
         }
 
         // ── Approach overlay ─────────────────────────────────────────────────────────
@@ -2715,12 +2919,13 @@ namespace vmsOpenAcars.UI.Forms
             _map?.Refresh();
         }
 
-        private void DrawApproachOverlay(NavApproach app, NavRunway rwy, NavIls ils)
+        private void DrawApproachOverlay(
+            NavApproach app, NavApproachTransition trans, NavRunway rwy, NavIls ils)
         {
             if (_approachOverlay == null || IsDisposed || !IsHandleCreated) return;
             if (InvokeRequired)
             {
-                BeginInvoke((Action)(() => DrawApproachOverlay(app, rwy, ils)));
+                BeginInvoke((Action)(() => DrawApproachOverlay(app, trans, rwy, ils)));
                 return;
             }
 
@@ -2734,8 +2939,12 @@ namespace vmsOpenAcars.UI.Forms
                 { DashStyle = DashStyle.Dot };
             var shadowPen      = new Pen(Color.FromArgb(100, 0, 0, 0), 4.5f);
 
-            // ── Trayectoria de legs ──────────────────────────────────────────────
+            // ── Trayectoria de legs (transición + approach) ──────────────────────
             var legPts = new List<PointLatLng>();
+            if (trans?.Legs != null)
+                foreach (var leg in trans.Legs)
+                    if (leg.Lat.HasValue && leg.Lon.HasValue)
+                        legPts.Add(new PointLatLng(leg.Lat.Value, leg.Lon.Value));
             if (app.Legs != null)
                 foreach (var leg in app.Legs)
                     if (leg.Lat.HasValue && leg.Lon.HasValue)

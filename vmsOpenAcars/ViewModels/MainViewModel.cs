@@ -49,6 +49,8 @@ namespace vmsOpenAcars.ViewModels
         private (double lat, double lon)? _lastPosition;
         private int _lastEngineRpm = 0;
         private bool _aircraftInfoShown = false;
+        private readonly Dictionary<string, IvaoAtcStation> _prevAtcStations
+            = new Dictionary<string, IvaoAtcStation>(StringComparer.OrdinalIgnoreCase);
 
         // Eventos para comunicación con la UI (sin cambios)
         public event Action<string, Color> OnLog;
@@ -124,20 +126,35 @@ namespace vmsOpenAcars.ViewModels
 
             _airspaceMonitor.OnAtcUpdated += stations =>
             {
-                if (stations.Count == 0) return;
-                // One compact line per ICAO: "📻 SKBO  GND 121.900  TWR 118.100  APP 119.100"
-                foreach (var grp in stations
-                    .Where(s => s.Position != "ATIS")
-                    .GroupBy(s => s.Icao, StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(g => g.Key))
+                var nowMap = stations.ToDictionary(s => s.Callsign,
+                    StringComparer.OrdinalIgnoreCase);
+
+                // New or changed stations (ATIS excluded from log)
+                foreach (var s in stations.Where(s => s.Position != "ATIS"))
                 {
-                    var parts = grp
-                        .OrderBy(s => AtcPosOrder(s.Position))
-                        .Select(s => s.Frequency > 0
-                            ? $"{s.Position} {s.Frequency:F3}"
-                            : s.Position);
-                    OnLog?.Invoke($"📻 {grp.Key}  {string.Join("  ", parts)}", Theme.SecondaryText);
+                    IvaoAtcStation prev;
+                    bool isNew     = !_prevAtcStations.TryGetValue(s.Callsign, out prev);
+                    bool isChanged = !isNew
+                        && (prev.Frequency != s.Frequency || prev.AtisText != s.AtisText);
+                    if (isNew || isChanged)
+                    {
+                        string freq = s.Frequency > 0 ? $" {s.Frequency:F3}" : string.Empty;
+                        OnLog?.Invoke($"📻 {s.Icao}  {s.Position}{freq}", Theme.SecondaryText);
+                    }
                 }
+
+                // Stations that went offline
+                foreach (var prev in _prevAtcStations.Values.Where(s => s.Position != "ATIS"))
+                {
+                    if (!nowMap.ContainsKey(prev.Callsign))
+                        OnLog?.Invoke($"📻 {prev.Icao}  {prev.Position}  offline",
+                            Theme.SecondaryText);
+                }
+
+                _prevAtcStations.Clear();
+                foreach (var s in stations)
+                    _prevAtcStations[s.Callsign] = s;
+
                 OnAtcStationsUpdated?.Invoke(stations);
             };
         }
@@ -316,6 +333,10 @@ namespace vmsOpenAcars.ViewModels
             {
                 _lastAirspaceCheckUtc = DateTime.UtcNow;
                 _airspaceMonitor.CheckPosition(e.Latitude, e.Longitude, e.AltitudeFeet);
+                _airspaceMonitor.UpdateAircraftState(
+                    e.Latitude, e.Longitude,
+                    _flightManager.CurrentPhase,
+                    _flightManager.ActivePlan?.Destination);
             }
 
             // Cabin announcements — GS tracking + cruise 30 s sustained check
@@ -1294,7 +1315,8 @@ namespace vmsOpenAcars.ViewModels
             string _planOrig = plan.Origin, _planDest = plan.Destination;
             Task.Run(async () =>
             {
-                await _airspaceMonitor.InitRouteAsync(_planOrig, _planDest);
+                await _airspaceMonitor.InitRouteAsync(_planOrig, _planDest,
+                    _fsuipc?.CurrentLatitude ?? 0, _fsuipc?.CurrentLongitude ?? 0);
                 var airspaces = _airspaceMonitor.GetAirspaces();
                 if (airspaces.Count > 0)
                 {
@@ -1605,7 +1627,8 @@ namespace vmsOpenAcars.ViewModels
                 string _orig = plan.Origin, _dest = plan.Destination;
                 Task.Run(async () =>
                 {
-                    await _airspaceMonitor.InitRouteAsync(_orig, _dest);
+                    await _airspaceMonitor.InitRouteAsync(_orig, _dest,
+                        _fsuipc?.CurrentLatitude ?? 0, _fsuipc?.CurrentLongitude ?? 0);
                     var airspaces = _airspaceMonitor.GetAirspaces();
                     if (airspaces.Count > 0)
                     {

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Helpers;
+using vmsOpenAcars.Models;
 using vmsOpenAcars.Models.NavData;
 
 namespace vmsOpenAcars.Services
@@ -27,6 +28,8 @@ namespace vmsOpenAcars.Services
         private static readonly HttpClient _ivaoHttp;
         private const string WhazzupUrl       = "https://api.ivao.aero/v2/tracker/whazzup";
         private const int    PollIntervalMs   = 3 * 60 * 1000;   // 3 minutes
+        private const double AtcMaxDistanceNm         = 150.0;    // general radius
+        private const double AtcMaxDistanceApproachNm = 80.0;     // approach/landing phase
 
         static AirspaceMonitorService()
         {
@@ -42,14 +45,30 @@ namespace vmsOpenAcars.Services
         private HashSet<string>           _insideIds     = new HashSet<string>();
         private List<IvaoAtcStation>      _atcStations   = new List<IvaoAtcStation>();
         private HashSet<string>           _relevantIcaos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, double[]> _airportCoordsCache
+            = new Dictionary<string, double[]>(StringComparer.OrdinalIgnoreCase);
+        private double    _lastAcLat;
+        private double    _lastAcLon;
+        private bool      _isApproachPhase;
+        private string    _originIcao;
+        private string    _destIcao;
         private System.Threading.Timer    _pollTimer;
 
         // ── Route initialisation ─────────────────────────────────────────────────
 
-        public async Task InitRouteAsync(string originIcao, string destIcao)
+        public async Task InitRouteAsync(string originIcao, string destIcao,
+            double initLat = 0, double initLon = 0)
         {
             try
             {
+                // Store initial position for first ATC poll
+                lock (_lock)
+                {
+                    _lastAcLat  = initLat;
+                    _lastAcLon  = initLon;
+                    _originIcao = originIcao;
+                    _destIcao   = destIcao;
+                }
                 var origInfo = NavDataClient.GetAirportInfo(originIcao);
                 var destInfo = NavDataClient.GetAirportInfo(destIcao);
                 if (origInfo == null || destInfo == null) return;
@@ -108,6 +127,58 @@ namespace vmsOpenAcars.Services
 
         public void TriggerIvaoRefresh()
             => Task.Run(async () => { try { await PollIvaoAsync(); } catch { } });
+
+        /// <summary>
+        /// Updates aircraft position and flight phase for ATC station filtering.
+        /// Called from MainViewModel on each telemetry cycle.
+        /// </summary>
+        public void UpdateAircraftState(double lat, double lon, FlightPhase phase, string destIcao)
+        {
+            lock (_lock)
+            {
+                _lastAcLat = lat;
+                _lastAcLon = lon;
+                _isApproachPhase = phase == FlightPhase.Approach
+                                || phase == FlightPhase.Landing;
+                _destIcao = destIcao;
+            }
+        }
+
+        // Origin/dest airports always bypass distance and phase filters.
+        // When acLat/acLon == 0 (no aircraft position) distance filter is skipped entirely.
+        private List<IvaoAtcStation> FilterAtcStations(
+            List<IvaoAtcStation> raw, double acLat, double acLon,
+            bool isApproachPhase, string destIcao, string originIcao)
+        {
+            bool hasPosition = acLat != 0.0 || acLon != 0.0;
+            var result = new List<IvaoAtcStation>(raw.Count);
+            foreach (var s in raw)
+            {
+                bool isRouteAirport =
+                    string.Equals(s.Icao, originIcao, StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(s.Icao, destIcao,   StringComparison.OrdinalIgnoreCase);
+
+                if (!isRouteAirport && hasPosition)
+                {
+                    double[] coords;
+                    if (_airportCoordsCache.TryGetValue(s.Icao, out coords))
+                    {
+                        double maxDist = isApproachPhase
+                            ? AtcMaxDistanceApproachNm
+                            : AtcMaxDistanceNm;
+                        if (DistanceNm(acLat, acLon, coords[0], coords[1]) > maxDist) continue;
+                    }
+
+                    if (isApproachPhase && !string.IsNullOrEmpty(destIcao))
+                    {
+                        if (s.Position != "APP" && s.Position != "DEP") continue;
+                    }
+                }
+
+                result.Add(s);
+            }
+            return result;
+        }
 
         // ── Position check ───────────────────────────────────────────────────────
 
@@ -206,8 +277,43 @@ namespace vmsOpenAcars.Services
                 });
             }
 
-            lock (_lock) _atcStations = stations;
-            OnAtcUpdated?.Invoke(stations);
+            // ── Populate airport coords cache (lazy) and embed coords in each station ──
+            lock (_lock)
+            {
+                foreach (var s in stations)
+                {
+                    if (!_airportCoordsCache.ContainsKey(s.Icao))
+                    {
+                        var info = NavDataClient.GetAirportInfo(s.Icao);
+                        if (info != null && (info.Lat != 0 || info.Lon != 0))
+                            _airportCoordsCache[s.Icao] = new[] { info.Lat, info.Lon };
+                    }
+                    double[] c;
+                    if (_airportCoordsCache.TryGetValue(s.Icao, out c))
+                    {
+                        s.Lat = c[0];
+                        s.Lon = c[1];
+                    }
+                }
+            }
+
+            // ── Filter: distance + phase (route airports bypass distance) ──
+            double acLat, acLon;
+            bool isApproach;
+            string destIcao, originIcao;
+            lock (_lock)
+            {
+                acLat      = _lastAcLat;
+                acLon      = _lastAcLon;
+                isApproach = _isApproachPhase;
+                destIcao   = _destIcao;
+                originIcao = _originIcao;
+            }
+
+            var filtered = FilterAtcStations(stations, acLat, acLon, isApproach, destIcao, originIcao);
+
+            lock (_lock) _atcStations = filtered;
+            OnAtcUpdated?.Invoke(filtered);
         }
 
         // ── Geometry helpers ─────────────────────────────────────────────────────
@@ -265,6 +371,11 @@ namespace vmsOpenAcars.Services
                 _insideIds.Clear();
                 _atcStations.Clear();
                 _relevantIcaos.Clear();
+                _lastAcLat       = 0;
+                _lastAcLon       = 0;
+                _isApproachPhase = false;
+                _originIcao      = null;
+                _destIcao        = null;
             }
         }
 
@@ -282,6 +393,8 @@ namespace vmsOpenAcars.Services
         public string       Position  { get; set; }   // ATIS, TWR, APP, DEP, CTR, GND
         public double       Frequency { get; set; }
         public List<string> AtisLines { get; set; } = new List<string>();
+        public double       Lat       { get; set; }   // ARP latitude  (0 if unknown)
+        public double       Lon       { get; set; }   // ARP longitude (0 if unknown)
 
         public string AtisText => AtisLines?.Count > 0
             ? string.Join(" · ", AtisLines) : string.Empty;

@@ -87,6 +87,23 @@ namespace vmsOpenAcars.Services
             NavDataCache.Initialize();
         }
 
+        // ── Cache management ──────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Limpia las cachés en memoria de aeropuertos y procedimientos.
+        /// Llamar junto con NavDataCache.PurgeAirportData() para forzar re-descarga completa.
+        /// No toca _airspaceMemCache ni _weatherCache.
+        /// </summary>
+        public static void ClearMemoryCache()
+        {
+            _cache.Clear();
+            _navaidCache.Clear();
+            _sidCache.Clear();
+            _starCache.Clear();
+            _airportWaypointCache.Clear();
+            _ilsCache.Clear();
+        }
+
         // ── Prefetch ──────────────────────────────────────────────────────────────
 
         public static void PrefetchAirport(string icao)
@@ -389,8 +406,14 @@ namespace vmsOpenAcars.Services
                 var hit = JsonConvert.DeserializeObject<NavAirportCache>(cached);
                 if (hit?.Runways != null)
                 {
-                    if (hit.Runways.Count > 0 || hit.Taxiways?.Count > 0) IsReachable = true;
-                    return hit;
+                    // Info.Freqs == null means the entry was cached before the API
+                    // enrichment (airportdb: city, iata, freqs).  Bust and re-fetch.
+                    if (hit.Info?.Freqs != null)
+                    {
+                        if (hit.Runways.Count > 0 || hit.Taxiways?.Count > 0) IsReachable = true;
+                        return hit;
+                    }
+                    NavDataCache.Bust("block", icao);
                 }
             }
 

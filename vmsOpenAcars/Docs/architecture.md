@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.6.7  
-> Última actualización: 2026-05-26
+> Versión del documento: 0.7.0  
+> Última actualización: 2026-05-28
 
 ---
 
@@ -303,7 +303,9 @@ static List<NavRunway>    GetRunways(icao)
 static List<NavTaxiway>   GetTaxiways(icao)
 static List<NavParking>   GetParkings(icao)
 static List<NavHoldShort> GetHoldShorts(icao)
-static List<NavApproach>  GetApproaches(icao)
+static List<NavApproach>  GetApproaches(icao)  // incluye Transitions por approach (v0.7.0)
+static List<NavProcedure> GetSids(icao)
+static List<NavProcedure> GetStars(icao)
 static NavAirportInfo     GetAirportInfo(icao)  // transition_altitude_ft / transition_level_ft (double?, null si no disponible)
 static Task<NavApiTestResult> TestApiAsync(string apiKeyOverride = null)
     // Paso 1: GET /status/ → reachability
@@ -312,12 +314,50 @@ static Task<BriefingCheckResult> CheckAnnouncementAsync(string phase, string lan
     // GET /briefing/check/?phase={phase}&lang={lang} → { available, version }
 static Task<byte[]> FetchBytesAsync(string path)
     // GET {NavDataApiUrl}/{path} — descarga binaria genérica; usado por CabinAnnouncementService
+static void ClearMemoryCache()
+    // Limpia todos los ConcurrentDictionary de aeropuertos/procedimientos en sesión.
+    // No toca _airspaceMemCache. Llamar junto con NavDataCache.PurgeAirportData()
+    // para forzar re-descarga completa desde el API. (v0.7.0)
 ```
 
 - Caché: `ConcurrentDictionary<string, Task<NavAirportCache>>` — carga paralela de 6 endpoints por aeropuerto.
 - Auth: cabeceras `X-API-Key` + `X-Origin-Domain`.
 - Todos los endpoints usan la forma singular `/airport/` (no `/airports/`).
-- `BriefingCheckResult` (en `Models/NavData.cs`): `bool Available`, `string Version`.
+
+### NavDataCache — `Services/NavDataCache.cs`
+
+Caché SQLite persistente (`NavData_cache.sqlite` junto al exe) para datos estáticos de NavData, renovados con el ciclo AIRAC.
+
+**Tres tablas:**
+
+| Tabla | Clave | Contenido |
+|---|---|---|
+| `airport_entries` | `(icao, data_type)` | Block, SIDs, STARs, ILS, waypoints por ICAO + ciclo AIRAC |
+| `navaid_entries` | `cache_key` | Navaids por clave personalizada + ciclo AIRAC |
+| `airspace_entries` | `tile_key` | Polígonos de espacio aéreo — TTL 7 días, **no vinculado al AIRAC** |
+
+**API pública:**
+
+```csharp
+static void Initialize()       // crea esquema; auto-purga si airac_valid_until venció
+static void SyncAirac(cycle, validUntil)
+    // purga airport_entries + navaid_entries del ciclo anterior; no toca airspace_entries
+static void PurgeAirportData() // (v0.7.0) elimina TODAS las filas de airport_entries
+                               // y navaid_entries sin condición de ciclo; deja airspace_entries intacto
+static bool TryGet*(icao, cycle, out json)   // lectura por ICAO + data_type
+static void Store*(icao, cycle, json)        // escritura por ICAO + data_type
+static bool TryGetAirspace(tileKey, out json, out cachedAt)  // TTL 7 días
+static void StoreAirspace(tileKey, json)
+```
+
+`PurgeAirportData()` es el complemento de `ClearMemoryCache()` en NavDataClient: juntos garantizan que la siguiente llamada a `PrefetchAirport(icao)` descargue datos frescos tanto de la BD como del API, sin reiniciar la aplicación.
+
+**DTOs en `Models/NavData.cs` relacionados:**
+
+- `BriefingCheckResult`: `bool Available`, `string Version`.
+- `NavApproach`: campos principales + `Transitions` (`List<NavApproachTransition>`, v0.7.0).
+- `NavApproachTransition` (v0.7.0): `Fix` (nombre del IAF), `FixType`, `FixRegion`, `Type`, `Legs` (`List<NavApproachLeg>`).
+- `NavAirspace`, `NavAirspaceGeometry`, `NavAirspaceFreq`, `NavAirspaceLimit`.
 
 ---
 
@@ -559,7 +599,7 @@ _viewModel.OnOsdMessage += (text, severity) =>
 
 ---
 
-### MapForm — `UI/Forms/MapForm.cs` (v0.6.7)
+### MapForm — `UI/Forms/MapForm.cs` (v0.7.0)
 
 Ventana no-modal con mapa en movimiento basado en **GMap.NET 17.2.0**. Se abre con el botón MAP y se mantiene sincronizada con la posición del simulador.
 
@@ -616,12 +656,30 @@ donde θ es el azimut desde el Norte (grados) y R es el radio en nm. Los 8 vért
 
 Preferencia persistida en `App.config` clave `map_provider_index`.
 
+**Sidebar de procedimientos (v0.6.5 / ampliado v0.7.0):**
+
+Campos internos:
+```csharp
+ComboBox _cmbDestRwy, _cmbStar, _cmbStarTrans, _cmbApproach, _cmbApproachTrans;
+string   _selApproachKey, _selApproachTransition;
+```
+
+Métodos relevantes:
+- `FillApproachTransCombo(cmb, approach, ref selection)` — puebla `_cmbApproachTrans` con `(none)` + `approach.Transitions` ordenados por `Fix`. Preserva la selección si el fix sigue disponible.
+- `OnApproachChanged` — limpia `_selApproachTransition`, llama `FillApproachTransCombo`, invoca `DrawApproachOverlay(app, null, rwy, ils)`.
+- `OnApproachTransChanged` — resuelve la `NavApproachTransition` seleccionada, llama `DrawApproachOverlay(app, trans, rwy, ils)`.
+- `DrawApproachOverlay(NavApproach app, NavApproachTransition trans, NavRunway rwy, NavIls ils)` — si `trans != null`, prepende los legs de transición con coordenadas a la lista de puntos antes de los legs del procedimiento. Firma ampliada en v0.7.0 (antes era `(app, rwy, ils)`).
+- `GetCompatibleRunways(procedures, runways)` — devuelve pistas cuyos nombres aparecen en al menos un procedimiento de la lista; usado en `OnSidChanged` y `OnStarChanged` (v0.7.0).
+- `MatchProcedure(name, procedures)` — lookup en cuatro pasos: exacto, base (trunca al primer punto), base invertida, prefijo 4 chars. Garantiza preselección de SID/STAR con nombres de sufijo NavData (ej. `"BIVI3C.01"` → `"BIVI3C"`) (v0.7.0).
+
 **Controles de la barra inferior (de izquierda a derecha):**
-Status label · TILES · ROUTE · SPACES · IVAO · [+] [−] · dropdown proveedor · FOLLOW
+Status label (DockStyle.Fill, v0.7.0) · TILES · ROUTE · SPACES · IVAO · [+] [−] · dropdown proveedor · FOLLOW
+
+> **v0.7.0:** `_lblStatus` cambiado de `DockStyle.Left` (ancho fijo 380 px) a `DockStyle.Fill`, añadido al final de la secuencia `Controls.Add`. Los controles `DockStyle.Right` siempre quedan visibles independientemente del ancho del formulario.
 
 ---
 
-### AirspaceMonitorService — `Services/AirspaceMonitorService.cs` (v0.6.7)
+### AirspaceMonitorService — `Services/AirspaceMonitorService.cs` (v0.6.9)
 
 Monitorea espacios aéreos de la ruta activa e IVAO ATC/ATIS. Thread-safe; eventos en thread-pool.
 
@@ -651,6 +709,13 @@ SetActivePlan() / StartFlight()
 **IVAO polling:** `GET https://api.ivao.aero/v2/tracker/whazzup` → `root["clients"]["atcs"]`. Callsign `{ICAO}_{POS}`:
 - Match exacto: `relevant.Contains(icao)`
 - Match FIR: `icao.StartsWith(r.Substring(0, 2))` para cualquier `r` en `_relevantIcaos`
+
+**Filtrado de estaciones ATC (v0.6.9):** `PollIvaoAsync` aplica tres filtros antes de disparar `OnAtcUpdated`:
+1. **Suppressión de duplicados consecutivos** — `_lastAtcPoll` (Dictionary por callsign) compara frequency, position y AtisText con el poll anterior; si no hay cambios, la estación se omite.
+2. **Filtro de distancia** — `_airportCoordsCache` (lazy, via `NavDataClient.GetAirportInfo`) calcula la distancia al avión. Se omiten estaciones a >150 NM (80 NM en Approach/Landing). ICAOs sin coordenadas en caché (matches de prefijo FIR) pasan sin filtrar.
+3. **Priorización por fase** — en Approach/Landing, solo se muestran estaciones del destino + APP/DEP de aeropuertos cercanos.
+
+`UpdateAircraftState(lat, lon, phase, destIcao)` se llama desde MainViewModel cada 30 s para mantener la posición y fase актуales para el filtrado.
 
 **`CheckPosition(lat, lon, altFt)`:** ray-casting GeoJSON en anillo exterior (`Coordinates[0]`) + comprobación de límites verticales. Dispara `OnAirspaceAlert` (Prohibited/Restricted/Danger) o `OnAirspaceEntered/Exited` (CTR/TMA/ATZ/RMZ/CTA) al entrar/salir. Throttleado a 30 s en `MainViewModel.OnRawDataUpdated`.
 

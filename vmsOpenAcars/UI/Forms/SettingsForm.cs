@@ -347,14 +347,36 @@ namespace vmsOpenAcars.UI.Forms
                 }
                 btnTestApi.Enabled = true;
             };
+            var btnRefreshCache = new Button
+            {
+                Text      = "REFRESH",
+                Width     = 60,
+                Height    = 22,
+                Anchor    = AnchorStyles.Right | AnchorStyles.Top,
+                BackColor = Color.FromArgb(50, 70, 50),
+                ForeColor = Color.FromArgb(140, 220, 140),
+                FlatStyle = FlatStyle.Flat,
+                Font      = new Font("Consolas", 8)
+            };
+            btnRefreshCache.FlatAppearance.BorderSize = 0;
+            btnRefreshCache.Click += (s, ev) =>
+            {
+                NavDataCache.PurgeAirportData();
+                NavDataClient.ClearMemoryCache();
+                lblNavDataStatus.Text      = "Cache cleared — reload flight plan to fetch updated data";
+                lblNavDataStatus.ForeColor = Color.FromArgb(140, 220, 140);
+            };
             navDataPanel.Controls.Add(lblNavDataStatus);
             navDataPanel.Controls.Add(btnTestApi);
+            navDataPanel.Controls.Add(btnRefreshCache);
             navDataPanel.Resize += (s, ev) =>
             {
-                btnTestApi.Left          = navDataPanel.Width - btnTestApi.Width;
-                btnTestApi.Top           = (navDataPanel.Height - btnTestApi.Height) / 2;
-                lblNavDataStatus.Width   = navDataPanel.Width - btnTestApi.Width - 4;
-                lblNavDataStatus.Top     = (navDataPanel.Height - lblNavDataStatus.Height) / 2;
+                btnTestApi.Left         = navDataPanel.Width - btnTestApi.Width;
+                btnTestApi.Top          = (navDataPanel.Height - btnTestApi.Height) / 2;
+                btnRefreshCache.Left    = btnTestApi.Left - btnRefreshCache.Width - 2;
+                btnRefreshCache.Top     = (navDataPanel.Height - btnRefreshCache.Height) / 2;
+                lblNavDataStatus.Width  = btnRefreshCache.Left - 4;
+                lblNavDataStatus.Top    = (navDataPanel.Height - lblNavDataStatus.Height) / 2;
             };
             left.Controls.Add(navDataPanel, 1, 11);
 

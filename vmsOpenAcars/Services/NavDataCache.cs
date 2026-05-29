@@ -91,6 +91,27 @@ namespace vmsOpenAcars.Services
             }
         }
 
+        /// <summary>
+        /// Elimina airport_entries y navaid_entries sin tocar airspace_entries.
+        /// Usar cuando NavData corrige datos dentro del mismo ciclo AIRAC activo.
+        /// </summary>
+        public static void PurgeAirportData()
+        {
+            if (_dbPath == null) return;
+            lock (_lock)
+            {
+                try
+                {
+                    using (var conn = Open())
+                    {
+                        Run(conn, null, "DELETE FROM airport_entries");
+                        Run(conn, null, "DELETE FROM navaid_entries");
+                    }
+                }
+                catch { }
+            }
+        }
+
         // ── Datos de aeropuerto ───────────────────────────────────────────────────
 
         /// <summary>
@@ -116,6 +137,24 @@ namespace vmsOpenAcars.Services
                     }
                 }
                 catch { return null; }
+            }
+        }
+
+        /// <summary>Elimina la entrada en caché para (icao, dataType).</summary>
+        public static void Bust(string dataType, string icao)
+        {
+            if (_dbPath == null) return;
+            lock (_lock)
+            {
+                try
+                {
+                    using (var conn = Open())
+                        Run(conn, null,
+                            "DELETE FROM airport_entries WHERE icao=@i AND data_type=@t",
+                            "@i", icao.ToUpperInvariant(),
+                            "@t", dataType);
+                }
+                catch { }
             }
         }
 

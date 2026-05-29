@@ -108,12 +108,22 @@ namespace vmsOpenAcars.Models.NavData
         [JsonProperty("vertical_guidance")]  public string              VerticalGuidance { get; set; }
         [JsonProperty("faf_index")]          public int?                FafIndex         { get; set; }
         [JsonProperty("navaid")]             public NavNavaid           Navaid           { get; set; }
-        [JsonProperty("legs")]               public List<NavApproachLeg> Legs            { get; set; } = new List<NavApproachLeg>();
-        [JsonProperty("missed_legs")]        public List<NavApproachLeg> MissedLegs      { get; set; } = new List<NavApproachLeg>();
+        [JsonProperty("legs")]               public List<NavApproachLeg>        Legs        { get; set; } = new List<NavApproachLeg>();
+        [JsonProperty("missed_legs")]        public List<NavApproachLeg>        MissedLegs  { get; set; } = new List<NavApproachLeg>();
+        [JsonProperty("transitions")]        public List<NavApproachTransition> Transitions { get; set; } = new List<NavApproachTransition>();
 
         public string DisplayName => !string.IsNullOrEmpty(ApproachName)
             ? ApproachName
             : string.IsNullOrEmpty(Suffix) ? $"{Type} RWY {Runway}" : $"{Type} {Suffix} RWY {Runway}";
+    }
+
+    internal class NavApproachTransition
+    {
+        [JsonProperty("fix")]        public string              Fix       { get; set; }
+        [JsonProperty("fix_type")]   public string              FixType   { get; set; }
+        [JsonProperty("fix_region")] public string              FixRegion { get; set; }
+        [JsonProperty("type")]       public string              Type      { get; set; }
+        [JsonProperty("legs")]       public List<NavApproachLeg> Legs     { get; set; } = new List<NavApproachLeg>();
     }
 
     internal class NavApproachLeg
@@ -148,12 +158,26 @@ namespace vmsOpenAcars.Models.NavData
     internal class NavAirportInfo
     {
         [JsonProperty("icao")]                    public string  Icao                 { get; set; }
+        [JsonProperty("iata")]                    public string  IataCode             { get; set; }
         [JsonProperty("name")]                    public string  Name                 { get; set; }
+        [JsonProperty("city")]                    public string  City                 { get; set; }
+        [JsonProperty("country")]                 public string  Country              { get; set; }
+        [JsonProperty("iso_country")]             public string  IsoCountry           { get; set; }
+        [JsonProperty("type")]                    public string  AirportType          { get; set; }
+        [JsonProperty("region")]                  public string  Region               { get; set; }
+        [JsonProperty("freqs")]                   public List<NavAirportFreq> Freqs   { get; set; }
         [JsonProperty("elevation_ft")]            public double  ElevationFt          { get; set; }
         [JsonProperty("lat")]                     public double  Lat                  { get; set; }
         [JsonProperty("lon")]                     public double  Lon                  { get; set; }
         [JsonProperty("transition_altitude_ft")]  public double? TransitionAltitudeFt { get; set; }
         [JsonProperty("transition_level_ft")]     public double? TransitionLevelFt    { get; set; }
+    }
+
+    internal class NavAirportFreq
+    {
+        [JsonProperty("type")]          public string Type         { get; set; }
+        [JsonProperty("description")]   public string Description  { get; set; }
+        [JsonProperty("frequency_mhz")] public string FrequencyMhz { get; set; }
     }
 
     // ── Status ────────────────────────────────────────────────────────────────────

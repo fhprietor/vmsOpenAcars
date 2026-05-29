@@ -2,6 +2,52 @@
 
 ---
 
+## [0.7.0] — 2026-05-28
+
+### Added
+
+- **MapForm: transiciones de aproximación** — nuevo combo `Trans.` en el sidebar de destino, inmediatamente debajo del selector de aproximación. Muestra los IAF de entrada (transiciones) del procedimiento activo:
+  - `NavApproachTransition` (nuevo DTO en `Models/NavData.cs`): campos `Fix` (nombre del IAF), `FixType`, `FixRegion`, `Type`, `Legs` (`List<NavApproachLeg>`).
+  - Propiedad `Transitions` (`List<NavApproachTransition>`) añadida a `NavApproach`.
+  - `FillApproachTransCombo(cmb, approach, ref selection)` — puebla el combo con `(none)` + fixes ordenados por nombre; preserva la selección activa si el fix sigue disponible tras cambiar approach.
+  - `OnApproachTransChanged` — al cambiar la selección llama `DrawApproachOverlay(app, trans, rwy, ils)`.
+  - `DrawApproachOverlay` (firma actualizada) — acepta `NavApproachTransition trans`; si no es null, prepende los legs de la transición a los legs del procedimiento antes de dibujar la polilínea magenta.
+  - El combo se limpia y re-puebla al cambiar el approach activo; se resetea a `(none)` al cambiar la pista de destino.
+
+- **Invalidación manual de caché NavData** — botón **REFRESH NAVDATA** en Settings → sección NavData API (junto al botón TEST):
+  - `NavDataCache.PurgeAirportData()` — elimina todas las filas de `airport_entries` y `navaid_entries` en la BD SQLite sin tocar `airspace_entries`.
+  - `NavDataClient.ClearMemoryCache()` — limpia todos los `ConcurrentDictionary` de aeropuertos/procedimientos en memoria de sesión; sin necesidad de reiniciar la app.
+  - Actualiza `lblNavDataStatus` con mensaje de confirmación. La siguiente llamada a `PrefetchAirport(icao)` descarga los datos frescos del API automáticamente.
+
+### Fixed
+
+- **MapForm: filtrado bidireccional SID/STAR ↔ pista** — al cambiar SID o STAR en el sidebar, `GetCompatibleRunways()` filtra el combo de pista de salida/llegada mostrando solo las pistas compatibles con el procedimiento seleccionado. Simetría completa: al cambiar pista, el SID/STAR incompatible sigue mostrando el diálogo de confirmación existente.
+
+- **MapForm: `MatchProcedure` — preselección con nombres de sufijo NavData** — los nombres de procedimiento con designador de transición (ej. `"BIVI3C.01"`) no coincidían con el nombre base SimBrief (ej. `"BIVI3C"`). Añadidos dos pasos de lookup adicional que comparan el nombre truncado al primer punto con el nombre del plan, y viceversa, garantizando la preselección correcta del SID/STAR al cargar el OFP.
+
+- **MapForm: barra de estado — recorte de controles de zoom y capas** — `_lblStatus` tenía `DockStyle.Left` con ancho fijo de 380 px; al reducir el ancho del formulario el label empujaba fuera de vista los controles de zoom (`−`/`+`, dropdown de proveedor) y las checkboxes de capa. Cambiado a `DockStyle.Fill` y añadido al final de la secuencia `Controls.Add` para que tome el espacio residual y los controles `DockStyle.Right` siempre queden visibles.
+
+---
+
+## [0.6.9] — 2026-05-27
+
+### Changed
+
+- **IVAO ATC — filtrado de estaciones para reducir ruido en el log** — el reporte de posiciones IVAO se filtra ahora con tres criterios encadenados antes de mostrarse en el log y en el mapa:
+  1. **Suppressión de duplicados consecutivos** — si una estación (mismo callsign, frecuencia, posición y ATIS) no cambió desde el poll anterior, no se muestra. Elimina la repetición de las mismas 3-4 estaciones cada 3 minutos durante crucero.
+  2. **Filtro de distancia** — se omiten estaciones cuyo aeropuerto está a más de 150 NM del avión (80 NM en fase Approach/Landing). Las coordenadas de aeropuerto se cachean perezosamente desde `NavDataClient.GetAirportInfo()`. Los matches de prefijo FIR (ej. todos los `SK*`) sin coordenadas en caché pasan sin filtrar — ya están limitados por `_relevantIcaos`.
+  3. **Priorización por fase** — en fases Approach y Landing, solo se muestran estaciones del aeropuerto de destino + posiciones APP/DEP de aeropuertos cercanos. Elimina las estaciones del origen y otros aeropuertos de ruta que no son relevantes en la aproximación.
+
+- **`AirspaceMonitorService`** — nuevos campos de estado (`_lastAtcPoll`, `_airportCoordsCache`, `_lastAcLat/Lon`, `_isApproachPhase`, `_destIcao`), métodos `UpdateAircraftState()` (inyectado desde MainViewModel en cada ciclo de telemetría) y `FilterAtcStations()` (aplicado en `PollIvaoAsync` antes de `OnAtcUpdated`). `InitRouteAsync` acepta parámetros opcionales `initLat/initLon` para inicializar la posición en el primer poll.
+
+- **`MainViewModel`** — llamada a `UpdateAircraftState()` cada 30 segundos junto con `CheckPosition()`. Las dos llamadas a `InitRouteAsync` (en `SetActivePlan` y `StartFlight`) ahora pasan la posición actual del avión para que el primer poll IVAO ya tenga coordenadas válidas.
+
+### Resultado esperado
+
+En el vuelo SKRG→MMMX, el log pasó de ~200 líneas de 📻 a un número significativamente menor. En crucero solo aparecen estaciones dentro de 150 NM. En Approach, solo MMMX TWR/GND/APP y APP/DEP cercanos.
+
+---
+
 ## [0.6.8] — 2026-05-27
 
 ### Added

@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.6.7**
+**Versión 0.7.0**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -79,6 +79,8 @@ vmsOpenAcars consulta el servicio **NavData API** para calcular con precisión l
 | Origin Domain | Dominio de la aerolínea (para validación de origen HTTP) |
 
 Pulsa **TEST** para verificar la conectividad y la validez de la API key. El botón muestra en verde el ciclo AIRAC vigente si todo es correcto, en naranja si el servicio está activo pero la key es inválida, y en rojo si el servicio no es alcanzable.
+
+Pulsa **REFRESH NAVDATA** para invalidar manualmente la caché de procedimientos (SIDs, STARs, aproximaciones). Úsalo cuando la aerolínea haya corregido datos de NavData dentro del mismo ciclo AIRAC y necesites que la app descargue los datos actualizados sin tener que esperar al próximo ciclo. No afecta a los espacios aéreos ni requiere reiniciar la app.
 
 ### Sección Landing Log
 
@@ -471,9 +473,39 @@ El avión se dibuja con una **silueta diferente según la categoría**:
 | **Street (Carto)** | Mapa de calles limpio y legible, ideal para aeropuertos y navegación en tierra. Sin API key. |
 | **Satellite (ESRI)** | Imágenes satelitales de ESRI World Imagery. Útil para identificar pistas y terminales visualmente. Sin API key. |
 
+### Sidebar de procedimientos (v0.6.5)
+
+El panel lateral izquierdo (expandible con el botón `◀`/`▶`) permite cambiar en tiempo real la pista, SID/transición, STAR/transición y aproximación de salida y llegada.
+
+**Sección ORIGIN:**
+
+| Campo | Descripción |
+|---|---|
+| Pista | Pista de despegue |
+| SID | Procedimiento de salida estándar |
+| Trans. | Transición del SID |
+| Chip de viento | Componente HW/TW y crosswind calculado con el METAR en vigor |
+
+**Sección DESTINATION:**
+
+| Campo | Descripción |
+|---|---|
+| Pista | Pista de llegada |
+| STAR | Procedimiento de llegada estándar |
+| Trans. | Transición del STAR |
+| Approach | Procedimiento de aproximación (ILS, RNAV, VOR…) |
+| Trans. | **Transición de aproximación (IAF)** — muestra los fixes de entrada al procedimiento (v0.7.0). Al seleccionar una transición, el overlay de aproximación se actualiza incluyendo los legs desde el IAF. |
+| Carta | Botón **📋 APPROACH CHART** — abre la carta de aproximación dinámica (v0.6.8) |
+
+> Al cambiar pista, el SID/STAR activo se valida. Si el procedimiento no aplica a la nueva pista, aparece un diálogo de confirmación. El approach se descarta automáticamente en cualquier cambio de pista destino. Al cambiar SID o STAR, el selector de pista filtra automáticamente para mostrar solo pistas compatibles con el procedimiento elegido (v0.7.0).
+
+### Overlay de aproximación
+
+Al seleccionar un approach en el sidebar, el mapa dibuja en magenta la trayectoria de los legs del procedimiento + extended centerline (±5 NM, punteado). El missed approach se dibuja en cian. Si se selecciona una transición (IAF), los legs de la transición se dibujan a continuación del procedimiento principal.
+
 ### Barra de estado
 
-La barra inferior muestra la posición actual: `latitud°  longitud°   HDG XXX°  Z:NN`.
+La barra inferior muestra la posición actual: `latitud°  longitud°   HDG XXX°  Z:NN`. Los controles de zoom (`−`/`+`), el selector de proveedor y las checkboxes de capa siempre quedan visibles independientemente del ancho de la ventana.
 
 > La ventana MAP puede permanecer abierta durante todo el vuelo. Al cerrarla y volver a abrirla retoma la posición actual del avión.
 
@@ -560,4 +592,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.6.7 — que tengas buen vuelo.*
+*vmsOpenAcars v0.7.0 — que tengas buen vuelo.*

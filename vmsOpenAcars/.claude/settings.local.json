@@ -25,7 +25,12 @@
       "Bash(powershell *)",
       "WebSearch",
       "Bash(findstr /r /s \"status\\\\s*=\" *.cs ViewModels\\\\*.cs Services\\\\*.cs Models\\\\*.cs)",
-      "Bash(findstr -i \"acars\\\\|position\\\\|ground\\\\|airborne\\\\|sch\")"
+      "Bash(findstr -i \"acars\\\\|position\\\\|ground\\\\|airborne\\\\|sch\")",
+      "PowerShell(Test-Path *)",
+      "PowerShell($db = \"D:\\\\Desarrollo\\\\Projects\\\\vmsOpenAcars\\\\vmsOpenAcars\\\\bin\\\\Debug\\\\NavData_cache.sqlite\"; Add-Type -Path \"D:\\\\Desarrollo\\\\Projects\\\\vmsOpenAcars\\\\vmsOpenAcars\\\\packages\\\\System.Data.SQLite.Core.1.0.119.0\\\\lib\\\\net46\\\\System.Data.SQLite.dll\"; $conn = New-Object System.Data.SQLite.SQLiteConnection\\(\"Data Source=$db;Version=3;\"\\); $conn.Open\\(\\); $cmd = $conn.CreateCommand\\(\\); $cmd.CommandText = \"SELECT json_data FROM airport_entries WHERE icao='SKBO' AND data_type='block' LIMIT 1\"; $reader = $cmd.ExecuteReader\\(\\); if \\($reader.Read\\(\\)\\) { $json = $reader.GetString\\(0\\); $reader.Close\\(\\); $conn.Close\\(\\); $json | ConvertFrom-Json | ConvertTo-Json -Depth 3 | Select-String -Pattern 'iata|city|country|name|icao' } else { $reader.Close\\(\\); $conn.Close\\(\\); Write-Output \"No SKBO entry found\" })",
+      "Bash(python -c ' *)",
+      "Bash(python3 -c ' *)",
+      "Bash('C:\\\\Python312\\\\python.exe' -c ' *)"
     ]
   }
 }
