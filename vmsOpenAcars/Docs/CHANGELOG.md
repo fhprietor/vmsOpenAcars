@@ -2,6 +2,28 @@
 
 ---
 
+## [0.7.1] — 2026-06-01
+
+### Added
+
+- **AirspaceMonitorService: alertas predictivas** — `CheckPosition` acepta ahora `headingDeg` y `groundSpeedKts` para proyectar la posición ~3 min hacia adelante (lookahead = min(GS×3/60, 20 NM)):
+  - `OnAirspaceApproaching` (nuevo evento): se dispara cuando la posición proyectada cae dentro del polígono y los límites verticales de un espacio Prohibited/Restricted/Danger. Se suprime mientras el ID esté en `_approachingIds`; se cancela automáticamente al entrar al espacio o al girar fuera de la trayectoria. Log: `⚠️ AIRSPACE AHEAD  {TYPE}  {ICAO}  [{lower} – {upper}]`. OSD: `AIRSPACE AHEAD  {TYPE}  {ICAO}` (Warning). No activo si GS < 30 kt.
+  - `OnAirspaceOverflight` (nuevo evento): se dispara cuando el avión está lateralmente dentro del polígono pero por encima del límite superior (`altFt > upperFt`). Avisa que la restricción existe bajo él y que no debe descender. Log: `⚠️ OVERFLIGHT  {TYPE}  {ICAO}  [ABOVE {upper}]  DO NOT DESCEND`. OSD: `ABOVE  {ICAO}  DO NOT DESCEND` (Warning).
+  - `_approachingIds` y `_overflightIds` — nuevos `HashSet<string>` de supresión; se limpian en `Reset()`.
+
+- **AirspaceMonitorService: límites verticales robustos** — nuevo helper `ParseAltDisplay(string)` parsea el campo textual `NavAirspaceLimit.Display` cuando `ValueFt == null`: `"FL095"` → 9500 ft, `"GND"`/`"SFC"` → 0 ft, cadenas numéricas → ft, `"UNL"` → null (ilimitado). `IsWithinVerticalLimits` usa `ParseAltDisplay` como fallback para ambos límites, eliminando falsas alertas cuando `UpperLimit.ValueFt` es null pero `Display` contiene `"FLxxx"`. Nuevo helper `GetUpperLimitFt(NavAirspace)` para las comprobaciones de sobrevuelo. `OnAirspaceAlert` incluye `[{lower} – {upper}]` en el mensaje de log.
+
+- **Validación de tipo de aeronave contra OFP SimBrief**:
+  - `SetActivePlan`: si FSUIPC está conectado y el ICAO del sim difiere del OFP, emite log advisory `⚠️ Aircraft mismatch — Simulator: {simType} / OFP: {planType}` (Theme.Warning).
+  - `StartFlight`: diálogo de confirmación bloqueante (YesNo) si los tipos difieren. El piloto puede continuar o cancelar.
+
+### Changed
+
+- **ScoringService: umbrales de Landing Rate** — ≤150 fpm → 0 / ≤250 → −5 / ≤350 → −15 / ≤450 → −25 / ≤650 → −35 / >650 → −40 (antes: ≤100/200/300/400/600/>600). `GetLandingRating` actualizado en consecuencia (etiqueta "Butter" hasta 150 fpm).
+- **ScoringService: umbrales de G-Force** — ≤1.5g → 0 / ≤1.7g → −7 / >1.7g → −15 (antes: ≤1.3g/≤1.5g/>1.5g).
+
+---
+
 ## [0.7.0] — 2026-05-28
 
 ### Added

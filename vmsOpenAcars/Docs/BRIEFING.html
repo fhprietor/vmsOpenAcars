@@ -366,7 +366,7 @@ code {
     });
   </script>
 <h1 id="vmsopenacars--guía-del-usuario">vmsOpenAcars — Guía del Usuario</h1>
-<p><strong>Versión 0.4.15</strong></p>
+<p><strong>Versión 0.6.7</strong></p>
 <p>vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.</p>
 <hr>
 <h2 id="índice">Índice</h2>
@@ -378,8 +378,9 @@ code {
 <li><a href="#5-scoring-de-vuelo">5. Scoring de vuelo</a></li>
 <li><a href="#6-metar">6. METAR</a></li>
 <li><a href="#7-osd-overlay">7. OSD Overlay</a></li>
-<li><a href="#8-logbook-y-landing-analysis">8. LOGBOOK y Landing Analysis</a></li>
-<li><a href="#9-soluci%C3%B3n-de-problemas">9. Solución de problemas</a></li>
+<li><a href="#8-mapa-en-movimiento-map">8. Mapa en movimiento (MAP)</a></li>
+<li><a href="#9-logbook-y-landing-analysis">9. LOGBOOK y Landing Analysis</a></li>
+<li><a href="#10-soluci%C3%B3n-de-problemas">10. Solución de problemas</a></li>
 </ul>
 <hr>
 <h2 id="1-requisitos">1. Requisitos</h2>
@@ -400,8 +401,8 @@ code {
 <td>Instalado y activo (versión gratuita es suficiente)</td>
 </tr>
 <tr>
-<td>LittleNavMap</td>
-<td>Necesario para scoring de pista (Touchdown Zone y Centreline)</td>
+<td>NavData API</td>
+<td>API Key proporcionada por tu aerolínea virtual (para scoring de pista)</td>
 </tr>
 <tr>
 <td>Cuenta phpVMS 7</td>
@@ -501,14 +502,31 @@ code {
 </tr>
 </tbody>
 </table>
-<h3 id="sección-navmap-database">Sección NavMap Database</h3>
-<p>vmsOpenAcars usa la base de datos de <strong>LittleNavMap</strong> para calcular con precisión la distancia al umbral de pista, la desviación de centreline, y detectar el ILS de la pista de aterrizaje. Sin esta BD el scoring básico funciona, pero los criterios <strong>Touchdown Zone</strong>, <strong>Centreline Deviation</strong>, <strong>Localizer Alignment</strong> y <strong>Minimums Compliance</strong> no se evaluarán.</p>
-<ol>
-<li>Abre LittleNavMap al menos una vez para que genere su base de datos.</li>
-<li>En Settings → <strong>LNM DB Path</strong>, haz clic en <code>[...]</code> y selecciona el archivo <code>.sqlite</code> de LittleNavMap. Por defecto se encuentra en:<pre class="hljs"><code><div>C:\Users\&lt;TuUsuario&gt;\AppData\Roaming\ABarthel\little_navmap_db\little_navmap_navigraph.sqlite
-</div></code></pre>
-</li>
-</ol>
+<h3 id="sección-navdata-api">Sección NavData API</h3>
+<p>vmsOpenAcars consulta el servicio <strong>NavData API</strong> para calcular con precisión la distancia al umbral de pista, la desviación de centreline, y detectar el ILS de la pista de aterrizaje. Sin una API key válida el scoring básico funciona, pero los criterios <strong>Touchdown Zone</strong>, <strong>Centreline Deviation</strong>, <strong>Localizer Alignment</strong> y <strong>Minimums Compliance</strong> no se evaluarán.</p>
+<table>
+<thead>
+<tr>
+<th>Campo</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NavData API URL</td>
+<td>URL base del servicio NavData de tu aerolínea virtual</td>
+</tr>
+<tr>
+<td>NavData API Key</td>
+<td>Clave de acceso proporcionada por tu aerolínea virtual</td>
+</tr>
+<tr>
+<td>Origin Domain</td>
+<td>Dominio de la aerolínea (para validación de origen HTTP)</td>
+</tr>
+</tbody>
+</table>
+<p>Pulsa <strong>TEST</strong> para verificar la conectividad y la validez de la API key. El botón muestra en verde el ciclo AIRAC vigente si todo es correcto, en naranja si el servicio está activo pero la key es inválida, y en rojo si el servicio no es alcanzable.</p>
 <h3 id="sección-landing-log">Sección Landing Log</h3>
 <p>El LOGBOOK guarda el historial de tus aterrizajes con trayectoria de aproximación en una base de datos SQLite local.</p>
 <ol>
@@ -547,6 +565,31 @@ code {
 </tr>
 </tbody>
 </table>
+<h3 id="sección-cabin-announcements">Sección Cabin Announcements</h3>
+<p>vmsOpenAcars puede reproducir anuncios de cabina pregrabados durante las distintas fases del vuelo.</p>
+<table>
+<thead>
+<tr>
+<th>Campo</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Enable Cabin Announcements</td>
+<td>Activa o desactiva los anuncios. Se aplica y guarda <strong>al instante</strong>, sin pulsar Save.</td>
+</tr>
+<tr>
+<td>Volume</td>
+<td>Slider 0–100 % (default 80 %). Se aplica <strong>en tiempo real</strong> sobre el audio en curso y se guarda automáticamente sin pulsar Save.</td>
+</tr>
+</tbody>
+</table>
+<p>El botón <strong>TEST</strong> abre un menú con las 7 fases disponibles (<code>boarding</code>, <code>taxi_out</code>, <code>on_runway</code>, <code>cruise</code>, <code>top_of_descent</code>, <code>approach</code>, <code>taxi_in</code>). Al seleccionar una, el sistema detiene el anuncio en curso, descarga el nuevo si hace falta y lo reproduce mostrando el formato del audio y el tamaño del archivo.</p>
+<blockquote>
+<p>Los anuncios solo están disponibles si la NavData API de tu aerolínea los proporciona. Sin API key válida, o si la aerolínea no dispone de audios, la función queda silenciosa (el vuelo continúa con normalidad).<br>
+En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan automáticamente.</p>
+</blockquote>
 <hr>
 <h2 id="3-interfaz-principal">3. Interfaz principal</h2>
 <pre class="hljs"><code><div>┌────────────────────────────────────────────────────────────────────┐
@@ -563,7 +606,7 @@ code {
 ├────────────────────────────────────────────────────────────────────┤
 │  [STATUS]  GPS • Conexión sim • ACARS • Aeropuerto • COM • NAV       │
 ├────────────────────────────────────────────────────────────────────┤
-│  LOGIN  SETTINGS  SIMBRIEF  METAR  LOGBOOK  DISPATCH  MENU  START   │
+│  LOGIN  SETTINGS  SIMBRIEF  METAR  LOGBOOK  DISPATCH  MAP  MENU  START │
 └────────────────────────────────────────────────────────────────────┘
 </div></code></pre>
 <h3 id="panel-fma">Panel FMA</h3>
@@ -688,6 +731,47 @@ code {
 <p>Durante el rodaje el sistema informa en el log: pista en uso al alinearse, taxiways recorridos, holding points y puerta/estacionamiento de llegada.</p>
 <h4 id="trayectoria-de-aproximación">Trayectoria de aproximación</h4>
 <p>A partir de <strong>3 000 ft AGL</strong> en fase Approach, el sistema captura un punto de trayectoria cada 2 segundos (altitud, velocidad, VS, desviación lateral) para los gráficos del LOGBOOK.</p>
+<h4 id="anuncios-de-cabina">Anuncios de cabina</h4>
+<p>Si la aerolínea dispone de audios y los anuncios están activados en Settings, vmsOpenAcars reproduce automáticamente un chime seguido del anuncio de cabina en cada fase:</p>
+<table>
+<thead>
+<tr>
+<th>Anuncio</th>
+<th>Trigger</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Boarding</td>
+<td>Al iniciar el vuelo (START)</td>
+</tr>
+<tr>
+<td>Taxi Out</td>
+<td>Al entrar en fase TaxiOut</td>
+</tr>
+<tr>
+<td>On Runway</td>
+<td>Al encender luces de aterrizaje o strobes con GS ≤ 40 kt</td>
+</tr>
+<tr>
+<td>Cruise</td>
+<td>Fase Enroute + AGL &gt; 10 000 ft durante 30 s continuos</td>
+</tr>
+<tr>
+<td>Top of Descent</td>
+<td>Al entrar en fase Descent</td>
+</tr>
+<tr>
+<td>Approach</td>
+<td>Al entrar en fase Approach</td>
+</tr>
+<tr>
+<td>Taxi In</td>
+<td>Al entrar en fase TaxiIn</td>
+</tr>
+</tbody>
+</table>
+<p>En vuelos <strong>internacionales</strong> con aerolínea hispanohablante los anuncios se reproducen en inglés seguidos de español. En vuelos <strong>domésticos</strong> solo suena el idioma nativo de la aerolínea.</p>
 <h4 id="frecuencia-de-envío-de-posición">Frecuencia de envío de posición</h4>
 <table>
 <thead>
@@ -724,7 +808,7 @@ code {
 </ol>
 <hr>
 <h2 id="5-scoring-de-vuelo">5. Scoring de vuelo</h2>
-<p>El score parte de <strong>100 puntos</strong> y aplica deducciones según <strong>12 criterios</strong>. El valor final (0–100) se envía con el PIREP a phpVMS y queda registrado en el LOGBOOK.</p>
+<p>El score parte de <strong>100 puntos</strong> y aplica deducciones según <strong>14 criterios</strong>. Adicionalmente existe una <strong>bonificación</strong> por taxi en single-engine. El valor final (0–100) se envía con el PIREP a phpVMS y queda registrado en el LOGBOOK.</p>
 <h3 id="tabla-de-criterios">Tabla de criterios</h3>
 <table>
 <thead>
@@ -753,7 +837,7 @@ code {
 <tr>
 <td><strong>Pitch Angle</strong></td>
 <td>−10 pts</td>
-<td>1°–5° nose-up → 0 (ideal) · &lt; −2° → −10 · −2° a 1° → −5 · &gt; 8° → −5</td>
+<td>1°–7° nose-up → 0 (ideal) · &lt; −2° → −10 · −2° a 1° → −5 · &gt; 8° → −5</td>
 </tr>
 <tr>
 <td><strong>Overspeed</strong></td>
@@ -798,17 +882,23 @@ code {
 <tr>
 <td><strong>Localizer Alignment</strong></td>
 <td>−5 pts</td>
-<td>ILS no sintonizado → −3 · desviación de rumbo &gt; 5° (× 2 máx) → −2 ¹</td>
+<td>ILS no sintonizado → −3 · desviación de rumbo &gt; 5° (× 2 máx) → −2 ¹ ²</td>
 </tr>
 <tr>
 <td><strong>Minimums Compliance</strong></td>
 <td>−5 pts</td>
-<td>−5 si el avión descendió bajo la DA sin aterrizar ¹</td>
+<td>−5 si el avión descendió bajo la DA sin aterrizar ¹ ²</td>
+</tr>
+<tr>
+<td><strong>Single Engine Taxi</strong></td>
+<td><strong>+5 pts</strong> (bonus)</td>
+<td>Se otorgan si ruedas ≥ 50 % del tiempo de movimiento con un solo motor en TaxiOut o TaxiIn. Solo aplica en aeronaves multi-motor. El score no puede superar 100.</td>
 </tr>
 </tbody>
 </table>
 <blockquote>
-<p>¹ Requiere la base de datos de LittleNavMap configurada en Settings. <strong>Localizer Alignment</strong> y <strong>Minimums Compliance</strong> además requieren que la pista tenga un procedimiento ILS en la BD. Sin ello estos criterios no se evalúan.</p>
+<p>¹ Requiere la <strong>NavData API</strong> configurada en Settings (URL + API Key válida). Sin ella, estos criterios no se evalúan.<br>
+² <strong>Localizer Alignment</strong> y <strong>Minimums Compliance</strong> también se omiten si el piloto sintoniza una frecuencia distinta a la del ILS al cruzar 1 000 ft AGL (aproximación RNP, visual u otro procedimiento). En ese caso no hay penalización.</p>
 </blockquote>
 <hr>
 <h3 id="detalle-lights-compliance-5-pts-cada-violación-cap-10">Detalle: Lights Compliance (−5 pts cada violación, cap −10)</h3>
@@ -838,7 +928,7 @@ code {
 <td>BEACON ON continuo</td>
 </tr>
 <tr>
-<td>Por debajo de 10 000 ft AGL</td>
+<td>Por debajo de 9 500 ft AGL</td>
 <td>LANDING ON</td>
 </tr>
 </tbody>
@@ -1091,6 +1181,11 @@ code {
 <td><code>ON BLOCK</code></td>
 <td>Info</td>
 </tr>
+<tr>
+<td>Single-engine taxi detectado</td>
+<td><code>SINGLE ENGINE TAXI  +5 PTS</code></td>
+<td>Success</td>
+</tr>
 </tbody>
 </table>
 <blockquote>
@@ -1099,7 +1194,158 @@ code {
 <h3 id="configuración">Configuración</h3>
 <p>Ve a <strong>Settings → OSD</strong> para ajustar duración, pantalla y opacidad. Usa <strong>MENU → Test OSD</strong> para previsualizar el overlay antes de volar.</p>
 <hr>
-<h2 id="8-logbook-y-landing-analysis">8. LOGBOOK y Landing Analysis</h2>
+<h2 id="8-mapa-en-movimiento-map">8. Mapa en movimiento (MAP)</h2>
+<p>El botón <strong>MAP</strong> abre una ventana no modal con un mapa en tiempo real sincronizado con la posición del simulador. Se actualiza cada ~250 ms independientemente de la fase de vuelo.</p>
+<blockquote>
+<p><strong>Novedad v0.6.7:</strong> el mapa muestra los espacios aéreos y las posiciones ATC de IVAO en cuanto se carga un OFP válido, sin necesidad de iniciar el vuelo. Basta con hacer FETCH OFP + ACCEPT y luego abrir MAP.</p>
+</blockquote>
+<h3 id="controles">Controles</h3>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th>Función</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>FOLLOW</strong> (checkbox)</td>
+<td>Activa el auto-centrado: el mapa sigue al avión automáticamente. Desactívalo para explorar el mapa libremente con el ratón.</td>
+</tr>
+<tr>
+<td><strong>Dropdown de proveedor</strong></td>
+<td>Cambia la capa de mapa entre las opciones disponibles.</td>
+</tr>
+<tr>
+<td><strong>+ / −</strong></td>
+<td>Aumenta o reduce el nivel de zoom. También puedes hacer scroll con la rueda del ratón.</td>
+</tr>
+<tr>
+<td><strong>Arrastrar (botón izq.)</strong></td>
+<td>Desplaza el mapa manualmente (solo activo si FOLLOW está desactivado).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="capas-v067">Capas (v0.6.7)</h3>
+<p>Cuatro checkboxes en la barra inferior permiten activar o desactivar capas en tiempo real:</p>
+<table>
+<thead>
+<tr>
+<th>Capa</th>
+<th>Contenido</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>TILES</strong></td>
+<td>Tiles del proveedor de mapa (calles / satélite). Al desactivarla el mapa queda en negro, útil para ver solo la ruta.</td>
+</tr>
+<tr>
+<td><strong>ROUTE</strong></td>
+<td>Ruta, waypoints, SID/STAR, overlay de aproximación y línea al alterno.</td>
+</tr>
+<tr>
+<td><strong>SPACES</strong></td>
+<td>Polígonos de espacios aéreos: Prohibited (rojo), Restricted (naranja), Danger (amarillo), CTR (cyan), TMA (azul), ATZ (azul claro), RMZ (violeta).</td>
+</tr>
+<tr>
+<td><strong>IVAO</strong></td>
+<td>Posiciones ATC de IVAO: formas geográficas TWR/GND/DEL + text-box APP/CTR/DEP.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="posiciones-atc-de-ivao-v067">Posiciones ATC de IVAO (v0.6.7)</h3>
+<p>Las posiciones activas en IVAO se representan como formas geográficas de <strong>20 nm de radio</strong> que escalan con el zoom, al estilo de la WebEye de IVAO:</p>
+<table>
+<thead>
+<tr>
+<th>Posición</th>
+<th>Forma</th>
+<th>Color</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>TWR</strong></td>
+<td>Círculo de 20 nm</td>
+<td>Rojo (borde semitransparente, relleno muy transparente)</td>
+</tr>
+<tr>
+<td><strong>GND</strong></td>
+<td>Estrella 4 puntas N/S/E/W</td>
+<td>Amarillo</td>
+</tr>
+<tr>
+<td><strong>DEL</strong></td>
+<td>Estrella 4 puntas NE/SE/SW/NW (45°)</td>
+<td>Naranja</td>
+</tr>
+<tr>
+<td><strong>APP / CTR / DEP</strong></td>
+<td>Text-box de texto</td>
+<td>Color según tipo</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>Las puntas de la estrella GND/DEL tienen exactamente la misma distancia al ARP que el borde del círculo TWR (20 nm), de modo que cuando TWR y GND coexisten los extremos de la estrella rozan el borde del círculo.</li>
+<li>El nombre ICAO del aeropuerto aparece centrado en el ARP.</li>
+<li>Pasa el ratón por el ICAO para ver un tooltip con las posiciones activas, frecuencias y ATIS.</li>
+</ul>
+<h3 id="marcador-de-aeronave-v067">Marcador de aeronave (v0.6.7)</h3>
+<p>El avión se dibuja con una <strong>silueta diferente según la categoría</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Categoría</th>
+<th>Silueta</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Jet (turbofan)</td>
+<td>Fuselaje estrecho con alas en flecha</td>
+</tr>
+<tr>
+<td>Turboprop</td>
+<td>Alas más anchas con motores de hélice</td>
+</tr>
+<tr>
+<td>Pistón</td>
+<td>Aeronave ligera</td>
+</tr>
+<tr>
+<td>Helicóptero / desconocido</td>
+<td>Silueta genérica</td>
+</tr>
+</tbody>
+</table>
+<h3 id="proveedores-de-mapa">Proveedores de mapa</h3>
+<table>
+<thead>
+<tr>
+<th>Opción</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Street (Carto)</strong></td>
+<td>Mapa de calles limpio y legible, ideal para aeropuertos y navegación en tierra. Sin API key.</td>
+</tr>
+<tr>
+<td><strong>Satellite (ESRI)</strong></td>
+<td>Imágenes satelitales de ESRI World Imagery. Útil para identificar pistas y terminales visualmente. Sin API key.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="barra-de-estado">Barra de estado</h3>
+<p>La barra inferior muestra la posición actual: <code>latitud°  longitud°   HDG XXX°  Z:NN</code>.</p>
+<blockquote>
+<p>La ventana MAP puede permanecer abierta durante todo el vuelo. Al cerrarla y volver a abrirla retoma la posición actual del avión.</p>
+</blockquote>
+<hr>
+<h2 id="9-logbook-y-landing-analysis">9. LOGBOOK y Landing Analysis</h2>
 <p>El LOGBOOK guarda el historial completo de tus aterrizajes con análisis gráfico de cada aproximación.</p>
 <h3 id="abrir-el-logbook">Abrir el LOGBOOK</h3>
 <p>Haz clic en <strong>LOGBOOK</strong> en la pantalla principal.</p>
@@ -1185,7 +1431,7 @@ code {
 <h3 id="eliminar-registros">Eliminar registros</h3>
 <p>Selecciona uno o varios vuelos y haz clic en <strong>DELETE</strong>. Se pedirá confirmación.</p>
 <hr>
-<h2 id="9-solución-de-problemas">9. Solución de problemas</h2>
+<h2 id="10-solución-de-problemas">10. Solución de problemas</h2>
 <p><strong>El botón START no se habilita</strong></p>
 <ul>
 <li>Verifica que el simulador esté activo y FSUIPC conectado (el STATUS debe mostrarlo).</li>
@@ -1205,8 +1451,8 @@ code {
 </ul>
 <p><strong>Touchdown Zone y Centreline no se evalúan</strong></p>
 <ul>
-<li>La base de datos de LittleNavMap no está configurada o la ruta es incorrecta.</li>
-<li>Ve a Settings → NavMap Database y selecciona el archivo <code>.sqlite</code> correcto.</li>
+<li>La API key de NavData no está configurada o es inválida.</li>
+<li>Ve a Settings → NavData API, introduce la key y pulsa TEST para verificarla.</li>
 </ul>
 <p><strong>El LOGBOOK no guarda los vuelos</strong></p>
 <ul>
@@ -1220,8 +1466,14 @@ code {
 <ul>
 <li>Requiere un plan activo con aeropuertos ICAO válidos y conexión a internet.</li>
 </ul>
+<p><strong>Los anuncios de cabina no suenan</strong></p>
+<ul>
+<li>Verifica que <strong>Cabin Announcements</strong> esté activo en Settings.</li>
+<li>Los anuncios requieren que la NavData API esté configurada y que la aerolínea publique audios. Usa el botón <strong>TEST</strong> en Settings para comprobar si hay archivos disponibles para una fase concreta.</li>
+<li>En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan automáticamente.</li>
+</ul>
 <hr>
-<p><em>vmsOpenAcars v0.4.15 — que tengas buen vuelo.</em></p>
+<p><em>vmsOpenAcars v0.6.7 — que tengas buen vuelo.</em></p>
 
 </body>
 </html>

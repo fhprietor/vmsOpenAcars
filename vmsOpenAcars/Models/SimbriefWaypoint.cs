@@ -11,6 +11,7 @@ namespace vmsOpenAcars.Models
         public int    AltFt     { get; set; }
         public bool   IsSidStar { get; set; }  // is_sid_star == "1" en SimBrief navlog
         public string         Freq        { get; set; }
+        public double?        MagTrack    { get; set; }  // magnetic track to next fix (SimBrief "track")
         public FixRestriction Restriction { get; set; }
     }
 }

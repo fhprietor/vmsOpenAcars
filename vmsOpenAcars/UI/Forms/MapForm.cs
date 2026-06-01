@@ -497,9 +497,9 @@ namespace vmsOpenAcars.UI.Forms
 
         // ── Route drawing ─────────────────────────────────────────────────────────
 
-        // Stage colors:  CLB/SID = teal · CRZ = ice-blue · DSC/STAR = amber
+        // Stage colors:  CLB/SID = teal · CRZ = magenta-purple · DSC/STAR = amber
         private static readonly Color _clrClb    = Color.FromArgb(  0, 210, 175);
-        private static readonly Color _clrCrz    = Color.FromArgb(170, 200, 255);
+        private static readonly Color _clrCrz    = Color.FromArgb(185,  45, 255);
         private static readonly Color _clrDsc    = Color.FromArgb(255, 185,  50);
         private static readonly Color _clrAlt    = Color.FromArgb(170, 150, 215);
         private static readonly Color _clrShadow = Color.FromArgb(140,   0,   0,  0);
@@ -578,7 +578,8 @@ namespace vmsOpenAcars.UI.Forms
                                 rwy = FindDepartureRunway(runways, originRunway, sidFixes[0]);
                                 if (rwy != null)
                                 {
-                                    DrawRunwaySegment(rwy, shadowRoutes, colorRoutes, markers, _clrClb);
+                                    DrawRunwaySegment(rwy, shadowRoutes, colorRoutes, markers, _clrClb,
+                                        labelText: $"{originIcao}/{rwy.Name}", role: "origin");
                                     hasDepRwy = true;
                                     depEnd    = (rwy.EndLat, rwy.EndLon);
                                 }
@@ -589,7 +590,8 @@ namespace vmsOpenAcars.UI.Forms
                                 rwy = FindDepartureRunway(runways, originRunway, firstPlanFix);
                                 if (rwy != null)
                                 {
-                                    DrawRunwaySegment(rwy, shadowRoutes, colorRoutes, markers, _clrClb);
+                                    DrawRunwaySegment(rwy, shadowRoutes, colorRoutes, markers, _clrClb,
+                                        labelText: $"{originIcao}/{rwy.Name}", role: "origin");
 
                                     double depBrg = GeodesicBearing(
                                         rwy.ThresholdLat, rwy.ThresholdLon, rwy.EndLat, rwy.EndLon);
@@ -822,7 +824,8 @@ namespace vmsOpenAcars.UI.Forms
                                         arrRwy.Name, "apfx"));
                                     markers.Add(new FixMarker(
                                         new PointLatLng(arrRwy.ThresholdLat, arrRwy.ThresholdLon),
-                                        arrRwy.Name, "rwy"));
+                                        arrRwy.Name, "rwy", null, null, false,
+                                        role: "dest", labelText: $"{destIcao}/{arrRwy.Name}"));
                                     hasArrRwy = true;
                                 }
                             }
@@ -899,7 +902,8 @@ namespace vmsOpenAcars.UI.Forms
                                                 bestAligned.Ident, "apfx"));
                                             markers.Add(new FixMarker(
                                                 new PointLatLng(arrRwy2.ThresholdLat, arrRwy2.ThresholdLon),
-                                                arrRwy2.Name, "rwy"));
+                                                arrRwy2.Name, "rwy", null, null, false,
+                                                role: "dest", labelText: $"{destIcao}/{arrRwy2.Name}"));
 
                                             noStarAligned        = true;
                                             noStarAlignedLat     = bestAligned.Lat;
@@ -1068,9 +1072,33 @@ namespace vmsOpenAcars.UI.Forms
                     string id     = wp.Ident?.ToUpper() ?? "";
                     bool isTodToc = id == "TOD" || id == "TOC" || id == "T/D" || id == "T/C";
                     restrictions.TryGetValue(id, out FixRestriction restr);
+
+                    string role = null, labelText = null;
+                    if (!isTodToc)
+                    {
+                        string stage = wp.Stage ?? "CRZ";
+                        if (wp.Type == "apt")
+                        {
+                            role      = stage == "CLB" ? "origin" : "dest";
+                            string rw = stage == "CLB" ? originRunway : destRunway;
+                            labelText = string.IsNullOrEmpty(rw) ? wp.Ident : $"{wp.Ident}/{rw}";
+                        }
+                        else if (wp.Type == "vor" || wp.Type == "dme")
+                        {
+                            role      = "vor_route";
+                            labelText = string.IsNullOrEmpty(wp.Freq) ? wp.Ident : $"{wp.Ident}/{wp.Freq}";
+                        }
+                        else
+                        {
+                            role      = stage == "CLB" ? "sid" : stage == "DSC" ? "star" : "enroute";
+                            labelText = wp.Ident;
+                        }
+                    }
+
                     markers.Add(new FixMarker(
                         new PointLatLng(wp.Lat, wp.Lon), wp.Ident,
-                        isTodToc ? "pseudo" : wp.Type, wp.Freq, restr));
+                        isTodToc ? "pseudo" : wp.Type, wp.Freq, restr,
+                        role: role, labelText: labelText));
                 }
 
                 // ── Labels SID / STAR — usar coords de NavData cuando la ruta ya las usa ──
@@ -1083,6 +1111,35 @@ namespace vmsOpenAcars.UI.Forms
                     AddProcedureLabelFromProc(starProc, resolvedStar, markers);
                 else
                     AddProcedureLabel(wps, "DSC", resolvedStar, markers);
+
+                // ── Etiquetas de distancia y rumbo por leg ───────────────
+                {
+                    var infoWps = wps.Where(w => w.Type != "latlon").ToList();
+                    for (int i = 0; i + 1 < infoWps.Count; i++)
+                    {
+                        var a = infoWps[i];
+                        var b = infoWps[i + 1];
+                        double distNm = DistanceKm(a.Lat, a.Lon, b.Lat, b.Lon) / 1.852;
+                        if (distNm < 5.0) continue;
+                        double trueBrg = GeodesicBearing(a.Lat, a.Lon, b.Lat, b.Lon);
+                        double midLat  = (a.Lat + b.Lat) / 2.0;
+                        double midLon  = (a.Lon + b.Lon) / 2.0;
+
+                        // Rumbo mostrado: magnético de SimBrief si disponible, verdadero si no
+                        double displayBrg = a.MagTrack ?? trueBrg;
+
+                        // Mismo cálculo que AddProcedureLabelFromCoords: bearing → ángulo pantalla GDI+
+                        float ang = (float)(trueBrg - 90.0);
+                        ang = ((ang % 360f) + 360f) % 360f;
+                        if (ang > 180f) ang -= 360f;
+                        if (Math.Abs(ang) > 90f)
+                            ang = ang > 0 ? ang - 180f : ang + 180f;
+
+                        string label = $"{(int)Math.Round(distNm)}NM {(int)Math.Round(displayBrg)}°";
+                        markers.Add(new LegInfoMarker(
+                            new PointLatLng(midLat, midLon), label, ang, distNm));
+                    }
+                }
 
                 // ── Waypoints ambient cerca del destino y del origen ─────
                 var routeIdents = new HashSet<string>(
@@ -1104,6 +1161,7 @@ namespace vmsOpenAcars.UI.Forms
                             {
                                 if (string.IsNullOrEmpty(wp.Ident)) continue;
                                 if (routeIdents.Contains(wp.Ident)) continue;
+                                if (wp.DistanceNm > 30.0) continue;
                                 string fixType = MapAmbientType(wp.Type);
                                 string freq    = null;
                                 if (fixType == "vor" || fixType == "ndb")
@@ -1626,7 +1684,7 @@ namespace vmsOpenAcars.UI.Forms
             {
                 case "CLB": color = _clrClb; width = 10f; break;
                 case "DSC": color = _clrDsc; width = 10f; break;
-                default:    color = _clrCrz; width = 3f;  break;
+                default:    color = _clrCrz; width = 5f;  break;
             }
             string id = $"{stage}_{colors.Count}";
             shadows.Add(new GMapRoute(new List<PointLatLng>(pts), "s_" + id)
@@ -1860,12 +1918,82 @@ namespace vmsOpenAcars.UI.Forms
             return pts;
         }
 
+        // ── Desplazamiento geográfico flat-earth ──────────────────────────────────
+
+        private static void DispGeoNm(
+            double lat, double lon, double bearingDeg, double distNm,
+            out double outLat, out double outLon)
+        {
+            double rad    = bearingDeg * Math.PI / 180.0;
+            double meters = distNm * 1852.0;
+            double cosRef = Math.Cos(lat * Math.PI / 180.0);
+            outLat = lat + meters * Math.Cos(rad) / 111320.0;
+            outLon = lon + meters * Math.Sin(rad) / (111320.0 * cosRef);
+        }
+
+        // ── Racetrack de holding ───────────────────────────────────────────────────
+        //
+        // Genera el polígono del holding pattern para overlay de mapa.
+        // inbndCrs es el rumbo de entrada al fix (campo Course del leg HM/HF/HA).
+        // El racetrack se extiende al lado perpendicular en la dirección del giro
+        // (derecha para right-hand holds, izquierda para left-hand).
+
+        private static List<PointLatLng> ComputeHoldRacetrack(
+            double holdLat, double holdLon,
+            double inbndCrs, bool turnRight, double legNm)
+        {
+            const double R    = 0.85;  // radio de giro NM (~160kt, 25° banco)
+            const int    Segs = 10;    // segmentos por semicírculo
+
+            double outBrg  = (inbndCrs + 180.0) % 360.0;
+            double perpBrg = turnRight
+                ? (inbndCrs + 90.0)          % 360.0
+                : (inbndCrs - 90.0 + 360.0) % 360.0;
+
+            double bLat, bLon;
+            DispGeoNm(holdLat, holdLon, outBrg, legNm, out bLat, out bLon);
+
+            double cALat, cALon, cBLat, cBLon;
+            DispGeoNm(holdLat, holdLon, perpBrg, R, out cALat, out cALon);
+            DispGeoNm(bLat,    bLon,    perpBrg, R, out cBLat, out cBLon);
+
+            double sweep  = turnRight ? 1.0 : -1.0;
+            double startA = (perpBrg + 180.0) % 360.0;
+            double startB = perpBrg;
+
+            var pts = new List<PointLatLng>();
+
+            for (int k = 0; k <= Segs; k++)
+            {
+                double ang = ((startA + sweep * 180.0 * k / Segs) % 360.0 + 360.0) % 360.0;
+                double pLat, pLon;
+                DispGeoNm(cALat, cALon, ang, R, out pLat, out pLon);
+                pts.Add(new PointLatLng(pLat, pLon));
+            }
+
+            double bsLat, bsLon;
+            DispGeoNm(cBLat, cBLon, startB, R, out bsLat, out bsLon);
+            pts.Add(new PointLatLng(bsLat, bsLon));
+
+            for (int k = 0; k <= Segs; k++)
+            {
+                double ang = ((startB + sweep * 180.0 * k / Segs) % 360.0 + 360.0) % 360.0;
+                double pLat, pLon;
+                DispGeoNm(cBLat, cBLon, ang, R, out pLat, out pLon);
+                pts.Add(new PointLatLng(pLat, pLon));
+            }
+
+            pts.Add(new PointLatLng(holdLat, holdLon));
+            return pts;
+        }
+
         // ── Tramo físico de pista (helper compartido salida/llegada) ──────────────
 
         private static void DrawRunwaySegment(
             NavRunway rwy,
             List<GMapRoute> shadows, List<GMapRoute> colors,
-            List<GMapMarker> markers, Color clr)
+            List<GMapMarker> markers, Color clr,
+            string labelText = null, string role = null)
         {
             var seg = new List<PointLatLng> {
                 new PointLatLng(rwy.ThresholdLat, rwy.ThresholdLon),
@@ -1875,7 +2003,8 @@ namespace vmsOpenAcars.UI.Forms
             colors.Add(new GMapRoute(seg,  "rwy_"   + rwy.Name) { Stroke = new Pen(clr, 2.5f) });
             markers.Add(new FixMarker(
                 new PointLatLng(rwy.ThresholdLat, rwy.ThresholdLon),
-                rwy.Name, "rwy"));
+                rwy.Name, "rwy", null, null, false,
+                role: role, labelText: labelText));
         }
 
         // ── Runway selection for departure ────────────────────────────────────────
@@ -2932,33 +3061,48 @@ namespace vmsOpenAcars.UI.Forms
             _approachOverlay.Routes.Clear();
             _approachOverlay.Markers.Clear();
 
-            var approachPen    = new Pen(_clrApproach, 2.5f);
-            var missedPen      = new Pen(_clrMissed, 1.5f)   { DashStyle = DashStyle.Dash };
-            var centerlinePen  = new Pen(
-                Color.FromArgb(140, _clrApproach.R, _clrApproach.G, _clrApproach.B), 1.0f)
+            var missedPen     = new Pen(_clrMissed, 3f) { DashStyle = DashStyle.Dash };
+            var centerlinePen = new Pen(Color.FromArgb(140, 60, 215, 100), 1.0f)
                 { DashStyle = DashStyle.Dot };
-            var shadowPen      = new Pen(Color.FromArgb(100, 0, 0, 0), 4.5f);
 
-            // ── Trayectoria de legs (transición + approach) ──────────────────────
-            var legPts = new List<PointLatLng>();
+            // Transición (SID/STAR hacia IAF): ámbar, mismo color que STAR pero más delgado
+            var transPen    = new Pen(_clrDsc, 5f);
+            var transShadow = new Pen(Color.FromArgb(100, 0, 0, 0), 9f);
+
+            // Approach final (IAF → umbral): verde, ligeramente más delgado que la transición
+            var finalPen    = new Pen(Color.FromArgb(60, 215, 100), 4f);
+            var finalShadow = new Pen(Color.FromArgb(100, 0, 0, 0), 8f);
+
+            // ── Trayectoria de legs — transición y final por separado ────────────
+            var transPts = new List<PointLatLng>();
+            var appPts   = new List<PointLatLng>();
+
             if (trans?.Legs != null)
                 foreach (var leg in trans.Legs)
                     if (leg.Lat.HasValue && leg.Lon.HasValue)
-                        legPts.Add(new PointLatLng(leg.Lat.Value, leg.Lon.Value));
+                        transPts.Add(new PointLatLng(leg.Lat.Value, leg.Lon.Value));
+
             if (app.Legs != null)
                 foreach (var leg in app.Legs)
                     if (leg.Lat.HasValue && leg.Lon.HasValue)
-                        legPts.Add(new PointLatLng(leg.Lat.Value, leg.Lon.Value));
+                        appPts.Add(new PointLatLng(leg.Lat.Value, leg.Lon.Value));
 
-            if (rwy != null && legPts.Count > 0)
-                legPts.Add(new PointLatLng(rwy.ThresholdLat, rwy.ThresholdLon));
+            // Continuidad: último punto de transición = primer punto de approach
+            if (transPts.Count > 0 && appPts.Count > 0)
+                transPts.Add(appPts[0]);
 
-            if (legPts.Count >= 2)
+            if (rwy != null && appPts.Count > 0)
+                appPts.Add(new PointLatLng(rwy.ThresholdLat, rwy.ThresholdLon));
+
+            if (transPts.Count >= 2)
             {
-                _approachOverlay.Routes.Add(
-                    new GMapRoute(legPts, "app_shadow") { Stroke = shadowPen });
-                _approachOverlay.Routes.Add(
-                    new GMapRoute(legPts, "app")        { Stroke = approachPen });
+                _approachOverlay.Routes.Add(new GMapRoute(transPts, "app_trans_sh") { Stroke = transShadow });
+                _approachOverlay.Routes.Add(new GMapRoute(transPts, "app_trans")    { Stroke = transPen    });
+            }
+            if (appPts.Count >= 2)
+            {
+                _approachOverlay.Routes.Add(new GMapRoute(appPts, "app_final_sh") { Stroke = finalShadow });
+                _approachOverlay.Routes.Add(new GMapRoute(appPts, "app_final")    { Stroke = finalPen    });
             }
 
             // ── Extended centerline (5 NM before → 0.5 NM past threshold) ──────
@@ -2993,15 +3137,70 @@ namespace vmsOpenAcars.UI.Forms
             }
 
             // ── Missed approach ──────────────────────────────────────────────────
-            if (app.MissedLegs != null)
+            if (app.MissedLegs != null && app.MissedLegs.Count > 0)
             {
                 var missedPts = new List<PointLatLng>();
+                double prevLat = rwy?.ThresholdLat ?? 0;
+                double prevLon = rwy?.ThresholdLon ?? 0;
+                if (rwy != null)
+                    missedPts.Add(new PointLatLng(prevLat, prevLon));
+
+                NavApproachLeg holdLeg = null;
                 foreach (var leg in app.MissedLegs)
+                {
+                    if (leg.Type == "HM" || leg.Type == "HF" || leg.Type == "HA")
+                    {
+                        holdLeg = leg;
+                        if (leg.Lat.HasValue && leg.Lon.HasValue)
+                        {
+                            missedPts.Add(new PointLatLng(leg.Lat.Value, leg.Lon.Value));
+                            prevLat = leg.Lat.Value;
+                            prevLon = leg.Lon.Value;
+                        }
+                        break;
+                    }
                     if (leg.Lat.HasValue && leg.Lon.HasValue)
+                    {
                         missedPts.Add(new PointLatLng(leg.Lat.Value, leg.Lon.Value));
+                        prevLat = leg.Lat.Value;
+                        prevLon = leg.Lon.Value;
+                    }
+                    else if (leg.Type == "CA" || leg.Type == "VA" || leg.Type == "FA" ||
+                             leg.Type == "FM" || leg.Type == "VI" || leg.Type == "VM")
+                    {
+                        // Leg sin coordenadas — extrapolar punto visual desde el fix anterior
+                        double distNm = leg.DistanceNm > 0.5 ? Math.Min(leg.DistanceNm, 6.0) : 3.0;
+                        double eLat, eLon;
+                        DispGeoNm(prevLat, prevLon, leg.Course, distNm, out eLat, out eLon);
+                        missedPts.Add(new PointLatLng(eLat, eLon));
+                        prevLat = eLat;
+                        prevLon = eLon;
+                    }
+                }
+
                 if (missedPts.Count >= 2)
                     _approachOverlay.Routes.Add(
                         new GMapRoute(missedPts, "missed") { Stroke = missedPen });
+
+                // Racetrack del holding
+                if (holdLeg != null && holdLeg.Lat.HasValue && holdLeg.Lon.HasValue)
+                {
+                    bool   right  = !string.Equals(holdLeg.TurnDirection, "L",
+                                        StringComparison.OrdinalIgnoreCase);
+                    double course = holdLeg.Course;
+                    double legNm  = holdLeg.DistanceNm > 0.5 ? holdLeg.DistanceNm : 1.5;
+
+                    var racePts = ComputeHoldRacetrack(
+                        holdLeg.Lat.Value, holdLeg.Lon.Value, course, right, legNm);
+
+                    if (racePts != null && racePts.Count >= 3)
+                        _approachOverlay.Routes.Add(
+                            new GMapRoute(racePts, "hold") { Stroke = missedPen });
+
+                    _approachOverlay.Markers.Add(new FixMarker(
+                        new PointLatLng(holdLeg.Lat.Value, holdLeg.Lon.Value),
+                        holdLeg.Fix ?? "", "wpt"));
+                }
             }
 
             // ── Umbral de pista ──────────────────────────────────────────────────
@@ -3089,13 +3288,16 @@ namespace vmsOpenAcars.UI.Forms
         private readonly string _type;
         private readonly string _freq;
         private readonly FixRestriction _restriction;
-        private readonly bool _dimmed;
+        private readonly bool   _dimmed;
+        private readonly string _role;       // "origin"|"dest"|"sid"|"star"|"enroute"|"vor_route" | null
+        private readonly string _labelText;  // texto visible en pill-box (e.g. "SKSM/01", "PIE/116.80")
 
         // Shared resources — allocated once
         // Magenta (#FF14DC): contrasta sobre Carto claro, ESRI satélite y rutas de cualquier color
         private static readonly Font  _font        = new Font("Consolas", 14f);
         private static readonly Font  _fontSmall   = new Font("Consolas", 10f);
         private static readonly Font  _fontRestr   = new Font("Consolas", 9f);
+        private static readonly Font  _boxFont     = new Font("Consolas", 9f, FontStyle.Bold);
         private static readonly Brush _textBrush   = new SolidBrush(Color.FromArgb(255, 20, 220));
         private static readonly Brush _shadowBrush = new SolidBrush(Color.FromArgb(90, 0, 0, 0));
         private static readonly Brush _aptFill     = new SolidBrush(Color.FromArgb(80, 255, 20, 220));
@@ -3106,14 +3308,23 @@ namespace vmsOpenAcars.UI.Forms
         private static readonly Brush _apfxBrush   = new SolidBrush(Color.FromArgb(255, 185, 50));
         private static readonly Brush _restrBrush  = new SolidBrush(Color.FromArgb(255, 220, 120));
         private static readonly Pen   _restrPen    = new Pen(Color.FromArgb(255, 220, 120), 1.2f);
+        // Pill-box colors por rol
+        private static readonly Color _cOrigin  = Color.FromArgb(220, 220,  55,  55);
+        private static readonly Color _cDest    = Color.FromArgb(220, 210, 110,   0);
+        private static readonly Color _cEnroute = Color.FromArgb(220, 155,  45, 230);
+        private static readonly Color _cVor     = Color.FromArgb(220,  30, 160,  80);
+        private static readonly Color _cSid     = Color.FromArgb(220,   0, 200, 175);
+        private static readonly Color _cStar    = Color.FromArgb(220, 235, 165,  20);
 
         // Dimmed (ambient) resources — steel-blue muted, for background context fixes
-        private static readonly Pen   _dimPen     = new Pen(Color.FromArgb(85, 115, 160), 1.2f);
-        private static readonly Brush _dimBrush   = new SolidBrush(Color.FromArgb(85, 115, 160));
-        private static readonly Brush _dimAptFill = new SolidBrush(Color.FromArgb(35, 85, 115, 160));
+        private static readonly Pen   _dimPen      = new Pen(Color.FromArgb(85, 115, 160), 1.2f);
+        private static readonly Brush _dimBrush    = new SolidBrush(Color.FromArgb(85, 115, 160));
+        private static readonly Brush _dimAptFill  = new SolidBrush(Color.FromArgb(35, 85, 115, 160));
+        private static readonly Brush _dimLabelBg  = new SolidBrush(Color.FromArgb(130, 8, 12, 22));
 
         public FixMarker(PointLatLng pos, string ident, string type, string freq = null,
-                         FixRestriction restriction = null, bool dimmed = false)
+                         FixRestriction restriction = null, bool dimmed = false,
+                         string role = null, string labelText = null)
             : base(pos)
         {
             Ident        = ident;
@@ -3121,6 +3332,8 @@ namespace vmsOpenAcars.UI.Forms
             _freq        = freq;
             _restriction = restriction;
             _dimmed      = dimmed;
+            _role        = role;
+            _labelText   = labelText;
             Offset = new Point(0, 0);
             Size   = new Size(14, 14);
         }
@@ -3146,19 +3359,39 @@ namespace vmsOpenAcars.UI.Forms
 
                 case "vor":
                 {
-                    // Compass ring con 12 ticks radiales (estilo Navigraph)
-                    const float VR   = 10f;  // radio del compass ring
-                    const float HexR = 5f;   // radio del hexágono interior
+                    const float VR    = 12f;  // radio exterior (compass rose)
+                    const float HexR  =  5f;  // radio hexágono interior
+                    const float TLong =  8f;  // extensión tick cardinal (N/S/E/W)
+                    const float TShrt =  4f;  // extensión tick intercardinal
+                    const float InR   =  6f;  // radio interior de la cruz cardinal
+
+                    // Círculo exterior
                     g.DrawEllipse(pen, cx - VR, cy - VR, VR * 2, VR * 2);
-                    for (int k = 0; k < 12; k++)
+
+                    // 8 ticks radiales: cardinales más largos, intercardinales más cortos
+                    for (int k = 0; k < 8; k++)
                     {
-                        double ang  = k * 30.0 * Math.PI / 180.0;
+                        double ang  = k * 45.0 * Math.PI / 180.0;
+                        float  sinA = (float)Math.Sin(ang);
+                        float  cosA = (float)Math.Cos(ang);
+                        float  tLen = (k % 2 == 0) ? TLong : TShrt;
+                        g.DrawLine(pen,
+                            cx + VR          * sinA, cy - VR          * cosA,
+                            cx + (VR + tLen) * sinA, cy - (VR + tLen) * cosA);
+                    }
+
+                    // Cruz cardinal interior (4 líneas desde InR hasta VR)
+                    for (int k = 0; k < 4; k++)
+                    {
+                        double ang  = k * 90.0 * Math.PI / 180.0;
                         float  sinA = (float)Math.Sin(ang);
                         float  cosA = (float)Math.Cos(ang);
                         g.DrawLine(pen,
-                            cx + VR       * sinA, cy - VR       * cosA,
-                            cx + (VR + 4) * sinA, cy - (VR + 4) * cosA);
+                            cx + InR * sinA, cy - InR * cosA,
+                            cx + VR  * sinA, cy - VR  * cosA);
                     }
+
+                    // Hexágono interior
                     var vhex = new PointF[6];
                     for (int i = 0; i < 6; i++)
                     {
@@ -3167,7 +3400,9 @@ namespace vmsOpenAcars.UI.Forms
                                              cy - (float)(HexR * Math.Cos(a)));
                     }
                     g.DrawPolygon(pen, vhex);
-                    g.FillEllipse(brush, cx - 2f, cy - 2f, 4f, 4f);
+
+                    // Punto central
+                    g.FillEllipse(brush, cx - 2.5f, cy - 2.5f, 5f, 5f);
                     break;
                 }
 
@@ -3249,19 +3484,41 @@ namespace vmsOpenAcars.UI.Forms
 
             if (showLabel && !string.IsNullOrEmpty(Ident))
             {
-                float lx = (_type == "vor") ? cx + 17f : cx + 8f;
-                float ly = cy - _font.Height / 2f;
-
-                if (_type == "pseudo")
+                if (_role != null && !_dimmed)
                 {
+                    DrawPillLabel(g, cx, cy);
+                }
+                else if (_type == "pseudo")
+                {
+                    float lx = cx + 8f;
                     DrawHaloWithBrush(g, Ident, _font, lx, cy - _font.Height / 2f, _pseudoBrush);
                 }
                 else if (_type == "apfx")
                 {
+                    float lx = cx + 8f;
                     DrawHaloWithBrush(g, Ident, _fontSmall, lx, cy - _fontSmall.Height / 2f, _apfxBrush);
+                }
+                else if (_dimmed)
+                {
+                    // Etiqueta compacta sin halo para fixes ambient: rect oscuro + texto pequeño sólido
+                    float lx = (_type == "vor") ? cx + 22f : cx + 8f;
+                    float ly = cy - _fontSmall.Height / 2f;
+                    SizeF tsz = g.MeasureString(Ident, _fontSmall);
+                    g.FillRectangle(_dimLabelBg, lx - 2f, ly - 1f, tsz.Width + 4f, _fontSmall.Height + 2f);
+                    g.DrawString(Ident, _fontSmall, _dimBrush, lx, ly);
+                    if (!string.IsNullOrEmpty(_freq) &&
+                        (_type == "vor" || _type == "ndb" || _type == "dme"))
+                    {
+                        float nextY = ly + _fontSmall.Height + 1f;
+                        SizeF fsz = g.MeasureString(_freq, _fontSmall);
+                        g.FillRectangle(_dimLabelBg, lx - 2f, nextY - 1f, fsz.Width + 4f, _fontSmall.Height + 2f);
+                        g.DrawString(_freq, _fontSmall, _dimBrush, lx, nextY);
+                    }
                 }
                 else
                 {
+                    float lx = (_type == "vor") ? cx + 22f : cx + 8f;
+                    float ly = cy - _font.Height / 2f;
                     DrawHaloWithBrush(g, Ident, _font, lx, ly, brush);
                     float nextY = ly + _font.Height;
                     if (!string.IsNullOrEmpty(_freq) &&
@@ -3270,11 +3527,57 @@ namespace vmsOpenAcars.UI.Forms
                         DrawHaloWithBrush(g, _freq, _fontSmall, lx, nextY, brush);
                         nextY += _fontSmall.Height;
                     }
-
                     if (_restriction != null && zoom >= 9)
                         DrawRestriction(g, lx, nextY);
                 }
             }
+        }
+
+        private static void AddRoundedRect(
+            System.Drawing.Drawing2D.GraphicsPath path,
+            float x, float y, float w, float h, float r)
+        {
+            path.AddArc(x,             y,             r * 2, r * 2, 180,  90);
+            path.AddArc(x + w - r * 2, y,             r * 2, r * 2, 270,  90);
+            path.AddArc(x + w - r * 2, y + h - r * 2, r * 2, r * 2,   0,  90);
+            path.AddArc(x,             y + h - r * 2, r * 2, r * 2,  90,  90);
+            path.CloseFigure();
+        }
+
+        private void DrawPillLabel(Graphics g, float cx, float cy)
+        {
+            Color boxColor;
+            switch (_role)
+            {
+                case "origin":    boxColor = _cOrigin;  break;
+                case "dest":      boxColor = _cDest;    break;
+                case "vor_route": boxColor = _cVor;     break;
+                case "sid":       boxColor = _cSid;     break;
+                case "star":      boxColor = _cStar;    break;
+                default:          boxColor = _cEnroute; break;
+            }
+
+            string text = _labelText ?? Ident ?? "";
+            if (string.IsNullOrEmpty(text)) return;
+
+            SizeF sz = g.MeasureString(text, _boxFont);
+            float bh = sz.Height + 4f;
+            float bw = sz.Width  + 8f;
+            float r  = bh / 2f;
+
+            float symR = (_type == "vor") ? 22f : 8f;
+            float bx   = cx + symR + 3f;
+            float by   = cy - bh / 2f;
+
+            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+            using (var fill = new SolidBrush(boxColor))
+            {
+                AddRoundedRect(path, bx, by, bw, bh, r);
+                g.FillPath(fill, path);
+            }
+
+            using (var textB = new SolidBrush(Color.White))
+                g.DrawString(text, _boxFont, textB, bx + 4f, by + 2f);
         }
 
         private static void DrawHalo(Graphics g, string text, Font font, float x, float y)
@@ -3372,6 +3675,73 @@ namespace vmsOpenAcars.UI.Forms
             g.DrawString(_name, _lblFont, _shadowBrush, -hw - 1f, -hh + 1f);
             g.DrawString(_name, _lblFont, _shadowBrush, -hw + 1f, -hh + 1f);
             g.DrawString(_name, _lblFont, Brushes.White, -hw, -hh);
+
+            g.Restore(state);
+        }
+    }
+
+    // ── Leg distance + bearing label ────────────────────────────────────────────
+
+    internal sealed class LegInfoMarker : GMapMarker
+    {
+        private readonly string _text;
+        private readonly float  _angleDeg;
+        private readonly double _distNm;
+
+        private static readonly Font  _f        = new Font("Consolas", 7f, FontStyle.Regular);
+        private static readonly Brush _bgBrush   = new SolidBrush(Color.FromArgb(230, 248, 248, 245));
+        private static readonly Pen   _border    = new Pen(Color.FromArgb(180, 130, 130, 145), 0.8f);
+        private static readonly Brush _fgBrush   = new SolidBrush(Color.FromArgb(255, 28, 28, 38));
+        private static readonly Brush _arrowBrush = new SolidBrush(Color.FromArgb(200, 28, 28, 38));
+
+        public LegInfoMarker(PointLatLng pos, string text, float angleDeg, double distNm)
+            : base(pos)
+        {
+            _text     = text;
+            _angleDeg = angleDeg;
+            _distNm   = distNm;
+            Offset    = new Point(0, 0);
+            Size      = new Size(96, 16);
+        }
+
+        public override void OnRender(Graphics g)
+        {
+            int zoom = (int)(Overlay?.Control?.Zoom ?? 0);
+            if (zoom < 7) return;
+
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            SizeF sz  = g.MeasureString(_text, _f);
+            float hw  = sz.Width  / 2f;
+            float hh  = sz.Height / 2f;
+            const float Pad = 2f;
+            float boxW = sz.Width + Pad * 2;
+
+            // Regla del 60%: estimar longitud del segmento en píxeles a partir del zoom
+            // pixelsPerNm ≈ 256 * 2^zoom * 111.32 * cos(lat) / (360 * 1.852)
+            double cosLat  = Math.Cos(Position.Lat * Math.PI / 180.0);
+            double pxPerNm = 256.0 * Math.Pow(2, zoom) * 111.32 * cosLat / (360.0 * 1.852);
+            double segPx   = _distNm * pxPerNm;
+            if (boxW > segPx * 0.60) return;
+
+            var state = g.Save();
+            g.TranslateTransform(LocalPosition.X, LocalPosition.Y);
+            g.RotateTransform(_angleDeg);
+
+            float rx = -hw - Pad, ry = -hh - Pad;
+            float rw = boxW, rh = sz.Height + Pad * 2;
+            g.FillRectangle(_bgBrush, rx, ry, rw, rh);
+            g.DrawRectangle(_border,  rx, ry, rw, rh);
+            g.DrawString(_text, _f, _fgBrush, -hw, -hh);
+
+            // Flecha direccional a la derecha del box (apunta en dirección de viaje)
+            const float AW = 5f, AH = 3.5f;
+            float ax = hw + Pad + 2f;
+            g.FillPolygon(_arrowBrush, new PointF[]
+            {
+                new PointF(ax + AW, 0f),
+                new PointF(ax,  AH),
+                new PointF(ax, -AH),
+            });
 
             g.Restore(state);
         }

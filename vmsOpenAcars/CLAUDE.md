@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.7.0  
+**Versión actual:** v0.7.1  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -21,8 +21,8 @@ Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simula
 
 | Criterio | Máx | Umbrales / condición |
 |---|---|---|
-| Landing Rate | 40 | ≤100=0, ≤200=5, ≤300=15, ≤400=25, ≤600=35, >600=40 |
-| G-Force | 15 | ≤1.3g=0, ≤1.5g=7, >1.5g=15 (omitido si dato=0) |
+| Landing Rate | 40 | ≤150=0, ≤250=5, ≤350=15, ≤450=25, ≤650=35, >650=40 |
+| G-Force | 15 | ≤1.5g=0, ≤1.7g=7, >1.7g=15 (omitido si dato=0) |
 | Bank Angle | 10 | ≤2°=0, ≤5°=5, >5°=10 |
 | Pitch Angle | 10 | 1°–7°=0; <−2°=10; −2°–1°=5; >8°=5 |
 | Overspeed | 15 | 0=0, 1=7, ≥2=15 |

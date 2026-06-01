@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.7.0  
-> Última actualización: 2026-05-28
+> Versión del documento: 0.7.1  
+> Última actualización: 2026-06-01
 
 ---
 
@@ -420,8 +420,8 @@ Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se
 
 | Criterio | Máx. deducción | Escala |
 |---|---|---|
-| Landing Rate | −40 pts | ≤100 fpm: 0 / ≤200: −5 / ≤300: −15 / ≤400: −25 / ≤600: −35 / >600: −40 |
-| G-Force touchdown | −15 pts | ≤1.3g: 0 / ≤1.5g: −7 / >1.5g: −15 |
+| Landing Rate | −40 pts | ≤150 fpm: 0 / ≤250: −5 / ≤350: −15 / ≤450: −25 / ≤650: −35 / >650: −40 |
+| G-Force touchdown | −15 pts | ≤1.5g: 0 / ≤1.7g: −7 / >1.7g: −15 |
 | Bank Angle touchdown | −10 pts | ≤2°: 0 / ≤5°: −5 / >5°: −10 |
 | Pitch Angle touchdown | −10 pts | 1°–5°: 0 (ideal) / fuera de rango: −5 a −10 |
 | Overspeed | −15 pts | 0 eventos: 0 / 1: −7 / ≥2: −15 |
@@ -437,7 +437,7 @@ Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se
 
 Los criterios **Touchdown Zone** y **Centreline Deviation** solo se evalúan si `TouchdownDistanceFt > 0` (es decir, si NavDataClient pudo obtener datos de la API). Los criterios **Localizer Alignment** y **Minimums Compliance** solo se evalúan si se detectó un procedimiento ILS para la pista de aterrizaje.
 
-**Landing ratings:** Butter (≤100 fpm) · Smooth · Normal · Hard · Very Hard · Slam (≥600 fpm)
+**Landing ratings:** Butter (≤150 fpm) · Smooth · Normal · Hard · Very Hard · Slam (>650 fpm)
 
 ---
 
@@ -589,6 +589,8 @@ void HideOsd()
 | Touchdown detectado | `<calificación>  −XXX fpm  X.Xg` | varía por fpm |
 | Touch-and-go | `TOUCH AND GO` | Warning |
 | `SendPirep()` exitoso | `PIREP FILED — SCORE: XX/100` | Success |
+| Airspace predictivo (heading hacia espacio restringido) | `AIRSPACE AHEAD  {TYPE}  {ICAO}` | Warning |
+| Sobrevuelo de espacio restringido (encima del límite superior) | `ABOVE  {ICAO}  DO NOT DESCEND` | Warning |
 
 **Integración en MainForm:**
 
@@ -679,17 +681,19 @@ Status label (DockStyle.Fill, v0.7.0) · TILES · ROUTE · SPACES · IVAO · [+]
 
 ---
 
-### AirspaceMonitorService — `Services/AirspaceMonitorService.cs` (v0.6.9)
+### AirspaceMonitorService — `Services/AirspaceMonitorService.cs` (v0.7.1)
 
 Monitorea espacios aéreos de la ruta activa e IVAO ATC/ATIS. Thread-safe; eventos en thread-pool.
 
 **Eventos:**
 
 ```csharp
-event Action<NavAirspace>                  OnAirspaceAlert    // Prohibited/Restricted/Danger entrada
-event Action<NavAirspace, NavAirspaceFreq> OnAirspaceEntered  // CTR/TMA/RMZ entrada
-event Action<NavAirspace>                  OnAirspaceExited   // CTR/TMA/RMZ salida
-event Action<IList<IvaoAtcStation>>        OnAtcUpdated       // poll IVAO completo (cada 3 min)
+event Action<NavAirspace>                  OnAirspaceAlert       // Prohibited/Restricted/Danger — entró
+event Action<NavAirspace>                  OnAirspaceApproaching // heading hacia espacio restringido (predictivo)
+event Action<NavAirspace>                  OnAirspaceOverflight  // dentro del polígono pero sobre el límite superior
+event Action<NavAirspace, NavAirspaceFreq> OnAirspaceEntered     // CTR/TMA/RMZ entrada
+event Action<NavAirspace>                  OnAirspaceExited      // CTR/TMA/RMZ salida
+event Action<IList<IvaoAtcStation>>        OnAtcUpdated          // poll IVAO completo (cada 3 min)
 ```
 
 **Flujo de inicialización:**
@@ -715,9 +719,31 @@ SetActivePlan() / StartFlight()
 2. **Filtro de distancia** — `_airportCoordsCache` (lazy, via `NavDataClient.GetAirportInfo`) calcula la distancia al avión. Se omiten estaciones a >150 NM (80 NM en Approach/Landing). ICAOs sin coordenadas en caché (matches de prefijo FIR) pasan sin filtrar.
 3. **Priorización por fase** — en Approach/Landing, solo se muestran estaciones del destino + APP/DEP de aeropuertos cercanos.
 
-`UpdateAircraftState(lat, lon, phase, destIcao)` se llama desde MainViewModel cada 30 s para mantener la posición y fase актуales para el filtrado.
+`UpdateAircraftState(lat, lon, phase, destIcao)` se llama desde MainViewModel cada 30 s para mantener la posición y fase actuales para el filtrado.
 
-**`CheckPosition(lat, lon, altFt)`:** ray-casting GeoJSON en anillo exterior (`Coordinates[0]`) + comprobación de límites verticales. Dispara `OnAirspaceAlert` (Prohibited/Restricted/Danger) o `OnAirspaceEntered/Exited` (CTR/TMA/ATZ/RMZ/CTA) al entrar/salir. Throttleado a 30 s en `MainViewModel.OnRawDataUpdated`.
+**`CheckPosition(lat, lon, altFt, headingDeg=0, groundSpeedKts=0)` (v0.7.1):**
+
+Para cada espacio aéreo de la lista:
+
+1. **Entrada/salida** (igual que antes): ray-casting GeoJSON en `Coordinates[0]` + `IsWithinVerticalLimits`. Dispara `OnAirspaceAlert` (Prohibited/Restricted/Danger) o `OnAirspaceEntered/Exited` (CTR/TMA/ATZ/RMZ/CTA) al entrar/salir. Al entrar, `_approachingIds` se limpia para ese ID.
+
+2. **Sobrevuelo** (alert-type, no dentro): si `laterallyInside && altFt > GetUpperLimitFt(a)` → dispara `OnAirspaceOverflight` (una sola vez por entrada lateral). Se limpia al salir del polígono. OSD: `ABOVE  {ICAO}  DO NOT DESCEND` (Warning).
+
+3. **Predictivo** (alert-type, fuera del polígono, GS ≥ 30 kt): proyecta `lookaheadNm = min(GS×3/60, 20)` hacia `headingDeg` con `ProjectPosition`. Si la posición proyectada cae en el polígono Y dentro de `IsWithinVerticalLimits` → dispara `OnAirspaceApproaching` (una sola vez mientras la trayectoria apunte al espacio). Se limpia al girar fuera. OSD: `AIRSPACE AHEAD  {TYPE}  {ICAO}` (Warning).
+
+```
+_approachingIds  — HashSet<string>  IDs donde ya se disparó OnAirspaceApproaching
+_overflightIds   — HashSet<string>  IDs donde ya se disparó OnAirspaceOverflight
+```
+
+`ParseAltDisplay(string display)` — parsea `NavAirspaceLimit.Display` cuando `ValueFt == null`:
+- `"FL095"` → 9500 ft · `"GND"`/`"SFC"` → 0 ft · cadenas numéricas → ft · `"UNL"` → null
+
+`GetUpperLimitFt(NavAirspace)` — `UpperLimit.ValueFt ?? ParseAltDisplay(UpperLimit.Display)`.
+
+`ProjectPosition(lat, lon, headingDeg, distNm)` — desplazamiento flat-earth, misma fórmula que `DispGeoNm` en MapForm.
+
+Throttleado a 30 s en `MainViewModel.OnRawDataUpdated`.
 
 **`IvaoAtcStation`:** `Callsign`, `Icao`, `Position`, `Frequency`, `AtisLines`, `AtisText`.
 

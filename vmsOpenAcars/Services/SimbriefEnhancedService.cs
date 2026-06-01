@@ -187,6 +187,16 @@ namespace vmsOpenAcars.Services
                                     out float fVal) && fVal > 0f)
                                 freq = rawFreq;
                         }
+                        // Magnetic track to next fix — try track_mag first, then track
+                        double? magTrack = null;
+                        string trackStr = fix["track_mag"]?.ToString() ?? fix["track"]?.ToString();
+                        if (!string.IsNullOrEmpty(trackStr) &&
+                            double.TryParse(trackStr,
+                                System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                out double parsedTrack))
+                            magTrack = parsedTrack;
+
                         plan.Waypoints.Add(new vmsOpenAcars.Models.SimbriefWaypoint
                         {
                             Ident     = fix["ident"]?.ToString() ?? "",
@@ -198,6 +208,7 @@ namespace vmsOpenAcars.Services
                             AltFt     = alt,
                             IsSidStar = fix["is_sid_star"]?.ToString() == "1",
                             Freq      = freq,
+                            MagTrack  = magTrack,
                         });
                     }
                 }

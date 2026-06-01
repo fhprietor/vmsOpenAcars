@@ -19,10 +19,12 @@ namespace vmsOpenAcars.Services
     internal sealed class AirspaceMonitorService : IDisposable
     {
         // ── Events ───────────────────────────────────────────────────────────────
-        public event Action<NavAirspace>                  OnAirspaceAlert;    // Prohibited/Restricted/Danger entered
-        public event Action<NavAirspace, NavAirspaceFreq> OnAirspaceEntered;  // CTR/TMA/RMZ entered
-        public event Action<NavAirspace>                  OnAirspaceExited;   // CTR/TMA/RMZ exited
-        public event Action<IList<IvaoAtcStation>>        OnAtcUpdated;       // IVAO poll complete
+        public event Action<NavAirspace>                  OnAirspaceAlert;       // Prohibited/Restricted/Danger entered
+        public event Action<NavAirspace>                  OnAirspaceApproaching; // heading toward restricted space (predictive)
+        public event Action<NavAirspace>                  OnAirspaceOverflight;  // inside polygon but above upper limit
+        public event Action<NavAirspace, NavAirspaceFreq> OnAirspaceEntered;     // CTR/TMA/RMZ entered
+        public event Action<NavAirspace>                  OnAirspaceExited;      // CTR/TMA/RMZ exited
+        public event Action<IList<IvaoAtcStation>>        OnAtcUpdated;          // IVAO poll complete
 
         // ── IVAO HTTP ────────────────────────────────────────────────────────────
         private static readonly HttpClient _ivaoHttp;
@@ -43,6 +45,8 @@ namespace vmsOpenAcars.Services
         private readonly object           _lock          = new object();
         private List<NavAirspace>         _airspaces     = new List<NavAirspace>();
         private HashSet<string>           _insideIds     = new HashSet<string>();
+        private HashSet<string>           _approachingIds = new HashSet<string>();
+        private HashSet<string>           _overflightIds  = new HashSet<string>();
         private List<IvaoAtcStation>      _atcStations   = new List<IvaoAtcStation>();
         private HashSet<string>           _relevantIcaos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, double[]> _airportCoordsCache
@@ -182,7 +186,8 @@ namespace vmsOpenAcars.Services
 
         // ── Position check ───────────────────────────────────────────────────────
 
-        public void CheckPosition(double lat, double lon, double altFt)
+        public void CheckPosition(double lat, double lon, double altFt,
+            double headingDeg = 0, double groundSpeedKts = 0)
         {
             List<NavAirspace> snapshot;
             lock (_lock) snapshot = _airspaces.ToList();
@@ -192,21 +197,64 @@ namespace vmsOpenAcars.Services
                 if (string.IsNullOrEmpty(a.Id)) continue;
                 if (a.Geometry?.Coordinates == null || a.Geometry.Coordinates.Count == 0) continue;
 
-                bool inside = IsPointInPolygon(lat, lon, a.Geometry.Coordinates[0])
-                           && IsWithinVerticalLimits(a, altFt);
+                var ring           = a.Geometry.Coordinates[0];
+                bool laterally     = IsPointInPolygon(lat, lon, ring);
+                bool inside        = laterally && IsWithinVerticalLimits(a, altFt);
 
                 bool wasInside;
                 lock (_lock) wasInside = _insideIds.Contains(a.Id);
 
                 if (inside && !wasInside)
                 {
-                    lock (_lock) _insideIds.Add(a.Id);
+                    lock (_lock) { _insideIds.Add(a.Id); _approachingIds.Remove(a.Id); }
                     DispatchEntry(a);
                 }
                 else if (!inside && wasInside)
                 {
                     lock (_lock) _insideIds.Remove(a.Id);
                     if (IsCtrTma(a.Type)) OnAirspaceExited?.Invoke(a);
+                }
+
+                // Predictive / overflight checks — alert-type spaces only, not currently entered
+                if (!IsAlertType(a.Type) || inside) continue;
+
+                double? upperFt    = GetUpperLimitFt(a);
+                bool aboveUpper    = laterally && upperFt.HasValue && altFt > upperFt.Value;
+
+                bool wasOverflying;
+                lock (_lock) wasOverflying = _overflightIds.Contains(a.Id);
+
+                if (aboveUpper && !wasOverflying)
+                {
+                    lock (_lock) _overflightIds.Add(a.Id);
+                    OnAirspaceOverflight?.Invoke(a);
+                }
+                else if (!laterally && wasOverflying)
+                {
+                    lock (_lock) _overflightIds.Remove(a.Id);
+                }
+
+                // Predictive: project ~3 min forward and check if heading into the space
+                if (!aboveUpper && !laterally && groundSpeedKts >= 30)
+                {
+                    double lookaheadNm = Math.Min(groundSpeedKts * 3.0 / 60.0, 20.0);
+                    ProjectPosition(lat, lon, headingDeg, lookaheadNm,
+                        out double pLat, out double pLon);
+                    bool predictedInside = IsPointInPolygon(pLat, pLon, ring)
+                                       && IsWithinVerticalLimits(a, altFt);
+
+                    bool wasApproaching;
+                    lock (_lock) wasApproaching = _approachingIds.Contains(a.Id);
+
+                    if (predictedInside && !wasApproaching)
+                    {
+                        lock (_lock) _approachingIds.Add(a.Id);
+                        OnAirspaceApproaching?.Invoke(a);
+                    }
+                    else if (!predictedInside && wasApproaching)
+                    {
+                        lock (_lock) _approachingIds.Remove(a.Id);
+                    }
                 }
             }
         }
@@ -335,12 +383,55 @@ namespace vmsOpenAcars.Services
             return inside;
         }
 
+        private static void ProjectPosition(double lat, double lon,
+            double headingDeg, double distNm, out double outLat, out double outLon)
+        {
+            double rad    = headingDeg * Math.PI / 180.0;
+            double meters = distNm * 1852.0;
+            double cosRef = Math.Cos(lat * Math.PI / 180.0);
+            outLat = lat + meters * Math.Cos(rad) / 111320.0;
+            outLon = lon + meters * Math.Sin(rad) / (111320.0 * cosRef);
+        }
+
+        private static double? GetUpperLimitFt(NavAirspace a)
+        {
+            if (a.UpperLimit == null || a.UpperLimit.Display == "UNL") return null;
+            return a.UpperLimit.ValueFt ?? ParseAltDisplay(a.UpperLimit.Display);
+        }
+
+        private static double? ParseAltDisplay(string display)
+        {
+            if (string.IsNullOrEmpty(display) || display == "UNL") return null;
+            if (display == "GND" || display == "SFC") return 0.0;
+
+            var m = System.Text.RegularExpressions.Regex.Match(
+                display, @"FL\s*(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (m.Success && int.TryParse(m.Groups[1].Value, out int fl))
+                return fl * 100.0;
+
+            m = System.Text.RegularExpressions.Regex.Match(display, @"(\d+)");
+            if (m.Success && double.TryParse(m.Groups[1].Value, out double ft))
+                return ft;
+
+            return null;
+        }
+
         private static bool IsWithinVerticalLimits(NavAirspace a, double altFt)
         {
-            double lower = a.LowerLimit?.ValueFt ?? 0;
-            if (a.UpperLimit?.Display == "UNL" || a.UpperLimit?.ValueFt == null)
-                return altFt >= lower;
-            return altFt >= lower && altFt <= a.UpperLimit.ValueFt.Value;
+            double lower = a.LowerLimit?.ValueFt
+                           ?? ParseAltDisplay(a.LowerLimit?.Display)
+                           ?? 0.0;
+
+            bool unlimitedUpper = a.UpperLimit == null
+                               || a.UpperLimit.Display == "UNL";
+            if (unlimitedUpper) return altFt >= lower;
+
+            double? upper = a.UpperLimit.ValueFt
+                            ?? ParseAltDisplay(a.UpperLimit.Display);
+
+            if (upper == null) return altFt >= lower;
+
+            return altFt >= lower && altFt <= upper.Value;
         }
 
         private static bool IsAlertType(string type)
@@ -369,6 +460,8 @@ namespace vmsOpenAcars.Services
             {
                 _airspaces.Clear();
                 _insideIds.Clear();
+                _approachingIds.Clear();
+                _overflightIds.Clear();
                 _atcStations.Clear();
                 _relevantIcaos.Clear();
                 _lastAcLat       = 0;

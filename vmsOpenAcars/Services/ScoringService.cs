@@ -348,12 +348,12 @@ int totalDeduction = 0;
         {
             int rate = Math.Abs(landingRate);
 
-            if (rate <= 100) return 0;   // Butter  — no deduction
-            if (rate <= 200) return 5;   // Smooth  — minor
-            if (rate <= 300) return 15;  // Normal  — moderate
-            if (rate <= 400) return 25;  // Hard    — significant
-            if (rate <= 600) return 35;  // Very Hard
-            return MaxLandingRateDeduction; // Slam (≥ 600 ft/min)
+            if (rate <= 150) return 0;   // Butter  — no deduction
+            if (rate <= 250) return 5;   // Smooth  — minor
+            if (rate <= 350) return 15;  // Normal  — moderate
+            if (rate <= 450) return 25;  // Hard    — significant
+            if (rate <= 650) return 35;  // Very Hard
+            return MaxLandingRateDeduction; // Slam (> 650 ft/min)
         }
 
         /// <summary>
@@ -362,8 +362,8 @@ int totalDeduction = 0;
         /// </summary>
         private static int CalcGForceDeduction(double gForce)
         {
-            if (gForce <= 1.3) return 0;
-            if (gForce <= 1.5) return 7;
+            if (gForce <= 1.5) return 0;
+            if (gForce <= 1.7) return 7;
             return MaxGForceDeduction;
         }
 
@@ -440,11 +440,11 @@ int totalDeduction = 0;
         private static string GetLandingRating(int landingRate)
         {
             int rate = Math.Abs(landingRate);
-            if (rate <= 100) return "Butter";
-            if (rate <= 200) return "Smooth";
-            if (rate <= 300) return "Normal";
-            if (rate <= 400) return "Hard";
-            if (rate <= 600) return "Very Hard";
+            if (rate <= 150) return "Butter";
+            if (rate <= 250) return "Smooth";
+            if (rate <= 350) return "Normal";
+            if (rate <= 450) return "Hard";
+            if (rate <= 650) return "Very Hard";
             return "Slam";
         }
     }

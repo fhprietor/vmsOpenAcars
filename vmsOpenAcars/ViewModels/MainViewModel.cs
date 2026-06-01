@@ -105,9 +105,40 @@ namespace vmsOpenAcars.ViewModels
         {
             _airspaceMonitor.OnAirspaceAlert += a =>
             {
-                string icao = a.ExtractIcao() ?? a.Name;
-                OnLog?.Invoke($"⚠️ AIRSPACE  {a.Type.ToUpper()}  {icao}", Theme.Warning);
-                OnOsdMessage?.Invoke($"AIRSPACE  {a.Type.ToUpper()}  {icao}", OsdSeverity.Critical);
+                string icao  = a.ExtractIcao() ?? a.Name;
+                string lower = a.LowerLimit?.Display ?? "SFC";
+                string upper = a.UpperLimit?.Display ?? "UNL";
+                OnLog?.Invoke(
+                    $"⚠️ AIRSPACE  {a.Type.ToUpper()}  {icao}  [{lower} – {upper}]",
+                    Theme.Warning);
+                OnOsdMessage?.Invoke(
+                    $"AIRSPACE  {a.Type.ToUpper()}  {icao}",
+                    OsdSeverity.Critical);
+            };
+
+            _airspaceMonitor.OnAirspaceApproaching += a =>
+            {
+                string icao  = a.ExtractIcao() ?? a.Name;
+                string lower = a.LowerLimit?.Display ?? "SFC";
+                string upper = a.UpperLimit?.Display ?? "UNL";
+                OnLog?.Invoke(
+                    $"⚠️ AIRSPACE AHEAD  {a.Type.ToUpper()}  {icao}  [{lower} – {upper}]",
+                    Theme.Warning);
+                OnOsdMessage?.Invoke(
+                    $"AIRSPACE AHEAD  {a.Type.ToUpper()}  {icao}",
+                    OsdSeverity.Warning);
+            };
+
+            _airspaceMonitor.OnAirspaceOverflight += a =>
+            {
+                string icao  = a.ExtractIcao() ?? a.Name;
+                string upper = a.UpperLimit?.Display ?? "UNL";
+                OnLog?.Invoke(
+                    $"⚠️ OVERFLIGHT  {a.Type.ToUpper()}  {icao}  [ABOVE {upper}]  DO NOT DESCEND",
+                    Theme.Warning);
+                OnOsdMessage?.Invoke(
+                    $"ABOVE  {icao}  DO NOT DESCEND",
+                    OsdSeverity.Warning);
             };
 
             _airspaceMonitor.OnAirspaceEntered += (a, freq) =>
@@ -332,7 +363,8 @@ namespace vmsOpenAcars.ViewModels
                 (DateTime.UtcNow - _lastAirspaceCheckUtc).TotalSeconds >= 30)
             {
                 _lastAirspaceCheckUtc = DateTime.UtcNow;
-                _airspaceMonitor.CheckPosition(e.Latitude, e.Longitude, e.AltitudeFeet);
+                _airspaceMonitor.CheckPosition(e.Latitude, e.Longitude, e.AltitudeFeet,
+                    e.HeadingDeg, e.GroundSpeedKt);
                 _airspaceMonitor.UpdateAircraftState(
                     e.Latitude, e.Longitude,
                     _flightManager.CurrentPhase,
@@ -1294,6 +1326,22 @@ namespace vmsOpenAcars.ViewModels
         {
             if (plan == null) return;
             _flightManager.SetActivePlan(plan);
+
+            // Advisory: advertir si el avión del OFP no coincide con el del simulador
+            if (_fsuipc.IsConnected)
+            {
+                string simType  = _fsuipc.AircraftIcao ?? "";
+                string planType = plan.AircraftIcao    ?? "";
+                if (!string.IsNullOrEmpty(simType)  && simType  != "????" &&
+                    !string.IsNullOrEmpty(planType) && planType != "????" &&
+                    !string.Equals(simType, planType, StringComparison.OrdinalIgnoreCase))
+                {
+                    OnLog?.Invoke(
+                        $"⚠️ Aircraft mismatch — Simulator: {simType} / OFP: {planType}",
+                        Theme.Warning);
+                }
+            }
+
             OnPlanChanged?.Invoke(plan);
             UpdateFlightInfo();
             _metarService.SetStations(plan.Origin, plan.Destination, plan.Alternate);
@@ -1524,6 +1572,35 @@ namespace vmsOpenAcars.ViewModels
             {
                 OnLog?.Invoke("❌ Simulator not connected. Cannot verify fuel quantity.", Theme.Danger);
                 return;
+            }
+
+            // ── Validar tipo de aeronave vs OFP ─────────────────────────────────────
+            {
+                string simType  = _fsuipc.AircraftIcao ?? "";
+                string planType = plan.AircraftIcao    ?? "";
+                bool canCheck   = !string.IsNullOrEmpty(simType)  && simType  != "????" &&
+                                  !string.IsNullOrEmpty(planType) && planType != "????";
+                if (canCheck && !string.Equals(simType, planType, StringComparison.OrdinalIgnoreCase))
+                {
+                    string warnMsg =
+                        $"⚠️ AIRCRAFT MISMATCH\n\n" +
+                        $"Simulator:     {simType}\n" +
+                        $"OFP (SimBrief): {planType}\n\n" +
+                        $"The OFP was generated for a different aircraft type. " +
+                        $"Fuel and performance data may not be accurate.\n\n" +
+                        $"Do you want to start the flight anyway?";
+
+                    OnLog?.Invoke(
+                        $"⚠️ Aircraft mismatch — Sim: {simType} / OFP: {planType}",
+                        Theme.Warning);
+
+                    if (OnShowConfirmation != null)
+                    {
+                        var dlgResult = await OnShowConfirmation(
+                            warnMsg, "AIRCRAFT MISMATCH", EcamDialogButtons.YesNo);
+                        if (dlgResult != System.Windows.Forms.DialogResult.Yes) return;
+                    }
+                }
             }
 
             // ===== 1. OBTENER VALORES CRUDOS =====
