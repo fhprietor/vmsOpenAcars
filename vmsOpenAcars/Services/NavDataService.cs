@@ -387,10 +387,15 @@ namespace vmsOpenAcars.Services
                 Project(lat, lon, best.ThresholdLat, best.ThresholdLon, trueBrg,
                         out double along, out double cross);
 
+                // Subtract the displaced-threshold offset so the distance is measured
+                // from the legal landing threshold, not the physical runway start.
+                // along < offset means the aircraft touched down before the threshold (clamp to 0).
+                double distFt = along * FtPerMeter - best.OffsetThresholdFt;
+
                 return new RunwayTouchdownResult
                 {
                     RunwayName            = best.Name,
-                    ThresholdDistanceFt   = Math.Max(0.0, along * FtPerMeter),
+                    ThresholdDistanceFt   = Math.Max(0.0, distFt),
                     CenterlineDeviationFt = Math.Abs(cross) * FtPerMeter,
                     ThresholdLat          = best.ThresholdLat,
                     ThresholdLon          = best.ThresholdLon,

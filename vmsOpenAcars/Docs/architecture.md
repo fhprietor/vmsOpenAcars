@@ -1,6 +1,6 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.7.1  
+> Versión del documento: 0.7.2  
 > Última actualización: 2026-06-01
 
 ---
@@ -284,10 +284,13 @@ IList<ApproachFix>   GetApproachFixes(airport, runwayName)
 ```
 dN = (lat - thLat) × 111320
 dE = (lon - thLon) × 111320 × cos(thLat_rad)
-along = dE × sin(hdg_rad) + dN × cos(hdg_rad)   → distancia al umbral (m)
+along = dE × sin(hdg_rad) + dN × cos(hdg_rad)   → distancia desde extremo físico (m)
 cross = dE × cos(hdg_rad) − dN × sin(hdg_rad)   → desviación centreline (m, signed)
-ThresholdDistanceFt = Math.Max(0.0, along × 3.28084)
+distFt = along × 3.28084 − NavRunway.OffsetThresholdFt   → distancia desde umbral legal
+ThresholdDistanceFt = Math.Max(0.0, distFt)              → 0 si toca antes del umbral
 ```
+
+`threshold_lat/lon` es el **extremo físico** del pavimento; `OffsetThresholdFt` es el desplazamiento al umbral legal de aterrizaje. Restar el offset garantiza que la penalización TDZ se mide desde donde empieza legalmente la pista (v0.7.2). Pistas sin umbral desplazado tienen `OffsetThresholdFt = 0`; el comportamiento es idéntico al anterior.
 
 ---
 

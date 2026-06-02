@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.7.0**
+**Versión 0.7.2**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -179,6 +179,8 @@ Abre un menú con opciones adicionales:
 4. El sistema descarga y valida el plan (origen, destino, tipo, matrícula, antigüedad máx. 2 h).
 5. Si la validación pasa, haz clic en **ACCEPT** para cargar el plan.
 
+> **Validación de tipo de aeronave:** si el tipo ICAO del OFP (ej. `B737`) no coincide con el que reporta el simulador (ej. `B738`), aparecerá un log advisory en amarillo al cargar el plan. Al pulsar **START**, si el desacuerdo persiste, se mostrará un diálogo de confirmación: puedes continuar el vuelo de todas formas o cancelar para corregir el plan en SimBrief.
+
 ### 4.4 Inicio del vuelo
 
 El botón **START** se habilita cuando:
@@ -262,8 +264,8 @@ El score parte de **100 puntos** y aplica deducciones según **14 criterios**. A
 
 | Criterio | Máx. deducción | Regla |
 |---|---|---|
-| **Landing Rate** | −40 pts | ≤ 100 fpm → 0 · ≤ 200 → −5 · ≤ 300 → −15 · ≤ 400 → −25 · ≤ 600 → −35 · > 600 → −40 |
-| **G-Force** | −15 pts | ≤ 1.3 g → 0 · ≤ 1.5 g → −7 · > 1.5 g → −15 |
+| **Landing Rate** | −40 pts | ≤ 150 fpm → 0 · ≤ 250 → −5 · ≤ 350 → −15 · ≤ 450 → −25 · ≤ 650 → −35 · > 650 → −40 |
+| **G-Force** | −15 pts | ≤ 1.5 g → 0 · ≤ 1.7 g → −7 · > 1.7 g → −15 |
 | **Bank Angle** | −10 pts | ≤ 2° → 0 · ≤ 5° → −5 · > 5° → −10 |
 | **Pitch Angle** | −10 pts | 1°–7° nose-up → 0 (ideal) · < −2° → −10 · −2° a 1° → −5 · > 8° → −5 |
 | **Overspeed** | −15 pts | 0 eventos → 0 · 1 evento → −7 · ≥ 2 eventos → −15 |
@@ -272,14 +274,15 @@ El score parte de **100 puntos** y aplica deducciones según **14 criterios**. A
 | **QNH Compliance** | −10 pts | −5 pts si Δ QNH > 2 hPa. Verificado **dos veces**: salida (TakeoffRoll) y llegada (gate 1 000 ft AGL). |
 | **IVAO Offline** | −5 pts | −5 si el piloto no está conectado a IVAO al iniciar el TaxiOut |
 | **On-Time Departure** | −5 pts | −5 si el Blocks Off real difiere más de 10 min del STD programado |
-| **Touchdown Zone** | −7 pts | ≤ 1 500 ft del umbral → 0 · ≤ 2 500 ft → −3 · > 2 500 ft → −7 ¹ |
+| **Touchdown Zone** | −7 pts | ≤ 1 500 ft del umbral → 0 · ≤ 2 500 ft → −3 · > 2 500 ft → −7 ¹ ³ |
 | **Centreline Deviation** | −7 pts | ≤ 10 ft → 0 · ≤ 30 ft → −3 · > 30 ft → −7 ¹ |
 | **Localizer Alignment** | −5 pts | ILS no sintonizado → −3 · desviación de rumbo > 5° (× 2 máx) → −2 ¹ ² |
 | **Minimums Compliance** | −5 pts | −5 si el avión descendió bajo la DA sin aterrizar ¹ ² |
 | **Single Engine Taxi** | **+5 pts** (bonus) | Se otorgan si ruedas ≥ 50 % del tiempo de movimiento con un solo motor en TaxiOut o TaxiIn. Solo aplica en aeronaves multi-motor. El score no puede superar 100. |
 
 > ¹ Requiere la **NavData API** configurada en Settings (URL + API Key válida). Sin ella, estos criterios no se evalúan.  
-> ² **Localizer Alignment** y **Minimums Compliance** también se omiten si el piloto sintoniza una frecuencia distinta a la del ILS al cruzar 1 000 ft AGL (aproximación RNP, visual u otro procedimiento). En ese caso no hay penalización.
+> ² **Localizer Alignment** y **Minimums Compliance** también se omiten si el piloto sintoniza una frecuencia distinta a la del ILS al cruzar 1 000 ft AGL (aproximación RNP, visual u otro procedimiento). En ese caso no hay penalización.  
+> ³ En pistas con **umbral desplazado** (*displaced threshold*), la distancia se mide desde el umbral legal de aterrizaje, no desde el extremo físico del pavimento. Un aterrizaje en la zona de aceleración (antes del umbral desplazado) no genera penalización.
 
 ---
 
@@ -349,12 +352,12 @@ La tasa de descenso (fpm) en el touchdown determina también una calificación c
 
 | Calificación | Tasa de descenso |
 |---|---|
-| 🧈 **Butter** | ≤ 100 fpm |
-| ✅ **Smooth** | 101 – 200 fpm |
-| 🟢 **Normal** | 201 – 300 fpm |
-| 🟡 **Hard** | 301 – 400 fpm |
-| 🟠 **Very Hard** | 401 – 600 fpm |
-| 🔴 **Slam** | > 600 fpm |
+| 🧈 **Butter** | ≤ 150 fpm |
+| ✅ **Smooth** | 151 – 250 fpm |
+| 🟢 **Normal** | 251 – 350 fpm |
+| 🟡 **Hard** | 351 – 450 fpm |
+| 🟠 **Very Hard** | 451 – 650 fpm |
+| 🔴 **Slam** | > 650 fpm |
 
 ---
 
@@ -369,7 +372,7 @@ La tasa de descenso (fpm) en el touchdown determina también una calificación c
 | **Aproximación estabilizada** | A 1 000 ft AGL: velocidad en rango Vapp, VS entre −100 y −1 000 fpm, bank < 7°, tren extendido, flaps ≥ 50 % |
 | **QNH llegada** | Sintoniza el QNH del aeropuerto de destino (recibirás el ATIS durante el descenso) antes de llegar a 1 000 ft AGL |
 | **Touchdown** | Aterriza en la zona de touchdown (primeros 1 500 ft de pista), alineado con el eje (< 10 ft de desviación) |
-| **Tasa de descenso** | Apunta a ≤ 200 fpm para eliminar la deducción por Landing Rate |
+| **Tasa de descenso** | Apunta a ≤ 150 fpm para eliminar la deducción por Landing Rate |
 
 ---
 
@@ -405,6 +408,9 @@ El overlay OSD (**On-Screen Display**) muestra notificaciones superpuestas al si
 | PIREP enviado | `PIREP FILED — SCORE: XX/100` | Success |
 | OnBlock | `ON BLOCK` | Info |
 | Single-engine taxi detectado | `SINGLE ENGINE TAXI  +5 PTS` | Success |
+| Trayectoria hacia espacio aéreo restringido | `AIRSPACE AHEAD  {TIPO}  {ICAO}` | Warning (dorado) |
+| Sobre un espacio restringido (no descender) | `ABOVE  {ICAO}  DO NOT DESCEND` | Warning (dorado) |
+| Dentro de espacio restringido | `AIRSPACE  {TIPO}  {ICAO}` | Critical (rojo parpadeante) |
 
 > Los mensajes **Critical** parpadean en rojo durante ~1.3 s antes de mostrar el texto fijo. Los demás niveles usan fade-in/fade-out suave.
 
@@ -499,6 +505,18 @@ El panel lateral izquierdo (expandible con el botón `◀`/`▶`) permite cambia
 
 > Al cambiar pista, el SID/STAR activo se valida. Si el procedimiento no aplica a la nueva pista, aparece un diálogo de confirmación. El approach se descarta automáticamente en cualquier cambio de pista destino. Al cambiar SID o STAR, el selector de pista filtra automáticamente para mostrar solo pistas compatibles con el procedimiento elegido (v0.7.0).
 
+### Alertas de espacios aéreos (v0.7.1)
+
+Durante el vuelo, vmsOpenAcars monitoriza los espacios aéreos de la ruta y emite tres tipos de alerta según la situación:
+
+| Situación | Log | OSD |
+|---|---|---|
+| **Predictiva** — la trayectoria proyectada (~3 min a GS actual) entra en un espacio Prohibited/Restricted/Danger dentro de sus límites verticales | `⚠️ AIRSPACE AHEAD  {TIPO}  {ICAO}  [SFC – FLxxx]` | `AIRSPACE AHEAD  {TIPO}  {ICAO}` (dorado) |
+| **Sobrevuelo** — el avión está lateralmente sobre el espacio pero por encima del límite superior | `⚠️ OVERFLIGHT  {TIPO}  {ICAO}  [ABOVE FLxxx]  DO NOT DESCEND` | `ABOVE  {ICAO}  DO NOT DESCEND` (dorado) |
+| **Entrada** — el avión penetra el espacio dentro de sus límites verticales | `⚠️ AIRSPACE  {TIPO}  {ICAO}  [SFC – FLxxx]` | `AIRSPACE  {TIPO}  {ICAO}` (rojo parpadeante) |
+
+> Las alertas tienen en cuenta los **límites verticales** del espacio: si vuelas a FL290 sobre una zona restringida hasta FL150, no se dispara ninguna alerta de entrada. Solo si tu trayectoria proyectada o tu altitud real cae dentro del rango vertical se activa el aviso.
+
 ### Overlay de aproximación
 
 Al seleccionar un approach en el sidebar, el mapa dibuja en magenta la trayectoria de los legs del procedimiento + extended centerline (±5 NM, punteado). El missed approach se dibuja en cian. Si se selecciona una transición (IAF), los legs de la transición se dibujan a continuación del procedimiento principal.
@@ -592,4 +610,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.7.0 — que tengas buen vuelo.*
+*vmsOpenAcars v0.7.2 — que tengas buen vuelo.*

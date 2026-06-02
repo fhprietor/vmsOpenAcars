@@ -2,6 +2,14 @@
 
 ---
 
+## [0.7.2] — 2026-06-01
+
+### Fixed
+
+- **Touchdown Zone — umbral desplazado (displaced threshold)** — `FindTouchdownRunway` (NavDataService) restaba `NavRunway.OffsetThresholdFt` de la distancia proyectada antes de evaluar la penalización TDZ. Antes, la distancia se medía desde el extremo físico de la superficie pavimentada (`threshold_lat`/`threshold_lon`), ignorando que el umbral legal de aterrizaje puede estar hasta 1 800+ ft más adelante. Ejemplo: KSAM RWY 27 con `offset_threshold_ft = 1810 ft` — un aterrizaje a ~3 140 ft del extremo físico es en realidad a ~1 330 ft del umbral desplazado (dentro de la TDZ, sin penalización). Ahora: `distFt = along × 3.28084 − OffsetThresholdFt`; si `distFt < 0` (toca antes del umbral, en la zona TORA), se fija a 0 sin penalización. Pistas sin umbral desplazado (`OffsetThresholdFt = 0`) no cambian.
+
+---
+
 ## [0.7.1] — 2026-06-01
 
 ### Added
