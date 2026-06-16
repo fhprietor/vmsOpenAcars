@@ -38,8 +38,9 @@ namespace vmsOpenAcars.ViewModels
         private readonly LandingLogService _landingLogService = new LandingLogService(AppConfig.LandingLogPath);
 
         // Approach track capture
-        private List<ApproachTrackPoint> _approachBuffer    = new List<ApproachTrackPoint>();
-        private RunwayTouchdownResult    _approachThreshold = null;
+        private List<ApproachTrackPoint> _approachBuffer     = new List<ApproachTrackPoint>();
+        private RunwayTouchdownResult    _approachThreshold  = null;
+        private string                   _approachDestination = null; // resolved ICAO (plan dest or alternate)
         private DateTime                 _lastApproachCapture = DateTime.MinValue;
 
         private DateTime _lastPositionUpdate = DateTime.MinValue;
@@ -99,6 +100,7 @@ namespace vmsOpenAcars.ViewModels
 
             SubscribeToEvents();
             WireAirspaceMonitor();
+            _flightManager.IsOnAtcFrequency = IsAtcOnCom1;
         }
 
         private void WireAirspaceMonitor()
@@ -192,6 +194,14 @@ namespace vmsOpenAcars.ViewModels
 
         public IList<IvaoAtcStation> GetAtcStations() => _airspaceMonitor.GetAtcStations();
         internal IList<NavAirspace>  GetAirspaces()   => _airspaceMonitor.GetAirspaces();
+
+        private bool IsAtcOnCom1()
+        {
+            double com1 = _fsuipc?.Com1FrequencyMhz ?? 0;
+            if (com1 < 118.0) return false;
+            var stations = _airspaceMonitor.GetAtcStations();
+            return stations.Any(s => Math.Abs(s.Frequency - com1) < 0.005);
+        }
         internal FsuipcService.AircraftCategory GetAircraftCategory()
         {
             var cat = _fsuipc?.EngineCategory ?? FsuipcService.AircraftCategory.Unknown;
@@ -403,12 +413,31 @@ namespace vmsOpenAcars.ViewModels
                 // when heading is closer to a different runway than the actual target.
                 if (_approachThreshold == null && _runwayService.IsAvailable)
                 {
-                    string dest = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
-                    _approachThreshold = _runwayService.GetRunwayThreshold(dest, e.Latitude, e.Longitude, e.HeadingDeg);
+                    string dest = _flightManager.ActivePlan?.Destination;
+                    string alt  = _flightManager.ActivePlan?.Alternate;
+
+                    // Try plan destination first; fall back to OFP alternate if no runway found.
+                    _approachThreshold = !string.IsNullOrEmpty(dest)
+                        ? _runwayService.GetRunwayThreshold(dest, e.Latitude, e.Longitude, e.HeadingDeg)
+                        : null;
+
                     if (_approachThreshold != null)
                     {
-                        Task.Run(() => LoadApproachData(dest, _approachThreshold.RunwayName));
+                        _approachDestination = dest;
                     }
+                    else if (!string.IsNullOrEmpty(alt))
+                    {
+                        _approachThreshold = _runwayService.GetRunwayThreshold(alt, e.Latitude, e.Longitude, e.HeadingDeg);
+                        if (_approachThreshold != null)
+                        {
+                            _approachDestination = alt;
+                            OnLog?.Invoke($"⚠️ Approaching ALTERNATE — {alt}", Theme.Warning);
+                            _flightManager.SetEffectiveDestination(alt);
+                        }
+                    }
+
+                    if (_approachThreshold != null)
+                        Task.Run(() => LoadApproachData(_approachDestination, _approachThreshold.RunwayName));
                 }
 
                 double computedAgl = _flightManager.CurrentAGL;
@@ -547,11 +576,14 @@ namespace vmsOpenAcars.ViewModels
             {
                 _approachBuffer.Clear();
                 _lastApproachCapture = DateTime.MinValue;
-                _approachThreshold = null;
+                _approachThreshold   = null;
+                _approachDestination = null;
             }
             else if (phase != FlightPhase.Approach)
             {
                 _approachThreshold = null;
+                // _approachDestination persists intentionally: LookupRunwayData
+                // fires at touchdown (after leaving Approach) and still needs it.
             }
 
             // OSD phase notifications + cabin announcements
@@ -854,7 +886,7 @@ namespace vmsOpenAcars.ViewModels
 
         private void LookupRunwayData(TouchdownData data)
         {
-            string airport = _flightManager.ActivePlan?.Destination;
+            string airport = _approachDestination ?? _flightManager.ActivePlan?.Destination;
             if (string.IsNullOrEmpty(airport)) return;
 
             var result = _runwayService.FindTouchdownRunway(

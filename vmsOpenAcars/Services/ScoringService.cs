@@ -165,13 +165,17 @@ int totalDeduction = 0;
             }
 
             // ── Overspeed ────────────────────────────────────────────────────────
-            int osDeduction = CalcOverspeedDeduction(data.OverspeedCount);
-            if (osDeduction > 0)
+            int osDeduction = CalcOverspeedDeduction(data.OverspeedPenaltyCount);
+            if (data.OverspeedCount > 0 || osDeduction > 0)
             {
+                int exempt = data.OverspeedCount - data.OverspeedPenaltyCount;
+                string reason = exempt > 0
+                    ? $"{data.OverspeedCount} event(s), {data.OverspeedPenaltyCount} penalized (ATC exempt: {exempt})"
+                    : $"{data.OverspeedCount} event(s) detected";
                 result.Deductions.Add(new ScoringDeduction
                 {
                     Criterion = "Overspeed",
-                    Reason = $"{data.OverspeedCount} event(s) detected",
+                    Reason = reason,
                     PointsDeducted = osDeduction
                 });
                 totalDeduction += osDeduction;

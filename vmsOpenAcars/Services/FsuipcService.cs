@@ -109,9 +109,9 @@ namespace vmsOpenAcars.Services
         /// <summary>0x2040/0x2140 · FLOAT64 · Prop RPM (hélice)</summary>
         private readonly Offset<double> _eng1PropRpmF64 = new Offset<double>(0x2040);
         private readonly Offset<double> _eng2PropRpmF64 = new Offset<double>(0x2140);
-        /// <summary>0x2068/0x2168 · FLOAT64 · Torque % (0–100)</summary>
-        private readonly Offset<double> _eng1TorquePctF64 = new Offset<double>(0x2068);
-        private readonly Offset<double> _eng2TorquePctF64 = new Offset<double>(0x2168);
+        /// <summary>0x2020/0x2120 · FLOAT64 · Torque % (0–100). Nota: 0x2068 es fuel flow lb/hr, no torque.</summary>
+        private readonly Offset<double> _eng1TorquePctF64 = new Offset<double>(0x2020);
+        private readonly Offset<double> _eng2TorquePctF64 = new Offset<double>(0x2120);
         /// <summary>0x2048/0x2148 · FLOAT64 · Manifold Absolute Pressure (inHg)</summary>
         private readonly Offset<double> _eng1MapF64 = new Offset<double>(0x2048);
         private readonly Offset<double> _eng2MapF64 = new Offset<double>(0x2148);
@@ -576,6 +576,10 @@ namespace vmsOpenAcars.Services
             }
             bool enginesRunning = eng1Running || eng2Running;
 
+            // Hotel mode: gas generator running but propeller locked (e.g. ATR72 Hotel/Ground power)
+            bool hotelModeActive = _currentEngineCategory == AircraftCategory.Turboprop
+                && ((eng1Running && propRpm_1 < 50f) || (eng2Running && propRpm_2 < 50f));
+
             // ── Potencia de despegue aplicada ─────────────────────────────────
             bool takeoffPowerSet;
             switch (_currentEngineCategory)
@@ -646,6 +650,7 @@ namespace vmsOpenAcars.Services
                 Eng1Running = eng1Running,
                 Eng2Running = eng2Running,
                 TakeoffPowerSet = takeoffPowerSet,
+                HotelModeActive = hotelModeActive,
 
                 // Jet (N1)
                 N1_1 = n1_1,
@@ -1821,6 +1826,7 @@ namespace vmsOpenAcars.Services
         public bool Eng1Running { get; set; }
         public bool Eng2Running { get; set; }
         public bool TakeoffPowerSet { get; set; }
+        public bool HotelModeActive { get; set; }
 
         // Turboprop
         public float TorquePct_1 { get; set; }

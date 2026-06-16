@@ -50,6 +50,12 @@ namespace vmsOpenAcars.Models
         public int OverspeedCount { get; set; }
 
         /// <summary>
+        /// Overspeed events that are actually penalized (COM1 not on an active IVAO ATC frequency).
+        /// Always ≤ OverspeedCount. Used by ScoringService for point deduction.
+        /// </summary>
+        public int OverspeedPenaltyCount { get; set; }
+
+        /// <summary>
         /// Number of lights compliance violations detected during the flight.
         /// Typical violations tracked:
         ///   - Landing lights off below 10,000 ft AGL during flight
@@ -145,6 +151,7 @@ public bool BelowMinimums { get; set; }
             LandingBank = 0.0;
             LandingGForce = 0.0;
             OverspeedCount = 0;
+            OverspeedPenaltyCount = 0;
             LightsViolations = 0;
             StabilizedApproachDeductions = 0;
             QnhViolations = 0;

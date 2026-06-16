@@ -72,6 +72,7 @@ namespace vmsOpenAcars.Core.Flight
         private double _groundAltitudeFeet = 0;
         public int LastFlightScore { get; private set; } = 0;
         private int _overspeedCount = 0;
+        private int _overspeedPenaltyCount = 0;
         private bool _wasOverspeed = false;
         private int _lightsViolationCount = 0;
         private bool _lightsViolationActive = false;
@@ -96,6 +97,7 @@ namespace vmsOpenAcars.Core.Flight
         // ── Transition Altitude / Level ───────────────────────────────────────────
         private double _originTransitionAltFt  = 0;
         private double _destTransitionLevelFt  = 0;
+        private string _effectiveDestination   = null; // overrides _activePlan.Destination when landing at alternate
         private bool   _taOsdSent              = false;
         private bool   _tlOsdSent              = false;
         private bool   _destQnhChecked         = false;
@@ -131,6 +133,7 @@ namespace vmsOpenAcars.Core.Flight
         // Debounce de luces: evita falsos OFF durante cambios de fuente de energía
         private const double LightDebounceSeconds = 2.0;
         private const double SpoilersDebounceSeconds = 1.5;
+        private bool _hotelModeActive = false;
         private bool _pendingNavOn, _pendingBeaconOn, _pendingLandingOn, _pendingTaxiOn, _pendingStrobeOn, _pendingSpoilers;
         private DateTime _navPending = DateTime.MinValue;
         private DateTime _beaconPending = DateTime.MinValue;
@@ -246,6 +249,7 @@ namespace vmsOpenAcars.Core.Flight
 
         // ── Penalty state (read by MainViewModel for checkpoint encoding/decoding) ──
         public int  OverspeedCount               => _overspeedCount;
+        public int  OverspeedPenaltyCount        => _overspeedPenaltyCount;
         public int  LightsViolationCount         => _lightsViolationCount;
         public int  StabilizedApproachDeductions => _stabilizedApproachDeductions;
         public int  QnhViolationCount            => _qnhViolationCount;
@@ -254,6 +258,12 @@ namespace vmsOpenAcars.Core.Flight
         public int  ProcedureSpdViolations       => _procedureSpdViolations;
         public int  LocalizerViolations          => _localizerViolations;
         public bool BelowMinimums                => _belowMinimums;
+        /// <summary>
+        /// Set by MainViewModel. Returns true when COM1 is tuned to an active IVAO ATC station.
+        /// When true, overspeed and Vapp violations are warned but not penalized (ATC-directed).
+        /// If null, penalties apply normally.
+        /// </summary>
+        public Func<bool> IsOnAtcFrequency { get; set; }
         public FlightPhase CurrentPhase { get; private set; }
         public int CurrentGroundSpeed { get; private set; }
         public double CurrentFuel { get; private set; }
@@ -660,6 +670,7 @@ namespace vmsOpenAcars.Core.Flight
             if (isNowOverspeed && !_wasOverspeed)
             {
                 _overspeedCount++;
+                if (IsOnAtcFrequency?.Invoke() != true) _overspeedPenaltyCount++;
                 OnLog?.Invoke(_("Log_Overspeed", ias, _vmoKts), Theme.Warning);
                 OnOsdMessage?.Invoke($"OVERSPEED  {ias} KTS", OsdSeverity.Critical);
             }
@@ -700,9 +711,10 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             // ── Beacon light (siempre debe estar encendida en vuelo) ────────────────────────────
-            // Excepción: aeronaves con switch compartido beacon/strobe (ej: Q400),
-            // donde encender strobes apaga automáticamente el beacon
-            bool beaconExempt = BeaconStrobeSharedAircraft.Contains(_activePlan?.AircraftIcao ?? "") && _isStrobeOn;
+            // Excepción 1: aeronaves con switch compartido beacon/strobe (ej: Q400)
+            // Excepción 2: hotel mode (turbina en marcha, hélice bloqueada — beacon no requerido)
+            bool beaconExempt = (BeaconStrobeSharedAircraft.Contains(_activePlan?.AircraftIcao ?? "") && _isStrobeOn)
+                             || _hotelModeActive;
             if (!beaconLightOn && !_beaconViolationActive && !beaconExempt)
             {
                 _beaconViolationActive = true;
@@ -750,11 +762,14 @@ namespace vmsOpenAcars.Core.Flight
             if (_destTransitionLevelFt > 0
                 && (CurrentPhase == FlightPhase.Descent || CurrentPhase == FlightPhase.Approach)
                 && altitudeMsl <= (int)(_destTransitionLevelFt - 1000)
-                && !_destQnhChecked
-                && !string.IsNullOrEmpty(_activePlan?.Destination))
+                && !_destQnhChecked)
             {
-                _destQnhChecked = true;
-                CheckQnhAsync(_activePlan.Destination, AircraftQnhMb).ConfigureAwait(false);
+                string qnhIcao = _effectiveDestination ?? _activePlan?.Destination;
+                if (!string.IsNullOrEmpty(qnhIcao))
+                {
+                    _destQnhChecked = true;
+                    CheckQnhAsync(qnhIcao, AircraftQnhMb).ConfigureAwait(false);
+                }
             }
         }
 
@@ -804,7 +819,7 @@ namespace vmsOpenAcars.Core.Flight
                 // 2. Speed
                 if (CurrentIndicatedAirspeed < vappMin || CurrentIndicatedAirspeed > vappMax)
                 {
-                    deductions += 5;
+                    if (IsOnAtcFrequency?.Invoke() != true) deductions += 5;
                     OnLog?.Invoke(_("Log_ApproachGateSpeed", CurrentIndicatedAirspeed, vappMin, vappMax), Theme.Warning);
                 }
 
@@ -863,11 +878,14 @@ namespace vmsOpenAcars.Core.Flight
 
                 // 9. QNH de destino — si hay Transition Level de NavData, ya se comprobó
                 //    500 ft bajo el TL (CheckViolations). Sin TL, fallback a este gate.
-                if (_destTransitionLevelFt <= 0 && !_destQnhChecked
-                    && !string.IsNullOrEmpty(_activePlan?.Destination))
+                if (_destTransitionLevelFt <= 0 && !_destQnhChecked)
                 {
-                    _destQnhChecked = true;
-                    CheckQnhAsync(_activePlan.Destination, AircraftQnhMb).ConfigureAwait(false);
+                    string qnhIcao = _effectiveDestination ?? _activePlan?.Destination;
+                    if (!string.IsNullOrEmpty(qnhIcao))
+                    {
+                        _destQnhChecked = true;
+                        CheckQnhAsync(qnhIcao, AircraftQnhMb).ConfigureAwait(false);
+                    }
                 }
             }
 
@@ -967,7 +985,7 @@ namespace vmsOpenAcars.Core.Flight
             _daAltitudeFt      = 0;
             _ilsGateChecked    = false;
             _ilsTunedCorrectly = true;
-            _overspeedCount = 0;
+            _overspeedCount = 0; _overspeedPenaltyCount = 0;
             _wasOverspeed = false;
             _lightsViolationCount = 0;
             _lightsViolationActive = false;
@@ -981,7 +999,7 @@ namespace vmsOpenAcars.Core.Flight
             _prevApproachAgl = double.MaxValue;
             _stabilizedApproachDeductions = 0;
             _taOsdSent = false; _tlOsdSent = false; _destQnhChecked = false; _originQnhChecked = false;
-            _originTransitionAltFt = 0; _destTransitionLevelFt = 0;
+            _originTransitionAltFt = 0; _destTransitionLevelFt = 0; _effectiveDestination = null;
             OnPhaseChanged?.Invoke(CurrentPhase.ToString());
             PhaseChanged?.Invoke(CurrentPhase);
         }
@@ -1087,7 +1105,7 @@ namespace vmsOpenAcars.Core.Flight
             _touchdownPitch = 0; _touchdownBank = 0; _touchdownGForce = 0;
             _touchdownLatSaved = 0; _touchdownLonSaved = 0; _touchdownHeadingDeg = 0;
             _touchdownDistanceFt = 0; _touchdownCenterlineDeviationFt = 0; _touchdownRunwayName = null;
-            _overspeedCount = 0; _wasOverspeed = false;
+            _overspeedCount = 0; _overspeedPenaltyCount = 0; _wasOverspeed = false;
             _apEngagedCounter = 0;
             _singleEngineTaxiDetected = false; _bothEnginesRunning = false;
             _taxiOutMovingCycles = 0; _taxiOutSingleEngineCycles = 0;
@@ -1177,8 +1195,9 @@ namespace vmsOpenAcars.Core.Flight
                 _daAltitudeFt = 0;
         }
 
-        public void SetOriginTransitionAlt(double ft)  { if (ft > 0) _originTransitionAltFt = ft; }
+        public void SetOriginTransitionAlt(double ft)   { if (ft > 0) _originTransitionAltFt = ft; }
         public void SetDestTransitionLevel(double ft)   { if (ft > 0) _destTransitionLevelFt  = ft; }
+        public void SetEffectiveDestination(string icao){ _effectiveDestination = icao; }
 
         public bool CanStartFlight()
         {
@@ -1256,7 +1275,7 @@ namespace vmsOpenAcars.Core.Flight
             _daAltitudeFt      = 0;
             _ilsGateChecked    = false;
             _ilsTunedCorrectly = true;
-            _overspeedCount = 0;
+            _overspeedCount = 0; _overspeedPenaltyCount = 0;
             _wasOverspeed = false;
             _lightsViolationCount = 0;
             _lightsViolationActive = false;
@@ -1268,6 +1287,7 @@ namespace vmsOpenAcars.Core.Flight
             _approachGateEvaluated = false; _prevApproachAgl = double.MaxValue;
             _stabilizedApproachDeductions = 0; _hasLandedThisFlight = false;
             _taOsdSent = false; _tlOsdSent = false; _destQnhChecked = false; _originQnhChecked = false;
+            _effectiveDestination = null;
         }
 
         /// <summary>
@@ -1279,6 +1299,7 @@ namespace vmsOpenAcars.Core.Flight
             int qnh, bool offline, bool late, int procSpd, int localizer, bool belowMins)
         {
             _overspeedCount               = overspeed;
+            _overspeedPenaltyCount        = overspeed; // conservative: resumed events assumed penalized
             _lightsViolationCount         = lights;
             _stabilizedApproachDeductions = stabilized;
             _qnhViolationCount            = qnh;
@@ -1734,8 +1755,8 @@ namespace vmsOpenAcars.Core.Flight
 
             if (data.EnginesRunning && !_areEnginesOn && !string.IsNullOrEmpty(ActivePirepId))
             {
-                // Motores recién encendidos
-                if (!_isBeaconOn)
+                // Motores recién encendidos — beacon requerido salvo hotel mode (hélice bloqueada)
+                if (!_isBeaconOn && !data.HotelModeActive)
                 {
                     _lightsViolationCount++;
                     OnLog?.Invoke(_("Log_PenaltyBeacon"), Theme.Warning);
@@ -1750,6 +1771,7 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             _areEnginesOn = data.EnginesRunning;
+            _hotelModeActive = data.HotelModeActive;
 
             // ── Detección de taxi con un solo motor ───────────────────────────────
             if (data.Eng1Running && data.Eng2Running)
@@ -1885,6 +1907,7 @@ namespace vmsOpenAcars.Core.Flight
                 LandingBank = _touchdownBank,
                 LandingGForce = _touchdownGForce,
                 OverspeedCount = _overspeedCount,
+                OverspeedPenaltyCount = _overspeedPenaltyCount,
                 LightsViolations = _lightsViolationCount,
                 StabilizedApproachDeductions = _stabilizedApproachDeductions,
                 QnhViolations = _qnhViolationCount,

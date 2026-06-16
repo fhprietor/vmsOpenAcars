@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.7.2  
-> Última actualización: 2026-06-01
+> Versión del documento: 0.7.5  
+> Última actualización: 2026-06-15
 
 ---
 
@@ -245,7 +245,7 @@ El umbral de 600 fpm elimina falsos positivos por turbulencia o ajustes de pitch
 | TakeoffRoll | STROBE + LANDING encendidas | −5 pts c/u |
 | Vuelo < 9 500 ft AGL | LANDING encendida | −5 pts |
 | TakeoffRoll | QNH ±2 hPa vs METAR origen | −5 pts |
-| Gate 1 000 ft AGL (Approach) | QNH ±2 hPa vs METAR destino | −5 pts |
+| Gate 1 000 ft AGL (Approach) | QNH ±2 hPa vs METAR destino (o alterno si desvío) | −5 pts |
 
 ---
 
@@ -491,15 +491,20 @@ void SeedMockData()             // solo disponible en #if DEBUG — 5 vuelos SKR
 
 ```
 Phase → Approach
-    → _approachBuffer.Clear(); _approachThreshold = null
+    → _approachBuffer.Clear(); _approachThreshold = null; _approachDestination = null
 OnRawDataUpdated (cada 50 ms, fase = Approach)
     → si _approachThreshold == null:
-         NavDataService.GetRunwayThreshold(dest, lat, lon, hdg)
-            requiere heading-delta ≤15° AND |cross| ≤2 NM AND along<0
-            si null → no captura, reintenta el siguiente ciclo
-         al adquirir → Task.Run(LoadApproachData(dest, runway))
-            → GetIlsForRunway() + GetApproachType() + GetApproachFixes()
-            → _flightManager.SetApproachData(ils, approach, fixes)
+         1. GetRunwayThreshold(plan.Destination, lat, lon, hdg)
+               requiere heading-delta ≤15° AND |cross| ≤2 NM AND along<0
+         2. si null → GetRunwayThreshold(plan.Alternate, lat, lon, hdg)  [v0.7.4]
+               si encontrado → _approachDestination = alt
+                             → log "⚠️ Approaching ALTERNATE — XXXX"
+                             → FlightManager.SetEffectiveDestination(alt)
+         3. si null en ambos → no captura, reintenta el siguiente ciclo
+         al adquirir → _approachDestination = icao resuelto
+                     → Task.Run(LoadApproachData(_approachDestination, runway))
+                          → GetIlsForRunway() + GetApproachType() + GetApproachFixes()
+                          → _flightManager.SetApproachData(ils, approach, fixes)
     → si AGL < 3000 ft && ≥ 2 s desde último punto:
          ComputeApproachMetrics(threshold, lat, lon) → (distNm, lateralFt)
          _approachBuffer.Add(ApproachTrackPoint)
@@ -879,24 +884,69 @@ Esto elimina los falsos cambios causados por calles paralelas o de cruce que mom
 
 Si ningún prefijo coincide → **320 kts** (default genérico conservador).
 
-#### Ciclo de Detección de Overspeed
+#### Ciclo de Detección de Overspeed (v0.7.3)
 
 `CheckViolations()` se llama **una vez por ciclo de telemetría** (~50 ms) mientras airborne con PIREP activo:
 
 ```
 Por cada ciclo:
     IAS actual > Vmo?
-        SÍ y _wasOverspeed=false → _overspeedCount++ + log
+        SÍ y _wasOverspeed=false → _overspeedCount++
+                                   IsOnAtcFrequency?.Invoke() != true → _overspeedPenaltyCount++
+                                   log Warning + OSD Critical
         NO                       → _wasOverspeed=false
 ```
 
 El flag `_wasOverspeed` actúa como latch: un overspeed sostenido cuenta como **un solo evento**.
 
-| Eventos registrados | Deducción |
+`IsOnAtcFrequency` es un `Func<bool>` inyectado por `MainViewModel` que comprueba si `FsuipcService.Com1FrequencyMhz` (offset `0x034E` BCD) coincide con alguna `IvaoAtcStation.Frequency` en `AirspaceMonitorService.GetAtcStations()` (tolerancia ±0.005 MHz). Devuelve `false` si la lista está vacía (IVAO offline) o si COM1 está en 122.8 (UNICOM, nunca presente en la lista ATC).
+
+| Eventos penalizados (`_overspeedPenaltyCount`) | Deducción |
 |---|---|
 | 0 | 0 pts |
 | 1 | −7 pts |
 | ≥ 2 | −15 pts (máximo) |
+
+Los eventos exentos (COM1 en ATC) se contabilizan en `_overspeedCount` (total) pero no en `_overspeedPenaltyCount`. El desglose del score muestra ambos: `"3 event(s), 1 penalized (ATC exempt: 2)"`.
+
+La misma lógica aplica al sub-criterio de velocidad del **gate de 1 000 ft AGL** (`CheckStabilizedApproachGate`): la deducción de −5 pts por velocidad fuera de Vapp se suprime si `IsOnAtcFrequency?.Invoke() == true`; el log Warning sigue activo.
+
+---
+
+### Turboprop — Hotel Mode y offset TRQ (v0.7.5)
+
+#### Offset TRQ corregido
+
+En FSUIPC7 el bloque de motor FLOAT64 (0x2000 por motor 1, 0x2100 por motor 2) tiene la siguiente distribución:
+
+| Offset (+base) | Variable |
+|---|---|
+| +0x00 (0x2000) | N1 % |
+| +0x08 (0x2008) | RPM eje |
+| +0x20 **(0x2020)** | **Torque % del máximo** |
+| +0x28 (0x2028) | Throttle lever % |
+| +0x38 (0x2038) | Torque ft·lb absoluto |
+| +0x40 (0x2040) | Prop RPM |
+| +0x68 (0x2068) | Fuel flow (lb/hr) ← anteriormente se leía como TRQ% |
+
+`FsuipcService._eng1TorquePctF64` usa ahora `0x2020` (motor 1) y `0x2120` (motor 2).
+
+#### Hotel Mode
+
+Algunos turbohélices (ATR72-600, etc.) soportan **Hotel Mode**: arrancan la turbina del motor 2 como generador de tierra con la hélice bloqueada. El Beacon permanece apagado correctamente en este estado.
+
+**Detección** (`FsuipcService.EmitRawData`, categoría Turboprop):
+```
+hotelModeActive = (eng1Running && propRpm_1 < 50) || (eng2Running && propRpm_2 < 50)
+```
+
+Propagado en `RawTelemetryData.HotelModeActive`.
+
+**Exención de beacon** (`FlightManager`): hay dos puntos de verificación, ambos exentos cuando `HotelModeActive`:
+1. Transición `EnginesRunning OFF→ON` (usa `data.HotelModeActive` directamente — `_hotelModeActive` aún no se ha actualizado en ese punto).
+2. Loop continuo `CheckViolations` (`beaconExempt ||= _hotelModeActive`).
+
+En cuanto `PropRpm ≥ 50` (hélice girando), hotel mode se desactiva y el Beacon vuelve a ser obligatorio.
 
 ---
 

@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.7.2**
+**Versión 0.7.5**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -268,7 +268,7 @@ El score parte de **100 puntos** y aplica deducciones según **14 criterios**. A
 | **G-Force** | −15 pts | ≤ 1.5 g → 0 · ≤ 1.7 g → −7 · > 1.7 g → −15 |
 | **Bank Angle** | −10 pts | ≤ 2° → 0 · ≤ 5° → −5 · > 5° → −10 |
 | **Pitch Angle** | −10 pts | 1°–7° nose-up → 0 (ideal) · < −2° → −10 · −2° a 1° → −5 · > 8° → −5 |
-| **Overspeed** | −15 pts | 0 eventos → 0 · 1 evento → −7 · ≥ 2 eventos → −15 |
+| **Overspeed** | −15 pts | 0 eventos → 0 · 1 evento → −7 · ≥ 2 eventos → −15 · Exento si COM1 en ATC IVAO ⁴ |
 | **Lights Compliance** | −10 pts | −5 pts por violación (cap −10). Ver detalle abajo. |
 | **Stabilized Approach** | −15 pts | Evaluado al cruzar 1 000 ft AGL en descenso. Ver detalle abajo. |
 | **QNH Compliance** | −10 pts | −5 pts si Δ QNH > 2 hPa. Verificado **dos veces**: salida (TakeoffRoll) y llegada (gate 1 000 ft AGL). |
@@ -282,7 +282,9 @@ El score parte de **100 puntos** y aplica deducciones según **14 criterios**. A
 
 > ¹ Requiere la **NavData API** configurada en Settings (URL + API Key válida). Sin ella, estos criterios no se evalúan.  
 > ² **Localizer Alignment** y **Minimums Compliance** también se omiten si el piloto sintoniza una frecuencia distinta a la del ILS al cruzar 1 000 ft AGL (aproximación RNP, visual u otro procedimiento). En ese caso no hay penalización.  
-> ³ En pistas con **umbral desplazado** (*displaced threshold*), la distancia se mide desde el umbral legal de aterrizaje, no desde el extremo físico del pavimento. Un aterrizaje en la zona de aceleración (antes del umbral desplazado) no genera penalización.
+> ³ En pistas con **umbral desplazado** (*displaced threshold*), la distancia se mide desde el umbral legal de aterrizaje, no desde el extremo físico del pavimento. Un aterrizaje en la zona de aceleración (antes del umbral desplazado) no genera penalización.  
+> ⁴ **Exención por ATC IVAO:** si COM1 está sintonizada en la frecuencia de una estación ATC activa en IVAO (TWR, APP, DEP, CTR…), el exceso de velocidad y la penalización por Vapp a 1 000 ft se suprimen — el ATC puede haber ordenado esa velocidad. La advertencia en el log y el OSD siguen activos. Sin ATC activo o con UNICOM (122.800), aplican las penalizaciones normales.  
+> ⁵ **Scoring en aeropuerto alterno:** si el vuelo se desvía al aeropuerto alterno del OFP (SimBrief), todos los criterios que dependen del aeropuerto de llegada (TDZ, Centreline, ILS/Localizer, Minimums y QNH) se evalúan contra el alterno, no contra el destino original. El sistema lo detecta automáticamente al adquirir el umbral de pista durante la aproximación y lo indica en el log (`⚠️ Approaching ALTERNATE — XXXX`). Si el aterrizaje es en un aeropuerto distinto tanto del destino como del alterno del OFP, esos criterios se omiten sin penalización.
 
 ---
 
@@ -298,7 +300,9 @@ El sistema monitoriza las luces durante todo el vuelo y penaliza cada incumplimi
 | En vuelo (cualquier fase) | BEACON ON continuo |
 | Por debajo de 9 500 ft AGL | LANDING ON |
 
-> **Excepción Beacon:** en aeronaves con switch único BEACON/STROBE (como el Dash 8 / Q400), encender los Strobes apaga el Beacon automáticamente. Estas aeronaves están exentas de la penalización de Beacon.
+> **Excepción Beacon — switch compartido:** en aeronaves con switch único BEACON/STROBE (como el Dash 8 / Q400), encender los Strobes apaga el Beacon automáticamente. Estas aeronaves están exentas de la penalización de Beacon.
+>
+> **Excepción Beacon — Hotel Mode:** en turbohélices (ATR72 y similares), el **Hotel Mode** arranca la turbina del motor 2 como generador de tierra con la hélice bloqueada. En este modo el Beacon permanece apagado correctamente (las hélices no giran). vmsOpenAcars detecta el Hotel Mode automáticamente (`N1 > 10 %` y `Prop RPM < 50`) y suspende la verificación de Beacon hasta que la hélice comience a girar.
 
 ---
 
@@ -308,7 +312,7 @@ Al cruzar **1 000 ft AGL en descenso** el sistema evalúa el estado del avión. 
 
 | Criterio | Penalización |
 |---|---|
-| Velocidad fuera del rango Vapp ± tolerancia | −5 pts |
+| Velocidad fuera del rango Vapp ± tolerancia | −5 pts · Exento si COM1 en ATC IVAO ⁴ |
 | VS excesivo (< −1 000 fpm) | −5 pts |
 | No descendiendo (VS > −100 fpm) | −5 pts |
 | Bank > 7° | −3 pts |
@@ -610,4 +614,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.7.2 — que tengas buen vuelo.*
+*vmsOpenAcars v0.7.5 — que tengas buen vuelo.*

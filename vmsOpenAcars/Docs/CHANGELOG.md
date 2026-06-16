@@ -2,6 +2,46 @@
 
 ---
 
+## [0.7.5] — 2026-06-15
+
+### Fixed
+
+- **Turboprop — offset TRQ incorrecto** — `FsuipcService` leía el offset `0x2068` (FLOAT64) como "Torque %" cuando en FSUIPC7 ese offset corresponde a **Fuel Flow (lb/hr)**. En aeronaves como el ATR72-600 (PW127M) el flujo en crucero es 500–700 lb/hr, produciendo valores de "torque" de varios cientos de porcentaje. El offset correcto para Torque % es `0x2020` (motor 1) / `0x2120` (motor 2). Corregido en `FsuipcService._eng1TorquePctF64` y `_eng2TorquePctF64`.
+
+- **Hotel Mode — falsa penalización de BEACON** — el ATR72-600 y otros turbohélices soportan **Hotel Mode**: el motor 2 arranca como generador de tierra (turbina en marcha, NH ~65-70%) con la hélice bloqueada, sin que el BEACON sea requerido (las hélices no están girando). vmsOpenAcars penalizaba −5 pts en dos puntos distintos del código:
+  1. **Transición ON→OFF→ON** (en `OnRawDataUpdated`, línea de detección `EnginesRunning && !_areEnginesOn`): se evaluaba `!_isBeaconOn` antes de que `_hotelModeActive` se actualizara → siempre penalizaba. Corregido usando `data.HotelModeActive` directamente del paquete de telemetría.
+  2. **Loop continuo** (`CheckViolations`): `beaconExempt` ahora incluye `|| _hotelModeActive`.
+
+  **Detección de Hotel Mode** (`FsuipcService`): para categoría Turboprop, `HotelModeActive = true` cuando algún motor tiene N1 > 10% (turbina en marcha) pero `PropRpm < 50` RPM (hélice bloqueada). Se propaga en `RawTelemetryData.HotelModeActive`. En cuanto la hélice comienza a girar (`PropRpm ≥ 50`), hotel mode se desactiva y el beacon vuelve a ser obligatorio.
+
+---
+
+## [0.7.4] — 2026-06-14
+
+### Added
+
+- **Scoring en aeropuerto alterno** — al entrar en fase Approach, el sistema intenta adquirir el umbral de pista primero en el aeropuerto de destino del OFP (`SimbriefPlan.Destination`); si no lo encuentra (el avión está alineado con una pista de otro aeropuerto), reintenta con el alterno del OFP (`SimbriefPlan.Alternate`). Al confirmar el alterno se loguea `"⚠️ Approaching ALTERNATE — XXXX"` y se activa el modo alterno para el resto del vuelo:
+  - **TDZ y Centreline**: `LookupRunwayData` usa `_approachDestination` (alterno) en lugar de `_activePlan.Destination` → `FindTouchdownRunway` localiza correctamente la pista en el aeropuerto alterno.
+  - **ILS / Localizer / Minimums**: `LoadApproachData` carga los datos de ILS, approach type y fixes del alterno → el gate de 1 000 ft evalúa estos criterios contra la frecuencia y procedimiento reales del alterno.
+  - **QNH de llegada**: `FlightManager._effectiveDestination` (nuevo campo) se establece al ICAO del alterno → ambas rutas de check QNH (basada en Transition Level y basada en gate 1 000 ft) llaman `GetWeatherAsync(alterno)` en lugar del destino original → sin falsos positivos por diferencia de QNH entre aeropuertos.
+  - Si el aterrizaje ocurre en un aeropuerto que no es ni el destino ni el alterno del OFP, el comportamiento es el existente: TDZ/Centreline/ILS omitidos sin penalización.
+- **`MainViewModel._approachDestination`** — nuevo campo `string` que almacena el ICAO resuelto (destino o alterno) desde la adquisición del umbral hasta el touchdown. Se resetea a null al iniciar cada nueva fase Approach; persiste intencionalmente al salir de Approach para que `LookupRunwayData` pueda usarlo tras el touchdown.
+- **`FlightManager.SetEffectiveDestination(string)`** — nuevo método público que `MainViewModel` llama cuando detecta el alterno; redirige los dos puntos de check QNH de destino.
+
+---
+
+## [0.7.3] — 2026-06-14
+
+### Changed
+
+- **Overspeed — exención por instrucción ATC (IVAO)** — cuando el piloto tiene COM1 sintonizada en la frecuencia de una estación ATC activa en IVAO (TWR, APP, DEP, CTR…), los eventos de overspeed ya no generan deducción de puntos; la advertencia en el log y el OSD `OVERSPEED  XXX KTS` se mantienen. Si no hay ATC activo o COM1 está en UNICOM (122.8) u otra frecuencia no-ATC, aplican las penalizaciones habituales (0→0 / 1→−7 / ≥2→−15 pts). El desglose del PIREP diferencia eventos penalizados de exentos: `"3 event(s), 1 penalized (ATC exempt: 2)"`.
+
+- **Vapp gate (Stabilized Approach, 1 000 ft AGL) — exención por instrucción ATC** — igual que overspeed: si COM1 está sintonizada en ATC activo IVAO, la deducción de −5 pts por velocidad fuera del rango Vapp queda suprimida, pero el log Warning persiste. Los otros seis sub-criterios del gate (VS, bank, pitch, gear, flaps, ILS) no cambian.
+
+- Implementado mediante delegate `FlightManager.IsOnAtcFrequency` (`Func<bool>`) inyectado por `MainViewModel`. El helper `IsAtcOnCom1()` consulta `FsuipcService.Com1FrequencyMhz` (offset FSUIPC `0x034E` BCD) contra `AirspaceMonitorService.GetAtcStations()` con tolerancia ±0.005 MHz (5 kHz). `FlightManager` mantiene contadores separados `_overspeedCount` (total) y `_overspeedPenaltyCount` (solo penalizados), propagados en `FlightScoreData` al calcular el score.
+
+---
+
 ## [0.7.2] — 2026-06-01
 
 ### Fixed
