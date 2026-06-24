@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.7.5  
-> Última actualización: 2026-06-15
+> Versión del documento: 0.7.6  
+> Última actualización: 2026-06-24
 
 ---
 
@@ -947,6 +947,46 @@ Propagado en `RawTelemetryData.HotelModeActive`.
 2. Loop continuo `CheckViolations` (`beaconExempt ||= _hotelModeActive`).
 
 En cuanto `PropRpm ≥ 50` (hélice girando), hotel mode se desactiva y el Beacon vuelve a ser obligatorio.
+
+---
+
+### Correcciones v0.7.6
+
+#### Hotel Mode — Block Off falso y Block On bloqueado
+
+**Timing invariant:** en `FlightManager.OnRawDataUpdated`, el campo `_hotelModeActive` se actualiza al final del método (~línea 1774), **después** del bloque de detección de motores. Todos los checks dentro de ese bloque deben usar `data.HotelModeActive` (valor del frame actual) en lugar de `_hotelModeActive` (valor del frame anterior).
+
+**Block Off falso (salida):** la sub-rama que registra Block Off al detectar el arranque de motores en fase Boarding incluye ahora la guarda `!data.HotelModeActive`:
+
+```csharp
+// FlightManager.cs ~línea 1766
+if (CurrentPhase == FlightPhase.Boarding && !_blockOffRecorded && !data.HotelModeActive)
+    UpdateBlockOffTime();
+```
+
+Sin esta guarda, arrancar el motor 2 en Hotel Mode durante el boarding registraba Blocks Off inmediatamente con un delta de 0 s respecto al momento de START.
+
+**Block On bloqueado (llegada):** la condición de Block On en fase TaxiIn requería `!_areEnginesOn`. En Hotel Mode el motor 2 mantiene `Eng2Running = true`, de modo que `_areEnginesOn` nunca bajaba a `false` y el sistema nunca transitaba a OnBlock. Corrección: Hotel Mode se admite como equivalente de motores apagados:
+
+```csharp
+// FlightManager.cs ~línea 1478
+if ((DateTime.UtcNow - _stoppedStartTime).TotalSeconds >= 90 &&
+    (!_areEnginesOn || data.HotelModeActive))
+```
+
+La lógica de `CancelFlight` no se ve afectada: sigue protegida por `IsBlockOnRecorded`.
+
+#### SEND/CANCEL — tres causas simultáneas
+
+Situación reportada: al finalizar un vuelo el PIREP se enviaba exitosamente pero el botón SEND permanecía activo y CANCEL no cambiaba a EXIT. Al pulsar CANCEL se eliminaba el PIREP ya archivado.
+
+| # | Causa | Corrección |
+|---|---|---|
+| 1 | `SendPirep()` carecía de rama `else` y `try/catch` — un fallo posterior al éxito HTTP dejaba la UI sin actualizar | `try/catch` con log de error; rama `else` con mensaje de reintento; SEND permanece activo para reintento |
+| 2 | `ActivePirepId` no se limpiaba hasta `ResetFlightState()` — si algo fallaba antes, `CancelFlight()` encontraba el ID y borraba el PIREP ya archivado | `ActivePirepId = ""` inmediatamente tras el `await` exitoso de la API, antes de `ResetFlightState()` |
+| 3 | `OnFlightPhaseChanged` (async void) podía re-habilitar SEND tras el éxito si un evento asíncrono tardío llegaba con fase OnBlock | Guard `!string.IsNullOrEmpty(_flightManager.ActivePirepId)` en la condición de habilitación del botón |
+
+Principio resultante: **si la API confirma el PIREP, `ActivePirepId` queda vacío de inmediato**. Cualquier código posterior que dependa de ese campo para tomar decisiones destructivas (borrar, reenviar) encontrará string vacío y no actuará.
 
 ---
 

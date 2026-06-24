@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.7.5**
+**Versión 0.7.6**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -303,6 +303,8 @@ El sistema monitoriza las luces durante todo el vuelo y penaliza cada incumplimi
 > **Excepción Beacon — switch compartido:** en aeronaves con switch único BEACON/STROBE (como el Dash 8 / Q400), encender los Strobes apaga el Beacon automáticamente. Estas aeronaves están exentas de la penalización de Beacon.
 >
 > **Excepción Beacon — Hotel Mode:** en turbohélices (ATR72 y similares), el **Hotel Mode** arranca la turbina del motor 2 como generador de tierra con la hélice bloqueada. En este modo el Beacon permanece apagado correctamente (las hélices no giran). vmsOpenAcars detecta el Hotel Mode automáticamente (`N1 > 10 %` y `Prop RPM < 50`) y suspende la verificación de Beacon hasta que la hélice comience a girar.
+>
+> **Hotel Mode — Blocks Off y Blocks On:** en Hotel Mode el tiempo de **Blocks Off** no se registra al arrancar el motor 2 (la hélice no gira, la aeronave no va a moverse). El registro se produce cuando el primer motor propulsor con hélice real empieza a girar y el avión inicia el rodaje. De igual forma, al llegar a puerta, si el motor 2 sigue en Hotel Mode (funcionando como generador APU), el sistema acepta la condición de **Blocks On** aunque ese motor esté técnicamente encendido — no es necesario apagar el generador de tierra antes de que el sistema detecte el fin del vuelo.
 
 ---
 
@@ -614,4 +616,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.7.5 — que tengas buen vuelo.*
+*vmsOpenAcars v0.7.6 — que tengas buen vuelo.*

@@ -1476,7 +1476,7 @@ namespace vmsOpenAcars.Core.Flight
                                 _stoppedStartTime = DateTime.UtcNow;
 
                                 if ((DateTime.UtcNow - _stoppedStartTime).TotalSeconds >= 90 &&
-                                    !_areEnginesOn)
+                                    (!_areEnginesOn || _hotelModeActive))
                                 {
                                     _stoppedStartTime = DateTime.MinValue;
                                     if (_fuelAtTaxiInStart > 0)
@@ -1763,7 +1763,7 @@ namespace vmsOpenAcars.Core.Flight
                 }
 
                 // Blocks Off al encender motores en Boarding (aviones que no necesitan pushback)
-                if (CurrentPhase == FlightPhase.Boarding && !_blockOffRecorded)
+                if (CurrentPhase == FlightPhase.Boarding && !_blockOffRecorded && !data.HotelModeActive)
                 {
                     OnLog?.Invoke(_("Log_BlockOffEngines"), Theme.MainText);
                     Task.Run(() => UpdateBlockOffTime());
@@ -1971,6 +1971,7 @@ namespace vmsOpenAcars.Core.Flight
             bool success = await _apiService.FilePirep(ActivePirepId, finalData);
             if (success)
             {
+                ActivePirepId = "";          // impide que CancelFlight borre el PIREP si falla algo después
                 OnLog?.Invoke(_("Log_PirepFiled"), Theme.Success);
                 ResetFlightState();
                 return true;

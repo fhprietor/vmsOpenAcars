@@ -366,7 +366,7 @@ code {
     });
   </script>
 <h1 id="vmsopenacars--guía-del-usuario">vmsOpenAcars — Guía del Usuario</h1>
-<p><strong>Versión 0.6.7</strong></p>
+<p><strong>Versión 0.7.5</strong></p>
 <p>vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.</p>
 <hr>
 <h2 id="índice">Índice</h2>
@@ -527,6 +527,7 @@ code {
 </tbody>
 </table>
 <p>Pulsa <strong>TEST</strong> para verificar la conectividad y la validez de la API key. El botón muestra en verde el ciclo AIRAC vigente si todo es correcto, en naranja si el servicio está activo pero la key es inválida, y en rojo si el servicio no es alcanzable.</p>
+<p>Pulsa <strong>REFRESH NAVDATA</strong> para invalidar manualmente la caché de procedimientos (SIDs, STARs, aproximaciones). Úsalo cuando la aerolínea haya corregido datos de NavData dentro del mismo ciclo AIRAC y necesites que la app descargue los datos actualizados sin tener que esperar al próximo ciclo. No afecta a los espacios aéreos ni requiere reiniciar la app.</p>
 <h3 id="sección-landing-log">Sección Landing Log</h3>
 <p>El LOGBOOK guarda el historial de tus aterrizajes con trayectoria de aproximación en una base de datos SQLite local.</p>
 <ol>
@@ -648,6 +649,9 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <li>El sistema descarga y valida el plan (origen, destino, tipo, matrícula, antigüedad máx. 2 h).</li>
 <li>Si la validación pasa, haz clic en <strong>ACCEPT</strong> para cargar el plan.</li>
 </ol>
+<blockquote>
+<p><strong>Validación de tipo de aeronave:</strong> si el tipo ICAO del OFP (ej. <code>B737</code>) no coincide con el que reporta el simulador (ej. <code>B738</code>), aparecerá un log advisory en amarillo al cargar el plan. Al pulsar <strong>START</strong>, si el desacuerdo persiste, se mostrará un diálogo de confirmación: puedes continuar el vuelo de todas formas o cancelar para corregir el plan en SimBrief.</p>
+</blockquote>
 <h3 id="44-inicio-del-vuelo">4.4 Inicio del vuelo</h3>
 <p>El botón <strong>START</strong> se habilita cuando:</p>
 <ul>
@@ -822,12 +826,12 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <tr>
 <td><strong>Landing Rate</strong></td>
 <td>−40 pts</td>
-<td>≤ 100 fpm → 0 · ≤ 200 → −5 · ≤ 300 → −15 · ≤ 400 → −25 · ≤ 600 → −35 · &gt; 600 → −40</td>
+<td>≤ 150 fpm → 0 · ≤ 250 → −5 · ≤ 350 → −15 · ≤ 450 → −25 · ≤ 650 → −35 · &gt; 650 → −40</td>
 </tr>
 <tr>
 <td><strong>G-Force</strong></td>
 <td>−15 pts</td>
-<td>≤ 1.3 g → 0 · ≤ 1.5 g → −7 · &gt; 1.5 g → −15</td>
+<td>≤ 1.5 g → 0 · ≤ 1.7 g → −7 · &gt; 1.7 g → −15</td>
 </tr>
 <tr>
 <td><strong>Bank Angle</strong></td>
@@ -842,7 +846,7 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <tr>
 <td><strong>Overspeed</strong></td>
 <td>−15 pts</td>
-<td>0 eventos → 0 · 1 evento → −7 · ≥ 2 eventos → −15</td>
+<td>0 eventos → 0 · 1 evento → −7 · ≥ 2 eventos → −15 · Exento si COM1 en ATC IVAO ⁴</td>
 </tr>
 <tr>
 <td><strong>Lights Compliance</strong></td>
@@ -872,7 +876,7 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <tr>
 <td><strong>Touchdown Zone</strong></td>
 <td>−7 pts</td>
-<td>≤ 1 500 ft del umbral → 0 · ≤ 2 500 ft → −3 · &gt; 2 500 ft → −7 ¹</td>
+<td>≤ 1 500 ft del umbral → 0 · ≤ 2 500 ft → −3 · &gt; 2 500 ft → −7 ¹ ³</td>
 </tr>
 <tr>
 <td><strong>Centreline Deviation</strong></td>
@@ -898,7 +902,10 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 </table>
 <blockquote>
 <p>¹ Requiere la <strong>NavData API</strong> configurada en Settings (URL + API Key válida). Sin ella, estos criterios no se evalúan.<br>
-² <strong>Localizer Alignment</strong> y <strong>Minimums Compliance</strong> también se omiten si el piloto sintoniza una frecuencia distinta a la del ILS al cruzar 1 000 ft AGL (aproximación RNP, visual u otro procedimiento). En ese caso no hay penalización.</p>
+² <strong>Localizer Alignment</strong> y <strong>Minimums Compliance</strong> también se omiten si el piloto sintoniza una frecuencia distinta a la del ILS al cruzar 1 000 ft AGL (aproximación RNP, visual u otro procedimiento). En ese caso no hay penalización.<br>
+³ En pistas con <strong>umbral desplazado</strong> (<em>displaced threshold</em>), la distancia se mide desde el umbral legal de aterrizaje, no desde el extremo físico del pavimento. Un aterrizaje en la zona de aceleración (antes del umbral desplazado) no genera penalización.<br>
+⁴ <strong>Exención por ATC IVAO:</strong> si COM1 está sintonizada en la frecuencia de una estación ATC activa en IVAO (TWR, APP, DEP, CTR…), el exceso de velocidad y la penalización por Vapp a 1 000 ft se suprimen — el ATC puede haber ordenado esa velocidad. La advertencia en el log y el OSD siguen activos. Sin ATC activo o con UNICOM (122.800), aplican las penalizaciones normales.<br>
+⁵ <strong>Scoring en aeropuerto alterno:</strong> si el vuelo se desvía al aeropuerto alterno del OFP (SimBrief), todos los criterios que dependen del aeropuerto de llegada (TDZ, Centreline, ILS/Localizer, Minimums y QNH) se evalúan contra el alterno, no contra el destino original. El sistema lo detecta automáticamente al adquirir el umbral de pista durante la aproximación y lo indica en el log (<code>⚠️ Approaching ALTERNATE — XXXX</code>). Si el aterrizaje es en un aeropuerto distinto tanto del destino como del alterno del OFP, esos criterios se omiten sin penalización.</p>
 </blockquote>
 <hr>
 <h3 id="detalle-lights-compliance-5-pts-cada-violación-cap-10">Detalle: Lights Compliance (−5 pts cada violación, cap −10)</h3>
@@ -934,7 +941,8 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 </tbody>
 </table>
 <blockquote>
-<p><strong>Excepción Beacon:</strong> en aeronaves con switch único BEACON/STROBE (como el Dash 8 / Q400), encender los Strobes apaga el Beacon automáticamente. Estas aeronaves están exentas de la penalización de Beacon.</p>
+<p><strong>Excepción Beacon — switch compartido:</strong> en aeronaves con switch único BEACON/STROBE (como el Dash 8 / Q400), encender los Strobes apaga el Beacon automáticamente. Estas aeronaves están exentas de la penalización de Beacon.</p>
+<p><strong>Excepción Beacon — Hotel Mode:</strong> en turbohélices (ATR72 y similares), el <strong>Hotel Mode</strong> arranca la turbina del motor 2 como generador de tierra con la hélice bloqueada. En este modo el Beacon permanece apagado correctamente (las hélices no giran). vmsOpenAcars detecta el Hotel Mode automáticamente (<code>N1 &gt; 10 %</code> y <code>Prop RPM &lt; 50</code>) y suspende la verificación de Beacon hasta que la hélice comience a girar.</p>
 </blockquote>
 <hr>
 <h3 id="detalle-stabilized-approach--gate-de-1-000-ft-agl-hasta-15-pts">Detalle: Stabilized Approach — gate de 1 000 ft AGL (hasta −15 pts)</h3>
@@ -949,7 +957,7 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <tbody>
 <tr>
 <td>Velocidad fuera del rango Vapp ± tolerancia</td>
-<td>−5 pts</td>
+<td>−5 pts · Exento si COM1 en ATC IVAO ⁴</td>
 </tr>
 <tr>
 <td>VS excesivo (&lt; −1 000 fpm)</td>
@@ -1027,27 +1035,27 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <tbody>
 <tr>
 <td>🧈 <strong>Butter</strong></td>
-<td>≤ 100 fpm</td>
+<td>≤ 150 fpm</td>
 </tr>
 <tr>
 <td>✅ <strong>Smooth</strong></td>
-<td>101 – 200 fpm</td>
+<td>151 – 250 fpm</td>
 </tr>
 <tr>
 <td>🟢 <strong>Normal</strong></td>
-<td>201 – 300 fpm</td>
+<td>251 – 350 fpm</td>
 </tr>
 <tr>
 <td>🟡 <strong>Hard</strong></td>
-<td>301 – 400 fpm</td>
+<td>351 – 450 fpm</td>
 </tr>
 <tr>
 <td>🟠 <strong>Very Hard</strong></td>
-<td>401 – 600 fpm</td>
+<td>451 – 650 fpm</td>
 </tr>
 <tr>
 <td>🔴 <strong>Slam</strong></td>
-<td>&gt; 600 fpm</td>
+<td>&gt; 650 fpm</td>
 </tr>
 </tbody>
 </table>
@@ -1091,7 +1099,7 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 </tr>
 <tr>
 <td><strong>Tasa de descenso</strong></td>
-<td>Apunta a ≤ 200 fpm para eliminar la deducción por Landing Rate</td>
+<td>Apunta a ≤ 150 fpm para eliminar la deducción por Landing Rate</td>
 </tr>
 </tbody>
 </table>
@@ -1185,6 +1193,21 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <td>Single-engine taxi detectado</td>
 <td><code>SINGLE ENGINE TAXI  +5 PTS</code></td>
 <td>Success</td>
+</tr>
+<tr>
+<td>Trayectoria hacia espacio aéreo restringido</td>
+<td><code>AIRSPACE AHEAD  {TIPO}  {ICAO}</code></td>
+<td>Warning (dorado)</td>
+</tr>
+<tr>
+<td>Sobre un espacio restringido (no descender)</td>
+<td><code>ABOVE  {ICAO}  DO NOT DESCEND</code></td>
+<td>Warning (dorado)</td>
+</tr>
+<tr>
+<td>Dentro de espacio restringido</td>
+<td><code>AIRSPACE  {TIPO}  {ICAO}</code></td>
+<td>Critical (rojo parpadeante)</td>
 </tr>
 </tbody>
 </table>
@@ -1339,8 +1362,108 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 </tr>
 </tbody>
 </table>
+<h3 id="sidebar-de-procedimientos-v065">Sidebar de procedimientos (v0.6.5)</h3>
+<p>El panel lateral izquierdo (expandible con el botón <code>◀</code>/<code>▶</code>) permite cambiar en tiempo real la pista, SID/transición, STAR/transición y aproximación de salida y llegada.</p>
+<p><strong>Sección ORIGIN:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Campo</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pista</td>
+<td>Pista de despegue</td>
+</tr>
+<tr>
+<td>SID</td>
+<td>Procedimiento de salida estándar</td>
+</tr>
+<tr>
+<td>Trans.</td>
+<td>Transición del SID</td>
+</tr>
+<tr>
+<td>Chip de viento</td>
+<td>Componente HW/TW y crosswind calculado con el METAR en vigor</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Sección DESTINATION:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Campo</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pista</td>
+<td>Pista de llegada</td>
+</tr>
+<tr>
+<td>STAR</td>
+<td>Procedimiento de llegada estándar</td>
+</tr>
+<tr>
+<td>Trans.</td>
+<td>Transición del STAR</td>
+</tr>
+<tr>
+<td>Approach</td>
+<td>Procedimiento de aproximación (ILS, RNAV, VOR…)</td>
+</tr>
+<tr>
+<td>Trans.</td>
+<td><strong>Transición de aproximación (IAF)</strong> — muestra los fixes de entrada al procedimiento (v0.7.0). Al seleccionar una transición, el overlay de aproximación se actualiza incluyendo los legs desde el IAF.</td>
+</tr>
+<tr>
+<td>Carta</td>
+<td>Botón <strong>📋 APPROACH CHART</strong> — abre la carta de aproximación dinámica (v0.6.8)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Al cambiar pista, el SID/STAR activo se valida. Si el procedimiento no aplica a la nueva pista, aparece un diálogo de confirmación. El approach se descarta automáticamente en cualquier cambio de pista destino. Al cambiar SID o STAR, el selector de pista filtra automáticamente para mostrar solo pistas compatibles con el procedimiento elegido (v0.7.0).</p>
+</blockquote>
+<h3 id="alertas-de-espacios-aéreos-v071">Alertas de espacios aéreos (v0.7.1)</h3>
+<p>Durante el vuelo, vmsOpenAcars monitoriza los espacios aéreos de la ruta y emite tres tipos de alerta según la situación:</p>
+<table>
+<thead>
+<tr>
+<th>Situación</th>
+<th>Log</th>
+<th>OSD</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Predictiva</strong> — la trayectoria proyectada (~3 min a GS actual) entra en un espacio Prohibited/Restricted/Danger dentro de sus límites verticales</td>
+<td><code>⚠️ AIRSPACE AHEAD  {TIPO}  {ICAO}  [SFC – FLxxx]</code></td>
+<td><code>AIRSPACE AHEAD  {TIPO}  {ICAO}</code> (dorado)</td>
+</tr>
+<tr>
+<td><strong>Sobrevuelo</strong> — el avión está lateralmente sobre el espacio pero por encima del límite superior</td>
+<td><code>⚠️ OVERFLIGHT  {TIPO}  {ICAO}  [ABOVE FLxxx]  DO NOT DESCEND</code></td>
+<td><code>ABOVE  {ICAO}  DO NOT DESCEND</code> (dorado)</td>
+</tr>
+<tr>
+<td><strong>Entrada</strong> — el avión penetra el espacio dentro de sus límites verticales</td>
+<td><code>⚠️ AIRSPACE  {TIPO}  {ICAO}  [SFC – FLxxx]</code></td>
+<td><code>AIRSPACE  {TIPO}  {ICAO}</code> (rojo parpadeante)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Las alertas tienen en cuenta los <strong>límites verticales</strong> del espacio: si vuelas a FL290 sobre una zona restringida hasta FL150, no se dispara ninguna alerta de entrada. Solo si tu trayectoria proyectada o tu altitud real cae dentro del rango vertical se activa el aviso.</p>
+</blockquote>
+<h3 id="overlay-de-aproximación">Overlay de aproximación</h3>
+<p>Al seleccionar un approach en el sidebar, el mapa dibuja en magenta la trayectoria de los legs del procedimiento + extended centerline (±5 NM, punteado). El missed approach se dibuja en cian. Si se selecciona una transición (IAF), los legs de la transición se dibujan a continuación del procedimiento principal.</p>
 <h3 id="barra-de-estado">Barra de estado</h3>
-<p>La barra inferior muestra la posición actual: <code>latitud°  longitud°   HDG XXX°  Z:NN</code>.</p>
+<p>La barra inferior muestra la posición actual: <code>latitud°  longitud°   HDG XXX°  Z:NN</code>. Los controles de zoom (<code>−</code>/<code>+</code>), el selector de proveedor y las checkboxes de capa siempre quedan visibles independientemente del ancho de la ventana.</p>
 <blockquote>
 <p>La ventana MAP puede permanecer abierta durante todo el vuelo. Al cerrarla y volver a abrirla retoma la posición actual del avión.</p>
 </blockquote>
@@ -1473,7 +1596,7 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <li>En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan automáticamente.</li>
 </ul>
 <hr>
-<p><em>vmsOpenAcars v0.6.7 — que tengas buen vuelo.</em></p>
+<p><em>vmsOpenAcars v0.7.5 — que tengas buen vuelo.</em></p>
 
 </body>
 </html>

@@ -618,7 +618,8 @@ namespace vmsOpenAcars.ViewModels
             _prevPhase = phase;
 
             OnPhaseChanged?.Invoke(phase);
-            if (phase == FlightPhase.OnBlock || phase == FlightPhase.Completed)
+            if ((phase == FlightPhase.OnBlock || phase == FlightPhase.Completed)
+                && !string.IsNullOrEmpty(_flightManager.ActivePirepId))
                 OnButtonStateChanged?.Invoke("SEND PIREP", Color.Green, true);
         }
 
@@ -1807,7 +1808,18 @@ namespace vmsOpenAcars.ViewModels
             // Snapshot plan + touchdown data before FilePirep resets state
             var pendingRecord = SnapshotLandingRecord();
 
-            if (await _flightManager.FilePirep())
+            bool filed = false;
+            try
+            {
+                filed = await _flightManager.FilePirep();
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke($"⚠️ Error al enviar PIREP: {ex.Message}", Theme.Danger);
+                return;
+            }
+
+            if (filed)
             {
                 int pirepScore = _flightManager.LastFlightScore;
                 OsdSeverity scoreSev = pirepScore >= 80 ? OsdSeverity.Success
@@ -1829,6 +1841,10 @@ namespace vmsOpenAcars.ViewModels
                 SaveLandingRecord(pendingRecord);
                 // Fire-and-forget: refresh pilot airport once phpVMS processes the PIREP
                 Task.Run(RefreshPilotDataAfterPirep);
+            }
+            else
+            {
+                OnLog?.Invoke("⚠️ No se pudo enviar el PIREP. Verifique la conexión e intente nuevamente.", Theme.Danger);
             }
         }
 

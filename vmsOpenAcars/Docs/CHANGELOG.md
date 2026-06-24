@@ -2,6 +2,42 @@
 
 ---
 
+## [0.7.6] — 2026-06-24
+
+### Fixed
+
+- **Hotel Mode — Block Off falso al arrancar Motor 2 en Boarding** — el ATR72-600 y similares
+  arrancan el Motor 2 como generador de tierra (Hotel Mode: turbina en marcha, hélice bloqueada)
+  antes del vuelo. Esto hacía que `EnginesRunning` pasara a `true`, disparando la lógica de
+  Block Off por encendido de motores en la fase Boarding (prevista para aviones sin pushback).
+  El sistema registraba el Block Off antes de que el avión se moviera. Corregido añadiendo
+  `&& !data.HotelModeActive` al guard de la condición en `FlightManager` (~línea 1766).
+
+- **Hotel Mode — Block On bloqueado en TaxiIn** — con el Motor 2 en Hotel Mode (N1 > 10%),
+  `_areEnginesOn` se mantenía `true` indefinidamente, impidiendo que la condición de Block On
+  (`!_areEnginesOn` + 90 s detenido) se satisficiera. El Block On no se registraba hasta que
+  el Motor 2 se apagaba completamente, lo que podía ser mucho tiempo después del parqueo.
+  Corregido cambiando el guard a `(!_areEnginesOn || data.HotelModeActive)` en el case TaxiIn
+  de `FlightManager` (~línea 1478).
+
+- **SEND no se deshabilita / CANCEL borra PIREP ya enviado** — bajo ciertas condiciones de red
+  (timeout en respuesta HTTP, error transitorio), `FilePirep()` podía devolver `false` aunque
+  el PIREP hubiera llegado correctamente a phpVMS. Resultado: `SendPirep()` no tenía rama
+  `else`, la UI no se actualizaba (SEND permanecía verde, CANCEL no cambiaba a EXIT), y al
+  pulsar CANCEL el sistema borraba el PIREP ya archivado porque `ActivePirepId` seguía activo.
+  Tres correcciones:
+  1. **`FlightManager.FilePirep()`**: `ActivePirepId` se limpia inmediatamente cuando la API
+     confirma éxito, antes de `ResetFlightState()` — así CANCEL nunca puede borrar un PIREP
+     ya enviado aunque algo falle después localmente.
+  2. **`MainViewModel.SendPirep()`**: añadida rama `else` con mensaje de error visible al
+     piloto ("No se pudo enviar el PIREP, verifique la conexión"), y try/catch para excepciones
+     inesperadas. En ambos casos SEND queda habilitado para reintento.
+  3. **`MainViewModel.OnFlightPhaseChanged()`**: el guard de habilitación de SEND ahora
+     verifica `!string.IsNullOrEmpty(_flightManager.ActivePirepId)` — previene que una
+     continuación asíncrona tardía re-habilite el botón tras el éxito del envío.
+
+---
+
 ## [0.7.5] — 2026-06-15
 
 ### Fixed
