@@ -990,6 +990,53 @@ Principio resultante: **si la API confirma el PIREP, `ActivePirepId` queda vací
 
 ---
 
+### Correcciones v0.7.7
+
+#### FilePirep — verificación de estado tras respuesta HTTP no-2xx
+
+**Síntoma:** phpVMS archivaba el PIREP correctamente (quedaba "pendiente de aprobar" en el servidor) pero devolvía un código HTTP no-2xx. `FilePirep()` retornaba `false`, el mensaje "No se pudo enviar el PIREP" aparecía, SEND permanecía activo, y si el piloto pulsaba CANCEL el PIREP archivado se eliminaba.
+
+**Causa raíz:** `ApiService.FilePirep()` solo comprueba `response.IsSuccessStatusCode`. Si phpVMS procesa el request (crea/actualiza el PIREP) pero el código de respuesta no es 2xx (comportamiento observado en instalaciones en producción), el cliente no puede distinguir un fallo real de un éxito con error de protocolo.
+
+**Corrección — `FlightManager.FilePirep()`** (línea ~1971):
+
+```csharp
+bool success = await _apiService.FilePirep(ActivePirepId, finalData);
+if (!success)
+{
+    // phpVMS puede procesar el PIREP y devolver un código no-2xx.
+    // Verificamos el estado real antes de asumir fallo.
+    try
+    {
+        var pirepDetail = await _apiService.GetPirepDetail(ActivePirepId);
+        if (pirepDetail?.Status != null &&
+            pirepDetail.Status != "1" && pirepDetail.Status != "6")
+        {
+            // Estado distinto de in_progress/paused → el PIREP fue archivado
+            success = true;
+        }
+    }
+    catch { }
+}
+```
+
+**Estados phpVMS relevantes:** `1` = in_progress, `6` = paused, `2` = pending (archivado, pendiente de aprobación), `3` = accepted, `4` = rejected, `5` = cancelled. Cualquier estado distinto de 1/6 indica que el PIREP salió del ciclo activo y fue procesado.
+
+**Comportamiento resultante:**
+
+| Escenario | Resultado |
+|---|---|
+| HTTP 2xx | éxito inmediato — sin cambios |
+| HTTP no-2xx + PIREP en servidor con status ≠ 1/6 | GET confirma éxito — `ActivePirepId` limpio, UI actualizada |
+| HTTP no-2xx + PIREP sigue in_progress | GET confirmará status=1 → fallo real → SEND habilitado para reintento |
+| HTTP no-2xx + GET también falla (sin red) | catch silencioso → fallo real → SEND habilitado para reintento |
+
+#### Hotel Mode Block On — variable `data` inaccesible en UpdatePhase()
+
+La corrección de v0.7.6 (`!_areEnginesOn || data.HotelModeActive`) usaba el parámetro `data` (de tipo `RawTelemetryData`) dentro del método `UpdatePhase(int, int, bool, int, double)`, que no recibe ese parámetro. Corregido usando el campo de instancia `_hotelModeActive`, que `UpdateTelemetry()` actualiza en cada ciclo antes de que `UpdatePhase()` sea invocado desde `MainViewModel`.
+
+---
+
 ### SystemInfoHelper — `Helpers/SystemInfoHelper.cs` (v0.6.2)
 
 Clase estática interna que recopila información de hardware y simulador al arrancar la aplicación, sin dependencias de WMI (que requiere permisos elevados y es lento).

@@ -2,6 +2,30 @@
 
 ---
 
+## [0.7.7] — 2026-06-30
+
+### Fixed
+
+- **PIREP archivado pero FilePirep() devuelve false** — phpVMS puede procesar y archivar un
+  PIREP correctamente pero devolver un código HTTP no-2xx (comportamiento observado en producción).
+  En ese caso `FilePirep()` retornaba `false` aunque el PIREP estuviera en el servidor como
+  "pendiente de aprobar". Resultado: el mensaje "No se pudo enviar el PIREP" aparecía, SEND
+  permanecía activo, y si el piloto pulsaba CANCEL el PIREP ya archivado se eliminaba del servidor.
+  
+  Corregido en `FlightManager.FilePirep()`: cuando la llamada HTTP devuelve error, se realiza
+  un `GET /api/pireps/{id}` para consultar el estado real del PIREP en el servidor. Si el estado
+  es distinto de `1` (in_progress) o `6` (paused), el PIREP ya fue archivado y se trata como
+  éxito — `ActivePirepId` se limpia, la UI se actualiza correctamente y el vuelo queda completo.
+  Si el GET también falla (sin conexión), el comportamiento previo se mantiene: SEND queda
+  habilitado para reintento.
+
+- **Variable `data` inaccesible en `UpdatePhase()`** — la corrección de Hotel Mode Block On
+  de v0.7.6 usaba `data.HotelModeActive` en el método `UpdatePhase()`, que no recibe
+  `RawTelemetryData`. Corregido usando el campo `_hotelModeActive`, que `UpdateTelemetry()`
+  actualiza en cada ciclo de telemetría.
+
+---
+
 ## [0.7.6] — 2026-06-24
 
 ### Fixed

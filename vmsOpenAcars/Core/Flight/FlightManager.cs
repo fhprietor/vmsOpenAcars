@@ -1969,6 +1969,23 @@ namespace vmsOpenAcars.Core.Flight
             };
 
             bool success = await _apiService.FilePirep(ActivePirepId, finalData);
+            if (!success)
+            {
+                // phpVMS puede procesar el PIREP y devolver un código no-2xx.
+                // Verificamos el estado real antes de asumir fallo.
+                try
+                {
+                    var pirepDetail = await _apiService.GetPirepDetail(ActivePirepId);
+                    if (pirepDetail?.Status != null &&
+                        pirepDetail.Status != "1" && pirepDetail.Status != "6")
+                    {
+                        // Estado distinto de in_progress/paused → el PIREP fue archivado
+                        success = true;
+                    }
+                }
+                catch { }
+            }
+
             if (success)
             {
                 ActivePirepId = "";          // impide que CancelFlight borre el PIREP si falla algo después
