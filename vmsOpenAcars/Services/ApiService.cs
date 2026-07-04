@@ -9,6 +9,7 @@ using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Core.Helpers;
 using vmsOpenAcars.Helpers;
+using vmsOpenAcars.Services.Interfaces;
 
 namespace vmsOpenAcars.Services
 {
@@ -16,7 +17,7 @@ namespace vmsOpenAcars.Services
     /// Provides communication with the phpVMS API for all server-side operations.
     /// Handles authentication, PIREP management, position updates, and airport data retrieval.
     /// </summary>
-    public class ApiService
+    public class ApiService : IApiService
     {
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;

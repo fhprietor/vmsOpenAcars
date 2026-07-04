@@ -5,12 +5,13 @@ using System.Linq;
 using System.Windows.Forms;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
+using vmsOpenAcars.Services.Interfaces;
 
 namespace vmsOpenAcars.UI.Forms
 {
     public class FlightHistoryForm : Form
     {
-        private readonly LandingLogService _svc;
+        private readonly ILandingLogService _svc;
 
         private DataGridView _grid;
         private Button _btnAnalyse;
@@ -23,7 +24,7 @@ namespace vmsOpenAcars.UI.Forms
 
         public FlightRecord SelectedFlight { get; private set; }
 
-        public FlightHistoryForm(LandingLogService svc)
+        public FlightHistoryForm(ILandingLogService svc)
         {
             _svc = svc;
             BuildUI();
@@ -293,7 +294,7 @@ namespace vmsOpenAcars.UI.Forms
 #if DEBUG
         private void BtnSeed_Click(object sender, EventArgs e)
         {
-            _svc.SeedMockData();
+            (_svc as LandingLogService)?.SeedMockData();
             Reload();
         }
 #endif

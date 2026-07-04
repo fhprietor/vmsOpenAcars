@@ -2,6 +2,69 @@
 
 ---
 
+## [0.8.0] — 2026-07-03
+
+### Refactored
+
+Gran refactoring arquitectural. No hay cambios funcionales — el comportamiento en vuelo
+y el scoring son idénticos a v0.7.8.
+
+**Core — FlightManager descompuesto** (`~2 000 l` → `532 l` + archivos satélite):
+- `FlightPhaseStateMachine.cs` — máquina de estados de fase, umbrales y debounce
+- `ApproachValidator.cs` — approach estabilizado 1 000 ft, localizer, DA/MDA
+- `TouchdownState.cs` — touchdown data: TDZ, centreline, g-force, bank, pitch
+- `PenaltyState.cs` — acumulación de penalizaciones y violaciones
+- `FlightManager.Telemetry.cs` — procesamiento de telemetría raw
+- `FlightManager.Lifecycle.cs` — ciclo de vida del PIREP (prefile, file, resume)
+
+**ViewModels — MainViewModel descompuesto** (`~2 450 l` → `711 l` + archivos satélite):
+- `TelemetryCoordinator.cs` — puente datos raw → FlightManager (throttling, debounce UI)
+- `AcarsReporter.cs` — envío de PIREP, resume desde historial, checkpoint 60 s
+
+**UI/Map — MapForm descompuesto** (`~4 100 l` → `1 473 l` + controladores):
+- `MapRouteController.cs` — `LoadRoute`, SID/STAR virtual, suavizado Bézier
+- `MapRouteController.Approach.cs` — overlay de aproximación y missed approach
+- `MapRouteController.Helpers.cs` — 22 helpers estáticos (arcos DME, departure arc,
+  hold racetrack, matching de procedimientos, GeodesicBearing, DistanceKm, etc.)
+- `MapOverlayManager.cs` — overlays de airspaces y estaciones ATC IVAO
+- `SidebarController.cs` — panel SID/STAR/APP, link carta de aproximación
+
+**Interfaces de servicio** (`Services/Interfaces/`):
+- `IApiService`, `IMetarService` y demás — desacoplamiento para testabilidad
+
+### Added
+
+- **Proyecto MSTest** `vmsOpenAcars.Tests/` con **66 tests de `ScoringService`** cubriendo
+  todos los criterios y umbrales documentados en CLAUDE.md.
+
+---
+
+## [0.7.8] — 2026-07-01
+
+### Fixed
+
+- **PIREP archivado por phpVMS al recibir status="ARR", bloqueando el endpoint /file** — al
+  entrar en fase OnBlock, `FlightManager` lanzaba `Task.Run(() => UpdatePirepStatus("ARR"))`.
+  phpVMS, al recibir ese update, archivaba internamente el PIREP (lo movía a estado "pending"),
+  pero lo hacía **sin pasar por el flujo de auto-aprobación** del endpoint `/file`. Resultado:
+  cuando el piloto pulsaba SEND, `POST /api/pireps/{id}/file` llegaba a un PIREP ya en estado
+  "pending" y phpVMS devolvía HTTP no-2xx. El PIREP requería aprobación manual del administrador
+  porque nunca pasó por el mecanismo de auto-aprobación de phpVMS.
+
+  **Tres correcciones en `FlightManager`:**
+  1. **Supresión de `UpdatePirepStatus` en fases terminales** — el guard de envío de estado
+     ahora excluye `FlightPhase.OnBlock` y `FlightPhase.Completed`. El endpoint `/file` es el
+     que gestiona la transición de estado en phpVMS (incluido el trigger de auto-aprobación).
+  2. **`block_on_time` consolidado en el payload de `FilePirep()`** — en lugar de enviarse como
+     `Task.Run` fire-and-forget separado (que competía con `/file` y no tenía garantía de orden),
+     `block_on_time` se incluye directamente en el `finalData` del envío final. `_serverBlockOnTime`
+     se establece sincrónicamente al detectar OnBlock.
+  3. **`UpdateBlockOffTime()` refactorizado** — eliminado acceso directo a `_apiService.HttpClient`
+     (propiedad pública); ahora usa el método encapsulado `_apiService.UpdatePirep()`, igual que
+     el resto de llamadas de actualización.
+
+---
+
 ## [0.7.7] — 2026-06-30
 
 ### Fixed

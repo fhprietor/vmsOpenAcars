@@ -9,6 +9,7 @@ using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
+using vmsOpenAcars.Services.Interfaces;
 using vmsOpenAcars.UI;
 using vmsOpenAcars.ViewModels;
 using vmsOpenAcars.Helpers;
@@ -195,14 +196,20 @@ namespace vmsOpenAcars.UI.Forms
 
                 if (!string.IsNullOrEmpty(apiUrl) && !string.IsNullOrEmpty(apiKey))
                 {
-                    var apiService = new ApiService(apiUrl, apiKey);
-                    var weatherService = new WeatherService();
-                    var flightManager = new FlightManager(apiService, weatherService);
-                    var fsuipc = new FsuipcService();
-                    var phpVmsFlightService = new PhpVmsFlightService(apiService);
+                    var apiService          = new ApiService(apiUrl, apiKey);
+                    var weatherService      = new WeatherService();
+                    var metarService        = new MetarService();
+                    var navDataService      = new NavDataService();
+                    var landingLogService   = new LandingLogService(AppConfig.LandingLogPath);
+                    var flightManager       = new FlightManager(apiService, weatherService);
+                    var fsuipc              = new FsuipcService();
+                    var phpVmsFlightService     = new PhpVmsFlightService(apiService);
                     var simbriefEnhancedService = new SimbriefEnhancedService(apiService);
 
-                    _viewModel = new MainViewModel(flightManager, fsuipc, apiService, phpVmsFlightService, simbriefEnhancedService);
+                    _viewModel = new MainViewModel(
+                        flightManager, fsuipc, apiService,
+                        phpVmsFlightService, simbriefEnhancedService,
+                        metarService, navDataService, landingLogService);
                     _uiService = new UIService(this, flightManager, apiService);
 
                     _osd = new OsdOverlayForm();
@@ -2468,12 +2475,9 @@ private void UpdateMetarPanel(MetarData[] metars)
             try
             {
                 // 1. Descargar ZIP
-                using (var client = new HttpClient())
                 {
-                    client.DefaultRequestHeaders.Add("User-Agent", "vmsOpenAcars-Updater");
-
-                    var response = await client.GetAsync(downloadUrl,
-                                       HttpCompletionOption.ResponseHeadersRead);
+                    var response = await Services.Http.HttpClientProvider.General.GetAsync(
+                                       downloadUrl, HttpCompletionOption.ResponseHeadersRead);
 
                     if (!response.IsSuccessStatusCode)
                         throw new Exception($"Error al descargar: {response.StatusCode}");

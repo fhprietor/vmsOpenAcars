@@ -3,10 +3,11 @@ using System.Collections.Generic;
 using System.Data.SQLite;
 using System.IO;
 using vmsOpenAcars.Models;
+using vmsOpenAcars.Services.Interfaces;
 
 namespace vmsOpenAcars.Services
 {
-    public class LandingLogService
+    public class LandingLogService : ILandingLogService
     {
         private readonly string _dbPath;
 

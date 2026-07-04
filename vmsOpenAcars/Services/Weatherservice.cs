@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Concurrent;
-using System.Net.Http;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
+using vmsOpenAcars.Services.Http;
+using vmsOpenAcars.Services.Interfaces;
 
 namespace vmsOpenAcars.Services
 {
@@ -11,20 +12,13 @@ namespace vmsOpenAcars.Services
     /// Ruta primaria: NavData /weather/{icao}/ (pre-parseado, misma fuente aviationweather.gov).
     /// Fallback: aviationweather.gov directo si NavData no está disponible.
     /// </summary>
-    public class WeatherService
+    public class WeatherService : IWeatherService
     {
-        private static readonly HttpClient _http = new HttpClient();
         private static readonly ConcurrentDictionary<string, double> _qnhCache =
             new ConcurrentDictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
         private const string MetarApiUrl =
             "https://aviationweather.gov/api/data/metar?format=json&taf=false&ids=";
-
-        static WeatherService()
-        {
-            _http.DefaultRequestHeaders.Add("User-Agent", "vmsOpenAcars/1.0");
-            _http.Timeout = TimeSpan.FromSeconds(8);
-        }
 
         /// <summary>
         /// Obtiene el QNH real del aeropuerto.
@@ -56,7 +50,7 @@ namespace vmsOpenAcars.Services
             // Fallback: aviationweather.gov directo
             try
             {
-                string json = await _http.GetStringAsync(MetarApiUrl + key).ConfigureAwait(false);
+                string json = await HttpClientProvider.Metar.GetStringAsync(MetarApiUrl + key).ConfigureAwait(false);
                 var arr = JArray.Parse(json);
                 if (arr.Count > 0)
                 {
@@ -94,7 +88,7 @@ namespace vmsOpenAcars.Services
             // Fallback: aviationweather.gov directo
             try
             {
-                string json = await _http.GetStringAsync(MetarApiUrl + key).ConfigureAwait(false);
+                string json = await HttpClientProvider.Metar.GetStringAsync(MetarApiUrl + key).ConfigureAwait(false);
                 var arr = JArray.Parse(json);
                 return arr.Count > 0 ? arr[0]["rawOb"]?.ToString() : null;
             }

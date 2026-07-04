@@ -2,10 +2,11 @@ using System;
 using System.Collections.Generic;
 using vmsOpenAcars.Db;
 using vmsOpenAcars.Models.NavData;
+using vmsOpenAcars.Services.Interfaces;
 
 namespace vmsOpenAcars.Services
 {
-    public class NavDataService
+    public class NavDataService : INavDataService
     {
         private const double MetersPerDegLat  = 111320.0;
         private const double FtPerMeter       = 3.28084;

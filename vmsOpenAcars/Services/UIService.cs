@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
 using vmsOpenAcars.Models;
+using vmsOpenAcars.Services.Interfaces;
 using vmsOpenAcars.UI;
 using vmsOpenAcars.UI.Forms;
 
@@ -13,9 +14,9 @@ namespace vmsOpenAcars.Services
     {
         private readonly MainForm _form;
         private readonly FlightManager _flightManager;
-        private readonly ApiService _apiService;
+        private readonly IApiService _apiService;
 
-        public UIService(MainForm form, FlightManager flightManager, ApiService apiService)
+        public UIService(MainForm form, FlightManager flightManager, IApiService apiService)
         {
             _form = form;
             _flightManager = flightManager;

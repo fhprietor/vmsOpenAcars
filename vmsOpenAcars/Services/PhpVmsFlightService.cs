@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Models;
+using vmsOpenAcars.Services.Interfaces;
 
 namespace vmsOpenAcars.Services
 {
@@ -15,9 +16,9 @@ namespace vmsOpenAcars.Services
     /// </summary>
     public class PhpVmsFlightService
     {
-        private readonly ApiService _apiService;
+        private readonly IApiService _apiService;
 
-        public PhpVmsFlightService(ApiService apiService)
+        public PhpVmsFlightService(IApiService apiService)
         {
             _apiService = apiService;
         }

@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.7.7  
+**Versión actual:** v0.8.0  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -240,19 +240,33 @@ Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia le
 
 | Archivo | Contenido relevante |
 |---|---|
-| `Core/Flight/FlightManager.cs` | `CheckStabilizedApproachGate` / `CheckApproachBelowGate`; `CheckViolations` (TA/TL/QNH/10k ft); `SetRunwayTouchdownData`; `SetApproachData`; `SetOriginTransitionAlt/SetDestTransitionLevel`; `TransitionTo` (log fase); `SetResumedPenalties` (resume v0.6.4); `BeaconStrobeSharedAircraft` (DH8D beacon exemption) |
-| `Services/NavDataService.cs` | `ProjectOnRunway` + `WithinFootprint`; `TrueRunwayBearing`; `FindTaxiwaySegmentBearing`; `NextIntersection` |
+| `Core/Flight/FlightManager.cs` | partial (532 l): `CheckStabilizedApproachGate`/`CheckApproachBelowGate`; `CheckViolations` (TA/TL/QNH/10k ft); `SetRunwayTouchdownData`; `SetApproachData`; `SetOriginTransitionAlt/SetDestTransitionLevel`; `TransitionTo`; `SetResumedPenalties`; `BeaconStrobeSharedAircraft` (DH8D beacon exemption) |
+| `Core/Flight/FlightPhaseStateMachine.cs` | `TransitionTo(phase)`; umbrales y debounce de fase; timers de transición |
+| `Core/Flight/ApproachValidator.cs` | gate 1 000 ft (speed, VS, bank, pitch, gear, flaps); `CheckLocalizerAlignment`; `CheckMinimums`; flag `IlsTunedCorrectly` |
+| `Core/Flight/TouchdownState.cs` | `LandingRate`, `GForce`, `BankAngle`, `PitchAngle`, `TouchdownDistanceFt`, `CenterlineDeviationFt`; reset en `ResetFlightState()` |
+| `Core/Flight/PenaltyState.cs` | `OverspeedCount`, `LightsViolations`, `StabilizedPenalty`, `QnhPenalty`; `_singleEngineTaxiDistance`; consolidado en `ScoringService` |
+| `Core/Flight/FlightManager.Telemetry.cs` | procesamiento de `RawTelemetryData`; actualiza `TouchdownState` y `PenaltyState` por ciclo |
+| `Core/Flight/FlightManager.Lifecycle.cs` | `PrefilePirep`; `FilePirep` (incluye `block_on_time` en payload); `CancelPirep`; `UpdatePirepStatus` (excluye OnBlock/Completed); `ResetFlightState` |
+| `ViewModels/MainViewModel.cs` | 711 l: `WireAirspaceMonitor`; `StartFlight`+`SetActivePlan`; `GetAircraftCategory()`; `HandleTaxiPositionUpdate` (criterio angular 25°); `SnapshotLandingRecord`→`SaveLandingRecord`; `UpdateAircraftState` |
+| `ViewModels/TelemetryCoordinator.cs` | puente `FsuipcService`→`FlightManager`; throttling OSD/map; eventos `OnFlightPhaseChanged`, `OnTouchdown` |
+| `ViewModels/AcarsReporter.cs` | `SendPirep`; `ResumeFromAcarsHistoryAsync`; `SendScoringCheckpointAsync` (CHK 60 s) |
+| `UI/Forms/MapForm.cs` | 1 473 l: event wiring; zoom/tile; delega en `MapRouteController`, `MapOverlayManager`, `SidebarController`; capas toggleables TILES/ROUTE/SPACES/IVAO |
+| `UI/Map/MapRouteController.cs` | `LoadRoute` + SID/STAR virtual + suavizado Bézier; `UpdatePosition`; `SetAircraftCategory` |
+| `UI/Map/MapRouteController.Approach.cs` | `ClearApproachOverlay`; `DrawApproachOverlay` (transition, final, centerline, missed, hold racetrack) |
+| `UI/Map/MapRouteController.Helpers.cs` | 22 helpers estáticos: `MatchProcedure`, `InterpolateArcLegs`, `BuildSmoothedRoutes`, `ComputeDmeArc`, `ComputeDepartureArc`, `ComputeHoldRacetrack`, `GeodesicBearing`, `DistanceKm`, etc. |
+| `UI/Map/MapOverlayManager.cs` | `SetAirspaces` (polígonos GeoJSON, opacidades por tipo); `SetAtcStations` (TWR círculo rojo, GND/DEL estrella, formas WebEye) |
+| `UI/Map/SidebarController.cs` | `BuildSidebar` (SID/STAR/APP con restricciones); `OpenApproachChart()` |
+| `UI/Forms/ApproachChartForm.cs` | carta GDI+ (v0.6.8). Plan view: legs, arcos AF (`DrawDmeArc`), IAF/FAF/MAP. Profile: glideslope naranja, glidepath verde, DA/MDA rojo. Se abre desde `SidebarController.OpenApproachChart()` |
+| `Services/NavDataService.cs` | `ProjectOnRunway`+`WithinFootprint`; `TrueRunwayBearing`; `FindTaxiwaySegmentBearing`; `NextIntersection` |
 | `Services/NavDataClient.cs` | `LoadAirportAsync` (6 endpoints paralelos); `GetAirspacesAsync` (sin radius_nm, caché 2 capas); `GetWeatherAsync` (TTL 5 min) |
 | `Services/NavDataCache.cs` | `CreateSchema` (3 tablas); `TryGetAirspace/StoreAirspace` (TTL 7 días); `SyncAirac` (purga airport+navaid, no airspaces) |
-| `Services/AirspaceMonitorService.cs` | `InitRouteAsync` (v0.6.9: acepta initLat/initLon); `CheckPosition` (ray-casting GeoJSON); `PollIvaoAsync` (whazzup + filtrado duplicados/distancia/fase, v0.6.9); `UpdateAircraftState` (v0.6.9); `FilterAtcStations` (v0.6.9); timer 3 min |
-| `Services/FsuipcService.cs` | Hold debounce 2.5 s luces (v0.6.7): `_pendingXxxState/At` — nuevo estado estable ≥2.5 s antes de disparar evento; elimina falsos positivos por parpadeo ~1.6 s del sim |
+| `Services/AirspaceMonitorService.cs` | `InitRouteAsync` (acepta initLat/initLon); `CheckPosition` (ray-casting GeoJSON); `PollIvaoAsync` (filtrado duplicados/distancia/fase); `UpdateAircraftState`; timer 3 min |
+| `Services/FsuipcService.cs` | debounce 2.5 s luces: `_pendingXxxState/At` — nuevo estado estable ≥2.5 s antes de disparar evento; elimina falsos positivos por parpadeo ~1.6 s del sim |
 | `Services/CabinAnnouncementService.cs` | `PrefetchAsync`; cola FIFO; NAudio playback; `TestAnnouncementAsync` |
+| `Services/ScoringService.cs` | 14 criterios + bonus; TDZ+Centreline ~l213; Localizer+Minimums ~l247 |
 | `Models/NavData.cs` | `NavAirspace`, `NavAirspaceGeometry` (GeoJSON [lon,lat]), `NavAirspaceFreq`; `BriefingCheckResult` |
-| `ViewModels/MainViewModel.cs` | `WireAirspaceMonitor`; `StartFlight` + `SetActivePlan` (v0.6.7: airspace init en ambos); `GetAircraftCategory()` (v0.6.7: lee `FsuipcService.EngineCategory`); `HandleTaxiPositionUpdate` (criterio angular 25°); `SnapshotLandingRecord` → `SaveLandingRecord`; `SendScoringCheckpointAsync` (CHK 60 s, v0.6.4); `ResumeFromAcarsHistoryAsync` (v0.6.4); `UpdateAircraftState` (v0.6.9: posición + fase para filtrado IVAO) |
-| `UI/Forms/MapForm.cs` | `LoadRoute` (ruta suavizada, SID/STAR virtual); `BuildSidebar` (procedimientos, v0.6.5; link APPROACH CHART v0.6.8); `DrawApproachOverlay`; `SetAirspaces` (polígonos GeoJSON, opacidad 50%, v0.6.7); `SetAtcStations` (formas geográficas TWR/GND/DEL, v0.6.7); `SetAircraftCategory` (icono por categoría A-D, v0.6.7); capas toggleables TILES/ROUTE/SPACES/IVAO (CheckBox barra inferior, v0.6.7) |
-| `UI/Forms/ApproachChartForm.cs` | Carta de aproximación dinámica GDI+ (v0.6.8). Plan view: north-up, legs, arcos AF (DrawDmeArc), símbolos IAF/FAF/MAP. Profile view: glideslope naranja (ils_gs), glidepath verde (vnav_path), advisory punteado, escalera (null); DA/MDA rojo. Datos: `NavDataClient.PrefetchAirport` → GetApproaches/GetIls/GetRunways/GetAirportInfo. Se abre desde `OpenApproachChart()` en MapForm |
 | `Helpers/SystemInfoHelper.cs` | `GetBestGpu` (DXGI fallback, rango 0–3); `GetCpuString` (registro + ProcessorCount) |
-| `Services/ScoringService.cs` | TDZ + Centreline ~213; Localizer + Minimums ~247 |
+| `vmsOpenAcars.Tests/ScoringServiceTests.cs` | 66 tests MSTest: un test por criterio/umbral de `ScoringService` |
 | `vmsOpenAcars.csproj` | `GenerateBindingRedirectsOutputType=true` — impide sobreescribir binding redirect manual de SQLite |
 
 ---

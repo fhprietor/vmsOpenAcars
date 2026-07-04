@@ -6,14 +6,15 @@ using System.Linq;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Models;
+using vmsOpenAcars.Services.Interfaces;
 
 namespace vmsOpenAcars.Services
 {
     public class SimbriefEnhancedService
     {
-        private readonly ApiService _apiService;
+        private readonly IApiService _apiService;
 
-        public SimbriefEnhancedService(ApiService apiService)
+        public SimbriefEnhancedService(IApiService apiService)
         {
             _apiService = apiService;
         }

@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Models.NavData;
+using vmsOpenAcars.Services.Http;
 
 namespace vmsOpenAcars.Services
 {
@@ -27,19 +27,11 @@ namespace vmsOpenAcars.Services
         public event Action<IList<IvaoAtcStation>>        OnAtcUpdated;          // IVAO poll complete
 
         // ── IVAO HTTP ────────────────────────────────────────────────────────────
-        private static readonly HttpClient _ivaoHttp;
         private const string WhazzupUrl       = "https://api.ivao.aero/v2/tracker/whazzup";
         private const int    PollIntervalMs   = 3 * 60 * 1000;   // 3 minutes
         private const double AtcMaxDistanceNm         = 150.0;    // general radius
         private const double AtcMaxDistanceApproachNm = 80.0;     // approach/landing phase
 
-        static AirspaceMonitorService()
-        {
-            System.Net.ServicePointManager.SecurityProtocol =
-                System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls13;
-            _ivaoHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
-            _ivaoHttp.DefaultRequestHeaders.Add("User-Agent", "vmsOpenAcars/1.0");
-        }
 
         // ── State ────────────────────────────────────────────────────────────────
         private readonly object           _lock          = new object();
@@ -278,7 +270,7 @@ namespace vmsOpenAcars.Services
         private async Task PollIvaoAsync()
         {
             string json;
-            try   { json = await _ivaoHttp.GetStringAsync(WhazzupUrl).ConfigureAwait(false); }
+            try   { json = await HttpClientProvider.Ivao.GetStringAsync(WhazzupUrl).ConfigureAwait(false); }
             catch { return; }
 
             JObject root;

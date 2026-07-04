@@ -9,6 +9,7 @@ using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
+using vmsOpenAcars.Services.Interfaces;
 using vmsOpenAcars.UI;
 using vmsOpenAcars.UI.Forms;
 
@@ -75,7 +76,7 @@ namespace vmsOpenAcars.UI
         private Label lblSummary;
 
         // Servicios
-        private readonly ApiService _apiService;
+        private readonly IApiService _apiService;
         private readonly PhpVmsFlightService _flightService;
         private readonly SimbriefEnhancedService _simbriefService;
         private readonly FlightManager _flightManager;
@@ -89,7 +90,7 @@ namespace vmsOpenAcars.UI
         private List<Flight> _bids;
 
         public FlightPlannerForm(
-            ApiService apiService,
+            IApiService apiService,
             PhpVmsFlightService flightService,
             SimbriefEnhancedService simbriefService,
             FlightManager flightManager,

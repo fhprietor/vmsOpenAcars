@@ -1037,6 +1037,74 @@ La corrección de v0.7.6 (`!_areEnginesOn || data.HotelModeActive`) usaba el par
 
 ---
 
+### Correcciones v0.7.8
+
+#### PIREP — flujo de archivado y auto-aprobación
+
+**Causa raíz identificada:** al entrar en fase `OnBlock`, `UpdatePhase()` lanzaba siempre:
+```csharp
+Task.Run(() => UpdatePirepStatus(FlightPhaseHelper.GetStatusCode(CurrentPhase)));
+// → PUT /api/pireps/{id}  { status: "ARR" }
+```
+
+phpVMS, al recibir `status = "ARR"`, archivaba el PIREP internamente (lo movía a estado "pending") **sin pasar por el endpoint `/file`**. Consecuencias:
+- El endpoint `/file` fallaba con HTTP no-2xx (PIREP ya en estado "pending"), produciendo el mensaje "No se pudo enviar el PIREP".
+- La auto-aprobación de phpVMS no se disparaba porque se activó por la ruta incorrecta, requiriendo aprobación manual del admin.
+
+**Tres correcciones:**
+
+**1. Supresión de `UpdatePirepStatus` en fases terminales**
+
+```csharp
+// Antes:
+if (previousPhase != CurrentPhase)
+    Task.Run(() => UpdatePirepStatus(...));
+
+// Después:
+if (previousPhase != CurrentPhase &&
+    CurrentPhase != FlightPhase.OnBlock &&
+    CurrentPhase != FlightPhase.Completed)
+    Task.Run(() => UpdatePirepStatus(...));
+```
+
+`FlightPhase.OnBlock` y `FlightPhase.Completed` devuelven el mismo código `"ARR"` en `FlightPhaseHelper`. Ambas fases quedan excluidas — el endpoint `/file` es el único que gestiona la transición de estado final en phpVMS.
+
+**2. `block_on_time` consolidado en el payload de `FilePirep()`**
+
+`_serverBlockOnTime` se establece sincrónicamente al detectar OnBlock (ya no depende del resultado de una llamada HTTP asíncrona). El valor se incluye en `finalData`:
+
+```csharp
+// En UpdatePhase, al detectar OnBlock:
+_serverBlockOnTime = DateTime.UtcNow;
+OnLog?.Invoke(_("Log_BlockOn", _serverBlockOnTime.ToString("HH:mm:ss")), Theme.MainText);
+
+// En FilePirep(), en finalData:
+block_on_time = (_serverBlockOnTime != default ? _serverBlockOnTime : DateTime.UtcNow)
+                .ToString("yyyy-MM-dd HH:mm:ss"),
+```
+
+Esto garantiza que `block_on_time` llegue a phpVMS junto con el archivado, en un único request atómico.
+
+**3. `UpdateBlockOffTime()` — eliminado acceso directo a HttpClient**
+
+`UpdateBlockOffTime()` usaba `_apiService.HttpClient.PutAsync(...)` directamente (acceso a propiedad pública del `HttpClient`). Refactorizado para usar el método encapsulado `_apiService.UpdatePirep()`, consistente con el resto del código.
+
+**Secuencia resultante:**
+
+```
+OnBlock detectado
+  ├── _serverBlockOnTime = DateTime.UtcNow   ← local, inmediato
+  ├── Log "Block On registrado a las HH:MM"
+  └── (no se envía status a phpVMS)
+
+Piloto pulsa SEND:
+  POST /api/pireps/{id}/file
+    { state: 2, block_on_time: ..., distance: ..., score: ..., ... }
+    → phpVMS archiva + dispara auto-aprobación
+```
+
+---
+
 ### SystemInfoHelper — `Helpers/SystemInfoHelper.cs` (v0.6.2)
 
 Clase estática interna que recopila información de hardware y simulador al arrancar la aplicación, sin dependencias de WMI (que requiere permisos elevados y es lento).

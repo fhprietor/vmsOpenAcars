@@ -1,25 +1,27 @@
 using System;
+using System.Drawing;
 using System.Globalization;
 using System.Linq;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Models.NavData;
+using vmsOpenAcars.Services.Http;
+using vmsOpenAcars.Services.Interfaces;
+using vmsOpenAcars.UI;
 
 namespace vmsOpenAcars.Services
 {
-    public class MetarService : IDisposable
+    public class MetarService : IMetarService, IDisposable
     {
         public MetarFetchState State { get; private set; } = MetarFetchState.Idle;
         public MetarData[] CurrentMetars { get; } = new MetarData[4];
 
         public event Action<MetarData[]> OnMetarUpdated;
         public event Action<MetarFetchState> OnStateChanged;
-        public event Action<string> OnLog;
+        public event Action<string, Color> OnLog;
 
-        private static readonly HttpClient _http;
         private Timer _refreshTimer;
         private int _retryCount;
         private const int MaxRetries = 3;
@@ -29,12 +31,6 @@ namespace vmsOpenAcars.Services
         private string _origin, _dest, _alternate;
         private double _lat, _lon;
         private bool   _hasPosition;
-
-        static MetarService()
-        {
-            _http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-            _http.DefaultRequestHeaders.Add("User-Agent", "vmsOpenAcars/1.0");
-        }
 
         public void SetStations(string origin, string dest, string alternate)
         {
@@ -77,7 +73,7 @@ namespace vmsOpenAcars.Services
             }
             catch (Exception ex)
             {
-                OnLog?.Invoke($"MetarService: {ex.Message}");
+                OnLog?.Invoke($"MetarService: {ex.Message}", Theme.Warning);
             }
             finally
             {
@@ -129,7 +125,7 @@ namespace vmsOpenAcars.Services
             }
             catch (Exception ex)
             {
-                OnLog?.Invoke($"MetarService {label} ({icao}): {ex.Message}");
+                OnLog?.Invoke($"MetarService {label} ({icao}): {ex.Message}", Theme.Warning);
             }
         }
 
@@ -144,7 +140,7 @@ namespace vmsOpenAcars.Services
             }
             catch (Exception ex)
             {
-                OnLog?.Invoke($"MetarService {label}: {ex.Message}");
+                OnLog?.Invoke($"MetarService {label}: {ex.Message}", Theme.Warning);
             }
         }
 
@@ -169,7 +165,7 @@ namespace vmsOpenAcars.Services
             {
                 string url = "https://aviationweather.gov/api/data/metar?format=json&taf=false&ids=" +
                              Uri.EscapeDataString(icao.ToUpperInvariant());
-                string json = await _http.GetStringAsync(url);
+                string json = await HttpClientProvider.Metar.GetStringAsync(url);
                 var arr = JArray.Parse(json);
                 return arr.Count > 0 ? ParseMetarToken(arr[0], label, icao) : null;
             }
@@ -231,7 +227,7 @@ namespace vmsOpenAcars.Services
                     string bbox = string.Format(CultureInfo.InvariantCulture,
                         "{0},{1},{2},{3}", lat - d, lon - d, lat + d, lon + d);
                     string url = "https://aviationweather.gov/api/data/metar?format=json&taf=false&bbox=" + bbox;
-                    string json = await _http.GetStringAsync(url);
+                    string json = await HttpClientProvider.Metar.GetStringAsync(url);
                     var arr = JArray.Parse(json);
                     if (arr.Count == 0) continue;
 

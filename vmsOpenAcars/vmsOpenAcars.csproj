@@ -9,6 +9,7 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>vmsOpenAcars</RootNamespace>
     <AssemblyName>vmsOpenAcars</AssemblyName>
+    <ApplicationIcon>vmsOpenAcars.ico</ApplicationIcon>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>7.3</LangVersion>
     <FileAlignment>512</FileAlignment>
@@ -154,8 +155,15 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="Core\Flight\FlightManager.cs" />
+    <Compile Include="Core\Flight\FlightManager.Lifecycle.cs" />
+    <Compile Include="Core\Flight\FlightManager.Telemetry.cs" />
+    <Compile Include="Core\Flight\ApproachValidator.cs" />
+    <Compile Include="Core\Flight\FlightPhaseStateMachine.cs" />
+    <Compile Include="Core\Flight\PenaltyState.cs" />
+    <Compile Include="Core\Flight\TouchdownState.cs" />
     <Compile Include="Db\RunwayService.cs" />
     <Compile Include="Core\Flight\FlightTimer.cs" />
+    <Compile Include="Core\Flight\PirepBuilder.cs" />
     <Compile Include="Core\Helpers\AppInfo.cs" />
     <Compile Include="Helpers\AppConfig.cs" />
     <Compile Include="Helpers\SystemInfoHelper.cs" />
@@ -186,6 +194,11 @@
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Services\ApiService.cs" />
+    <Compile Include="Services\Interfaces\IApiService.cs" />
+    <Compile Include="Services\Interfaces\ILandingLogService.cs" />
+    <Compile Include="Services\Interfaces\IMetarService.cs" />
+    <Compile Include="Services\Interfaces\INavDataService.cs" />
+    <Compile Include="Services\Interfaces\IWeatherService.cs" />
     <Compile Include="Services\FsuipcService.cs" />
     <Compile Include="Services\LocalizationService.cs" />
     <Compile Include="Services\MockSimulator.cs" />
@@ -193,6 +206,9 @@
     <Compile Include="Services\PositionValidator.cs" />
     <Compile Include="Services\ScoringService.cs" />
     <Compile Include="Services\SimbriefEnhancedService.cs" />
+    <Compile Include="Services\AppLogger.cs" />
+    <Compile Include="Services\Http\HttpClientProvider.cs" />
+    <Compile Include="Services\IAppLogger.cs" />
     <Compile Include="Services\IvaoService.cs" />
     <Compile Include="Services\MetarService.cs" />
     <Compile Include="Services\LandingLogService.cs" />
@@ -231,6 +247,12 @@
     <Compile Include="UI\Forms\MapForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="UI\Map\MapOverlayManager.cs" />
+    <Compile Include="UI\Map\MapRouteController.cs" />
+    <Compile Include="UI\Map\MapRouteController.Approach.cs" />
+    <Compile Include="UI\Map\MapRouteController.Helpers.cs" />
+    <Compile Include="UI\Map\RouteNavDataResult.cs" />
+    <Compile Include="UI\Map\SidebarController.cs" />
     <Compile Include="UI\Forms\OsdOverlayForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -241,6 +263,11 @@
     <Compile Include="UI\Theme.cs" />
     <Compile Include="UpdateChecker.cs" />
     <Compile Include="ViewModels\MainViewModel.cs" />
+    <Compile Include="ViewModels\AcarsReporter.cs" />
+    <Compile Include="ViewModels\AcarsReporterCallbacks.cs" />
+    <Compile Include="ViewModels\TelemetryCallbacks.cs" />
+    <Compile Include="ViewModels\TelemetryCoordinator.cs" />
+    <Compile Include="ViewModels\ProcedureRestrictionTracker.cs" />
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
@@ -287,6 +314,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="logo.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="vmsOpenAcars.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="..\packages\PdfiumViewer.Native.x86_64.no_v8-no_xfa.2018.4.8.256\Build\x64\pdfium.dll">

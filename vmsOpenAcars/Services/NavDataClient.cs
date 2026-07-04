@@ -9,6 +9,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models.NavData;
+using vmsOpenAcars.Services.Http;
 
 namespace vmsOpenAcars.Services
 {
@@ -31,7 +32,6 @@ namespace vmsOpenAcars.Services
 
     internal static class NavDataClient
     {
-        private static readonly HttpClient _http;
 
         private static readonly ConcurrentDictionary<string, Task<NavAirportCache>> _cache
             = new ConcurrentDictionary<string, Task<NavAirportCache>>(StringComparer.OrdinalIgnoreCase);
@@ -71,19 +71,6 @@ namespace vmsOpenAcars.Services
 
         static NavDataClient()
         {
-            System.Net.ServicePointManager.SecurityProtocol =
-                System.Net.SecurityProtocolType.Tls12 |
-                System.Net.SecurityProtocolType.Tls13;
-
-            _http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-            _http.DefaultRequestHeaders.Accept.Add(
-                new MediaTypeWithQualityHeaderValue("application/json"));
-
-            string key    = AppConfig.NavDataApiKey;
-            string domain = AppConfig.NavDataApiDomain;
-            if (!string.IsNullOrEmpty(key))    _http.DefaultRequestHeaders.Add("X-API-Key", key);
-            if (!string.IsNullOrEmpty(domain)) _http.DefaultRequestHeaders.Add("X-Origin-Domain", domain);
-
             NavDataCache.Initialize();
         }
 
@@ -155,7 +142,7 @@ namespace vmsOpenAcars.Services
 
             try
             {
-                using (var resp = await _http.GetAsync(url).ConfigureAwait(false))
+                using (var resp = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!resp.IsSuccessStatusCode) return null;
                     string json  = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -215,7 +202,7 @@ namespace vmsOpenAcars.Services
             string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/airport/{icao}/{type}/";
             try
             {
-                using (var resp = await _http.GetAsync(url).ConfigureAwait(false))
+                using (var resp = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!resp.IsSuccessStatusCode) return null;
                     string json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -281,7 +268,7 @@ namespace vmsOpenAcars.Services
             string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/airport/{icao}/ils/";
             try
             {
-                using (var resp = await _http.GetAsync(url).ConfigureAwait(false))
+                using (var resp = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!resp.IsSuccessStatusCode) return null;
                     string json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -314,7 +301,7 @@ namespace vmsOpenAcars.Services
             string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/weather/{key}/";
             try
             {
-                using (var resp = await _http.GetAsync(url).ConfigureAwait(false))
+                using (var resp = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!resp.IsSuccessStatusCode)
                         return _weatherCache.TryGetValue(key, out var stale1) ? stale1.Data : null;
@@ -350,7 +337,7 @@ namespace vmsOpenAcars.Services
                 using (var req = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/status/"))
                 {
                     req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                    using (var resp = await _http.SendAsync(req).ConfigureAwait(false))
+                    using (var resp = await HttpClientProvider.NavData.SendAsync(req).ConfigureAwait(false))
                     {
                         if (!resp.IsSuccessStatusCode)
                             return new NavApiTestResult { Reachable = false };
@@ -365,7 +352,7 @@ namespace vmsOpenAcars.Services
                     req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                     if (!string.IsNullOrEmpty(key))    req.Headers.Add("X-API-Key", key);
                     if (!string.IsNullOrEmpty(domain)) req.Headers.Add("X-Origin-Domain", domain);
-                    using (var resp = await _http.SendAsync(req).ConfigureAwait(false))
+                    using (var resp = await HttpClientProvider.NavData.SendAsync(req).ConfigureAwait(false))
                     {
                         bool keyValid = resp.StatusCode != HttpStatusCode.Unauthorized
                                      && resp.StatusCode != HttpStatusCode.Forbidden;
@@ -453,7 +440,7 @@ namespace vmsOpenAcars.Services
         {
             try
             {
-                using (var resp = await _http.GetAsync(url).ConfigureAwait(false))
+                using (var resp = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!resp.IsSuccessStatusCode) return null;
                     string json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -511,7 +498,7 @@ namespace vmsOpenAcars.Services
             try
             {
                 string url = AppConfig.NavDataApiUrl.TrimEnd('/') + "/" + path.TrimStart('/');
-                using (var response = await _http.GetAsync(url).ConfigureAwait(false))
+                using (var response = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!response.IsSuccessStatusCode) return null;
                     return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
@@ -526,7 +513,7 @@ namespace vmsOpenAcars.Services
             {
                 string url = AppConfig.NavDataApiUrl.TrimEnd('/')
                     + "/briefing/check/?phase=" + phase + "&lang=" + lang;
-                using (var response = await _http.GetAsync(url).ConfigureAwait(false))
+                using (var response = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!response.IsSuccessStatusCode) return null;
                     string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);

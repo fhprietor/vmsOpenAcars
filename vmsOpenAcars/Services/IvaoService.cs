@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
+using vmsOpenAcars.Services.Http;
 
 namespace vmsOpenAcars.Services
 {
@@ -14,18 +14,11 @@ namespace vmsOpenAcars.Services
     /// </summary>
     public class IvaoService : IDisposable
     {
-        private static readonly HttpClient _http;
         private HashSet<int> _onlineVids;
         private DateTime _lastFetch = DateTime.MinValue;
         private readonly SemaphoreSlim _lock = new SemaphoreSlim(1, 1);
         private const int MinIntervalSeconds = 15;
         private const string WhazzupUrl = "https://api.ivao.aero/v2/tracker/whazzup";
-
-        static IvaoService()
-        {
-            _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-            _http.DefaultRequestHeaders.Add("User-Agent", "vmsOpenAcars/1.0");
-        }
 
         /// <summary>
         /// Returns true if the VID is online, false if not, null if the feed is unavailable.
@@ -58,7 +51,7 @@ namespace vmsOpenAcars.Services
         {
             try
             {
-                string json = await _http.GetStringAsync(WhazzupUrl);
+                string json = await HttpClientProvider.Ivao.GetStringAsync(WhazzupUrl);
                 var root = JObject.Parse(json);
                 var pilots = root["clients"]?["pilots"] as JArray;
 
