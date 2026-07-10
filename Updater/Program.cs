@@ -20,7 +20,20 @@ namespace Updater
             string relaunch = args[2];
 
             Console.WriteLine("Esperando que la aplicación cierre...");
-            Thread.Sleep(2000);
+
+            // Wait for the main app process to fully exit before copying files.
+            // A fixed sleep is unreliable: DLLs like fsuipcClient.dll stay mapped in
+            // the process's address space until the process terminates — regardless of
+            // when managed code calls Close(). We find the process by the executable
+            // name embedded in the relaunch argument and wait up to 30 seconds.
+            string exeName = Path.GetFileNameWithoutExtension(relaunch);
+            var procs = Process.GetProcessesByName(exeName);
+            foreach (var p in procs)
+            {
+                try { p.WaitForExit(30000); } catch { }
+                p.Dispose();
+            }
+            Thread.Sleep(500); // brief grace period for OS to release file handles
 
             try
             {

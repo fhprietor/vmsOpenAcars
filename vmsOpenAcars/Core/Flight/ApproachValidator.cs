@@ -58,6 +58,10 @@ namespace vmsOpenAcars.Core.Flight
         public bool BelowMinimums           { get; private set; }
         public bool IlsTunedCorrectly       { get; private set; } = true;
 
+        // Called on touchdown: crossing the DA and landing normally is not a violation.
+        // BelowMinimums is only scored if the aircraft went around or did not land.
+        public void ClearBelowMinimumsIfLanded() => BelowMinimums = false;
+
         // ── Events ────────────────────────────────────────────────────────────────
         public event Action<string, Color>       OnLog;
         public event Action<string, OsdSeverity> OnOsdMessage;

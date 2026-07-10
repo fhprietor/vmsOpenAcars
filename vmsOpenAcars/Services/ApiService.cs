@@ -594,7 +594,7 @@ namespace vmsOpenAcars.Services
                         AirlineId      = (int)(data["airline_id"] ?? 1),
                         Rank           = data["rank"]?["name"]?.ToString(),
                         CurrentAirport = data["curr_airport"]?.ToString(),
-                        IvaoId         = data["ivao_id"]?.Value<int>() ?? 0,
+                        IvaoId         = int.TryParse(data["ivao_id"]?.ToString(), out int ivaoVid) ? ivaoVid : 0,
                         AirlineCountry = data["airline"]?["country"]?.ToString() ?? "",
                         AircraftSeats  = (int)(data["curr_aircraft"]?["subfleet"]?["total_seats"] ?? 0),
                     };

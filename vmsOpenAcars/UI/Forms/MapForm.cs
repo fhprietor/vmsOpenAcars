@@ -67,6 +67,12 @@ namespace vmsOpenAcars.UI.Forms
             Padding = new Padding(6);
 
             BuildLayout();
+
+            _spinner = new SpinnerOverlay();
+            Controls.Add(_spinner);
+            Resize += (s, e) => CenterSpinner();
+            Load   += (s, e) => CenterSpinner();
+
             InitMap();
 
             // Icono de barra de tareas — mismo logo.png que MainForm
@@ -83,11 +89,6 @@ namespace vmsOpenAcars.UI.Forms
                 }
             }
             catch { }
-
-            _spinner = new SpinnerOverlay();
-            Controls.Add(_spinner);
-            Resize += (s, e) => CenterSpinner();
-            Load   += (s, e) => CenterSpinner();
         }
 
         private void CenterSpinner()

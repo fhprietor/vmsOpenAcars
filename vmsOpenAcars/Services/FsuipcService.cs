@@ -269,6 +269,9 @@ namespace vmsOpenAcars.Services
         // -- Constantes de detección --
         private const int GROUND_CONFIRM_FRAMES = 1;
         private const double EVENT_DEBOUNCE_SECONDS = 2.0;
+        // Debounce largo para touchdown: evita doble disparo por rebote del avión en los
+        // primeros segundos de rodadura (sim reporta OnGround=0 brevemente tras el primer contacto)
+        private const double TOUCHDOWN_DEBOUNCE_SECONDS = 10.0;
         private const double TAKEOFF_MIN_SPEED_KT = 40.0;
         private const double TOUCHDOWN_MIN_SPEED_KT = 30.0;
         private const double TOUCHDOWN_MIN_VS_FPM = -50.0;
@@ -1360,7 +1363,7 @@ namespace vmsOpenAcars.Services
         /// </summary>
         private void HandleTouchdown()
         {
-            if ((DateTime.UtcNow - _lastTouchdownTime).TotalSeconds < EVENT_DEBOUNCE_SECONDS) return;
+            if ((DateTime.UtcNow - _lastTouchdownTime).TotalSeconds < TOUCHDOWN_DEBOUNCE_SECONDS) return;
             if (CurrentGroundSpeedKt < TOUCHDOWN_MIN_SPEED_KT) return;
 
             // Usar el VS del último frame aéreo, no el del frame en tierra

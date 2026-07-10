@@ -26,14 +26,16 @@ namespace vmsOpenAcars.ViewModels
         private readonly TelemetryCallbacks        _cb;
 
         // ── Taxi position tracking ────────────────────────────────────────────────
-        private bool   _wasOnRunwayForEntry;
-        private bool   _wasOnRunwayForExit;
-        private int    _pendingRunwayOnCount;
-        private string _lastLoggedTaxiway;
-        private string _lastHoldingShortRwy;
-        private string _lastTaxiPositionMsg;
-        private string _pendingTaxiway;
-        private int    _pendingTaxiwayCount;
+        private bool     _wasOnRunwayForEntry;
+        private bool     _wasOnRunwayForExit;
+        private int      _pendingRunwayOnCount;
+        private int      _pendingRunwayOffCount;
+        private DateTime _lastRunwayVacatedTime = DateTime.MinValue;
+        private string   _lastLoggedTaxiway;
+        private string   _lastHoldingShortRwy;
+        private string   _lastTaxiPositionMsg;
+        private string   _pendingTaxiway;
+        private int      _pendingTaxiwayCount;
         private const double TaxiwayChangeHeadingThreshold = 25.0;
 
         // ── Approach track capture ────────────────────────────────────────────────
@@ -590,9 +592,10 @@ namespace vmsOpenAcars.ViewModels
                 var  entry     = _navDataService.FindRunwayEntry(airport, lat, lon, heading);
                 bool onRunway  = entry != null;
 
-                if (onRunway) _pendingRunwayOnCount++;
-                else          _pendingRunwayOnCount = 0;
-                bool confirmedOnRunway = onRunway && _pendingRunwayOnCount >= 2;
+                if (onRunway) { _pendingRunwayOnCount++;  _pendingRunwayOffCount = 0; }
+                else         { _pendingRunwayOnCount = 0; _pendingRunwayOffCount++; }
+                bool confirmedOnRunway  = onRunway  && _pendingRunwayOnCount  >= 2;
+                bool confirmedOffRunway = !onRunway && _pendingRunwayOffCount >= 3;
 
                 if (!isTaxiIn)
                 {
@@ -632,8 +635,10 @@ namespace vmsOpenAcars.ViewModels
                         _cb.Log?.Invoke(string.Format(_("Lnm_RunwayBacktrack"), entry.RunwayName), Theme.Warning);
                         _cb.OsdMessage?.Invoke($"BACKTRACK  RWY {entry.RunwayName}", OsdSeverity.Warning);
                     }
-                    if (!confirmedOnRunway && _wasOnRunwayForExit)
+                    if (confirmedOffRunway && _wasOnRunwayForExit
+                        && (DateTime.UtcNow - _lastRunwayVacatedTime).TotalSeconds > 30)
                     {
+                        _lastRunwayVacatedTime = DateTime.UtcNow;
                         string twy = _navDataService.FindNearestTaxiway(airport, lat, lon, heading);
                         if (!string.IsNullOrEmpty(twy))
                             _cb.Log?.Invoke(string.Format(_("Lnm_RunwayVacated"), twy), Theme.Success);

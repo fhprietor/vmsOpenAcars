@@ -2508,10 +2508,14 @@ private void UpdateMetarPanel(MetarData[] metars)
                     Directory.Delete(tempFolder, true);
                 ZipFile.ExtractToDirectory(tempZip, tempFolder);
 
-                // 3. Copiar Updater.exe a la carpeta temporal
+                // 3. Obtener Updater.exe: preferir el del paquete de actualización (ya extraído
+                //    en tempFolder); sólo copiar el instalado si el paquete no trae uno.
+                //    Sobreescribir el Updater del paquete con el instalado crearía una
+                //    dependencia circular que impediría recibir correcciones del propio Updater.
                 string updaterSource = Path.Combine(appFolder, "Updater.exe");
                 string updaterDest = Path.Combine(tempFolder, "Updater.exe");
-                File.Copy(updaterSource, updaterDest, overwrite: true);
+                if (!File.Exists(updaterDest) && File.Exists(updaterSource))
+                    File.Copy(updaterSource, updaterDest, overwrite: false);
 
                 // 4. Lanzar Updater y cerrar la app
                 string args = string.Format("\"{0}\" \"{1}\" \"{2}\"",

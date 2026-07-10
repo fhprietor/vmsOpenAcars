@@ -35,6 +35,7 @@ namespace vmsOpenAcars.Core.Flight
             if (_td.Captured) return;
             double gforce = CalculateGForce(verticalSpeed);
             _td.Capture(verticalSpeed, _currentPitch, _currentBank, gforce, CurrentLat, CurrentLon, CurrentHeading);
+            _approachValidator.ClearBelowMinimumsIfLanded();
             OnLandingDetected?.Invoke(verticalSpeed, gforce, _currentPitch, _currentBank);
         }
 

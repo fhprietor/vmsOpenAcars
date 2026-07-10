@@ -2,6 +2,68 @@
 
 ---
 
+## [0.8.4] — 2026-07-09
+
+### Fixed
+
+- **Error de login con IVAO ID vacío** (`ApiService`): usuarios sin ID de IVAO configurado
+  en phpVMS recibían `Login error: Unexpected Error: La cadena de entrada no tiene el
+  formato correcto`. phpVMS devuelve `ivao_id` como cadena vacía `""` en esos casos;
+  `Value<int>()` llamaba internamente a `Convert.ToInt32("")` lanzando `FormatException`.
+  Cambiado a `int.TryParse(...)` que trata `null`, `""` y cualquier no-numérico como `0`.
+
+---
+
+## [0.8.3] — 2026-07-09
+
+### Fixed
+
+- **Auto-actualización bloqueada por `fsuipcClient.dll` en uso** (`Updater`, `MainForm`):
+  el Updater esperaba sólo 2 s fijos antes de copiar los archivos. Los DLLs permanecen
+  mapeados en el proceso hasta su terminación completa —no sólo hasta que se llama a
+  `FSUIPCConnection.Close()`— por lo que 2 s no eran suficientes para el shutdown de
+  WinForms. El Updater ahora usa `Process.WaitForExit(30 000)` sobre el proceso por nombre,
+  más 500 ms de gracia, eliminando la race condition.  
+  Segundo problema: MainForm sobreescribía el `Updater.exe` del paquete de actualización con
+  el instalado localmente, impidiendo que las correcciones del propio Updater llegaran a los
+  usuarios (dependencia circular). Ahora se usa el `Updater.exe` del paquete si ya existe;
+  el local se copia sólo como fallback si el paquete no incluye uno.
+
+---
+
+## [0.8.2] — 2026-07-07
+
+### Fixed
+
+- **Doble detección de touchdown** (`FsuipcService`): el debounce era de 2 s; un rebote del
+  avión durante la rodadura generaba un segundo evento 3 s después del aterrizaje real.
+  Nuevo `TOUCHDOWN_DEBOUNCE_SECONDS = 10 s` (el debounce de despegue no se modifica).
+
+- **"PISTA DESOCUPADA" prematuro y doble** (`TelemetryCoordinator`): la salida de pista se
+  declaraba a la primera lectura negativa del footprint, mientras que la entrada requería
+  2 positivas. Se añadió `_pendingRunwayOffCount` — la salida ahora requiere **3 lecturas
+  consecutivas** fuera del footprint. Además, un guard de **30 s** en `_lastRunwayVacatedTime`
+  impide el re-disparo cuando el avión roza el borde después de haber vacado la pista.
+
+- **Penalización incorrecta por "Bajo Mínimos" tras aterrizaje normal** (`ApproachValidator`,
+  `FlightManager.Telemetry`): `BelowMinimums` se activaba al cruzar la DA en cualquier
+  approach ILS, incluso en aterrizajes correctos. Se añadió `ClearBelowMinimumsIfLanded()`:
+  el flag se limpia en el momento del touchdown, de forma que la penalización sólo persiste
+  si el avión cruzó la DA y luego ejecutó una aproximación frustrada.
+
+---
+
+## [0.8.1] — 2026-07-06
+
+### Fixed
+
+- **MapForm — crash al abrir el mapa** (`NullReferenceException` en `MapRouteController.LoadRoute`):
+  `_spinner` se inicializaba después de `InitMap()`, pero `InitMap()` ya pasaba `_spinner` al
+  constructor de `MapRouteController`. Al llamar a `LoadRoute`, `_spinner.StartSpin()` intentaba
+  acceder a un campo nulo. Solución: mover la creación de `SpinnerOverlay` antes de `InitMap()`.
+
+---
+
 ## [0.8.0] — 2026-07-03
 
 ### Refactored
