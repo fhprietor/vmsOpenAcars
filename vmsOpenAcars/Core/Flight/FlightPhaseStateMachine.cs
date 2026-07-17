@@ -48,6 +48,9 @@ namespace vmsOpenAcars.Core.Flight
         private double   _maxAltitudeReached;
         private bool     _wasOnGround          = true;
         private bool     _hasLandedThisFlight;
+        // True once GS ≤ 0.5 kt is observed during Boarding — gates pushback/taxi detection
+        // so that pre-existing movement at StartFlight does not trigger an immediate false positive.
+        private bool     _boardingStationaryConfirmed;
 
         // ── Constants ─────────────────────────────────────────────────────────
         private const double PushbackMaxSpeed       = 6.0;
@@ -105,11 +108,12 @@ namespace vmsOpenAcars.Core.Flight
             _stepClimbStart       = DateTime.MinValue;
             _descentToClimbStart  = DateTime.MinValue;
             _goAroundStart        = DateTime.MinValue;
-            _pushbackStartTime    = DateTime.MinValue;
-            _stoppedStartTime     = DateTime.MinValue;
-            _maxAltitudeReached   = 0;
-            _wasOnGround          = true;
-            _hasLandedThisFlight  = false;
+            _pushbackStartTime           = DateTime.MinValue;
+            _stoppedStartTime            = DateTime.MinValue;
+            _maxAltitudeReached          = 0;
+            _wasOnGround                 = true;
+            _hasLandedThisFlight         = false;
+            _boardingStationaryConfirmed = false;
         }
 
         // ── Core update ───────────────────────────────────────────────────────
@@ -172,8 +176,15 @@ namespace vmsOpenAcars.Core.Flight
             switch (CurrentPhase)
             {
                 case FlightPhase.Boarding:
-                    if (inp.GroundSpeed > 0.5)
+                    if (inp.GroundSpeed <= 0.5)
                     {
+                        // Aircraft is stationary — confirm we've seen a stop, reset any pending timer.
+                        _boardingStationaryConfirmed = true;
+                        _pushbackStartTime = DateTime.MinValue;
+                    }
+                    else if (_boardingStationaryConfirmed)
+                    {
+                        // Movement detected after a confirmed stop — now safe to evaluate pushback/taxi.
                         if (_pushbackStartTime == DateTime.MinValue)
                             _pushbackStartTime = DateTime.UtcNow;
 
@@ -192,10 +203,7 @@ namespace vmsOpenAcars.Core.Flight
                             OnBlockOffNeeded?.Invoke();
                         }
                     }
-                    else
-                    {
-                        _pushbackStartTime = DateTime.MinValue;
-                    }
+                    // else: aircraft was already moving at StartFlight — ignore until it stops.
                     break;
 
                 case FlightPhase.Pushback:

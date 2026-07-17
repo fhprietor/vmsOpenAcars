@@ -30,6 +30,8 @@ namespace vmsOpenAcars.Core.Flight
             _td.Reset();
             _pen.Reset();
             _approachValidator.Reset();
+            _engStartMonitor.Reset();
+            _reverserMonitor.Reset();
             OnPhaseChanged?.Invoke(CurrentPhase.ToString());
             PhaseChanged?.Invoke(CurrentPhase);
         }

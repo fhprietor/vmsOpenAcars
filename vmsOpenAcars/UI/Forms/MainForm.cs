@@ -1739,6 +1739,7 @@ namespace vmsOpenAcars.UI.Forms
                 if (_engineMonitorPanel != null && fm.LastRawData != null)
                 {
                     _engineMonitorPanel.UpdateEngines(fm.LastRawData);
+                    _engineMonitorPanel.UpdateLifecycle(fm.GetEngineLifecycleSnapshot());
                 }
                 else if (fm.LastRawData != null && _lblEng1Val != null)
                 {

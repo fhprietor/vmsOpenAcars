@@ -36,6 +36,8 @@ namespace vmsOpenAcars.Core.Flight
             double gforce = CalculateGForce(verticalSpeed);
             _td.Capture(verticalSpeed, _currentPitch, _currentBank, gforce, CurrentLat, CurrentLon, CurrentHeading);
             _approachValidator.ClearBelowMinimumsIfLanded();
+            _reverserMonitor.OnTouchdown();
+            OnLog?.Invoke("Reversa: monitoreando despliegue post-aterrizaje (offset 0x207C/0x217C)", Theme.MainText);
             OnLandingDetected?.Invoke(verticalSpeed, gforce, _currentPitch, _currentBank);
         }
 
@@ -133,6 +135,22 @@ namespace vmsOpenAcars.Core.Flight
                 }
             }
 
+            if (!data.EnginesRunning && _areEnginesOn && CurrentPhase == FlightPhase.TaxiIn)
+            {
+                string shutdownWarning = _reverserMonitor.CheckShutdown();
+                if (shutdownWarning != null)
+                    OnLog?.Invoke($"⚠️ {shutdownWarning}", Theme.Warning);
+
+                string addonWarning = _reverserMonitor.CheckAddonSupport();
+                if (addonWarning != null)
+                    OnLog?.Invoke($"ℹ️ {addonWarning}", Theme.MainText);
+            }
+
+            _engStartMonitor.Update(data.Eng1Running, data.Eng2Running,
+                data.N2_1, data.N2_2,
+                data.OilPress_1, data.OilPress_2,
+                data.OilTemp_1, data.OilTemp_2);
+
             _areEnginesOn    = data.EnginesRunning;
             _hotelModeActive = data.HotelModeActive;
         }
@@ -175,6 +193,9 @@ namespace vmsOpenAcars.Core.Flight
 
             if (!data.IsOnGround && !_lastAirborneTime.HasValue)
                 _lastAirborneTime = DateTime.UtcNow;
+
+            if (data.IsOnGround && _td.Captured)
+                _reverserMonitor.Update(data.Rev1Pct, data.Rev2Pct);
 
             _phaseMachine.Update(BuildPhaseInput());
 

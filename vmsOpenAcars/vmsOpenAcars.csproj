@@ -161,6 +161,8 @@
     <Compile Include="Core\Flight\FlightPhaseStateMachine.cs" />
     <Compile Include="Core\Flight\PenaltyState.cs" />
     <Compile Include="Core\Flight\TouchdownState.cs" />
+    <Compile Include="Core\Flight\EngineStartMonitor.cs" />
+    <Compile Include="Core\Flight\ThrustReverserMonitor.cs" />
     <Compile Include="Db\RunwayService.cs" />
     <Compile Include="Core\Flight\FlightTimer.cs" />
     <Compile Include="Core\Flight\PirepBuilder.cs" />

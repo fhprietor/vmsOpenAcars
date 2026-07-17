@@ -95,6 +95,10 @@ namespace vmsOpenAcars.Services
         private readonly Offset<double> _eng1ReverserOffset = new Offset<double>(0x207C);
         /// <summary>0x217C · FLOAT64 · reversor motor 2 (0.0–1.0)</summary>
         private readonly Offset<double> _eng2ReverserOffset = new Offset<double>(0x217C);
+        /// <summary>0x2220 · DWORD · N2 bobina de alta presión motor 1 (0–16384 = 0–100%)</summary>
+        private readonly Offset<int> _eng1N2Offset = new Offset<int>(0x2220);
+        /// <summary>0x2420 · DWORD · N2 bobina de alta presión motor 2 (0–16384 = 0–100%)</summary>
+        private readonly Offset<int> _eng2N2Offset = new Offset<int>(0x2420);
 
         // ---- Turboprop / Piston — bloque FLOAT64 (FSUIPC7/MSFS) ----
         /// <summary>0x2008/0x2108 · FLOAT64 · RPM eje motor</summary>
@@ -560,6 +564,13 @@ namespace vmsOpenAcars.Services
             float throt_1 = (float)_eng1ThrottleF64.Value;
             float throt_2 = (float)_eng2ThrottleF64.Value;
 
+            // N2 (DWORD 0–16384 → %)
+            float n2_1 = (float)(_eng1N2Offset.Value / 16384.0 * 100.0);
+            float n2_2 = (float)(_eng2N2Offset.Value / 16384.0 * 100.0);
+            // Reverser ratio (FLOAT64 0.0–1.0 → %)
+            float rev1Pct = (float)(_eng1ReverserOffset.Value * 100.0);
+            float rev2Pct = (float)(_eng2ReverserOffset.Value * 100.0);
+
             // ── ¿Motores encendidos? — umbral por categoría ───────────────────
             bool eng1Running, eng2Running;
             switch (_currentEngineCategory)
@@ -642,6 +653,7 @@ namespace vmsOpenAcars.Services
 
                 // ── Meteorología ──────────────────────────────────────────────
                 AircraftQnhMb = aircraftQnhMb,
+                OatCelsius    = CurrentOatCelsius,
 
                 // ── COM1 / NAV1 ───────────────────────────────────────────────
                 Com1FrequencyMhz = Com1FrequencyMhz,
@@ -655,9 +667,13 @@ namespace vmsOpenAcars.Services
                 TakeoffPowerSet = takeoffPowerSet,
                 HotelModeActive = hotelModeActive,
 
-                // Jet (N1)
-                N1_1 = n1_1,
-                N1_2 = n1_2,
+                // Jet (N1 / N2 / Reverser)
+                N1_1    = n1_1,
+                N1_2    = n1_2,
+                N2_1    = n2_1,
+                N2_2    = n2_2,
+                Rev1Pct = rev1Pct,
+                Rev2Pct = rev2Pct,
 
                 // Turboprop
                 TorquePct_1 = torqPct_1,
@@ -1820,9 +1836,17 @@ namespace vmsOpenAcars.Services
         public bool TaxiLightOn { get; set; }
         public bool StrobeLightOn { get; set; }
 
-        // Motores Jet (N1)
-        public float N1_1 { get; set; }
-        public float N1_2 { get; set; }
+        // Motores Jet (N1 / N2 / Reverser)
+        public float N1_1    { get; set; }
+        public float N1_2    { get; set; }
+        /// <summary>N2 high-pressure spool % for engine 1; 0 when addon does not write offset 0x2220.</summary>
+        public float N2_1    { get; set; }
+        /// <summary>N2 high-pressure spool % for engine 2; 0 when addon does not write offset 0x2420.</summary>
+        public float N2_2    { get; set; }
+        /// <summary>Thrust reverser deployment % for engine 1 (0–100); from FLOAT64 offset 0x207C.</summary>
+        public float Rev1Pct { get; set; }
+        /// <summary>Thrust reverser deployment % for engine 2 (0–100); from FLOAT64 offset 0x217C.</summary>
+        public float Rev2Pct { get; set; }
 
         // Identificación de planta motriz
         public FsuipcService.AircraftCategory EngineCategory { get; set; }
@@ -1852,6 +1876,8 @@ namespace vmsOpenAcars.Services
         public float Throttle_2 { get; set; }
         /// <summary>QNH seleccionado en el altímetro del avión, en hPa. 0 si FSUIPC no conectado.</summary>
         public double AircraftQnhMb { get; set; }
+        /// <summary>Outside Air Temperature in °C (FSUIPC 0x0E8C).</summary>
+        public double OatCelsius { get; set; }
         /// <summary>COM1 active frequency in MHz (e.g. 118.5). 0 when not connected.</summary>
         public double Com1FrequencyMhz { get; set; }
         /// <summary>NAV1 active frequency in MHz (e.g. 111.3). 0 when not connected.</summary>

@@ -24,8 +24,10 @@ namespace vmsOpenAcars.Core.Flight
         private readonly PositionValidator _positionValidator;
         private readonly FlightPhaseStateMachine _phaseMachine = new FlightPhaseStateMachine();
         private readonly ApproachValidator _approachValidator;
-        private readonly TouchdownState   _td    = new TouchdownState();
-        private readonly PenaltyState     _pen   = new PenaltyState();
+        private readonly TouchdownState        _td               = new TouchdownState();
+        private readonly PenaltyState          _pen              = new PenaltyState();
+        private readonly EngineStartMonitor    _engStartMonitor  = new EngineStartMonitor();
+        private readonly ThrustReverserMonitor _reverserMonitor  = new ThrustReverserMonitor();
         private readonly FlightTimer      _timer = new FlightTimer();
         private string _currentAirport = "";
         private Pilot _activePilot;
@@ -335,6 +337,30 @@ namespace vmsOpenAcars.Core.Flight
             {
                 _apEngagedCounter  = 0;
                 _fuelAtTakeoffRoll = CurrentFuel;
+
+                // Engine idle-time check: warn if any engine started during taxi-out
+                // without meeting the minimum warm-up period.
+                double oat     = LastRawData?.OatCelsius ?? 15.0;
+                bool eng1      = LastRawData?.Eng1Running ?? false;
+                bool eng2      = LastRawData?.Eng2Running ?? false;
+                var readiness  = _engStartMonitor.CheckPreTakeoff(oat, eng1, eng2);
+                if (!readiness.Ready)
+                {
+                    OnLog?.Invoke($"⚠️ IDLE MOTOR INSUFICIENTE: {readiness.Reason}", Theme.Warning);
+                    OnOsdMessage?.Invoke("ENGINE IDLE TIME  ⚠️", OsdSeverity.Warning);
+                }
+                else
+                {
+                    string e1 = _engStartMonitor.Eng1IdleTime > TimeSpan.Zero
+                        ? $"ENG1 idle {(int)_engStartMonitor.Eng1IdleTime.TotalSeconds}s"
+                        : $"ENG1 pre-arrancado";
+                    string e2 = _engStartMonitor.Eng2IdleTime > TimeSpan.Zero
+                        ? $"ENG2 idle {(int)_engStartMonitor.Eng2IdleTime.TotalSeconds}s"
+                        : $"ENG2 pre-arrancado";
+                    string stab1 = _engStartMonitor.Eng1Stabilized ? "STAB ✓" : "sin estabilizar";
+                    string stab2 = _engStartMonitor.Eng2Stabilized ? "STAB ✓" : "sin estabilizar";
+                    OnLog?.Invoke($"Motor: {e1} [{stab1}]  {e2} [{stab2}]  OAT {oat:F0}°C", Theme.MainText);
+                }
                 double taxiOutFuel = _initialFuel - CurrentFuel;
                 if (taxiOutFuel > 0)
                     OnLog?.Invoke(_("Log_FuelTaxiOut", (int)Math.Round(taxiOutFuel)), Theme.MainText);
@@ -348,6 +374,14 @@ namespace vmsOpenAcars.Core.Flight
                 }
                 if (!string.IsNullOrEmpty(_activePlan?.Origin))
                     _approachValidator.CheckQnhAsync(_activePlan.Origin, AircraftQnhMb).ConfigureAwait(false);
+            }
+
+            if (newPhase == FlightPhase.TaxiIn)
+            {
+                if (_reverserMonitor.ReversersUsed)
+                    OnLog?.Invoke($"Reversa: detectada  ENG1 {_reverserMonitor.MaxEng1RevPct:F1}%  ENG2 {_reverserMonitor.MaxEng2RevPct:F1}%  — cool-down {ThrustReverserMonitor.COOLDOWN_REQUIRED_SECONDS}s requeridos", Theme.MainText);
+                else
+                    OnLog?.Invoke("Reversa: no detectada" + (_reverserMonitor.ReverserDataAvailable ? "" : " (offset 0x207C sin datos — addon puede no soportarlo)"), Theme.MainText);
             }
         }
 
@@ -382,6 +416,36 @@ namespace vmsOpenAcars.Core.Flight
 
         public double CalculateDistanceKm(double lat1, double lon1, double lat2, double lon2)
             => UnitConverter.CalculateDistanceKm(lat1, lon1, lat2, lon2);
+
+        /// <summary>Returns a snapshot of engine lifecycle state for UI display.</summary>
+        public EngineLifecycleSnapshot GetEngineLifecycleSnapshot()
+        {
+            double oat = LastRawData?.OatCelsius ?? 20.0;
+            return new EngineLifecycleSnapshot
+            {
+                Eng1Running             = LastRawData?.Eng1Running ?? false,
+                Eng2Running             = LastRawData?.Eng2Running ?? false,
+                Eng1Stabilized          = _engStartMonitor.Eng1Stabilized,
+                Eng2Stabilized          = _engStartMonitor.Eng2Stabilized,
+                Eng1IdleTime            = _engStartMonitor.Eng1IdleTime,
+                Eng2IdleTime            = _engStartMonitor.Eng2IdleTime,
+                OilTemp1                = LastRawData?.OilTemp_1 ?? 0f,
+                OilTemp2                = LastRawData?.OilTemp_2 ?? 0f,
+                OilPress1               = LastRawData?.OilPress_1 ?? 0f,
+                OilPress2               = LastRawData?.OilPress_2 ?? 0f,
+                OatCelsius              = oat,
+                RequiredIdleSeconds     = oat < EngineStartMonitor.COLD_OAT_THRESHOLD
+                                            ? EngineStartMonitor.COLD_IDLE_SECONDS
+                                            : EngineStartMonitor.WARM_IDLE_SECONDS,
+                ReversersUsed           = _reverserMonitor.ReversersUsed,
+                MaxEng1RevPct           = _reverserMonitor.MaxEng1RevPct,
+                MaxEng2RevPct           = _reverserMonitor.MaxEng2RevPct,
+                CooldownSecondsElapsed  = _reverserMonitor.SecondsSinceTouchdown,
+                CooldownSecondsRequired = _reverserMonitor.ReversersUsed
+                                            ? ThrustReverserMonitor.COOLDOWN_REQUIRED_SECONDS : 0,
+                ReverserDataAvailable   = _reverserMonitor.ReverserDataAvailable,
+            };
+        }
 
 
 

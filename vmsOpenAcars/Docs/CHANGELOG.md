@@ -2,6 +2,71 @@
 
 ---
 
+## [0.8.6] — 2026-07-16
+
+### Added
+
+- **Panel de motores — temperatura y presión de aceite** (`EngineMonitorPanel`):  
+  Nueva tercera fila por motor que muestra `OIL {temp}°C  {press}PSI` con código de color:
+  rojo (<40 °C, fuera de rango verde), amarillo (40–70 °C, calentando), verde (>70 °C, temperatura
+  operacional). La fila de estabilización ahora incluye el objetivo de tiempo: `IDLE 45s/2m` (rojo
+  mientras no se alcanza, amarillo si el tiempo se cumplió pero el aceite aún no estabiliza, verde ✓
+  cuando todo está en orden). Para motores pre-arrancados sin tiempo rastreado, se sigue mostrando
+  `STAB ✓` / `CALENTANDO...` pero con la temperatura real de aceite visible debajo.  
+  `EngineLifecycleSnapshot` extendido con `OilTemp1/2`, `OilPress1/2`, `OatCelsius`,
+  `RequiredIdleSeconds`; poblados desde `LastRawData` en `FlightManager.GetEngineLifecycleSnapshot()`.
+
+### Fixed
+
+- **Pushback detectado inmediatamente al iniciar vuelo** (`FlightPhaseStateMachine`):  
+  Si el avión ya tenía velocidad de suelo > 0,5 kt al pulsar START (tractor de pushback enganchado
+  o ruido de GS del sim), el contador de pushback iniciaba desde el primer ciclo y disparaba la
+  transición a Pushback tras exactamente `PushbackMinSec = 8 s`, registrando Block Off y penalización
+  de salida con 10 min de antelación de forma errónea.  
+  Corregido con el flag `_boardingStationaryConfirmed`: el conteo de pushback/taxi solo comienza
+  tras observar al menos un ciclo con GS ≤ 0,5 kt durante la fase Boarding. Si el avión ya viene
+  en movimiento al iniciar, se ignora hasta que se detenga.
+
+---
+
+## [0.8.5] — 2026-07-14
+
+### Added
+
+- **Engine Lifecycle Monitor** — dos subsistemas nuevos de monitoreo de ciclo de vida de motores:
+
+  **Subsistema 1 — Arranque tardío de motor (`EngineStartMonitor`)**  
+  Detecta motores arrancados durante TaxiOut sin suficiente calentamiento en ralentí antes de
+  aplicar TOGA. Requisito mínimo: 120 s con OAT ≥ 5 °C, 300 s con OAT < 5 °C. Criterios de
+  estabilización para el panel: N2 ≥ 58 % + presión aceite ≥ 15 PSI + temperatura aceite ≥ 40 °C.  
+  Motores pre-arrancados (corriendo antes de iniciar el vuelo) no generan penalización; el panel
+  muestra `STAB ✓` / `CALENTANDO...` en su lugar. Si un motor se arranca durante TaxiOut y el
+  tiempo de ralentí es insuficiente al entrar en TakeoffRoll, se registra advertencia en log y OSD.
+
+  **Subsistema 2 — Cool-down post-aterrizaje (`ThrustReverserMonitor`)**  
+  Monitorea el despliegue de reversas tras aterrizaje (offset FSUIPC FLOAT64 0x207C/0x217C,
+  umbral 0,6 %). Requiere 180 s de ralentí antes de apagar motores si se usaron reversas.
+  Al apagar motores en TaxiIn con cool-down insuficiente se genera advertencia en log.  
+  Si el offset retorna siempre 0 tras 30 s post-aterrizaje, el sistema advierte que el addon
+  puede no soportar este offset.
+
+  **Panel de motores (`EngineMonitorPanel`)** — nueva fila por motor y barra de reversa:
+  - `STAB ✓` (verde) — motor estabilizado (pre-arrancado o tiempo idle suficiente)
+  - `CALENTANDO...` (amarillo) — motor corriendo pero aceite aún frío
+  - `IDLE 1m30s ✓` / `IDLE 45s` — motor arrancado durante TaxiOut (verde/amarillo)
+  - `REV OK` / `REV COOL-DOWN Xs` / `REV —` / `REV N/D` — estado de reversas post-aterrizaje
+
+  **Entradas de log por fase:**
+  - TakeoffRoll: estado de cada motor (idle medido o pre-arrancado) + estabilización + OAT
+  - Touchdown: confirmación de inicio de monitoreo de reversas
+  - TaxiIn: resumen de reversas (pico ENG1/ENG2 %) o aviso de offset sin datos
+
+  **Offsets FSUIPC nuevos en `RawTelemetryData`:**  
+  `N2_1`/`N2_2` (0x2220/0x2420 DWORD → %), `Rev1Pct`/`Rev2Pct` (0x207C/0x217C FLOAT64 × 100),
+  `OatCelsius` (0x0E8C INT16 ÷ 256).
+
+---
+
 ## [0.8.4] — 2026-07-09
 
 ### Fixed
