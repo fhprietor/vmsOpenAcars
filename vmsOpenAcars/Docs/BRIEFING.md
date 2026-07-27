@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.7.8**
+**Versión 0.8.7**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -152,6 +152,22 @@ Abre un menú con opciones adicionales:
 
 - **Test OSD → Info / Success / Warning / Critical** — muestra un mensaje de prueba del overlay de notificaciones en cada nivel de severidad. Útil para verificar la posición y apariencia del OSD antes de volar.
 
+### Panel de motores
+
+El panel **ENGINE 1 / ENGINE 2** muestra en tiempo real el estado de cada motor:
+
+| Fila | Contenido |
+|---|---|
+| **N1 / RPM / TRQ** | Potencia del motor (N1 % para jets, RPM para pistones, torque % para turboprops). Verde = corriendo, gris = apagado. |
+| **Estado idle** | `IDLE 45s/2m ✓` (verde) = calentamiento cumplido · `IDLE 45s/2m` (rojo) = tiempo pendiente · `STAB ✓` (verde) = motor pre-arrancado estabilizado · `CALENTANDO...` (amarillo) = aceite aún frío |
+| **Aceite** | `OIL 55°C  28PSI` — rojo < 40 °C, amarillo 40–70 °C, verde > 70 °C |
+
+La barra inferior del panel muestra el estado de las reversas post-aterrizaje:
+- `REV COOL-DOWN 45s` (naranja) — tiempo de enfriamiento pendiente
+- `REV OK 78%/82%` (verde) — cool-down completo; picos de despliegue ENG1/ENG2
+- `REV —` (gris) — motor llegó sin usar reversas
+- `REV N/D` (naranja) — el addon del avión no reporta datos de reversa (offset FSUIPC no soportado)
+
 ---
 
 ## 4. Flujo de un vuelo típico
@@ -278,7 +294,7 @@ El score parte de **100 puntos** y aplica deducciones según **14 criterios**. A
 | **Centreline Deviation** | −7 pts | ≤ 10 ft → 0 · ≤ 30 ft → −3 · > 30 ft → −7 ¹ |
 | **Localizer Alignment** | −5 pts | ILS no sintonizado → −3 · desviación de rumbo > 5° (× 2 máx) → −2 ¹ ² |
 | **Minimums Compliance** | −5 pts | −5 si el avión descendió bajo la DA sin aterrizar ¹ ² |
-| **Single Engine Taxi** | **+5 pts** (bonus) | Se otorgan si ruedas ≥ 50 % del tiempo de movimiento con un solo motor en TaxiOut o TaxiIn. Solo aplica en aeronaves multi-motor. El score no puede superar 100. |
+| **Single Engine Taxi** | **+5 pts** (bonus) | Se otorgan si ruedas ≥ 50 % del tiempo de movimiento con un solo motor en TaxiOut o TaxiIn. Solo aplica en aeronaves multi-motor. El score no puede superar 100. Reglas por tipo de propulsión: **Jet** → elegible solo si se cumplieron los tiempos de calentamiento y cool-down de reversas; **Turboprop** → elegible siempre (no requiere cool-down); **Pistón** → nunca elegible. |
 
 > ¹ Requiere la **NavData API** configurada en Settings (URL + API Key válida). Sin ella, estos criterios no se evalúan.  
 > ² **Localizer Alignment** y **Minimums Compliance** también se omiten si el piloto sintoniza una frecuencia distinta a la del ILS al cruzar 1 000 ft AGL (aproximación RNP, visual u otro procedimiento). En ese caso no hay penalización.  
@@ -379,6 +395,8 @@ La tasa de descenso (fpm) en el touchdown determina también una calificación c
 | **QNH llegada** | Sintoniza el QNH del aeropuerto de destino (recibirás el ATIS durante el descenso) antes de llegar a 1 000 ft AGL |
 | **Touchdown** | Aterriza en la zona de touchdown (primeros 1 500 ft de pista), alineado con el eje (< 10 ft de desviación) |
 | **Tasa de descenso** | Apunta a ≤ 150 fpm para eliminar la deducción por Landing Rate |
+| **Calentamiento de motores** | Si arrancas motores durante el rodaje, espera al menos 2 min (OAT ≥ 5 °C) o 5 min (OAT < 5 °C) en ralentí antes de aplicar potencia de despegue. De lo contrario, no obtendrás la bonificación por single engine taxi. |
+| **Cool-down post-aterrizaje** | Si usaste reversas, mantén los motores encendidos ≥ 3 min antes de apagarlos en puerta (solo jets). El panel de motores muestra el tiempo de cool-down restante. |
 
 ---
 
@@ -616,4 +634,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.7.8 — que tengas buen vuelo.*
+*vmsOpenAcars v0.8.7 — que tengas buen vuelo.*

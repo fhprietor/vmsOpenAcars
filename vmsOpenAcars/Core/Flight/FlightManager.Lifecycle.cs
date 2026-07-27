@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using vmsOpenAcars.Core.Helpers;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
+using vmsOpenAcars.Services;
 using vmsOpenAcars.UI;
 using static vmsOpenAcars.Helpers.L;
 
@@ -296,6 +297,11 @@ namespace vmsOpenAcars.Core.Flight
             LocalizerViolations          = _approachValidator.LocalizerViolations,
             BelowMinimums                = _approachValidator.BelowMinimums,
             SingleEngineTaxi             = _pen.SingleEngineTaxiDetected && _pen.BothEnginesRunning,
+            EngineType                   = LastRawData?.EngineCategory == FsuipcService.AircraftCategory.Piston    ? Models.ScoredEngineType.Piston
+                                         : LastRawData?.EngineCategory == FsuipcService.AircraftCategory.Turboprop ? Models.ScoredEngineType.Turboprop
+                                         : Models.ScoredEngineType.Jet,
+            EngineWarmupViolation        = _pen.EngineWarmupViolation,
+            EngineCooldownViolation      = _pen.EngineCooldownViolation,
             ProcedureSpdViolations       = _pen.ProcedureSpdViolations,
         };
     }

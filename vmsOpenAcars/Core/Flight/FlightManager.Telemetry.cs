@@ -139,7 +139,10 @@ namespace vmsOpenAcars.Core.Flight
             {
                 string shutdownWarning = _reverserMonitor.CheckShutdown();
                 if (shutdownWarning != null)
+                {
+                    _pen.EngineCooldownViolation = true;
                     OnLog?.Invoke($"⚠️ {shutdownWarning}", Theme.Warning);
+                }
 
                 string addonWarning = _reverserMonitor.CheckAddonSupport();
                 if (addonWarning != null)

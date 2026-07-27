@@ -43,6 +43,8 @@ namespace vmsOpenAcars.Core.Flight
             }
             if (result.SingleEngineTaxiBonus > 0)
                 log?.Invoke(_("Log_BonusSingleEngine", result.SingleEngineTaxiBonus), Theme.Success);
+            else if (result.SingleEngineTaxiDeniedReason != null)
+                log?.Invoke($"⚠️ Single engine taxi sin bonificación — {result.SingleEngineTaxiDeniedReason}", Theme.Warning);
         }
 
         internal static object BuildPayload(PirepPayloadArgs a) => new

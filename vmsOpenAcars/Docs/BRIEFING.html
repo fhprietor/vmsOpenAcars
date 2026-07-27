@@ -366,7 +366,7 @@ code {
     });
   </script>
 <h1 id="vmsopenacars--guía-del-usuario">vmsOpenAcars — Guía del Usuario</h1>
-<p><strong>Versión 0.7.5</strong></p>
+<p><strong>Versión 0.8.7</strong></p>
 <p>vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.</p>
 <hr>
 <h2 id="índice">Índice</h2>
@@ -620,6 +620,37 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <p>Abre un menú con opciones adicionales:</p>
 <ul>
 <li><strong>Test OSD → Info / Success / Warning / Critical</strong> — muestra un mensaje de prueba del overlay de notificaciones en cada nivel de severidad. Útil para verificar la posición y apariencia del OSD antes de volar.</li>
+</ul>
+<h3 id="panel-de-motores">Panel de motores</h3>
+<p>El panel <strong>ENGINE 1 / ENGINE 2</strong> muestra en tiempo real el estado de cada motor:</p>
+<table>
+<thead>
+<tr>
+<th>Fila</th>
+<th>Contenido</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>N1 / RPM / TRQ</strong></td>
+<td>Potencia del motor (N1 % para jets, RPM para pistones, torque % para turboprops). Verde = corriendo, gris = apagado.</td>
+</tr>
+<tr>
+<td><strong>Estado idle</strong></td>
+<td><code>IDLE 45s/2m ✓</code> (verde) = calentamiento cumplido · <code>IDLE 45s/2m</code> (rojo) = tiempo pendiente · <code>STAB ✓</code> (verde) = motor pre-arrancado estabilizado · <code>CALENTANDO...</code> (amarillo) = aceite aún frío</td>
+</tr>
+<tr>
+<td><strong>Aceite</strong></td>
+<td><code>OIL 55°C  28PSI</code> — rojo &lt; 40 °C, amarillo 40–70 °C, verde &gt; 70 °C</td>
+</tr>
+</tbody>
+</table>
+<p>La barra inferior del panel muestra el estado de las reversas post-aterrizaje:</p>
+<ul>
+<li><code>REV COOL-DOWN 45s</code> (naranja) — tiempo de enfriamiento pendiente</li>
+<li><code>REV OK 78%/82%</code> (verde) — cool-down completo; picos de despliegue ENG1/ENG2</li>
+<li><code>REV —</code> (gris) — motor llegó sin usar reversas</li>
+<li><code>REV N/D</code> (naranja) — el addon del avión no reporta datos de reversa (offset FSUIPC no soportado)</li>
 </ul>
 <hr>
 <h2 id="4-flujo-de-un-vuelo-típico">4. Flujo de un vuelo típico</h2>
@@ -896,7 +927,7 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <tr>
 <td><strong>Single Engine Taxi</strong></td>
 <td><strong>+5 pts</strong> (bonus)</td>
-<td>Se otorgan si ruedas ≥ 50 % del tiempo de movimiento con un solo motor en TaxiOut o TaxiIn. Solo aplica en aeronaves multi-motor. El score no puede superar 100.</td>
+<td>Se otorgan si ruedas ≥ 50 % del tiempo de movimiento con un solo motor en TaxiOut o TaxiIn. Solo aplica en aeronaves multi-motor. El score no puede superar 100. Reglas por tipo de propulsión: <strong>Jet</strong> → elegible solo si se cumplieron los tiempos de calentamiento y cool-down de reversas; <strong>Turboprop</strong> → elegible siempre (no requiere cool-down); <strong>Pistón</strong> → nunca elegible.</td>
 </tr>
 </tbody>
 </table>
@@ -943,6 +974,7 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <blockquote>
 <p><strong>Excepción Beacon — switch compartido:</strong> en aeronaves con switch único BEACON/STROBE (como el Dash 8 / Q400), encender los Strobes apaga el Beacon automáticamente. Estas aeronaves están exentas de la penalización de Beacon.</p>
 <p><strong>Excepción Beacon — Hotel Mode:</strong> en turbohélices (ATR72 y similares), el <strong>Hotel Mode</strong> arranca la turbina del motor 2 como generador de tierra con la hélice bloqueada. En este modo el Beacon permanece apagado correctamente (las hélices no giran). vmsOpenAcars detecta el Hotel Mode automáticamente (<code>N1 &gt; 10 %</code> y <code>Prop RPM &lt; 50</code>) y suspende la verificación de Beacon hasta que la hélice comience a girar.</p>
+<p><strong>Hotel Mode — Blocks Off y Blocks On:</strong> en Hotel Mode el tiempo de <strong>Blocks Off</strong> no se registra al arrancar el motor 2 (la hélice no gira, la aeronave no va a moverse). El registro se produce cuando el primer motor propulsor con hélice real empieza a girar y el avión inicia el rodaje. De igual forma, al llegar a puerta, si el motor 2 sigue en Hotel Mode (funcionando como generador APU), el sistema acepta la condición de <strong>Blocks On</strong> aunque ese motor esté técnicamente encendido — no es necesario apagar el generador de tierra antes de que el sistema detecte el fin del vuelo.</p>
 </blockquote>
 <hr>
 <h3 id="detalle-stabilized-approach--gate-de-1-000-ft-agl-hasta-15-pts">Detalle: Stabilized Approach — gate de 1 000 ft AGL (hasta −15 pts)</h3>
@@ -1100,6 +1132,14 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <tr>
 <td><strong>Tasa de descenso</strong></td>
 <td>Apunta a ≤ 150 fpm para eliminar la deducción por Landing Rate</td>
+</tr>
+<tr>
+<td><strong>Calentamiento de motores</strong></td>
+<td>Si arrancas motores durante el rodaje, espera al menos 2 min (OAT ≥ 5 °C) o 5 min (OAT &lt; 5 °C) en ralentí antes de aplicar potencia de despegue. De lo contrario, no obtendrás la bonificación por single engine taxi.</td>
+</tr>
+<tr>
+<td><strong>Cool-down post-aterrizaje</strong></td>
+<td>Si usaste reversas, mantén los motores encendidos ≥ 3 min antes de apagarlos en puerta (solo jets). El panel de motores muestra el tiempo de cool-down restante.</td>
 </tr>
 </tbody>
 </table>
@@ -1596,7 +1636,7 @@ En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan au
 <li>En aeronaves con capacidad inferior a 40 pasajeros los anuncios se desactivan automáticamente.</li>
 </ul>
 <hr>
-<p><em>vmsOpenAcars v0.7.5 — que tengas buen vuelo.</em></p>
+<p><em>vmsOpenAcars v0.8.7 — que tengas buen vuelo.</em></p>
 
 </body>
 </html>

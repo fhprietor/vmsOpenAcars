@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.7.6  
-> Última actualización: 2026-06-24
+> Versión del documento: 0.8.7  
+> Última actualización: 2026-07-26
 
 ---
 
@@ -36,29 +36,35 @@ Cliente ACARS de escritorio para Windows que conecta un simulador de vuelo con u
 
 ```
 vmsOpenAcars/
-├── Controls/               Controles visuales personalizados (gauges, engine monitor)
+├── Controls/               EngineMonitorPanel (panel N1/aceite/reversa por motor)
 ├── Core/
-│   ├── Flight/             FlightManager, FlightTimer
+│   ├── Flight/             FlightManager (partial), FlightPhaseStateMachine,
+│   │                       ApproachValidator, TouchdownState, PenaltyState,
+│   │                       FlightManager.Telemetry, FlightManager.Lifecycle,
+│   │                       EngineStartMonitor, ThrustReverserMonitor,
+│   │                       FlightTimer, PirepBuilder
 │   └── Helpers/            AppInfo
 ├── Db/                     Solo tipos resultado (RunwayTouchdownResult, IlsData, ApproachInfo…)
-├── Docs/                   BRIEFING.md (guía usuario), architecture.md
+├── Docs/                   BRIEFING.md (guía usuario), architecture.md, CHANGELOG.md
 ├── Helpers/                AppConfig, Constants, FlightPhaseHelper, L (localización), UnitConverter, SystemInfoHelper
 ├── Languages/              en.json, es.json
 ├── Models/                 Aircraft, Flight, Pirep, SimbriefPlan, FlightPhase,
-│                           FlightScoreData, TouchdownData, TakeoffData,
-│                           FlightRecord, ApproachTrackPoint
+│                           FlightScoreData (ScoredEngineType), TouchdownData, TakeoffData,
+│                           FlightRecord, ApproachTrackPoint, NavData
 ├── Properties/             AssemblyInfo, Resources, Settings
 ├── Services/               ApiService, FsuipcService, ScoringService, MetarService,
 │                           IvaoService, SimbriefEnhancedService, LandingLogService,
-│                           NavDataService, NavDataClient,
-│                           CabinAnnouncementService
+│                           NavDataService, NavDataClient, NavDataCache,
+│                           AirspaceMonitorService, CabinAnnouncementService
 ├── UI/
 │   ├── Forms/              MainForm, FlightPlannerForm, OFPViewerForm, SettingsForm,
 │   │                       MetarDecodeForm, EcamDialog,
 │   │                       FlightHistoryForm, LandingAnalysisForm,
-│   │                       OsdOverlayForm, MapForm
+│   │                       OsdOverlayForm, MapForm, ApproachChartForm
+│   ├── Map/                MapRouteController (+ .Approach.cs + .Helpers.cs),
+│   │                       MapOverlayManager, SidebarController
 │   └── Theme.cs            Paleta de colores centralizada
-└── ViewModels/             MainViewModel
+└── ViewModels/             MainViewModel, TelemetryCoordinator, AcarsReporter
 ```
 
 ---
@@ -72,12 +78,24 @@ MainForm.cs  (Vista — WinForms)
     │
     └── MainViewModel.cs  (ViewModel — coordinación, eventos, lógica de botones)
             │
-            ├── FlightManager.cs          Máquina de estados del vuelo
+            ├── TelemetryCoordinator.cs   Puente FsuipcService→FlightManager; throttling OSD/map
+            ├── AcarsReporter.cs          Envío PIREP, resume desde historial, checkpoint 60 s
+            ├── FlightManager.cs          Núcleo de vuelo (partial + archivos satélite):
+            │     ├── FlightPhaseStateMachine.cs   Máquina de estados; umbrales y debounce
+            │     ├── ApproachValidator.cs          Gate 1000 ft; localizer; DA/MDA
+            │     ├── TouchdownState.cs             TDZ, centreline, g-force, bank, pitch
+            │     ├── PenaltyState.cs               Acumulación de penalizaciones y violaciones
+            │     ├── EngineStartMonitor.cs         Idle time y estabilización de motores
+            │     ├── ThrustReverserMonitor.cs      Cool-down post-reversa
+            │     ├── FlightManager.Telemetry.cs    Procesamiento de RawTelemetryData
+            │     └── FlightManager.Lifecycle.cs    Ciclo de vida PIREP (prefile, file, resume)
             ├── FsuipcService.cs          Polling del simulador (FSUIPC/XUIPC)
             ├── ApiService.cs             HTTP client → phpVMS REST API
             ├── PhpVmsFlightService.cs    Vuelos, bids, PIREPs
             ├── SimbriefEnhancedService.cs Plan de vuelo + OFP PDF
             ├── WeatherService.cs         QNH vía METAR
+            ├── NavDataService.cs         Runway/taxiway/ILS/approach (NavDataClient + caché)
+            ├── AirspaceMonitorService.cs Espacios aéreos + ATC IVAO
             └── LandingLogService.cs      Historial de aterrizajes (SQLite)
 ```
 
@@ -193,10 +211,25 @@ Servicio de lectura del simulador. Opera en un timer a **50 ms** e interpola los
 
 ### FlightManager
 
-Núcleo de la lógica del vuelo. Recibe `RawTelemetryData` cada ciclo y:
+Núcleo de la lógica del vuelo, implementado como `partial class` en varios archivos satélite:
+
+| Archivo | Responsabilidad |
+|---|---|
+| `FlightManager.cs` | Propiedades públicas, `CheckProcedureAtPhaseEntry`, `CheckViolations`, `GetEngineLifecycleSnapshot` |
+| `FlightPhaseStateMachine.cs` | Máquina de estados, umbrales de fase, debounce, `_boardingStationaryConfirmed` |
+| `ApproachValidator.cs` | Gate 1 000 ft AGL (speed, VS, bank, pitch, gear, flaps), localizer, DA/MDA |
+| `TouchdownState.cs` | TDZ, centreline, g-force, bank, pitch; reset en `ResetFlightState()` |
+| `PenaltyState.cs` | Contadores de violaciones + `EngineWarmupViolation` / `EngineCooldownViolation` |
+| `EngineStartMonitor.cs` | Idle time por motor, estabilización N2/aceite, `CheckPreTakeoff()` |
+| `ThrustReverserMonitor.cs` | Despliegue de reversas post-touchdown, cool-down 180 s |
+| `FlightManager.Telemetry.cs` | Procesamiento ciclo a ciclo de `RawTelemetryData` |
+| `FlightManager.Lifecycle.cs` | `PrefilePirep`, `FilePirep`, `ResetFlightState`, `BuildScoreData()` |
+| `PirepBuilder.cs` | `ComputeScore(FlightScoreData)`, `LogScore(ScoringResult)`, `BuildPayload()` |
+
+Recibe `RawTelemetryData` cada ciclo y:
 
 1. Actualiza propiedades públicas (altitud, GS, VS, luces, motores…)
-2. Aplica **debounce de luces** (2 s) antes de actualizar los campos internos usados en compliance
+2. Aplica **debounce de luces** (2.5 s hold) antes de actualizar los campos internos usados en compliance
 3. Detecta transiciones de fase con umbrales relativos al plan de vuelo
 4. Llama a `CheckProcedureAtPhaseEntry()` en cada transición
 5. Llama a `CheckViolations()` cada ciclo mientras el avión está airborne y hay PIREP activo
@@ -246,6 +279,24 @@ El umbral de 600 fpm elimina falsos positivos por turbulencia o ajustes de pitch
 | Vuelo < 9 500 ft AGL | LANDING encendida | −5 pts |
 | TakeoffRoll | QNH ±2 hPa vs METAR origen | −5 pts |
 | Gate 1 000 ft AGL (Approach) | QNH ±2 hPa vs METAR destino (o alterno si desvío) | −5 pts |
+
+#### Detección de Pushback — `_boardingStationaryConfirmed` (v0.8.6)
+
+El contador de pushback (`_pushbackStartTime`) solo comienza a correr después de que el avión haya estado estático (GS ≤ 0.5 kt) al menos una vez durante la fase Boarding. Esto evita que un avión que ya viene en movimiento al pulsar START (tractor enganchado, jitter de GS del sim) dispare un pushback falso tras exactamente `PushbackMinSec = 8 s`.
+
+```csharp
+// FlightPhaseStateMachine.cs — case Boarding:
+if (inp.GroundSpeed <= 0.5)
+{
+    _boardingStationaryConfirmed = true;
+    _pushbackStartTime = DateTime.MinValue;
+}
+else if (_boardingStationaryConfirmed)
+{
+    // evalúa pushback/taxi normalmente
+}
+// else: ya en movimiento al hacer START → ignora hasta detenerse
+```
 
 ---
 
@@ -417,6 +468,89 @@ Flags de guarda: `_cabinCruiseSent`, `_cabinOnRunwaySent` (reset en `StartFlight
 
 ---
 
+### EngineStartMonitor — `Core/Flight/EngineStartMonitor.cs` (v0.8.5)
+
+Monitorea el tiempo de ralentí de cada motor desde el arranque hasta el despegue, y evalúa criterios de estabilización de aceite.
+
+**Umbrales de calentamiento:**
+
+| OAT | Tiempo mínimo en ralentí |
+|---|---|
+| ≥ 5 °C | 120 s (2 min) |
+| < 5 °C (cold soak) | 300 s (5 min) |
+
+**Criterios de estabilización (por motor):** N2 ≥ 58 % + presión de aceite ≥ 15 PSI + temperatura de aceite ≥ 40 °C. Si el addon no escribe el offset N2 (siempre 0), el criterio N2 se omite (`_n2DataSeen` guard).
+
+**Patrón `_needsInit`:** en el primer ciclo tras `Reset()`, `_eng1PrevRunning` se inicializa desde el estado actual del simulador — garantiza que motores ya en marcha al iniciar el vuelo no generen un falso "arranque tardío". Consecuencia: `Eng1IdleTime == TimeSpan.Zero` para motores pre-arrancados; el panel muestra `STAB ✓` / `CALENTANDO...` en su lugar.
+
+**API pública:**
+
+```csharp
+bool     Eng1Stabilized, Eng2Stabilized   // N2 + aceite en rango verde
+TimeSpan Eng1IdleTime, Eng2IdleTime       // 0 si motor pre-arrancado
+EngineReadinessResult CheckPreTakeoff(double oatCelsius, bool eng1Running, bool eng2Running)
+void Update(eng1Running, eng2Running, n2_1, n2_2, oilPress1, oilPress2, oilTemp1, oilTemp2)
+void Reset()
+```
+
+**`EngineLifecycleSnapshot` (struct):** snapshot para el panel de UI. Incluye `Eng1/2Running`, `Eng1/2Stabilized`, `Eng1/2IdleTime`, `OilTemp1/2`, `OilPress1/2`, `OatCelsius`, `RequiredIdleSeconds`, más los campos de reversa de `ThrustReverserMonitor`.
+
+---
+
+### ThrustReverserMonitor — `Core/Flight/ThrustReverserMonitor.cs` (v0.8.5)
+
+Monitorea el despliegue de reversas tras el aterrizaje y controla el cool-down mínimo antes de apagar motores.
+
+**Umbral de reversa:** > 0.6 % de despliegue (offset FSUIPC FLOAT64 `0x207C`/`0x217C`, multiplicado × 100). Si tras 30 s post-touchdown el offset retorna siempre 0, se marca como "offset no soportado" por el addon.
+
+**Cool-down requerido:** 180 s desde el touchdown si las reversas fueron usadas. `CheckShutdown()` devuelve un mensaje de advertencia si los motores se apagan antes de completar el cool-down (solo durante TaxiIn).
+
+**API pública:**
+
+```csharp
+const int COOLDOWN_REQUIRED_SECONDS = 180
+bool   ReversersUsed, ReverserDataAvailable
+double MaxEng1RevPct, MaxEng2RevPct
+int    SecondsSinceTouchdown
+void   OnTouchdown()
+void   Update(rev1Pct, rev2Pct)
+string CheckShutdown()     // null si OK; mensaje si cool-down insuficiente
+string CheckAddonSupport() // null si OK; mensaje si offset sin datos tras 30 s
+void   Reset()
+```
+
+---
+
+### EngineMonitorPanel — `Controls/EngineMonitorPanel.cs` (v0.8.5–0.8.6)
+
+Control WinForms personalizado que muestra el estado de 1–4 motores en tiempo real. Se ubica en el panel de información lateral de `MainForm`.
+
+**Layout por motor (3 filas):**
+
+| Fila | Contenido |
+|---|---|
+| Row 0 (40 %) | `N1: 85.2 %` / `RPM: 1800` / `TRQ: 72.5 %` según categoría |
+| Row 1 (35 %) | Estado idle: `IDLE 45s/2m` rojo → amarillo → `IDLE 2m05s/2m ✓` verde |
+| Row 2 (25 %) | `OIL 55°C  28PSI` — rojo <40 °C / amarillo 40–70 °C / verde >70 °C |
+
+Barra inferior (`DockStyle.Bottom`, 16 px): estado de reversas post-aterrizaje.
+
+**Métodos públicos:**
+
+```csharp
+void UpdateEngines(RawTelemetryData data)          // N1/RPM/TRQ; rebuild si cambia categoría
+void UpdateLifecycle(EngineLifecycleSnapshot snap)  // idle labels + oil labels + reverser bar
+int  EngineCount { get; set; }                     // 1–4; rebuild automático
+```
+
+Actualizado cada ciclo desde `MainForm` vía:
+```csharp
+_engineMonitorPanel.UpdateEngines(fm.LastRawData);
+_engineMonitorPanel.UpdateLifecycle(fm.GetEngineLifecycleSnapshot());
+```
+
+---
+
 ### ScoringService
 
 Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se aplican deducciones:
@@ -426,7 +560,7 @@ Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se
 | Landing Rate | −40 pts | ≤150 fpm: 0 / ≤250: −5 / ≤350: −15 / ≤450: −25 / ≤650: −35 / >650: −40 |
 | G-Force touchdown | −15 pts | ≤1.5g: 0 / ≤1.7g: −7 / >1.7g: −15 |
 | Bank Angle touchdown | −10 pts | ≤2°: 0 / ≤5°: −5 / >5°: −10 |
-| Pitch Angle touchdown | −10 pts | 1°–5°: 0 (ideal) / fuera de rango: −5 a −10 |
+| Pitch Angle touchdown | −10 pts | 1°–7°: 0 (ideal) / <−2°: −10 / −2°–1°: −5 / >8°: −5 |
 | Overspeed | −15 pts | 0 eventos: 0 / 1: −7 / ≥2: −15 |
 | Lights Compliance | −10 pts | −5 pts por violación, cap −10 |
 | Stabilized Approach (1000 ft) | −15 pts | Evalúa speed, VS, bank, pitch, gear y flaps a 1000 ft AGL |
@@ -435,10 +569,23 @@ Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se
 | On-Time Departure | −5 pts | −5 si Blocks Off difiere > 10 min del STD (`sched_out`) |
 | Touchdown Zone | −7 pts | ≤1500 ft = 0 / ≤2500 ft = −3 / >2500 ft = −7 · requiere NavData API |
 | Centreline Deviation | −7 pts | ≤10 ft = 0 / ≤30 ft = −3 / >30 ft = −7 · requiere NavData API |
-| Localizer Alignment | −5 pts | ILS not tuned −3; heading >5° x2 max −2; cap −5 · requiere NavData API + ILS approach |
+| Localizer Alignment | −5 pts | ILS not tuned −3; heading >5° ×2 máx −2; cap −5 · requiere NavData API + ILS approach |
 | Minimums Compliance | −5 pts | −5 si descenso bajo DA (threshold elevation + 200 ft) sin aterrizar |
+| Procedure Speed | −10 pts | −3 pts por violación de restricción SID/STAR al pasar el fix; cap −10 |
 
-Los criterios **Touchdown Zone** y **Centreline Deviation** solo se evalúan si `TouchdownDistanceFt > 0` (es decir, si NavDataClient pudo obtener datos de la API). Los criterios **Localizer Alignment** y **Minimums Compliance** solo se evalúan si se detectó un procedimiento ILS para la pista de aterrizaje.
+**Single Engine Taxi bonus (+5 pts):** requiere ≥ 50 % del tiempo de rodaje con un solo motor. Elegibilidad por tipo de propulsión:
+
+| Tipo | Regla |
+|---|---|
+| **Piston** | Nunca elegible |
+| **Turboprop** (Q400, ATR, etc.) | Siempre elegible — no requiere lifecycle compliance |
+| **Jet** / Unknown | Elegible solo si `EngineWarmupViolation = false` **y** `EngineCooldownViolation = false` |
+
+Si la bonificación se deniega a un jet, `ScoringResult.SingleEngineTaxiDeniedReason` contiene la razón (`"warm-up insuficiente"`, `"cool-down insuficiente"` o `"warm-up + cool-down incumplidos"`), y `PirepBuilder.LogScore` la registra como Warning.
+
+Los criterios **Touchdown Zone** y **Centreline Deviation** solo se evalúan si `TouchdownDistanceFt > 0`. Los criterios **Localizer Alignment** y **Minimums Compliance** solo se evalúan si se detectó un procedimiento ILS y la frecuencia NAV1 coincide con el ILS esperado a 1 000 ft AGL (±0.05 MHz).
+
+**`ScoredEngineType` (enum en `Models/FlightScoreData.cs`):** `Jet` (default), `Turboprop`, `Piston`. Poblado en `BuildScoreData()` desde `LastRawData.EngineCategory`.
 
 **Landing ratings:** Butter (≤150 fpm) · Smooth · Normal · Hard · Very Hard · Slam (>650 fpm)
 

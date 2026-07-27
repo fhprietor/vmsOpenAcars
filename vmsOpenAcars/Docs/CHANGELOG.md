@@ -2,6 +2,42 @@
 
 ---
 
+## [0.8.7] — 2026-07-26
+
+### Changed
+
+- **Bonificación Single Engine Taxi condicionada al cumplimiento del ciclo de vida de motores**
+  (`ScoringService`, `PenaltyState`, `FlightScoreData`, `FlightManager`):
+
+  La bonificación de +5 pts por taxi en un solo motor ahora tiene reglas diferenciadas por tipo
+  de propulsión, gestionadas mediante el nuevo enum `ScoredEngineType` en `Models`:
+
+  | Tipo | Regla |
+  |---|---|
+  | **Piston** | Nunca elegible para la bonificación |
+  | **Turboprop** (Q400, ATR, etc.) | Siempre elegible — no requiere cumplimiento de lifecycle |
+  | **Jet** / Unknown | Elegible solo si warmup y cool-down fueron cumplidos |
+
+  Para jets, la bonificación se deniega si:
+  - `EngineWarmupViolation` — tiempo de ralentí insuficiente al iniciar TakeoffRoll
+    (< 120 s con OAT ≥ 5 °C, o < 300 s con OAT < 5 °C)
+  - `EngineCooldownViolation` — motores apagados antes de completar los 180 s de cool-down
+    post-reversa en TaxiIn
+
+  Cuando se deniega la bonificación, se registra en el log al finalizar el PIREP:
+  `"⚠️ Single engine taxi sin bonificación — {razón}"`.
+
+  **Archivos modificados:**
+  - `PenaltyState` — nuevos campos `EngineWarmupViolation` / `EngineCooldownViolation`
+  - `FlightManager.cs` — setea `EngineWarmupViolation` en TakeoffRoll cuando `CheckPreTakeoff()` falla
+  - `FlightManager.Telemetry.cs` — setea `EngineCooldownViolation` en TaxiIn cuando `CheckShutdown()` detecta apagado prematuro
+  - `FlightManager.Lifecycle.cs` — propaga flags + categoría de motor a `FlightScoreData`; agrega `using vmsOpenAcars.Services`
+  - `FlightScoreData` — nuevas propiedades `EngineType`, `EngineWarmupViolation`, `EngineCooldownViolation`
+  - `ScoringResult` — nueva propiedad `SingleEngineTaxiDeniedReason`
+  - `PirepBuilder.LogScore` — emite warning cuando `SingleEngineTaxiDeniedReason != null`
+
+---
+
 ## [0.8.6] — 2026-07-16
 
 ### Added

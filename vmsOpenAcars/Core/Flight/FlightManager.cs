@@ -346,6 +346,7 @@ namespace vmsOpenAcars.Core.Flight
                 var readiness  = _engStartMonitor.CheckPreTakeoff(oat, eng1, eng2);
                 if (!readiness.Ready)
                 {
+                    _pen.EngineWarmupViolation = true;
                     OnLog?.Invoke($"⚠️ IDLE MOTOR INSUFICIENTE: {readiness.Reason}", Theme.Warning);
                     OnOsdMessage?.Invoke("ENGINE IDLE TIME  ⚠️", OsdSeverity.Warning);
                 }

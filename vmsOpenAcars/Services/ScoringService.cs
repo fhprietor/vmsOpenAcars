@@ -38,6 +38,13 @@ namespace vmsOpenAcars.Services
 
         /// <summary>Bonus points awarded for single-engine taxi (0 or 5).</summary>
         public int SingleEngineTaxiBonus { get; set; }
+
+        /// <summary>
+        /// Non-null when a single-engine taxi was detected but the bonus was withheld.
+        /// Contains the human-readable reason (e.g. "warm-up insuficiente").
+        /// Null when the bonus was awarded or when no single-engine taxi occurred.
+        /// </summary>
+        public string SingleEngineTaxiDeniedReason { get; set; }
     }
 
     /// <summary>
@@ -335,8 +342,34 @@ int totalDeduction = 0;
             // ── Single Engine Taxi bonus ─────────────────────────────────────────
             if (data.SingleEngineTaxi)
             {
-                result.SingleEngineTaxiBonus = 5;
-                result.TotalScore = Math.Min(100, result.TotalScore + 5);
+                if (data.EngineType == Models.ScoredEngineType.Piston)
+                {
+                    // Piston aircraft are never eligible for the bonus.
+                }
+                else if (data.EngineType == Models.ScoredEngineType.Turboprop)
+                {
+                    // Turboprops do not require reverser cool-down; bonus always granted.
+                    result.SingleEngineTaxiBonus = 5;
+                    result.TotalScore = Math.Min(100, result.TotalScore + 5);
+                }
+                else
+                {
+                    // Jets: lifecycle compliance required (warm-up + cool-down).
+                    bool warmupOk   = !data.EngineWarmupViolation;
+                    bool cooldownOk = !data.EngineCooldownViolation;
+                    if (warmupOk && cooldownOk)
+                    {
+                        result.SingleEngineTaxiBonus = 5;
+                        result.TotalScore = Math.Min(100, result.TotalScore + 5);
+                    }
+                    else
+                    {
+                        result.SingleEngineTaxiDeniedReason =
+                            !warmupOk && !cooldownOk ? "warm-up + cool-down incumplidos"
+                            : !warmupOk              ? "warm-up insuficiente"
+                                                     : "cool-down insuficiente";
+                    }
+                }
             }
 
             return result;

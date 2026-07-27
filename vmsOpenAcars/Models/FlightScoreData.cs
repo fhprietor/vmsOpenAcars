@@ -3,6 +3,13 @@
 namespace vmsOpenAcars.Models
 {
     /// <summary>
+    /// Engine propulsion type — determines single-engine taxi bonus eligibility rules.
+    /// Piston: never eligible. Turboprop: always eligible (no lifecycle requirement).
+    /// Jet: eligible only when warmup and cool-down requirements were met.
+    /// </summary>
+    public enum ScoredEngineType { Jet, Turboprop, Piston }
+
+    /// <summary>
     /// Holds all performance data collected during a flight that feeds into score calculation.
     /// Populate this object progressively throughout the flight via the state machine and
     /// FSUIPC telemetry. Pass the completed instance to <see cref="Services.ScoringService.Calculate"/>.
@@ -134,6 +141,15 @@ public bool BelowMinimums { get; set; }
         /// </summary>
         public bool SingleEngineTaxi { get; set; }
 
+        /// <summary>Propulsion type — controls bonus eligibility rules.</summary>
+        public ScoredEngineType EngineType { get; set; }
+
+        /// <summary>True if idle-time before TakeoffRoll was below the required minimum.</summary>
+        public bool EngineWarmupViolation { get; set; }
+
+        /// <summary>True if engines were shut down before reverser cool-down elapsed in TaxiIn.</summary>
+        public bool EngineCooldownViolation { get; set; }
+
         /// <summary>
         /// Number of SID/STAR speed restriction violations (IAS exceeded the published
         /// limit when passing the fix). Each violation: -3 pts, capped at -10 pts.
@@ -163,8 +179,11 @@ public bool BelowMinimums { get; set; }
             IlsTunedCorrectly = true;
             LocalizerViolations = 0;
             BelowMinimums = false;
-            SingleEngineTaxi = false;
-            ProcedureSpdViolations = 0;
+            SingleEngineTaxi        = false;
+            EngineType              = ScoredEngineType.Jet;
+            EngineWarmupViolation   = false;
+            EngineCooldownViolation = false;
+            ProcedureSpdViolations  = 0;
         }
     }
 }
