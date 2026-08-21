@@ -74,6 +74,16 @@ namespace vmsOpenAcars.Controls
             if (_engineCount >= 2)
                 UpdateOilLabel(1, snap.Eng2Running, snap.OilTemp2, snap.OilPress2);
 
+            // N1 color reflects stabilization: yellow = running but not stable, green = stable.
+            // Only for jets — piston and turboprop have their own coloring convention.
+            if (_lastCategory != FsuipcService.AircraftCategory.Piston &&
+                _lastCategory != FsuipcService.AircraftCategory.Turboprop)
+            {
+                UpdateN1StabilizationColor(0, snap.Eng1Running, snap.Eng1Stabilized);
+                if (_engineCount >= 2)
+                    UpdateN1StabilizationColor(1, snap.Eng2Running, snap.Eng2Stabilized);
+            }
+
             if (_reverserLabel == null) return;
             if (snap.ReversersUsed)
             {
@@ -99,6 +109,13 @@ namespace vmsOpenAcars.Controls
                 _reverserLabel.Text      = "";
                 _reverserLabel.ForeColor = Color.DimGray;
             }
+        }
+
+        private void UpdateN1StabilizationColor(int eng, bool running, bool stabilized)
+        {
+            if (_n1Labels == null || eng >= _n1Labels.Length || _n1Labels[eng] == null) return;
+            if (!running) { _n1Labels[eng].ForeColor = Color.Gray; return; }
+            _n1Labels[eng].ForeColor = stabilized ? Color.LimeGreen : Color.Yellow;
         }
 
         private void UpdateIdleLabel(int eng, bool running, bool stabilized, TimeSpan idleTime, int requiredSec)

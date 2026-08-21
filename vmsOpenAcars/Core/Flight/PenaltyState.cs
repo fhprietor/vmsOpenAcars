@@ -11,8 +11,9 @@ namespace vmsOpenAcars.Core.Flight
         public int  TaxiOutMovingCycles, TaxiOutSingleEngineCycles;
         public int  TaxiInMovingCycles,  TaxiInSingleEngineCycles;
         // Engine lifecycle compliance — gate the single-engine taxi bonus for jets.
-        public bool EngineWarmupViolation;   // insufficient idle time at TakeoffRoll
-        public bool EngineCooldownViolation; // engines shut down before reverser cool-down elapsed
+        public bool EngineWarmupViolation;        // insufficient idle time at TakeoffRoll
+        public bool EngineCooldownViolation;      // engines shut down before reverser cool-down elapsed
+        public bool EngineStabilizationViolation; // engines not stabilized (oil temp/press/N2) at lineup
 
         public void Reset()
         {
@@ -24,8 +25,9 @@ namespace vmsOpenAcars.Core.Flight
             BothEnginesRunning        = false;
             TaxiOutMovingCycles = TaxiOutSingleEngineCycles = 0;
             TaxiInMovingCycles  = TaxiInSingleEngineCycles  = 0;
-            EngineWarmupViolation   = false;
-            EngineCooldownViolation = false;
+            EngineWarmupViolation        = false;
+            EngineCooldownViolation      = false;
+            EngineStabilizationViolation = false;
         }
     }
 }

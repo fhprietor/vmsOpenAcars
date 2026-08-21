@@ -215,6 +215,7 @@
   "Score_CritLocalizer":   "Localizer Alignment",
   "Score_CritMinimums":    "Minimums Compliance",
   "Score_CritProcSpeed":   "Procedure Speed",
+  "Score_CritEngineStab":  "Engine Stabilization",
   "Score_ReasonIvao": "flight started without IVAO connection",
   "Score_ReasonStabilized": "unstabilized at 1000 ft AGL gate",
 

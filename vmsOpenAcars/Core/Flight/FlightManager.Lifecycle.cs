@@ -33,6 +33,7 @@ namespace vmsOpenAcars.Core.Flight
             _approachValidator.Reset();
             _engStartMonitor.Reset();
             _reverserMonitor.Reset();
+            _engStabilizedOsdFired = false;
             OnPhaseChanged?.Invoke(CurrentPhase.ToString());
             PhaseChanged?.Invoke(CurrentPhase);
         }
@@ -302,6 +303,7 @@ namespace vmsOpenAcars.Core.Flight
                                          : Models.ScoredEngineType.Jet,
             EngineWarmupViolation        = _pen.EngineWarmupViolation,
             EngineCooldownViolation      = _pen.EngineCooldownViolation,
+            EngineStabilizationViolation = _pen.EngineStabilizationViolation,
             ProcedureSpdViolations       = _pen.ProcedureSpdViolations,
         };
     }

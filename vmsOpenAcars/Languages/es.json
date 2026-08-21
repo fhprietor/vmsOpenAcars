@@ -215,6 +215,7 @@
   "Score_CritLocalizer":   "Alineación de Localizador",
   "Score_CritMinimums":    "Cumplimiento de Mínimos",
   "Score_CritProcSpeed":   "Velocidad de Procedimiento",
+  "Score_CritEngineStab":  "Estabilización de Motores",
   "Score_ReasonIvao": "vuelo iniciado sin conexión a IVAO",
   "Score_ReasonStabilized": "aproximación inestable en la compuerta de 1000 ft AGL",
 

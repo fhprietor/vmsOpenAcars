@@ -26,7 +26,8 @@ namespace vmsOpenAcars.Core.Flight
             { "Centreline",          "Score_CritCentreline"   },
             { "Localizer Alignment", "Score_CritLocalizer"    },
             { "Minimums Compliance", "Score_CritMinimums"     },
-            { "Procedure Speed",     "Score_CritProcSpeed"    }
+            { "Procedure Speed",     "Score_CritProcSpeed"    },
+            { "Engine Stabilization","Score_CritEngineStab"   }
         };
 
         internal static ScoringResult ComputeScore(FlightScoreData data)

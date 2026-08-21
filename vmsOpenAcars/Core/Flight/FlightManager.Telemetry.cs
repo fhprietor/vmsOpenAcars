@@ -4,6 +4,7 @@ using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.UI;
+using vmsOpenAcars.UI.Forms;
 using static vmsOpenAcars.Helpers.L;
 
 namespace vmsOpenAcars.Core.Flight
@@ -153,6 +154,22 @@ namespace vmsOpenAcars.Core.Flight
                 data.N2_1, data.N2_2,
                 data.OilPress_1, data.OilPress_2,
                 data.OilTemp_1, data.OilTemp_2);
+
+            if (!_engStabilizedOsdFired && !string.IsNullOrEmpty(ActivePirepId))
+            {
+                bool anyRunning = data.Eng1Running || data.Eng2Running;
+                bool allStab    = (!data.Eng1Running || _engStartMonitor.Eng1Stabilized)
+                               && (!data.Eng2Running || _engStartMonitor.Eng2Stabilized);
+                if (anyRunning && allStab &&
+                    (CurrentPhase == FlightPhase.Boarding ||
+                     CurrentPhase == FlightPhase.Pushback ||
+                     CurrentPhase == FlightPhase.TaxiOut))
+                {
+                    _engStabilizedOsdFired = true;
+                    OnOsdMessage?.Invoke("ENGINES STABLE  ✓", OsdSeverity.Info);
+                    OnLog?.Invoke("✅ Motores estabilizados — aceite en temperatura", Theme.Success);
+                }
+            }
 
             _areEnginesOn    = data.EnginesRunning;
             _hotelModeActive = data.HotelModeActive;

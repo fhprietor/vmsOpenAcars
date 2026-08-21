@@ -41,6 +41,7 @@ namespace vmsOpenAcars.Core.Flight
         private double _currentBank = 0;
         private bool _isParkingBrakeSet;
         private bool _areEnginesOn;
+        private bool _engStabilizedOsdFired;
 
         private double _initialFuel = 0;
         private double _totalFuelUsed = 0;
@@ -362,6 +363,17 @@ namespace vmsOpenAcars.Core.Flight
                     string stab2 = _engStartMonitor.Eng2Stabilized ? "STAB ✓" : "sin estabilizar";
                     OnLog?.Invoke($"Motor: {e1} [{stab1}]  {e2} [{stab2}]  OAT {oat:F0}°C", Theme.MainText);
                 }
+                // Stabilization gate — oil temp + pressure + N2 must be in range for all running engines.
+                bool eng1Stab = !eng1 || _engStartMonitor.Eng1Stabilized;
+                bool eng2Stab = !eng2 || _engStartMonitor.Eng2Stabilized;
+                if (!eng1Stab || !eng2Stab)
+                {
+                    _pen.EngineStabilizationViolation = true;
+                    string which = (!eng1Stab && !eng2Stab) ? "ENG1+ENG2" : !eng1Stab ? "ENG1" : "ENG2";
+                    OnLog?.Invoke($"⚠️ MOTORES NO ESTABILIZADOS al entrar en pista ({which}) — −5 pts", Theme.Warning);
+                    OnOsdMessage?.Invoke("ENGINES NOT STABLE  −5 PTS", OsdSeverity.Warning);
+                }
+
                 double taxiOutFuel = _initialFuel - CurrentFuel;
                 if (taxiOutFuel > 0)
                     OnLog?.Invoke(_("Log_FuelTaxiOut", (int)Math.Round(taxiOutFuel)), Theme.MainText);

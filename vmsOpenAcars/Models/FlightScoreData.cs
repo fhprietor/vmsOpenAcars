@@ -150,6 +150,9 @@ public bool BelowMinimums { get; set; }
         /// <summary>True if engines were shut down before reverser cool-down elapsed in TaxiIn.</summary>
         public bool EngineCooldownViolation { get; set; }
 
+        /// <summary>True if any running engine was not stabilized (oil temp/press/N2) at TakeoffRoll entry.</summary>
+        public bool EngineStabilizationViolation { get; set; }
+
         /// <summary>
         /// Number of SID/STAR speed restriction violations (IAS exceeded the published
         /// limit when passing the fix). Each violation: -3 pts, capped at -10 pts.
@@ -181,8 +184,9 @@ public bool BelowMinimums { get; set; }
             BelowMinimums = false;
             SingleEngineTaxi        = false;
             EngineType              = ScoredEngineType.Jet;
-            EngineWarmupViolation   = false;
-            EngineCooldownViolation = false;
+            EngineWarmupViolation        = false;
+            EngineCooldownViolation      = false;
+            EngineStabilizationViolation = false;
             ProcedureSpdViolations  = 0;
         }
     }

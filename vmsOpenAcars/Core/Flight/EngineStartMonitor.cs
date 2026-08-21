@@ -94,6 +94,9 @@ namespace vmsOpenAcars.Core.Flight
         private bool _needsInit = true;
         // True once any N2 reading > 1% is observed; gates the N2 stabilisation check.
         private bool _n2DataSeen;
+        // True once any oil temp > 5°C or oil press > 1 PSI is observed; gates the oil criteria check.
+        // Prevents false "not stabilized" when the addon does not write FSUIPC oil offsets (leave at 0).
+        private bool _oilDataSeen;
 
         // ── UI snapshot properties ───────────────────────────────────────────
         /// <summary>True when engine 1 meets N2, oil-pressure and oil-temperature criteria.</summary>
@@ -147,6 +150,10 @@ namespace vmsOpenAcars.Core.Flight
             if (eng1Running && n2_1Pct > 1.0) _n2DataSeen = true;
             if (eng2Running && n2_2Pct > 1.0) _n2DataSeen = true;
 
+            // Track oil data availability (skip oil criteria when addon doesn't write FSUIPC offsets)
+            if (eng1Running && (oilTemp1Deg > 5.0 || oilPress1Psi > 1.0)) _oilDataSeen = true;
+            if (eng2Running && (oilTemp2Deg > 5.0 || oilPress2Psi > 1.0)) _oilDataSeen = true;
+
             // Engine 1 start/stop transition
             if (eng1Running && !_eng1PrevRunning)
                 _eng1StartedAt = DateTime.UtcNow;
@@ -192,6 +199,7 @@ namespace vmsOpenAcars.Core.Flight
             _eng1PrevRunning = _eng2PrevRunning = false;
             Eng1Stabilized   = Eng2Stabilized   = false;
             _n2DataSeen      = false;
+            _oilDataSeen     = false;
             _needsInit       = true;
         }
 
@@ -199,10 +207,11 @@ namespace vmsOpenAcars.Core.Flight
 
         private bool IsStabilized(double n2Pct, double oilPressPsi, double oilTempDeg)
         {
-            // When N2 data has been observed, require N2 ≥ threshold.
-            // When N2 is always zero (addon does not write offset), skip the N2 check.
-            bool n2Ok = !_n2DataSeen || n2Pct >= N2_IDLE_MIN_PCT;
-            return n2Ok && oilPressPsi >= OIL_PRESS_GREEN_PSI && oilTempDeg >= OIL_TEMP_GREEN_DEG;
+            // Skip each criterion when the addon does not write the corresponding FSUIPC offset.
+            bool n2Ok    = !_n2DataSeen   || n2Pct      >= N2_IDLE_MIN_PCT;
+            bool pressOk = !_oilDataSeen  || oilPressPsi >= OIL_PRESS_GREEN_PSI;
+            bool tempOk  = !_oilDataSeen  || oilTempDeg  >= OIL_TEMP_GREEN_DEG;
+            return n2Ok && pressOk && tempOk;
         }
 
         private static EngineReadinessResult EvalEngine(

@@ -709,7 +709,9 @@ namespace vmsOpenAcars.ViewModels
 
                     if (!isTaxiIn)
                     {
-                        var hp = _navDataService.FindHoldingPoint(airport, lat, lon, heading);
+                        var hp = _flightManager.CurrentGroundSpeed <= 1.5
+                            ? _navDataService.FindHoldingPoint(airport, lat, lon, heading)
+                            : null;
                         if (hp != null && hp.RunwayName != _lastHoldingShortRwy)
                         {
                             _lastHoldingShortRwy = hp.RunwayName;

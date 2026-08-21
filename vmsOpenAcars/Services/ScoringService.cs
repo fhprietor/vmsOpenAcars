@@ -337,6 +337,19 @@ int totalDeduction = 0;
                 totalDeduction += procSpdDed;
             }
 
+            // ── Engine Stabilization ─────────────────────────────────────────────
+            if (data.EngineStabilizationViolation)
+            {
+                const int engStabDed = 5;
+                result.Deductions.Add(new ScoringDeduction
+                {
+                    Criterion      = "Engine Stabilization",
+                    Reason         = "engines not stabilized (oil/N2) at runway entry",
+                    PointsDeducted = engStabDed
+                });
+                totalDeduction += engStabDed;
+            }
+
             result.TotalScore = Math.Max(0, 100 - totalDeduction);
 
             // ── Single Engine Taxi bonus ─────────────────────────────────────────
@@ -354,20 +367,22 @@ int totalDeduction = 0;
                 }
                 else
                 {
-                    // Jets: lifecycle compliance required (warm-up + cool-down).
-                    bool warmupOk   = !data.EngineWarmupViolation;
-                    bool cooldownOk = !data.EngineCooldownViolation;
-                    if (warmupOk && cooldownOk)
+                    // Jets: lifecycle compliance required (warm-up + cool-down + stabilization).
+                    bool warmupOk      = !data.EngineWarmupViolation;
+                    bool cooldownOk    = !data.EngineCooldownViolation;
+                    bool stabilizedOk  = !data.EngineStabilizationViolation;
+                    if (warmupOk && cooldownOk && stabilizedOk)
                     {
                         result.SingleEngineTaxiBonus = 5;
                         result.TotalScore = Math.Min(100, result.TotalScore + 5);
                     }
                     else
                     {
-                        result.SingleEngineTaxiDeniedReason =
-                            !warmupOk && !cooldownOk ? "warm-up + cool-down incumplidos"
-                            : !warmupOk              ? "warm-up insuficiente"
-                                                     : "cool-down insuficiente";
+                        var reasons = new System.Collections.Generic.List<string>();
+                        if (!warmupOk)     reasons.Add("warm-up insuficiente");
+                        if (!cooldownOk)   reasons.Add("cool-down insuficiente");
+                        if (!stabilizedOk) reasons.Add("motores no estabilizados");
+                        result.SingleEngineTaxiDeniedReason = string.Join(" + ", reasons);
                     }
                 }
             }
