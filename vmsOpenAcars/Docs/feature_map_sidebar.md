@@ -1,6 +1,6 @@
 ---
 name: feature-map-sidebar
-description: Sidebar de procedimientos en MapForm (estilo Navigraph Maps) — IMPLEMENTADO en v0.6.5, pendiente de compilar/probar
+description: Sidebar de procedimientos en MapForm (estilo Navigraph Maps) — implementado desde v0.6.5, estable y ampliado hasta v0.8.7
 metadata: 
   node_type: memory
   type: project
@@ -9,13 +9,15 @@ metadata:
 
 ## Feature: MapForm Sidebar de Procedimientos (estilo Navigraph Maps)
 
-**Estado:** IMPLEMENTADO — código escrito, pendiente compilar y probar en el IDE.
+**Estado (v0.8.7):** IMPLEMENTADO, compilado y en producción desde v0.6.5. Ampliado en versiones posteriores — ver "Evolución posterior" al final de este documento. Para la documentación actualizada del módulo completo (incluyendo transiciones de approach, `GetCompatibleRunways`, `MatchProcedure`, capas toggleables, ATC/airspace overlays) ver la sección **MapForm** de `Docs/architecture.md`, que es la fuente de verdad vigente.
 
-**Why:** El usuario quiere un panel lateral en el mapa que permita cambiar pista, SID, STAR y aproximación en tiempo real, igual que en Navigraph Maps.
+**Why:** El usuario quería un panel lateral en el mapa que permitiera cambiar pista, SID, STAR y aproximación en tiempo real, igual que en Navigraph Maps.
 
 ---
 
-## Versión: v0.6.5 (en desarrollo)
+## Versión original: v0.6.5 (implementación inicial, sesión 2026-05-24)
+
+Este documento conserva las notas de implementación de esa sesión como referencia histórica de diseño; el código actual puede diferir en detalle tras las ampliaciones posteriores.
 
 ---
 
@@ -153,12 +155,9 @@ Solo resetea cuando `airportChanged == true` (par ICAO diferente). En redibujado
 
 ---
 
-## Pendiente (próxima sesión)
+## Evolución posterior (resumen — ver `Docs/architecture.md` para el detalle completo)
 
-- Compilar y probar en el IDE
-- Verificar que el sidebar se muestra correctamente al abrir el mapa
-- Verificar que PopulateSidebar se llama correctamente tras LoadRoute
-- Verificar chips de viento HW/TW con datos METAR reales
-- Verificar DrawApproachOverlay con datos de NavData reales
-- Si hay errores de compilación, revisar tipos de NavApproachLeg (Lat/Lon son double? nullable)
-- Subir versión a v0.6.5 una vez verificado
+- **v0.6.7** — capas toggleables TILES/ROUTE/SPACES/IVAO; `AircraftMarker` con siluetas por categoría; overlays de espacio aéreo y ATC IVAO (formas estilo WebEye) añadidos junto al sidebar.
+- **v0.7.0** — `NavApproach.Transitions` (`List<NavApproachTransition>`): se agregó `_cmbApproachTrans` con `FillApproachTransCombo`; `DrawApproachOverlay` amplió su firma a `(app, trans, rwy, ils)` para prepender legs de transición; `GetCompatibleRunways` filtra pistas según SID/STAR seleccionado; `MatchProcedure` con lookup en 4 pasos para nombres con sufijo NavData (ej. `"BIVI3C.01"` → `"BIVI3C"`); `_lblStatus` pasó de ancho fijo a `DockStyle.Fill`.
+
+El punto "Compilar y probar en el IDE" y el resto de verificaciones de la lista original ya se completaron; la feature está en producción sin incidencias abiertas conocidas.

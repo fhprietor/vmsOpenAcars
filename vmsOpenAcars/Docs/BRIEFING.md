@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.8.7**
+**Versión 0.8.8**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -355,6 +355,8 @@ El QNH del altímetro se comprueba en **dos momentos distintos**:
 
 Ambas verificaciones son independientes: si fallas las dos, el score baja −10 pts. El sistema registra el resultado de cada check en el log del vuelo.
 
+> **Desvíos y regresos a origen (v0.8.8):** si aterrizas en un aeropuerto distinto al destino planeado (emergencia, regreso a origen, desvío no filed como alterno), vmsOpenAcars lo detecta durante la aproximación comparando tu posición/rumbo contra las pistas de destino, alterno **y origen**. Al confirmar el aeropuerto real, el check de "Gate 1 000 ft AGL" usa el QNH de ese aeropuerto (no el del destino planeado), y el PIREP final se registra con el aeropuerto de llegada correcto.
+
 ---
 
 ### Detalle: On-Time Departure (−5 pts)
@@ -634,4 +636,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.8.7 — que tengas buen vuelo.*
+*vmsOpenAcars v0.8.8 — que tengas buen vuelo.*

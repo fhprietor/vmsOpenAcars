@@ -189,7 +189,7 @@ namespace vmsOpenAcars.ViewModels
             {
                 double aLat  = _flightManager.CurrentLat;
                 double aLon  = _flightManager.CurrentLon;
-                string arrAp = _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
+                string arrAp = _approachDestination ?? _flightManager.ActivePlan?.Destination ?? _flightManager.CurrentAirport;
                 Task.Run(() => LookupArrivalParking(arrAp, aLat, aLon));
             }
 
@@ -295,8 +295,9 @@ namespace vmsOpenAcars.ViewModels
             {
                 if (_approachThreshold == null && _navDataService.IsAvailable)
                 {
-                    string dest = _flightManager.ActivePlan?.Destination;
-                    string alt  = _flightManager.ActivePlan?.Alternate;
+                    string dest   = _flightManager.ActivePlan?.Destination;
+                    string alt    = _flightManager.ActivePlan?.Alternate;
+                    string origin = _flightManager.ActivePlan?.Origin;
 
                     _approachThreshold = !string.IsNullOrEmpty(dest)
                         ? _navDataService.GetRunwayThreshold(dest, e.Latitude, e.Longitude, e.HeadingDeg)
@@ -315,6 +316,28 @@ namespace vmsOpenAcars.ViewModels
                             _approachDestination = alt;
                             _cb.Log?.Invoke($"⚠️ Approaching ALTERNATE — {alt}", Theme.Warning);
                             _flightManager.SetEffectiveDestination(alt);
+                        }
+                    }
+
+                    // Neither the planned destination nor the planned alternate matched —
+                    // check the departure airport. Covers an emergency/return-to-field
+                    // that diverts back to origin instead of the filed alternate; without
+                    // this, EffectiveDestination never gets set before touchdown and the
+                    // QNH gate checks (TL-1000 / 1000 ft AGL) keep validating against the
+                    // planned destination's METAR instead of the airport actually being
+                    // approached.
+                    if (_approachThreshold == null && !string.IsNullOrEmpty(origin) &&
+                        !origin.Equals(dest, StringComparison.OrdinalIgnoreCase) &&
+                        !origin.Equals(alt, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _approachThreshold = _navDataService.GetRunwayThreshold(
+                            origin, e.Latitude, e.Longitude, e.HeadingDeg);
+                        if (_approachThreshold != null)
+                        {
+                            _approachDestination = origin;
+                            _cb.Log?.Invoke($"⚠️ RETURNING TO DEPARTURE — {origin}", Theme.Danger);
+                            _cb.OsdMessage?.Invoke($"RETURNING TO {origin}", OsdSeverity.Critical);
+                            _flightManager.SetEffectiveDestination(origin);
                         }
                     }
 
@@ -733,7 +756,8 @@ namespace vmsOpenAcars.ViewModels
 
         private void LookupRunwayData(TouchdownData data)
         {
-            string airport = _approachDestination ?? _flightManager.ActivePlan?.Destination;
+            string plannedDest = _flightManager.ActivePlan?.Destination;
+            string airport     = _approachDestination ?? plannedDest;
             if (string.IsNullOrEmpty(airport)) return;
 
             var result = _navDataService.FindTouchdownRunway(
@@ -741,10 +765,41 @@ namespace vmsOpenAcars.ViewModels
 
             if (result == null)
             {
+                // The planned destination (or alternate already resolved during
+                // Approach) doesn't match the touchdown position/heading. Cross-
+                // reference against the departure airport — its NavData is always
+                // pre-loaded at flight start — before giving up. A genuine landing
+                // back at origin (aborted flight, short diversion) will match its
+                // runway footprint even though it never matched the destination.
+                string origin = _flightManager.ActivePlan?.Origin;
+                if (!string.IsNullOrEmpty(origin) &&
+                    !origin.Equals(airport, StringComparison.OrdinalIgnoreCase))
+                {
+                    result = _navDataService.FindTouchdownRunway(
+                        origin, data.LatitudeDeg, data.LongitudeDeg, data.HeadingDeg);
+                    if (result != null)
+                        airport = origin;
+                }
+
+                if (result == null)
+                {
+                    _cb.Log?.Invoke(
+                        string.Format(_("Lnm_RunwayNotFound"), airport, (int)data.HeadingDeg),
+                        Theme.Warning);
+                    CheckFlownDistance(plannedDest);
+                    return;
+                }
+
+                // Confirmed touchdown airport differs from the planned destination —
+                // redirect the effective destination so QNH checks, the arrival
+                // parking lookup and the filed PIREP all use the real airport instead
+                // of the (never reached) planned one.
+                _approachDestination = airport;
+                _flightManager.SetEffectiveDestination(airport);
                 _cb.Log?.Invoke(
-                    string.Format(_("Lnm_RunwayNotFound"), airport, (int)data.HeadingDeg),
-                    Theme.Warning);
-                return;
+                    string.Format(_("Lnm_ArrivalAirportMismatch"), plannedDest, airport),
+                    Theme.Danger);
+                _cb.OsdMessage?.Invoke($"LANDED AT {airport} — NOT {plannedDest}", OsdSeverity.Critical);
             }
 
             _flightManager.SetRunwayTouchdownData(
@@ -756,6 +811,26 @@ namespace vmsOpenAcars.ViewModels
                     (int)result.ThresholdDistanceFt,
                     (int)result.CenterlineDeviationFt),
                 Theme.Success);
+
+            CheckFlownDistance(plannedDest);
+        }
+
+        // Secondary heuristic: even when the runway matched the planned destination,
+        // a flight that covered well under the planned distance likely never actually
+        // reached it (e.g. it matched by coincidental heading alignment). Flag it for
+        // manual review rather than silently filing a PIREP that looks legitimate.
+        private void CheckFlownDistance(string plannedDest)
+        {
+            double plannedNm = _flightManager.PlannedDistanceNm;
+            if (plannedNm <= 0) return;
+
+            double actualNm = _flightManager.TotalDistanceKm * 0.539957;
+            if (actualNm < plannedNm * 0.6)
+            {
+                _cb.Log?.Invoke(
+                    string.Format(_("Lnm_DistanceMismatch"), actualNm.ToString("F0"), plannedNm.ToString("F0")),
+                    Theme.Warning);
+            }
         }
 
         private void LookupTakeoffRunwayData(string airport, double lat, double lon, double heading)

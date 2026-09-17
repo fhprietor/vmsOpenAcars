@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.8.7  
-> Última actualización: 2026-07-26
+> Versión del documento: 0.8.8  
+> Última actualización: 2026-09-17
 
 ---
 
@@ -647,7 +647,14 @@ OnRawDataUpdated (cada 50 ms, fase = Approach)
                si encontrado → _approachDestination = alt
                              → log "⚠️ Approaching ALTERNATE — XXXX"
                              → FlightManager.SetEffectiveDestination(alt)
-         3. si null en ambos → no captura, reintenta el siguiente ciclo
+         3. si null en destino y alterno → GetRunwayThreshold(plan.Origin, lat, lon, hdg)  [v0.8.8]
+               si encontrado → _approachDestination = origin
+                             → log "⚠️ RETURNING TO DEPARTURE — XXXX" + OSD Critical
+                             → FlightManager.SetEffectiveDestination(origin)
+               cubre emergencia/regreso a origen no filed como alterno; sin esto
+               EffectiveDestination queda null y los gates de QNH (TL−1000 ft / 1000 ft AGL
+               en ApproachValidator) siguen validando contra el destino planeado nunca alcanzado
+         4. si null en los tres → no captura, reintenta el siguiente ciclo
          al adquirir → _approachDestination = icao resuelto
                      → Task.Run(LoadApproachData(_approachDestination, runway))
                           → GetIlsForRunway() + GetApproachType() + GetApproachFixes()
@@ -655,9 +662,22 @@ OnRawDataUpdated (cada 50 ms, fase = Approach)
     → si AGL < 3000 ft && ≥ 2 s desde último punto:
          ComputeApproachMetrics(threshold, lat, lon) → (distNm, lateralFt)
          _approachBuffer.Add(ApproachTrackPoint)
+OnTouchdownDetectedEvent → LookupRunwayData(data)  [fallback adicional, v0.8.8]
+    → FindTouchdownRunway(_approachDestination ?? plan.Destination, lat, lon, hdg)
+    → si null → FindTouchdownRunway(plan.Origin, lat, lon, hdg)  ← red de seguridad si el
+         paso 3 de arriba no llegó a resolver el threshold durante Approach
+         si encontrado → _approachDestination = origin; SetEffectiveDestination(origin)
+                       → log Lnm_ArrivalAirportMismatch + OSD Critical
+    → CheckFlownDistance(plannedDest)  ← si distancia volada <60% de la planeada, loguea
+         Lnm_DistanceMismatch para revisión manual, independientemente de si hubo match de pista
 SendPirep()
     → SnapshotLandingRecord()          ← captura plan + touchdown ANTES de FilePirep
-    → FilePirep() → ResetFlightState() ← borra _activePlan y touchdown data
+    → FilePirep()
+        → si _effectiveDestination != plan.Destination:
+             UpdatePirep(id, { arr_airport_id: _effectiveDestination })  [v0.8.8]
+             log Log_ArrivalAirportCorrected
+        → BuildPayload() incluye arr_airport_id (refuerzo, además del UpdatePirep previo)
+        → ResetFlightState() ← borra _activePlan y touchdown data
     → éxito → SaveLandingRecord(record)
         → record.Score = LastFlightScore  ← no se resetea en ResetFlightState
         → LandingLogService.SaveFlight(record, _approachBuffer)
@@ -667,6 +687,12 @@ SendPirep()
 
 > `SnapshotLandingRecord()` debe ejecutarse **antes** de awaitar `FilePirep()`. `LastFlightScore`
 > es la única propiedad que `ResetFlightState()` no borra, por lo que puede leerse después.
+
+> **v0.8.8 — corrección de `arr_airport_id`:** validado contra producción (vholar.co) que
+> `PUT /api/pireps/{id}` con `arr_airport_id` es aceptado por phpVMS mientras el PIREP está
+> `state=0` (`in_progress`) — exactamente el momento en que `FilePirep()` lo llama, antes de
+> transicionar a `Accepted` vía `/file`. Un PIREP ya `Accepted` (`state=2`) rechaza el mismo
+> `PUT` con `503 "This action is unauthorized"` — no afecta el flujo normal.
 
 ---
 

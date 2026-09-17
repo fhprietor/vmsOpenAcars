@@ -2,6 +2,60 @@
 
 ---
 
+## [0.8.8] — 2026-09-17
+
+### Fixed
+
+- **PIREP fileado con `arr_airport_id` incorrecto cuando el aterrizaje real ocurre en un
+  aeropuerto distinto al destino planeado** (`TelemetryCoordinator`, `FlightManager.Lifecycle`,
+  `PirepBuilder`, `ApproachValidator`):
+
+  Reportado con un vuelo real SKCL→SKBO con alterno SKRG donde el avión en realidad nunca
+  llegó a SKBO (heading de touchdown ~020°, coincidente con SKCL rwy 02, no con ninguna pista
+  de SKBO). El sistema ya detectaba el mismatch — logueaba
+  `⚠️ NavMap: runway not found for SKBO (heading 8°)` — pero no actuaba sobre él: el PIREP se
+  fileaba igual con `arr_airport_id = SKBO`, dejando al piloto y a la aeronave "parados" en el
+  aeropuerto equivocado en phpVMS. Un segundo caso (emergencia SKBO→SKCG con alterno SKBQ y
+  regreso a SKBO) reveló que además el criterio **QNH Compliance** en el gate de aproximación
+  seguía validando contra el METAR del destino planeado (SKCG) en vez del aeropuerto realmente
+  aproximado (SKBO), porque el `EffectiveDestination` que usa `ApproachValidator` para los
+  checks de QNH/Localizer/Minimums nunca se actualizaba con el aeropuerto de salida.
+
+  **Detección en dos capas, ambas cruzando contra el aeropuerto de salida** (su NavData
+  siempre está pre-cargado desde el inicio del vuelo):
+
+  1. **Durante Approach** (`TelemetryCoordinator.ProcessRawData`): si `GetRunwayThreshold` no
+     matchea ni destino ni alterno planeados, prueba `plan.Origin`. Si matchea, fija
+     `EffectiveDestination` **antes** de que se disparen los gates de QNH (TL−1000 ft y
+     1000 ft AGL), corrigiendo el METAR usado en tiempo real.
+  2. **En touchdown** (`TelemetryCoordinator.LookupRunwayData`): mismo cross-reference como
+     red de seguridad si la capa de Approach no llegó a resolver el threshold. Añade además
+     `CheckFlownDistance` — heurística secundaria: si la distancia volada es <60% de la
+     planeada, loguea aviso de revisión (`Lnm_DistanceMismatch`) independientemente de si
+     hubo match de pista.
+
+  **Corrección del PIREP** — `FlightManager.Lifecycle.FilePirep()`: si `_effectiveDestination`
+  difiere del destino planeado, llama a `_apiService.UpdatePirep(id, { arr_airport_id })`
+  antes de filear (mismo mecanismo `PUT` ya usado para `block_off_time`/status).
+  `PirepBuilder.BuildPayload` también incluye `arr_airport_id` en el payload de `/file` como
+  refuerzo. Validado contra producción: el `PUT` es aceptado mientras el PIREP está
+  `state=0/in_progress` (el momento exacto en que se llama); un PIREP ya `Accepted` lo
+  rechaza con `503`, lo cual no afecta el flujo normal porque la corrección siempre ocurre
+  antes de filear.
+
+  **Archivos modificados:**
+  - `ViewModels/TelemetryCoordinator.cs` — fallback a `plan.Origin` en la detección de
+    threshold de Approach y en `LookupRunwayData`; nuevo método `CheckFlownDistance`; el
+    lookup de parking en `OnBlock` ahora prefiere `_approachDestination`
+  - `Core/Flight/FlightManager.Lifecycle.cs` — `FilePirep()` corrige `arr_airport_id` vía
+    `UpdatePirep` cuando hay mismatch; log `Log_ArrivalAirportCorrected`
+  - `Core/Flight/PirepBuilder.cs` — `PirepPayloadArgs.ArrivalAirport` + `arr_airport_id` en
+    `BuildPayload`
+  - `Languages/en.json` / `es.json` — nuevas claves `Lnm_ArrivalAirportMismatch`,
+    `Lnm_DistanceMismatch`, `Log_ArrivalAirportCorrected`, `Log_ErrorArrivalAirportUpdate`
+
+---
+
 ## [0.8.7] — 2026-07-26
 
 ### Changed

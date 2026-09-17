@@ -1,4 +1,6 @@
 # Memoria del proyecto vmsOpenAcars
 
-- [Estado del proyecto y tarea pendiente](project_vmsOpenAcars.md) — RunwayService.cs falta, bloquea compilación y scoring de touchdown zone/centerline
-- [Sidebar de procedimientos en MapForm](feature_map_sidebar.md) — IMPLEMENTADO (código escrito, pendiente compilar/probar): sidebar estilo Navigraph Maps con runway/SID/STAR/Approach, chips de viento, DrawApproachOverlay, validación EcamDialog, callbacks a MainViewModel
+> Actualizado a **v0.8.8**. Fuente de verdad técnica: `CLAUDE.md` (raíz del repo) y `Docs/architecture.md`.
+
+- [Estado del proyecto](project_vmsOpenAcars.md) — v0.8.8, todo lo implementado y áreas pendientes sin prioridad
+- [Sidebar de procedimientos en MapForm](feature_map_sidebar.md) — IMPLEMENTADO y estable desde v0.6.5, ampliado en v0.6.7/v0.7.0; notas de implementación histórica

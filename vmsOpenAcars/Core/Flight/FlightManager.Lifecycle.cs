@@ -239,6 +239,21 @@ namespace vmsOpenAcars.Core.Flight
             LastFlightScore = scoreResult.TotalScore;
             PirepBuilder.LogScore(scoreResult, OnLog);
 
+            string plannedDestIcao = _activePlan?.Destination;
+            string arrivalIcao     = _effectiveDestination ?? plannedDestIcao;
+            if (!string.IsNullOrEmpty(_effectiveDestination) &&
+                !_effectiveDestination.Equals(plannedDestIcao, StringComparison.OrdinalIgnoreCase))
+            {
+                OnLog?.Invoke(_("Log_ArrivalAirportCorrected", plannedDestIcao, arrivalIcao), Theme.Danger);
+
+                // Correct the record directly via the generic update endpoint — the
+                // same mechanism already used for block_off_time/status — rather than
+                // relying solely on the /file payload, which phpVMS may validate
+                // against a fixed field set that ignores arr_airport_id.
+                try { await _apiService.UpdatePirep(ActivePirepId, new { arr_airport_id = arrivalIcao }); }
+                catch (Exception ex) { OnLog?.Invoke(_("Log_ErrorArrivalAirportUpdate", ex.Message), Theme.Danger); }
+            }
+
             var finalData = PirepBuilder.BuildPayload(new PirepPayloadArgs
             {
                 TotalFlightTimeMinutes   = totalFlightTimeMinutes,
@@ -251,6 +266,7 @@ namespace vmsOpenAcars.Core.Flight
                 LandingRateFpm           = _td.Fpm,
                 Score                    = scoreResult.TotalScore,
                 BlockOnTime              = _timer.ServerBlockOnTime,
+                ArrivalAirport           = arrivalIcao,
             });
 
             bool success = await _apiService.FilePirep(ActivePirepId, finalData);

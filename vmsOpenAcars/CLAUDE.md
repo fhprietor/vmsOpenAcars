@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.8.7  
+**Versión actual:** v0.8.8  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -222,6 +222,23 @@ FsuipcService offsets: `0x0350 INT16` NAV1 freq BCD (`100+d3×10+d2+d1×0.1+d0×
 
 ---
 
+## Aeropuerto de llegada distinto al planeado — v0.8.8
+
+Corrige el caso donde el avión aterriza en un aeropuerto distinto al destino planeado (emergencia, regreso a origen, desvío no al alterno filed) sin que el PIREP quede registrado con el `arr_airport_id` correcto en phpVMS.
+
+**Problema original:** `NavDataService.FindTouchdownRunway`/`GetRunwayThreshold` solo probaban destino planeado y alterno planeado. Si el aterrizaje real era en el aeropuerto de **salida** (u otro no contemplado), fallaban silenciosamente — el log mostraba `Lnm_RunwayNotFound`, el PIREP se fileaba igual con el `arr_airport_id` original, y los checks de QNH/Localizer/Minimums (que dependen de `EffectiveDestination`) seguían validando contra el destino planeado nunca alcanzado.
+
+**Detección en dos capas, ambas en `TelemetryCoordinator.cs`:**
+
+1. **Durante Approach** (`ProcessRawData`, umbral de aproximación): si `GetRunwayThreshold` falla para destino y alterno, prueba el **aeropuerto de salida** (`plan.Origin`, siempre pre-cargado en NavData desde el inicio del vuelo). Si matchea → `_approachDestination = origin`, log `"⚠️ RETURNING TO DEPARTURE — {origin}"`, OSD Critical, `FlightManager.SetEffectiveDestination(origin)`. Esto ocurre **antes** de los gates de QNH (TL−1000 ft y 1000 ft AGL en `ApproachValidator.cs`), que usan `EffectiveDestination ?? DestIcao` — clave para que el METAR correcto se use en tiempo real, no solo al filear.
+2. **En touchdown** (`LookupRunwayData`): mismo cross-reference contra `plan.Origin` como red de seguridad si la capa de Approach no llegó a resolver el threshold (aproximación muy corta, o `GetRunwayThreshold` no matcheó pero `FindTouchdownRunway` sí). Además evalúa la heurística secundaria `CheckFlownDistance`: si la distancia volada es <60% de la planeada, loguea aviso de revisión (`Lnm_DistanceMismatch`) **independientemente** de si hubo match de pista — puede haber match por coincidencia de heading sin haber llegado realmente.
+
+**Corrección del PIREP** — `FlightManager.Lifecycle.cs` (`FilePirep`): si `_effectiveDestination` difiere del destino planeado, antes de filear llama a `_apiService.UpdatePirep(id, new { arr_airport_id = ... })` (mismo mecanismo PUT que ya se usaba para `block_off_time`/status) y loguea `Log_ArrivalAirportCorrected`. **Validado contra producción (vholar.co):** el `PUT` es aceptado mientras el PIREP está `state=0/in_progress` (justo cuando se llama, antes de `/file`); un PIREP ya `Accepted` (`state=2`) lo rechaza con 503 — irrelevante para el flujo normal porque la corrección siempre ocurre antes de filear. `PirepBuilder.BuildPayload` también incluye `arr_airport_id` en el payload de `/file` como refuerzo.
+
+**Claves de log nuevas:** `Lnm_ArrivalAirportMismatch`, `Lnm_DistanceMismatch`, `Log_ArrivalAirportCorrected`, `Log_ErrorArrivalAirportUpdate` (`Languages/en.json` + `es.json`).
+
+---
+
 ## Detección de fases — umbrales
 
 | Transición | Condición | Debounce |
@@ -246,9 +263,9 @@ Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia le
 | `Core/Flight/TouchdownState.cs` | `LandingRate`, `GForce`, `BankAngle`, `PitchAngle`, `TouchdownDistanceFt`, `CenterlineDeviationFt`; reset en `ResetFlightState()` |
 | `Core/Flight/PenaltyState.cs` | `OverspeedCount`, `LightsViolations`, `StabilizedPenalty`, `QnhPenalty`; `_singleEngineTaxiDistance`; consolidado en `ScoringService` |
 | `Core/Flight/FlightManager.Telemetry.cs` | procesamiento de `RawTelemetryData`; actualiza `TouchdownState` y `PenaltyState` por ciclo |
-| `Core/Flight/FlightManager.Lifecycle.cs` | `PrefilePirep`; `FilePirep` (incluye `block_on_time` en payload); `CancelPirep`; `UpdatePirepStatus` (excluye OnBlock/Completed); `ResetFlightState` |
+| `Core/Flight/FlightManager.Lifecycle.cs` | `PrefilePirep`; `FilePirep` (incluye `block_on_time` en payload; corrige `arr_airport_id` vía `UpdatePirep` cuando `_effectiveDestination` difiere del destino planeado — v0.8.8); `CancelPirep`; `UpdatePirepStatus` (excluye OnBlock/Completed); `ResetFlightState` |
 | `ViewModels/MainViewModel.cs` | 711 l: `WireAirspaceMonitor`; `StartFlight`+`SetActivePlan`; `GetAircraftCategory()`; `HandleTaxiPositionUpdate` (criterio angular 25°); `SnapshotLandingRecord`→`SaveLandingRecord`; `UpdateAircraftState` |
-| `ViewModels/TelemetryCoordinator.cs` | puente `FsuipcService`→`FlightManager`; throttling OSD/map; eventos `OnFlightPhaseChanged`, `OnTouchdown` |
+| `ViewModels/TelemetryCoordinator.cs` | puente `FsuipcService`→`FlightManager`; throttling OSD/map; eventos `OnFlightPhaseChanged`, `OnTouchdown`; **detección de aeropuerto de llegada distinto al planeado (v0.8.8)** — ver sección dedicada abajo |
 | `ViewModels/AcarsReporter.cs` | `SendPirep`; `ResumeFromAcarsHistoryAsync`; `SendScoringCheckpointAsync` (CHK 60 s) |
 | `UI/Forms/MapForm.cs` | 1 473 l: event wiring; zoom/tile; delega en `MapRouteController`, `MapOverlayManager`, `SidebarController`; capas toggleables TILES/ROUTE/SPACES/IVAO |
 | `UI/Map/MapRouteController.cs` | `LoadRoute` + SID/STAR virtual + suavizado Bézier; `UpdatePosition`; `SetAircraftCategory` |

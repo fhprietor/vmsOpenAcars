@@ -53,6 +53,7 @@ namespace vmsOpenAcars.Core.Flight
             state = 2,
             submitted_at = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
             block_on_time = (a.BlockOnTime != default(DateTime) ? a.BlockOnTime : DateTime.UtcNow).ToString("yyyy-MM-dd HH:mm:ss"),
+            arr_airport_id = a.ArrivalAirport,
             distance = Math.Round(a.TotalDistanceNm, 2),
             planned_distance = Math.Round(a.PlannedDistanceNm, 2),
             flight_time = a.ActualFlightTimeMinutes,
@@ -77,5 +78,6 @@ namespace vmsOpenAcars.Core.Flight
         internal int?     LandingRateFpm;
         internal int      Score;
         internal DateTime BlockOnTime;
+        internal string   ArrivalAirport;
     }
 }
