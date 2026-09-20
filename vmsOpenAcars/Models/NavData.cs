@@ -367,6 +367,30 @@ namespace vmsOpenAcars.Models.NavData
         [JsonProperty("primary")] public bool   Primary { get; set; }
     }
 
+    // ── Nearest approach airport (parallel-runway-aware position match) ────────────
+
+    internal class NavApproachAirportResponse
+    {
+        [JsonProperty("icao")]                 public string                    Icao               { get; set; }
+        [JsonProperty("name")]                 public string                    Name               { get; set; }
+        [JsonProperty("airport_distance_nm")]  public double                    AirportDistanceNm  { get; set; }
+        [JsonProperty("runway")]               public NavApproachAirportRunway  Runway             { get; set; }
+        [JsonProperty("heading_diff_deg")]     public double                    HeadingDiffDeg     { get; set; }
+        [JsonProperty("score")]                public double                    Score              { get; set; }
+        [JsonProperty("cross_track_nm")]       public double?                   CrossTrackNm       { get; set; }
+        [JsonProperty("dist_to_threshold_nm")] public double?                   DistToThresholdNm  { get; set; }
+    }
+
+    internal class NavApproachAirportRunway
+    {
+        [JsonProperty("name")]         public string  Name       { get; set; }
+        [JsonProperty("heading")]      public double  Heading    { get; set; }
+        [JsonProperty("has_ils")]      public bool    HasIls     { get; set; }
+        [JsonProperty("ils_ident")]    public string  IlsIdent   { get; set; }
+        [JsonProperty("ils_freq_mhz")] public double? IlsFreqMhz { get; set; }
+        [JsonProperty("ils_course")]   public double? IlsCourse  { get; set; }
+    }
+
     // ── Cabin Announcements ───────────────────────────────────────────────────────
 
     internal class BriefingCheckResult

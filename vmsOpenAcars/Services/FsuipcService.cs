@@ -251,6 +251,11 @@ namespace vmsOpenAcars.Services
         // -- Categoría de planta motriz (detectada por título del avión) --
         private AircraftCategory _currentEngineCategory = AircraftCategory.Unknown;
 
+        // Aeronaves con switch único beacon/strobe (encender strobe apaga beacon por diseño) —
+        // deben mantener el guard NAV-o-BEACON en vez de exigir BEACON. Debe reflejar el mismo
+        // set que Core/Flight/FlightManager.cs::BeaconStrobeSharedAircraft.
+        private static readonly HashSet<string> _singleSwitchBeaconStrobeAircraft = new HashSet<string> { "DH8D" };
+
         // -- Debounce liftoff / touchdown --
         private int _groundConsecutiveCounter;
         private DateTime _lastTakeoffTime = DateTime.MinValue;
@@ -505,8 +510,15 @@ namespace vmsOpenAcars.Services
             bool landingLightOn = (lights & 0x04) != 0;  // bit 2: LANDING
             bool taxiLightOn = (lights & 0x08) != 0;  // bit 3: TAXI
             bool strobeRaw = (lights & 0x10) != 0;  // bit 4: STROBE
-            // B737/B38M: switch NAV+STROBE combinado → strobe real solo si beacon ON
-            bool strobeLightOn = strobeRaw && (beaconLightOn || navLightOn);
+            // El bit de STROBE puede quedar "pegado" en 1 en algunos addons de estudio tan pronto se
+            // enciende cualquier luz exterior (confirmado en iFly B38M: NAV sola ON, BEACON físicamente
+            // OFF, ya lee strobeRaw=true). BEACON es un prerequisito operativo real de STROBE (se
+            // enciende antes o junto con él, nunca después) — exigirlo filtra el falso positivo sin
+            // perder detecciones reales el resto del vuelo. NAV-o-BEACON (guard de v0.3.0, pensado solo
+            // para el caso "todo apagado") se mantiene únicamente para aeronaves de switch compartido.
+            bool strobeLightOn = _singleSwitchBeaconStrobeAircraft.Contains(AircraftIcao ?? "")
+                ? strobeRaw && (beaconLightOn || navLightOn)
+                : strobeRaw && beaconLightOn;
             // ── Autopilot (0x07BC + 0x07CC fallback for MSFS) ─────────────────
             // In MSFS/FSUIPC7, 0x07BC is master-only (0 or 1); mode bits 2-5 are
             // FSX/P3D only and are never set. Many MSFS add-ons (PMDG, FBW) don't
@@ -1160,7 +1172,10 @@ namespace vmsOpenAcars.Services
             bool beaconOn = (lights & 0x02) != 0;
             bool landingOn = (lights & 0x04) != 0;
             bool taxiOn = (lights & 0x08) != 0;
-            bool strobeOn = (lights & 0x10) != 0 && (beaconOn || navOn);
+            bool strobeOnRaw = (lights & 0x10) != 0;
+            bool strobeOn = _singleSwitchBeaconStrobeAircraft.Contains(AircraftIcao ?? "")
+                ? strobeOnRaw && (beaconOn || navOn)
+                : strobeOnRaw && beaconOn;
 
             DetectNavChange(navOn);
             DetectStrobeChange(strobeOn);

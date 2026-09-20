@@ -2,6 +2,296 @@
 
 ---
 
+## [0.9.2] — 2026-09-20
+
+### Fixed
+
+- **Falso "TAKEOFF ROLL" durante un pico breve de velocidad en taxi — penalizaba strobe/landing
+  lights y QNH de salida sin haber estado en pista** (`FlightPhaseStateMachine`, `FlightManager`,
+  `ApproachValidator`, `NavDataService`):
+
+  PIREP real en curso (`E7DK47e88XdabzoL`, SKRG rwy01→SKBQ) reportado por el usuario: rodando por
+  la calle A (paralela a la pista 01/19), la velocidad en tierra cruzó momentáneamente 30 kt y el
+  sistema interpretó eso como el inicio del despegue. La fase revirtió a `TaxiOut` dos segundos
+  después, pero para entonces ya se habían aplicado, de forma irreversible, tres penalizaciones
+  de -5 pts (landing lights apagadas, strobe apagada, QNH de salida incorrecto) pensadas para un
+  despegue real. El log también mostró `🛫️ PISTA 19 | ALINEACIÓN: 6325 ft desde umbral | CL: 614
+  ft de desviación` — geométricamente imposible para una pista real, confirmando que el sistema
+  "detectó" la pista sobre la calle paralela, no sobre el asfalto.
+
+  Causa: `FlightPhaseStateMachine.cs`'s transición `TaxiOut → TakeoffRoll` (`GS>30 kt && Pitch<1.0°`)
+  era la única de toda la máquina de fases sin debounce — disparaba con una sola muestra de
+  telemetría. En cuanto disparaba, `FlightManager.CheckProcedureAtPhaseEntry` evaluaba de forma
+  irreversible ("una sola vez por transición de fase") las luces de despegue
+  (`ApproachValidator.CheckPhaseEntryLights`) y el QNH de salida (`CheckQnhAsync`). Además,
+  `NavDataService.ProjectOnRunway` (usada por `FindTakeoffRunway`/`FindTouchdownRunway`)
+  seleccionaba la pista más cercana solo por rumbo (45° de tolerancia, sin validar posición) y no
+  tenía fallback a `null` cuando ninguna pista pasaba el chequeo de footprint — devolvía el mejor
+  candidato por rumbo igual, geométricamente inválido.
+
+  **Fix, tres partes:** (1) `TaxiOut → TakeoffRoll` ahora exige `GS>30 kt` sostenido 5 s
+  (`_takeoffRollStart`/`TakeoffRollConfirmSec`), mismo patrón "temporizador pendiente" que las
+  demás transiciones de esta máquina de estados. (2) `ProjectOnRunway` retorna `null` si ninguna
+  pista pasa `WithinFootprint` tras la desambiguación de paralelas — mismo criterio que ya usaba
+  `GetRunwayThreshold`. (3) Defensa en profundidad: nuevos guards
+  `ApproachValidator._departureQnhChecked`/`_takeoffLightsChecked` (reset en `Reset()`) evitan que
+  un rebote de fase repetido, o un rechazo de despegue real seguido de un segundo intento,
+  penalice dos veces — ninguno de los dos checks tenía guard de "ya evaluado este vuelo" (a
+  diferencia del STD de climb o el QNH de llegada).
+
+---
+
+## [0.9.1] — 2026-09-19
+
+### Fixed
+
+- **Falsos positivos de desvío durante giros de STAR — nunca se revertían** (`TelemetryCoordinator`,
+  `FlightManager`, `NavDataService`/`INavDataService`, `Db/RunwayService`):
+
+  Vuelo real (`9QJYgErnggMdgKPO`, SKLT→SKBO) reveló que `ReconfirmApproachRunway` podía marcar
+  como "desvío" un aeropuerto que el avión solo cruzaba de pasada durante un giro de STAR — el
+  log mostró `⚠️ DESVÍO DETECTADO — aproximando a SKGY` (18:27:44) seguido de `⚠️ DESVÍO
+  DETECTADO — aproximando a SKMA` (18:33:31), ambos falsos positivos a decenas de NM de SKBO. El
+  tracking local se autocorrigió casi de inmediato (`↻ RUNWAY UPDATED — 14L (SKBO)` desde las
+  18:35:10, sostenido ~4 min, sobreviviendo un touch-and-go y una segunda aproximación completa),
+  pero el PIREP se fileó igual con `arr_airport_id` corregido a SKMA — el falso positivo nunca se
+  revirtió pese a que el destino planeado sí se reconfirmó reiteradamente antes del touchdown.
+
+  Confirmado en vivo contra NavData con las coordenadas exactas del log: `GET
+  /nearest/approach-airport/` matcheó SKGY con `heading_diff_deg: 3.1` (coincidencia casual de
+  rumbo durante el giro) pero `cross_track_nm: 11.36` — el avión estaba a más de 11 NM del eje
+  extendido de esa pista, nada parecido a una aproximación real.
+
+  **Causa 1 — sin filtro de plausibilidad geométrica:** el endpoint ya devuelve `cross_track_nm`
+  en la respuesta, pero `NearestApproachAirportResult` lo descartaba. **Causa 2 — sin
+  reconciliación:** `SetEffectiveDestination`/`SetDivertedAirport`/`SetArrivalAirportElevation`
+  solo se reseteaban en `ResetFlightState()`/`ResumeFlight()` (inicio/fin de vuelo) — cuando un
+  poll posterior volvía a confirmar el destino planeado, solo se actualizaban las variables
+  locales de tracking (`_approachThreshold`/`_approachDestination`), nunca los flags de
+  `FlightManager`.
+
+  **Fix:** (1) `cross_track_nm` mapeado a `NearestApproachAirportResult.CrossTrackNm`;
+  `ReconfirmApproachRunway` exige `≤ 3.0 NM` (o ausente) antes de aceptar un match como desvío
+  genuino. (2) Nuevo `FlightManager.ClearDivertedAirport()`, llamado en cuanto un poll
+  no-desviado reconfirma el destino planeado — revierte los tres campos a `null`
+  (`EffectiveDestination ?? DestIcao` ya maneja ese fallback en `ApproachValidator`/`FilePirep()`).
+  Nuevo log `Lnm_DiversionReverted` cuando hay una reversión real.
+
+  Evaluado y descartado del alcance: filtro de tamaño de pista (`length_ft`/`width_ft` —
+  propuesto con SKMA 70 ft / SKGY 66 ft de ancho como evidencia de que un A320 no cabría; el
+  endpoint no expone esos campos y el filtro de `cross_track_nm` ya cubre el caso real sin ese
+  costo) y conciencia de fixpoints de STAR (mismo motivo).
+
+  Claves de log nuevas: `Lnm_DiversionReverted` (`Languages/en.json` + `es.json`).
+
+---
+
+## [0.9.0] — 2026-09-19
+
+### Fixed
+
+- **La elevación de referencia (AGL) no se actualizaba al confirmar un desvío — landing log vacío,
+  gate de Stabilized Approach sin disparar** (`FlightManager`, `FlightManager.Telemetry`,
+  `TelemetryCoordinator`, `NavDataService`/`INavDataService`):
+
+  Confirmado en un vuelo real de prueba tras v0.8.10 (SKRG→SKCL, aterrizó en SKBO): el log mostró
+  `⚠️ Landing log no grabado: solo 0 puntos en buffer (mínimo 3)`. Causa: `FlightManager.
+  ReferenceAirportElevation` seguía devolviendo siempre `_activePlan.DestinationElevation` (SKCL,
+  3162 ft) para todas las fases de llegada, **incluso después de que `SetEffectiveDestination`/
+  `SetDivertedAirport` ya habían confirmado el desvío a SKBO (8361 ft)**. Con ~5200 ft de
+  diferencia, el AGL calculado (`CurrentAGL`) nunca bajaba de 3000 ft ni en el touchdown real —
+  el gate de captura del buffer de aproximación (`computedAgl < 3000` en `TelemetryCoordinator`)
+  nunca se cumplía. Evidencia adicional en un log de una sesión anterior:
+  `"Luces LANDING ENCENDIDAS (13843 ft AGL)"` con altitud real 16977 ft —
+  `16977 − 3162 (SKCL) ≈ 13815`, coincide casi exacto con el AGL mal calculado.
+
+  Había **tres** lugares independientes con el mismo patrón (ninguno consultaba el desvío
+  confirmado):
+  - `FlightManager.ReferenceAirportElevation` → `CurrentAGL` → gate de Stabilized Approach,
+    `IsApproachStabilized`, `computedAgl` en `TelemetryCoordinator` (polling + captura de buffer),
+    mensajes de log/OSD "(N ft AGL)".
+  - `FlightManager.Telemetry.cs::BuildPhaseInput().DestinationElevation` → `FlightPhaseStateMachine`'s
+    `altAboveDest` → la transición `Descent → Approach` (misma causa raíz documentada en v0.8.10
+    como "por qué Approach puede no alcanzarse nunca" — corregir esto la resuelve de rebote).
+  - `Helpers/FlightPhaseHelper.cs::GetTerrainElevation` → `TelemetryCoordinator.PrepareTelemetry`'s
+    `altitude_agl` enviado a phpVMS en cada posición ACARS.
+
+  **Fix:** nuevo campo cacheado `FlightManager._arrivalAirportElevation` (+ `SetArrivalAirportElevation`/
+  `ArrivalAirportElevationFt`), seteado en los mismos dos call sites donde ya se confirma el desvío
+  (`TelemetryCoordinator.ReconfirmApproachRunway`, `LookupRunwayData`) vía el nuevo
+  `NavDataService.GetAirportElevationFt(icao)` (usa `NavDataClient.GetAirportInfo(icao)?.ElevationFt`,
+  síncrono, carga on-demand — mismo patrón que `GetRunwayThreshold`). `ReferenceAirportElevation` y
+  `BuildPhaseInput()` ahora hacen `_arrivalAirportElevation ?? <elevación planeada>`; `PrepareTelemetry`
+  usa el mismo override para `altitude_agl`. Si la consulta a NavData falla, se mantiene el valor
+  anterior (nunca cae a `0`, que sería peor).
+
+  **Efecto colateral positivo:** al corregir `BuildPhaseInput().DestinationElevation`, la transición
+  `Descent → Approach` de `FlightPhaseStateMachine` ahora también funciona correctamente para desvíos
+  con diferencia de elevación grande — esto resuelve la limitación documentada en v0.8.10
+  ("Stabilized Approach nunca se evalúa en desvíos severos"); ese criterio (hasta 15 pts) ahora puede
+  evaluarse normalmente una vez el desvío se detecta a tiempo.
+
+  **Archivos modificados:**
+  - `Services/Interfaces/INavDataService.cs` / `Services/NavDataService.cs` — nuevo
+    `GetAirportElevationFt(icao)`
+  - `Core/Flight/FlightManager.cs` — nuevo campo `_arrivalAirportElevation`, `SetArrivalAirportElevation`,
+    `ArrivalAirportElevationFt`; `ReferenceAirportElevation` actualizado
+  - `Core/Flight/FlightManager.Telemetry.cs` — `BuildPhaseInput().DestinationElevation` actualizado
+  - `Core/Flight/FlightManager.Lifecycle.cs` — reset del nuevo campo en `ResetFlightState()`/`ResumeFlight()`
+  - `ViewModels/TelemetryCoordinator.cs` — fetch+set de elevación en los 2 call sites de desvío;
+    override en `PrepareTelemetry`
+
+- **`MovePilotAsync` roto — confirmado 405 en producción** (`FlightManager.Lifecycle`, `ApiService`):
+
+  Confirmado en el mismo vuelo real: `❌ Error al reubicar al piloto en el aeropuerto real de
+  llegada: Move pilot failed: {"...":"The PUT method is not supported for route api/user.
+  Supported methods: GET, HEAD."...}`. A pesar del error, phpVMS dejó correctamente al piloto y
+  al avión en SKBO — evidencia de que phpVMS ya reubica al piloto automáticamente al procesar el
+  campo `diversion-airport` del PIREP. Se retiró la llamada rota de `FilePirep()` (mismo criterio
+  que `GetNearestAirport` en v0.8.10: el método permanece en `ApiService.cs`, documentado como
+  roto vía comentario, sin borrarse). El bloque `UpdatePirep(arr_airport_id)` justo antes no se
+  toca — sigue siendo necesario y funciona.
+
+  **Archivos modificados:**
+  - `Core/Flight/FlightManager.Lifecycle.cs` — retiro de la llamada a `MovePilotAsync` en `FilePirep()`
+  - `Services/ApiService.cs` — comentario documentando el 405 confirmado
+
+---
+
+## [0.8.10] — 2026-09-18
+
+### Fixed
+
+- **Desvío severo (aeropuerto real con elevación muy distinta a la planeada) nunca detectado
+  — QNH penalizado sin posibilidad de revisión, pista/ILS nunca resueltos, PIREP dejaba al
+  piloto y la aeronave en el destino planeado** (`TelemetryCoordinator`, `ApproachValidator`,
+  `FlightManager.Lifecycle`, `ApiService`):
+
+  Reportado con un vuelo real SKRG→SKCL que en realidad voló y aterrizó en SKBO (nunca cerca
+  de SKCL ni del alterno filed SKPE). El log ACARS real mostró el status saltando de `APR`
+  (código de `Descent`) directo a `LDG`, **sin pasar nunca por `FIN`** (código de `Approach`):
+  la fase interna `FlightPhase.Approach` nunca se alcanzó. Causa raíz:
+  `FlightManager.Telemetry.cs` hardcodea `DistanceToDestinationNm = -1` siempre, dejando
+  muerta la rama de distancia en la transición `Descent → Approach`; solo puede disparar la
+  rama de altitud, calculada contra la **elevación del destino planeado** (SKCL, 3162 ft).
+  Como SKBO está ~5200 ft más alto, esa condición nunca se cumplió — ni en el touchdown.
+
+  Como todo el mecanismo de detección de desvío (`ReconfirmApproachRunway`, endpoint NavData
+  `nearest/approach-airport`) vivía gateado a `FlightPhase.Approach`, nunca corrió para este
+  vuelo. El fallback de último recurso en touchdown (`LookupRunwayData` → `IApiService.
+  GetNearestAirport`, `GET /api/airports/nearest`) tampoco salvó el caso: probado en vivo
+  contra producción, devuelve `404 "No query results for model [App\Models\Airport] NEAREST"`
+  — esa ruta no existe en esta instalación de phpVMS, y el fallo se tragaba en un `catch {}`
+  silencioso.
+
+  **Fix en tres partes:**
+
+  1. **Detección también en `FlightPhase.Descent`** (`TelemetryCoordinator.ProcessRawData`):
+     el gate de `ReconfirmApproachRunway`/captura del buffer de aproximación ahora corre en
+     `Descent || Approach`, no solo `Approach`. `OnPhaseChanged` trata ambas fases como un
+     superestado único — el reset de `_approachThreshold`/`_approachDestination` solo ocurre
+     al entrar al par desde afuera (`Climb → Descent`), no en la transición interna
+     `Descent → Approach`, así lo ya resuelto durante Descent sobrevive esa transición.
+  2. **Retiro del fallback roto de `GetNearestAirport`** en `LookupRunwayData` (confirmado
+     404 en producción) — `LookupRunwayData` vuelve a ser síncrono (`void`). El método sigue
+     existiendo en `ApiService.cs` (documentado como roto vía comentario) porque
+     `FlightManager.DetectNearestAirport` todavía depende de él — problema separado, no
+     corregido aquí.
+  3. **QNH de llegada: provisional durante el vuelo, confirmado/revertido al filear**
+     (estilo "comisarios de F1", decisión del maintainer): el check de QNH de llegada puede
+     disparar antes de que el desvío se detecte, incluso con el fix de la Parte 1 (a mucha
+     distancia/altitud todavía). Antes penalizaba de forma inmediata e irreversible contra
+     `EffectiveDestination ?? DestIcao` en ese momento. Ahora:
+     - `ApproachValidator.CheckArrivalQnhProvisionalAsync` reemplaza a `CheckQnhAsync` en los
+       dos call sites de llegada (gate TL−1000 ft y fallback 1000 ft AGL) — loguea/OSD en
+       tiempo real pero **no toca `QnhViolations`**, solo guarda un veredicto provisional.
+     - `ApproachValidator.FinalizeArrivalQnhAsync` — único punto que suma al contador para el
+       componente de llegada. Llamado una sola vez, **awaited**, desde
+       `FlightManager.Lifecycle.FilePirep()` antes de `BuildScoreData()`/`ComputeScore()`,
+       usando el destino **final** conocido y el QNH **actual** del avión (no el capturado en
+       el check temprano). Sin METAR definitivo, nunca puntúa en ningún sentido.
+     - Los checks de salida (vs METAR de origen) y de clima (vs STD 1013) no cambiaron —
+       nunca son ambiguos, siguen siendo inmediatos y definitivos.
+
+  **Archivos modificados:**
+  - `ViewModels/TelemetryCoordinator.cs` — gate de `ProcessRawData` extendido a Descent;
+    `OnPhaseChanged` con superestado `{Descent, Approach}`; `LookupRunwayData` vuelve a
+    `void`, retirado el fallback a `GetNearestAirport`; retirada la dependencia `IApiService`
+    ya sin uso (constructor + call site en `MainViewModel.cs`)
+  - `Core/Flight/ApproachValidator.cs` — nuevos campos `_arrivalQnhFinalized`,
+    `_provisionalArrivalQnhViolation`; nuevos métodos `CheckArrivalQnhProvisionalAsync`,
+    `FinalizeArrivalQnhAsync`; call sites C/D migrados
+  - `Core/Flight/FlightManager.Lifecycle.cs` — `FilePirep()` reordenado: `arrivalIcao` se
+    calcula antes del scoring y se awaita `FinalizeArrivalQnhAsync` antes de
+    `BuildScoreData()`
+  - `Services/ApiService.cs` — comentario documentando `GetNearestAirport` como roto
+    (404 confirmado en producción)
+  - `Languages/en.json` / `es.json` — nuevas claves `Log_QnhPenaltyProvisional`,
+    `Log_QnhFinalPenalty`, `Log_QnhPenaltyReversed`, `Log_QnhFinalIndeterminate`
+
+---
+
+## [0.8.9] — 2026-09-18
+
+### Added
+
+- **Detección de aeropuerto de aproximación vía NavData — reemplaza el fallback dest→alt→origin
+  y resuelve pistas paralelas** (`NavDataClient`, `NavDataService`, `TelemetryCoordinator`,
+  `PirepBuilder`, `FlightManager`):
+
+  phpVMS fue corregido del lado del backend para dejar de inferir diversiones desde
+  `alt_airport_id` (poblado siempre por SimBrief, aterrice o no en el alterno) y solo procesar
+  una diversión real cuando el pirep incluye el campo `diversion-airport`. Aprovechando el
+  cambio, NavData expuso un endpoint dedicado (`GET /nearest/approach-airport/`) que resuelve
+  aeropuerto+pista por posición/heading en una sola llamada, con desambiguación de **pistas
+  paralelas** por `score` (dominado por `cross_track_nm`, la desviación lateral al eje de cada
+  pista — validado por NavData para SKBO 14L/14R, ~355 m de separación, con margen de
+  crosswind >20° antes de fallar el desempate).
+
+  **Reemplaza** la cadena dest→alt→origin agregada en v0.8.8 (`TelemetryCoordinator.ProcessRawData`)
+  por una **re-confirmación continua** durante toda la fase Approach (throttled a 5 s, activa
+  mientras AGL > 1000 ft) — no solo una resolución única: pistas paralelas con un fix inicial
+  compartido (ej. SKBO 14L/14R vía AMVES) son geométricamente ambiguas justo en ese fix, y el
+  match solo se vuelve confiable cuando el avión diverge hacia el curso final específico. Si el
+  resultado cambia respecto al ya confirmado:
+  - **Diversión** (ICAO ≠ destino planeado): se marca de inmediato vía
+    `FlightManager.SetEffectiveDestination` + nuevo `SetDivertedAirport`, sin esperar a
+    resolver la geometría completa del umbral — los gates de QNH/Localizer necesitan esto lo
+    antes posible.
+  - **Corrección de pista paralela sin diversión** (mismo aeropuerto, pista distinta): limpia
+    `ApproachBuffer` (los puntos previos se calcularon contra el umbral equivocado) y relanza
+    `LoadApproachData` para recargar el ILS/approach de la pista correcta.
+
+  El fallback dest→alt→origin→`GetNearestAirport` en `LookupRunwayData` (touchdown, v0.8.8) se
+  mantiene como red de seguridad si la capa de Approach no llegó a resolver nada.
+
+  **`diversion-airport` en el payload del PIREP** — `PirepBuilder.BuildPayload` se reescribió
+  como `Dictionary<string,object>` (antes objeto anónimo) para poder omitir la clave por
+  completo cuando no hay desvío, en vez de enviarla como `null` — phpVMS solo procesa una
+  diversión si el pirep **incluye** el campo. Se agrega solo si `FlightManager.DivertedAirport`
+  no es null.
+
+  **Decisión de diseño:** vmsOpenAcars sigue siendo responsable de garantizar
+  `arr_airport_id`/`curr_airport_id` (vía `UpdatePirep`/`MovePilotAsync`, agregados en v0.8.8)
+  independientemente de lo que phpVMS procese internamente al recibir `diversion-airport` — no
+  se asume ni se depende de eso.
+
+  **Archivos modificados:**
+  - `Models/NavData.cs` — `NavApproachAirportResponse`, `NavApproachAirportRunway`
+  - `Db/RunwayService.cs` — `NearestApproachAirportResult`
+  - `Services/NavDataClient.cs` — `GetNearestApproachAirportAsync`
+  - `Services/NavDataService.cs` / `Services/Interfaces/INavDataService.cs` — `FindApproachAirport`
+  - `Core/Flight/FlightManager.cs` — `_divertedAirport`, `SetDivertedAirport`, `DivertedAirport`;
+    reset en `ResetFlightState`/`ResumeFlight`
+  - `Core/Flight/PirepBuilder.cs` — `BuildPayload` ahora `Dictionary<string,object>`;
+    `PirepPayloadArgs.DiversionAirport`
+  - `Core/Flight/FlightManager.Lifecycle.cs` — pasa `DiversionAirport` a `PirepPayloadArgs`
+  - `ViewModels/TelemetryCoordinator.cs` — reemplaza la cadena dest→alt→origin por
+    `ReconfirmApproachRunway` (throttled, re-entrante-safe vía `_reconfirmingApproachAirport`)
+  - `Languages/en.json` / `es.json` — nueva clave `Lnm_DiversionDetected`
+
+---
+
 ## [0.8.8] — 2026-09-17
 
 ### Fixed
@@ -28,11 +318,21 @@
      matchea ni destino ni alterno planeados, prueba `plan.Origin`. Si matchea, fija
      `EffectiveDestination` **antes** de que se disparen los gates de QNH (TL−1000 ft y
      1000 ft AGL), corrigiendo el METAR usado en tiempo real.
+     **Superseded en v0.8.9** por `NavDataService.FindApproachAirport` (endpoint dedicado de
+     NavData) — ver esa entrada.
   2. **En touchdown** (`TelemetryCoordinator.LookupRunwayData`): mismo cross-reference como
      red de seguridad si la capa de Approach no llegó a resolver el threshold. Añade además
      `CheckFlownDistance` — heurística secundaria: si la distancia volada es <60% de la
      planeada, loguea aviso de revisión (`Lnm_DistanceMismatch`) independientemente de si
      hubo match de pista.
+
+  **Fallback genérico a cualquier aeropuerto** (`LookupRunwayData`): si destino, alterno
+  y origen fallan los tres, consulta `IApiService.GetNearestAirport(lat, lon)`
+  (`GET /api/airports/nearest` de phpVMS, ya existente pero solo usado antes para
+  validación pre-vuelo) para resolver el ICAO más cercano a la posición real, y reintenta
+  `FindTouchdownRunway` contra ese ICAO. `NavDataService`/`NavDataClient` cargan cualquier
+  aeropuerto on-demand (no están limitados a los pre-cargados), así que esto generaliza la
+  detección a un desvío a **cualquier** aeropuerto, no solo destino/alterno/origen.
 
   **Corrección del PIREP** — `FlightManager.Lifecycle.FilePirep()`: si `_effectiveDestination`
   difiere del destino planeado, llama a `_apiService.UpdatePirep(id, { arr_airport_id })`
@@ -43,16 +343,28 @@
   rechaza con `503`, lo cual no afecta el flujo normal porque la corrección siempre ocurre
   antes de filear.
 
+  **Corrección de la posición del piloto** — mismo punto en `FilePirep()`: llama a
+  `_apiService.MovePilotAsync(arrivalIcao)` (`PUT /api/user { curr_airport_id }`). Este
+  método ya existía en `ApiService`/`IApiService` (implementado, documentado, nunca
+  invocado desde ningún flujo) — sin él, `user.curr_airport` en phpVMS quedaba "parado" en
+  el destino planeado nunca alcanzado aunque el `arr_airport_id` del PIREP ya estuviera
+  corregido.
+
   **Archivos modificados:**
-  - `ViewModels/TelemetryCoordinator.cs` — fallback a `plan.Origin` en la detección de
-    threshold de Approach y en `LookupRunwayData`; nuevo método `CheckFlownDistance`; el
-    lookup de parking en `OnBlock` ahora prefiere `_approachDestination`
+  - `ViewModels/TelemetryCoordinator.cs` — fallback a `plan.Origin` y luego a
+    `GetNearestAirport` en la detección de threshold de Approach y en `LookupRunwayData`
+    (ahora `async Task`); nuevo método `CheckFlownDistance`; el lookup de parking en
+    `OnBlock` ahora prefiere `_approachDestination`; nueva dependencia `IApiService`
   - `Core/Flight/FlightManager.Lifecycle.cs` — `FilePirep()` corrige `arr_airport_id` vía
-    `UpdatePirep` cuando hay mismatch; log `Log_ArrivalAirportCorrected`
+    `UpdatePirep` y reubica al piloto vía `MovePilotAsync` cuando hay mismatch; logs
+    `Log_ArrivalAirportCorrected` / `Log_ErrorPilotPositionUpdate`
   - `Core/Flight/PirepBuilder.cs` — `PirepPayloadArgs.ArrivalAirport` + `arr_airport_id` en
     `BuildPayload`
+  - `ViewModels/MainViewModel.cs` — pasa `apiService` al constructor de
+    `TelemetryCoordinator`
   - `Languages/en.json` / `es.json` — nuevas claves `Lnm_ArrivalAirportMismatch`,
-    `Lnm_DistanceMismatch`, `Log_ArrivalAirportCorrected`, `Log_ErrorArrivalAirportUpdate`
+    `Lnm_DistanceMismatch`, `Log_ArrivalAirportCorrected`, `Log_ErrorArrivalAirportUpdate`,
+    `Log_ErrorPilotPositionUpdate`
 
 ---
 

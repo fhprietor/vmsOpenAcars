@@ -28,6 +28,8 @@ namespace vmsOpenAcars.Core.Flight
             _fuelAtTaxiInStart = 0;
             CurrentFuel = 0;
             _effectiveDestination = null;
+            _divertedAirport = null;
+            _arrivalAirportElevation = null;
             _td.Reset();
             _pen.Reset();
             _approachValidator.Reset();
@@ -174,6 +176,8 @@ namespace vmsOpenAcars.Core.Flight
             // El scoring de esta sesión arranca limpio (no podemos recuperar
             // los datos de la sesión anterior)
             _effectiveDestination = null;
+            _divertedAirport = null;
+            _arrivalAirportElevation = null;
             _td.Reset();
             _pen.Reset();
             _approachValidator.Reset();
@@ -235,12 +239,20 @@ namespace vmsOpenAcars.Core.Flight
                 OnLog?.Invoke(_("Log_FuelUsed", $"{fuelUsed:F0}"), Theme.MainText);
             }
 
+            // Resolve the final arrival airport BEFORE scoring — the QNH reconciliation
+            // below and the arrival-airport-correction block after scoring both need it,
+            // so it's computed once here and reused in both places.
+            string plannedDestIcao = _activePlan?.Destination;
+            string arrivalIcao     = _effectiveDestination ?? plannedDestIcao;
+
+            // Authoritative arrival-QNH reconciliation — must be awaited and must run
+            // before BuildScoreData(), since it may still increment QnhViolations.
+            await _approachValidator.FinalizeArrivalQnhAsync(arrivalIcao, AircraftQnhMb);
+
             var scoreResult = PirepBuilder.ComputeScore(BuildScoreData());
             LastFlightScore = scoreResult.TotalScore;
             PirepBuilder.LogScore(scoreResult, OnLog);
 
-            string plannedDestIcao = _activePlan?.Destination;
-            string arrivalIcao     = _effectiveDestination ?? plannedDestIcao;
             if (!string.IsNullOrEmpty(_effectiveDestination) &&
                 !_effectiveDestination.Equals(plannedDestIcao, StringComparison.OrdinalIgnoreCase))
             {
@@ -252,6 +264,11 @@ namespace vmsOpenAcars.Core.Flight
                 // against a fixed field set that ignores arr_airport_id.
                 try { await _apiService.UpdatePirep(ActivePirepId, new { arr_airport_id = arrivalIcao }); }
                 catch (Exception ex) { OnLog?.Invoke(_("Log_ErrorArrivalAirportUpdate", ex.Message), Theme.Danger); }
+
+                // MovePilotAsync (PUT api/user) is NOT called here — confirmed broken
+                // (405, method not supported) against production, and confirmed on a
+                // real diverted flight that phpVMS already relocates the pilot on its
+                // own when it processes `diversion-airport` in the /file payload below.
             }
 
             var finalData = PirepBuilder.BuildPayload(new PirepPayloadArgs
@@ -267,6 +284,7 @@ namespace vmsOpenAcars.Core.Flight
                 Score                    = scoreResult.TotalScore,
                 BlockOnTime              = _timer.ServerBlockOnTime,
                 ArrivalAirport           = arrivalIcao,
+                DiversionAirport         = _divertedAirport,
             });
 
             bool success = await _apiService.FilePirep(ActivePirepId, finalData);

@@ -53,6 +53,8 @@ namespace vmsOpenAcars.Core.Flight
         private const int ApEngageDebounce = 6;
         private const double SingleEngineTaxiMinRatio = 0.5;
         private string _effectiveDestination = null;
+        private string _divertedAirport = null;
+        private double? _arrivalAirportElevation = null;  // real (diverted) elevation, once known
         private bool _isNavOn, _isStrobeOn, _isTaxiLightOn, _isLandingLightOn, _isBeaconOn, _isSpoilersOn;
         private bool _pendingNavOn, _pendingBeaconOn, _pendingLandingOn, _pendingTaxiOn, _pendingStrobeOn, _pendingSpoilers;
         private DateTime _navPending, _beaconPending, _landingPending, _taxiPending, _strobePending, _spoilersPending;
@@ -90,7 +92,7 @@ namespace vmsOpenAcars.Core.Flight
                     case FlightPhase.OnBlock:
                     case FlightPhase.Arrived:
                     case FlightPhase.Completed:
-                        return _activePlan.DestinationElevation;
+                        return _arrivalAirportElevation ?? _activePlan.DestinationElevation;
                     default:
                         return _activePlan.OriginElevation;
                 }
@@ -548,6 +550,32 @@ namespace vmsOpenAcars.Core.Flight
         {
             _effectiveDestination = icao;
             _approachValidator.EffectiveDestination = icao;
+        }
+
+        // Confirmed by NavData's nearest/approach-airport match (icao != planned
+        // destination) — drives the `diversion-airport` field sent at file time.
+        // Distinct from _effectiveDestination: that one also gets set from the
+        // touchdown-time fallback chain, which is a lower-confidence guess.
+        public void SetDivertedAirport(string icao) => _divertedAirport = icao;
+        public string DivertedAirport => _divertedAirport;
+
+        // Real elevation of the confirmed arrival airport (from NavData), once known —
+        // overrides the originally-planned destination's elevation in
+        // ReferenceAirportElevation and BuildPhaseInput()'s DestinationElevation. Set
+        // alongside SetDivertedAirport at the same two call sites in TelemetryCoordinator.
+        public void SetArrivalAirportElevation(double elevationFt) => _arrivalAirportElevation = elevationFt;
+        public double? ArrivalAirportElevationFt => _arrivalAirportElevation;
+
+        // Revierte un desvío marcado por error (falso positivo geométrico transitorio) cuando
+        // el tracking local vuelve a confirmar el destino planeado. No se llama en touchdown —
+        // ahí el desvío, si lo hay, ya es definitivo.
+        public void ClearDivertedAirport()
+        {
+            if (_divertedAirport == null) return;
+            _divertedAirport = null;
+            _effectiveDestination = null;
+            _approachValidator.EffectiveDestination = null;
+            _arrivalAirportElevation = null;
         }
 
         public bool CanStartFlight()

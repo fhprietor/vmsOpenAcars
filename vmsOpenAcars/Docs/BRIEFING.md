@@ -1,6 +1,6 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.8.8**
+**Versión 0.9.2**
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -355,7 +355,9 @@ El QNH del altímetro se comprueba en **dos momentos distintos**:
 
 Ambas verificaciones son independientes: si fallas las dos, el score baja −10 pts. El sistema registra el resultado de cada check en el log del vuelo.
 
-> **Desvíos y regresos a origen (v0.8.8):** si aterrizas en un aeropuerto distinto al destino planeado (emergencia, regreso a origen, desvío no filed como alterno), vmsOpenAcars lo detecta durante la aproximación comparando tu posición/rumbo contra las pistas de destino, alterno **y origen**. Al confirmar el aeropuerto real, el check de "Gate 1 000 ft AGL" usa el QNH de ese aeropuerto (no el del destino planeado), y el PIREP final se registra con el aeropuerto de llegada correcto.
+> **Desvíos y regresos a origen (v0.8.8–v0.9.1):** si aterrizas en un aeropuerto distinto al destino planeado (emergencia, regreso a origen, desvío real), vmsOpenAcars lo detecta durante todo el descenso y la aproximación mediante un servicio de NavData que resuelve el aeropuerto y la pista más alineados con tu posición y rumbo — incluso entre **pistas paralelas muy cercanas** (por ejemplo 14L/14R). Al confirmar el aeropuerto real, el check de QNH usa el de ese aeropuerto (no el del destino planeado), la altitud AGL/el registro del aterrizaje también se recalculan contra el aeropuerto real, y el PIREP final se registra con el aeropuerto de llegada correcto. Si durante un giro de la STAR el avión solo cruza cerca de otro aeródromo sin acercarse realmente a él, vmsOpenAcars ya no lo confunde con un desvío genuino — y si aun así llegara a marcarlo por error, se autocorrige en cuanto vuelve a confirmar tu destino planeado.
+>
+> **Sobre el aviso de QNH en tiempo real:** si ves una advertencia de QNH durante el descenso, puede tratarse de un aviso *provisional* — todavía no sabemos con certeza a qué aeropuerto te diriges cuando ese check ocurre. La penalización solo se confirma (o se revierte, si en realidad tenías el QNH correcto para tu aeropuerto real) al filear el PIREP, una vez se conoce el aeropuerto de llegada con certeza.
 
 ---
 
@@ -636,4 +638,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.8.8 — que tengas buen vuelo.*
+*vmsOpenAcars v0.9.2 — que tengas buen vuelo.*

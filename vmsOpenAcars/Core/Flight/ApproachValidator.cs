@@ -74,6 +74,9 @@ namespace vmsOpenAcars.Core.Flight
         private bool   _passing10kFtSent;
         private bool   _taOsdSent, _tlOsdSent;
         private bool   _originQnhChecked, _destQnhChecked;
+        private bool   _departureQnhChecked, _takeoffLightsChecked;
+        private bool   _arrivalQnhFinalized;
+        private bool?  _provisionalArrivalQnhViolation;  // null=indeterminate, true=flagged, false=OK
         private bool   _approachGateEvaluated;
         private double _prevApproachAgl = double.MaxValue;
 
@@ -148,6 +151,8 @@ namespace vmsOpenAcars.Core.Flight
                     break;
 
                 case FlightPhase.TakeoffRoll:
+                    if (_takeoffLightsChecked) break;
+                    _takeoffLightsChecked = true;
                     if (!strobeOn)
                     {
                         LightsViolationCount++;
@@ -187,6 +192,7 @@ namespace vmsOpenAcars.Core.Flight
             _tlOsdSent          = false;
             _destQnhChecked     = false;
             _originQnhChecked   = false;
+            _provisionalArrivalQnhViolation = null;
             ResetGate();
         }
 
@@ -209,6 +215,9 @@ namespace vmsOpenAcars.Core.Flight
             AircraftIcao          = null;
             DestIcao              = null;
             EffectiveDestination  = null;
+            _arrivalQnhFinalized  = false;
+            _departureQnhChecked  = false;
+            _takeoffLightsChecked = false;
             ResetApproachData();
         }
 
@@ -317,7 +326,7 @@ namespace vmsOpenAcars.Core.Flight
                 if (!string.IsNullOrEmpty(destIcao))
                 {
                     _destQnhChecked = true;
-                    CheckQnhAsync(destIcao, ctx.QnhMb).ConfigureAwait(false);
+                    CheckArrivalQnhProvisionalAsync(destIcao, ctx.QnhMb).ConfigureAwait(false);
                 }
             }
         }
@@ -420,7 +429,7 @@ namespace vmsOpenAcars.Core.Flight
             if (DestTransitionLevelFt <= 0 && !_destQnhChecked && !string.IsNullOrEmpty(destIcao))
             {
                 _destQnhChecked = true;
-                CheckQnhAsync(destIcao, ctx.QnhMb).ConfigureAwait(false);
+                CheckArrivalQnhProvisionalAsync(destIcao, ctx.QnhMb).ConfigureAwait(false);
             }
 
             _prevApproachAgl = agl;
@@ -473,7 +482,9 @@ namespace vmsOpenAcars.Core.Flight
 
         internal async Task CheckQnhAsync(string icao, double aircraftQnhMb)
         {
+            if (_departureQnhChecked) return;
             if (string.IsNullOrWhiteSpace(icao) || aircraftQnhMb <= 0 || _weatherService == null) return;
+            _departureQnhChecked = true;
 
             double? stationQnh = await _weatherService.GetQnhMbAsync(icao);
             if (stationQnh == null)
@@ -495,6 +506,86 @@ namespace vmsOpenAcars.Core.Flight
                 OnLog?.Invoke(_("Log_QnhPenalty", label), Theme.Warning);
                 OnOsdMessage?.Invoke("PENALTY  QNH  −5 PTS", OsdSeverity.Warning);
             }
+        }
+
+        // Real-time-only feedback for the arrival QNH check (TL−1000 ft gate / 1000 ft
+        // AGL fallback). Does NOT touch QnhViolations — EffectiveDestination may still
+        // be wrong at this point (diversion not yet confirmed, or the gate fired far
+        // from any airport). The authoritative decision is made later by
+        // FinalizeArrivalQnhAsync, using the FINAL known destination and the aircraft's
+        // CURRENT QNH setting rather than this moment's snapshot.
+        internal async Task CheckArrivalQnhProvisionalAsync(string icao, double aircraftQnhMb)
+        {
+            if (string.IsNullOrWhiteSpace(icao) || aircraftQnhMb <= 0 || _weatherService == null) return;
+
+            double? stationQnh = await _weatherService.GetQnhMbAsync(icao);
+            if (stationQnh == null)
+            {
+                OnLog?.Invoke(_("Log_QnhUnavailable", icao), Theme.Warning);
+                _provisionalArrivalQnhViolation = null;
+                return;
+            }
+
+            double diff  = Math.Abs(aircraftQnhMb - stationQnh.Value);
+            string label = $"QNH | Avión: {aircraftQnhMb:F0} hPa  {icao}: {stationQnh.Value:F0} hPa  Δ{diff:F0} hPa";
+
+            if (diff <= 2.0)
+            {
+                _provisionalArrivalQnhViolation = false;
+                OnLog?.Invoke(_("Log_QnhOk", label), Theme.Success);
+            }
+            else
+            {
+                _provisionalArrivalQnhViolation = true;
+                OnLog?.Invoke(_("Log_QnhPenaltyProvisional", label), Theme.Warning);
+                OnOsdMessage?.Invoke("QNH MISMATCH  PENDING CONFIRMATION", OsdSeverity.Warning);
+            }
+        }
+
+        // Authoritative, awaited, single-shot arrival-QNH reconciliation. Called once
+        // from FlightManager.Lifecycle.FilePirep(), before BuildScoreData()/
+        // ComputeScore(), using the FINAL known destination and the aircraft's CURRENT
+        // QNH setting — not the possibly-stale snapshot captured by the provisional
+        // check earlier in the flight. Only place that scores the arrival-QNH component.
+        internal async Task FinalizeArrivalQnhAsync(string finalDestIcao, double currentAircraftQnhMb)
+        {
+            if (_arrivalQnhFinalized) return;
+            _arrivalQnhFinalized = true;
+
+            if (!_destQnhChecked) return;  // no provisional check ever ran — nothing to finalize
+
+            if (string.IsNullOrWhiteSpace(finalDestIcao) || currentAircraftQnhMb <= 0 || _weatherService == null)
+                return;
+
+            double? stationQnh = await _weatherService.GetQnhMbAsync(finalDestIcao);
+            if (stationQnh == null)
+            {
+                // No definitive answer — per the "F1 stewards" rule, an unconfirmed flag
+                // is never scored. If a provisional violation was flagged earlier, it is
+                // explicitly dropped here rather than silently kept.
+                if (_provisionalArrivalQnhViolation == true)
+                    OnLog?.Invoke(_("Log_QnhFinalIndeterminate", finalDestIcao), Theme.Warning);
+                return;
+            }
+
+            double diff  = Math.Abs(currentAircraftQnhMb - stationQnh.Value);
+            string label = $"QNH | Avión: {currentAircraftQnhMb:F0} hPa  {finalDestIcao}: {stationQnh.Value:F0} hPa  Δ{diff:F0} hPa";
+
+            if (diff > 2.0)
+            {
+                QnhViolations++;
+                OnLog?.Invoke(_("Log_QnhFinalPenalty", label), Theme.Warning);
+                OnOsdMessage?.Invoke("PENALTY  QNH ARRIVAL  −5 PTS", OsdSeverity.Warning);
+            }
+            else if (_provisionalArrivalQnhViolation == true)
+            {
+                // The exact bug being fixed: an earlier provisional flag (against the
+                // wrong, planned destination) is reversed now that the real arrival
+                // airport is known.
+                OnLog?.Invoke(_("Log_QnhPenaltyReversed", label), Theme.Success);
+            }
+            // else: was OK provisionally (or never determined) and is still OK — stay
+            // silent, matches the single-log-line behavior of a normal, non-diverted flight.
         }
 
         internal void CheckStdPressure(double aircraftQnhMb)

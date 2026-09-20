@@ -48,22 +48,32 @@ namespace vmsOpenAcars.Core.Flight
                 log?.Invoke($"⚠️ Single engine taxi sin bonificación — {result.SingleEngineTaxiDeniedReason}", Theme.Warning);
         }
 
-        internal static object BuildPayload(PirepPayloadArgs a) => new
+        internal static object BuildPayload(PirepPayloadArgs a)
         {
-            state = 2,
-            submitted_at = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
-            block_on_time = (a.BlockOnTime != default(DateTime) ? a.BlockOnTime : DateTime.UtcNow).ToString("yyyy-MM-dd HH:mm:ss"),
-            arr_airport_id = a.ArrivalAirport,
-            distance = Math.Round(a.TotalDistanceNm, 2),
-            planned_distance = Math.Round(a.PlannedDistanceNm, 2),
-            flight_time = a.ActualFlightTimeMinutes,
-            planned_flight_time = a.PlannedFlightTimeMinutes,
-            block_fuel = Math.Round(a.BlockFuel, 0),
-            fuel_used = Math.Round(a.FuelUsed, 0),
-            landing_rate = a.LandingRateFpm ?? 0,
-            score = a.Score,
-            notes = $"vmsOpenAcars Report - Total: {a.TotalFlightTimeMinutes} min, Flight: {a.ActualFlightTimeMinutes} min, Dist: {a.TotalDistanceNm:F1} NM"
-        };
+            // Dictionary (not an anonymous object) so diversion-airport can be left
+            // truly ABSENT from the JSON when there's no diversion — phpVMS only
+            // processes a diversion when the pirep includes that key, so an explicit
+            // null would be the wrong signal.
+            var payload = new Dictionary<string, object>
+            {
+                ["state"] = 2,
+                ["submitted_at"] = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+                ["block_on_time"] = (a.BlockOnTime != default(DateTime) ? a.BlockOnTime : DateTime.UtcNow).ToString("yyyy-MM-dd HH:mm:ss"),
+                ["arr_airport_id"] = a.ArrivalAirport,
+                ["distance"] = Math.Round(a.TotalDistanceNm, 2),
+                ["planned_distance"] = Math.Round(a.PlannedDistanceNm, 2),
+                ["flight_time"] = a.ActualFlightTimeMinutes,
+                ["planned_flight_time"] = a.PlannedFlightTimeMinutes,
+                ["block_fuel"] = Math.Round(a.BlockFuel, 0),
+                ["fuel_used"] = Math.Round(a.FuelUsed, 0),
+                ["landing_rate"] = a.LandingRateFpm ?? 0,
+                ["score"] = a.Score,
+                ["notes"] = $"vmsOpenAcars Report - Total: {a.TotalFlightTimeMinutes} min, Flight: {a.ActualFlightTimeMinutes} min, Dist: {a.TotalDistanceNm:F1} NM"
+            };
+            if (!string.IsNullOrEmpty(a.DiversionAirport))
+                payload["diversion-airport"] = a.DiversionAirport;
+            return payload;
+        }
     }
 
     internal sealed class PirepPayloadArgs
@@ -79,5 +89,6 @@ namespace vmsOpenAcars.Core.Flight
         internal int      Score;
         internal DateTime BlockOnTime;
         internal string   ArrivalAirport;
+        internal string   DiversionAirport;
     }
 }

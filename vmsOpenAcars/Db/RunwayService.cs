@@ -64,4 +64,22 @@ namespace vmsOpenAcars.Db
         public double AltitudeFt { get; set; }
         public bool   IsFlyover  { get; set; }
     }
+
+    // ─── Nearest approach airport (parallel-runway-aware) ────────────────────────
+
+    public class NearestApproachAirportResult
+    {
+        public string Icao              { get; set; }
+        public string Name              { get; set; }
+        public double AirportDistanceNm { get; set; }
+        public string RunwayName        { get; set; }
+        public double RunwayHeading     { get; set; }
+        public bool   HasIls            { get; set; }
+        public string IlsIdent          { get; set; }
+        public double? IlsFreqMhz       { get; set; }
+        public double? IlsCourse        { get; set; }
+        public double HeadingDiffDeg    { get; set; }
+        public double Score             { get; set; }
+        public double? CrossTrackNm     { get; set; }
+    }
 }

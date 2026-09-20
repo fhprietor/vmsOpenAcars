@@ -317,6 +317,29 @@ namespace vmsOpenAcars.Services
             }
         }
 
+        // ── Nearest approach airport ─────────────────────────────────────────────────
+
+        /// <summary>
+        /// Resuelve el aeropuerto/pista que mejor matchea una posición+heading dados,
+        /// vía /nearest/approach-airport/. Desambigua pistas paralelas por cross-track
+        /// (score dominado por la desviación lateral al eje extendido de cada pista, no
+        /// solo heading/distancia). Sin caché — la posición cambia en cada llamada.
+        /// Devuelve null si no hay match dentro de radius_nm/heading_tol (404) o si el
+        /// servicio falla.
+        /// </summary>
+        public static async Task<NavApproachAirportResponse> GetNearestApproachAirportAsync(
+            double lat, double lon, double heading, double radiusNm = 20, double headingTolDeg = 15)
+        {
+            var ci  = System.Globalization.CultureInfo.InvariantCulture;
+            string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/nearest/approach-airport/" +
+                         $"?lat={lat.ToString("F6", ci)}" +
+                         $"&lon={lon.ToString("F6", ci)}" +
+                         $"&heading={heading.ToString("F1", ci)}" +
+                         $"&radius_nm={radiusNm.ToString("F0", ci)}" +
+                         $"&heading_tol={headingTolDeg.ToString("F0", ci)}";
+            return await FetchAsync<NavApproachAirportResponse>(url).ConfigureAwait(false);
+        }
+
         // ── Connectivity + key validation ─────────────────────────────────────────
 
         /// <summary>

@@ -680,6 +680,14 @@ namespace vmsOpenAcars.Services
         /// <param name="latitude">Current latitude.</param>
         /// <param name="longitude">Current longitude.</param>
         /// <returns>The ICAO code of the nearest airport, or null if not found.</returns>
+        /// <remarks>
+        /// KNOWN BROKEN against this phpVMS instance: GET api/airports/nearest returns
+        /// 404 ("No query results for model [App\Models\Airport] NEAREST") — confirmed
+        /// live, this route doesn't exist here. In practice this always returns null.
+        /// Still called by FlightManager.DetectNearestAirport (falls back to
+        /// CurrentAirport ?? "SKBO" on failure); do not add new callers until the
+        /// correct phpVMS route is confirmed.
+        /// </remarks>
         public async Task<string> GetNearestAirport(double latitude, double longitude)
         {
             try
@@ -704,6 +712,13 @@ namespace vmsOpenAcars.Services
         /// </summary>
         /// <param name="airportIcao">The ICAO code of the destination airport.</param>
         /// <exception cref="Exception">Thrown when the server returns an error response.</exception>
+        /// <remarks>
+        /// KNOWN BROKEN against this phpVMS instance: PUT api/user returns 405
+        /// ("The PUT method is not supported for route api/user. Supported methods:
+        /// GET, HEAD.") — confirmed live. No longer called from FilePirep(); phpVMS
+        /// relocates the pilot automatically when it processes `diversion-airport`
+        /// in the /file payload (confirmed live on a real diverted flight).
+        /// </remarks>
         public async Task MovePilotAsync(string airportIcao)
         {
             var payload = new

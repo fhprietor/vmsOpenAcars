@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.8.8  
-> Última actualización: 2026-09-17
+> Versión del documento: 0.9.2  
+> Última actualización: 2026-09-20
 
 ---
 
@@ -297,6 +297,35 @@ else if (_boardingStationaryConfirmed)
 }
 // else: ya en movimiento al hacer START → ignora hasta detenerse
 ```
+
+#### Debounce en TaxiOut → TakeoffRoll (v0.9.2)
+
+Único caso de `FlightPhaseStateMachine.cs` que carecía del patrón "temporizador pendiente,
+confirmar tras N s sostenidos" ya usado por el resto de transiciones sensibles (ver tabla de
+umbrales arriba). Un pico breve de GS>30 kt durante un rodaje ágil (confirmado en vivo: 1-2 s
+por encima de 30 kt en una calle paralela a la pista) bastaba para disparar `TakeoffRoll` y, con
+él, de forma irreversible, la tabla de "Compliance de Procedimientos" de arriba (STROBE+LANDING,
+QNH de salida) — pensada para un avión genuinamente en pista.
+
+```csharp
+// FlightPhaseStateMachine.cs — case TaxiOut:
+if (inp.GroundSpeed > 30 && inp.Pitch < 1.0)
+{
+    if (_takeoffRollStart == DateTime.MinValue) _takeoffRollStart = DateTime.UtcNow;
+    else if ((DateTime.UtcNow - _takeoffRollStart).TotalSeconds >= TakeoffRollConfirmSec) // 5 s
+        TransitionTo(FlightPhase.TakeoffRoll, prev);
+}
+else { _takeoffRollStart = DateTime.MinValue; }
+```
+
+Complementado por dos fixes fuera del state machine (mismo incidente real,
+`CLAUDE.md` § "Falso TAKEOFF ROLL durante taxi rápido"):
+- `NavDataService.ProjectOnRunway` ahora retorna `null` (en vez del mejor match por rumbo sin
+  validar posición) cuando ninguna pista pasa `WithinFootprint` — evita reportar una pista
+  "detectada" con una desviación de centerline geométricamente imposible.
+- `ApproachValidator._departureQnhChecked`/`_takeoffLightsChecked` — guard de un solo disparo
+  por vuelo para el QNH de salida y las luces de `TakeoffRoll`, evitando doble penalización si
+  la fase rebota o si hay un rechazo de despegue real seguido de un segundo intento.
 
 ---
 
@@ -637,47 +666,92 @@ void SeedMockData()             // solo disponible en #if DEBUG — 5 vuelos SKR
 **Flujo de captura de aproximación:**
 
 ```
-Phase → Approach
+{Descent, Approach} tratado como un superestado único (v0.8.10) — el reset solo dispara
+al ENTRAR al par desde afuera (ej. Climb → Descent), no en la transición interna
+Descent → Approach, así lo ya resuelto durante Descent sobrevive esa transición:
     → _approachBuffer.Clear(); _approachThreshold = null; _approachDestination = null
-OnRawDataUpdated (cada 50 ms, fase = Approach)
-    → si _approachThreshold == null:
-         1. GetRunwayThreshold(plan.Destination, lat, lon, hdg)
-               requiere heading-delta ≤15° AND |cross| ≤2 NM AND along<0
-         2. si null → GetRunwayThreshold(plan.Alternate, lat, lon, hdg)  [v0.7.4]
-               si encontrado → _approachDestination = alt
-                             → log "⚠️ Approaching ALTERNATE — XXXX"
-                             → FlightManager.SetEffectiveDestination(alt)
-         3. si null en destino y alterno → GetRunwayThreshold(plan.Origin, lat, lon, hdg)  [v0.8.8]
-               si encontrado → _approachDestination = origin
-                             → log "⚠️ RETURNING TO DEPARTURE — XXXX" + OSD Critical
-                             → FlightManager.SetEffectiveDestination(origin)
-               cubre emergencia/regreso a origen no filed como alterno; sin esto
-               EffectiveDestination queda null y los gates de QNH (TL−1000 ft / 1000 ft AGL
-               en ApproachValidator) siguen validando contra el destino planeado nunca alcanzado
-         4. si null en los tres → no captura, reintenta el siguiente ciclo
-         al adquirir → _approachDestination = icao resuelto
-                     → Task.Run(LoadApproachData(_approachDestination, runway))
-                          → GetIlsForRunway() + GetApproachType() + GetApproachFixes()
-                          → _flightManager.SetApproachData(ils, approach, fixes)
-    → si AGL < 3000 ft && ≥ 2 s desde último punto:
+         _lastApproachAirportQuery = DateTime.MinValue
+OnRawDataUpdated (fase = Descent O Approach — extendido a Descent en v0.8.10), throttled
+a 5 s, activo mientras AGL > 1000 ft:
+    → Task.Run(ReconfirmApproachRunway(lat, lon, hdg))
+         → NavDataService.FindApproachAirport(lat, lon, hdg, radiusNm=20, headingTolDeg=15)
+              GET /nearest/approach-airport/ — desambigua pistas paralelas por score
+              (dominado por cross_track_nm — validado NavData para SKBO 14L/14R, ~355 m)
+         → si null (404 o sin match) → no hace nada, reintenta en 5 s
+         → plausible = !CrossTrackNm.HasValue || CrossTrackNm <= 3.0 NM  [v0.9.1] — filtra
+              matches geométricamente imposibles (un giro de STAR puede alinear el heading del
+              avión con la pista de un aeródromo cercano por pura coincidencia, aunque el avión
+              esté a >10 NM del eje extendido de esa pista; caso real SKGY: heading_diff 3.1°
+              pero cross_track_nm 11.36 — el endpoint ya envía este campo, antes se descartaba)
+         → si diverted (icao ≠ plan.Destination) y plausible y no marcado aún:
+              _approachDestination = icao; SetEffectiveDestination(icao); SetDivertedAirport(icao)
+              GetAirportElevationFt(icao) → si éxito: SetArrivalAirportElevation(elevFt)  [v0.9.0]
+                   corrige ReferenceAirportElevation/CurrentAGL y BuildPhaseInput().DestinationElevation
+                   (antes seguían usando la elevación del destino planeado incluso tras confirmar
+                   el desvío — con diferencias grandes de elevación, el AGL calculado nunca bajaba
+                   lo suficiente y el buffer de aproximación no capturaba puntos)
+              log Lnm_DiversionDetected + OSD Critical
+              (se marca ANTES de resolver el threshold completo — los gates de QNH/Localizer
+              necesitan EffectiveDestination lo antes posible, no solo al filear)
+         → si !runwayChanged:
+              si !diverted → ClearDivertedAirport()  [v0.9.1] — revierte un desvío marcado por
+                   un poll anterior si este poll ya vuelve a confirmar el destino planeado sin
+                   que cambien ni el ICAO ni la pista localmente resueltos
+              return
+         → si runwayChanged (icao o runway.name distintos al ya resuelto):
+              GetRunwayThreshold(icao, lat, lon, hdg)  ← geometría más estricta (heading-delta
+                   ≤15° AND |cross| ≤2 NM AND along<0), puede fallar si aún está lejos → reintenta
+              si resuelto → _approachThreshold = nuevo; _approachDestination = icao
+                          → ApproachBuffer.Clear() (puntos previos, umbral equivocado)
+                          → Task.Run(LoadApproachData(icao, runway.name))
+                               → GetIlsForRunway() + GetApproachType() + GetApproachFixes()
+                               → _flightManager.SetApproachData(ils, approach, fixes)
+                          → si no diverted y ya había resuelto antes:
+                               ClearDivertedAirport()  [v0.9.1]
+                               si había un desvío marcado → log Lnm_DiversionReverted
+                               si no → log "↻ RUNWAY UPDATED"
+    → si AGL < 3000 ft && ≥ 2 s desde último punto && _approachThreshold != null:
          ComputeApproachMetrics(threshold, lat, lon) → (distNm, lateralFt)
          _approachBuffer.Add(ApproachTrackPoint)
-OnTouchdownDetectedEvent → LookupRunwayData(data)  [fallback adicional, v0.8.8]
+OnTouchdownDetectedEvent → LookupRunwayData(data)  [red de seguridad, v0.8.8]
     → FindTouchdownRunway(_approachDestination ?? plan.Destination, lat, lon, hdg)
-    → si null → FindTouchdownRunway(plan.Origin, lat, lon, hdg)  ← red de seguridad si el
-         paso 3 de arriba no llegó a resolver el threshold durante Approach
-         si encontrado → _approachDestination = origin; SetEffectiveDestination(origin)
-                       → log Lnm_ArrivalAirportMismatch + OSD Critical
+    → si null → FindTouchdownRunway(plan.Origin, lat, lon, hdg)  ← por si la capa de
+         Descent/Approach de arriba no llegó a resolver nada (aproximación muy corta,
+         servicio caído)
+         si encontrado →
+             _approachDestination = airport; SetEffectiveDestination(airport); SetDivertedAirport(airport)
+             GetAirportElevationFt(airport) → si éxito: SetArrivalAirportElevation(elevFt)  [v0.9.0]
+             → log Lnm_ArrivalAirportMismatch + OSD Critical
     → CheckFlownDistance(plannedDest)  ← si distancia volada <60% de la planeada, loguea
          Lnm_DistanceMismatch para revisión manual, independientemente de si hubo match de pista
+
+    [v0.8.10] El fallback adicional a GetNearestAirport (phpVMS /api/airports/nearest) se
+    RETIRÓ — confirmado roto en producción (404 "No query results for model
+    [App\Models\Airport] NEAREST", esa ruta no existe). Fallaba siempre en silencio
+    (catch{} vacío). El método sigue en ApiService.cs (usado por
+    FlightManager.DetectNearestAirport, problema separado) pero ya no se llama aquí.
+
 SendPirep()
     → SnapshotLandingRecord()          ← captura plan + touchdown ANTES de FilePirep
     → FilePirep()
+        → arrivalIcao = _effectiveDestination ?? plan.Destination  (calculado una vez,
+             reusado por la reconciliación de QNH y por la corrección del PIREP debajo)
+        → await FinalizeArrivalQnhAsync(arrivalIcao, AircraftQnhMb)  [v0.8.10, ver bloque
+             QNH provisional abajo] — ANTES de BuildScoreData()/ComputeScore()
+        → BuildScoreData() / ComputeScore()
         → si _effectiveDestination != plan.Destination:
              UpdatePirep(id, { arr_airport_id: _effectiveDestination })  [v0.8.8]
              log Log_ArrivalAirportCorrected
-        → BuildPayload() incluye arr_airport_id (refuerzo, además del UpdatePirep previo)
-        → ResetFlightState() ← borra _activePlan y touchdown data
+             (MovePilotAsync YA NO SE LLAMA — v0.9.0 — confirmado roto en producción,
+              405 "PUT method not supported for route api/user"; confirmado en vuelo real
+              que phpVMS reubica curr_airport por su cuenta al procesar diversion-airport
+              en el payload de /file más abajo)
+        → BuildPayload() — Dictionary<string,object>, no objeto anónimo, para poder omitir
+             la clave por completo cuando no aplica (v0.8.9):
+             incluye arr_airport_id siempre (refuerzo del UpdatePirep previo)
+             incluye diversion-airport SOLO si _divertedAirport != null — phpVMS solo procesa
+                  una diversión si el pirep INCLUYE esa clave; un valor null explícito no basta
+        → ResetFlightState() ← borra _activePlan, touchdown data, _divertedAirport
     → éxito → SaveLandingRecord(record)
         → record.Score = LastFlightScore  ← no se resetea en ResetFlightState
         → LandingLogService.SaveFlight(record, _approachBuffer)
@@ -693,6 +767,49 @@ SendPirep()
 > `state=0` (`in_progress`) — exactamente el momento en que `FilePirep()` lo llama, antes de
 > transicionar a `Accepted` vía `/file`. Un PIREP ya `Accepted` (`state=2`) rechaza el mismo
 > `PUT` con `503 "This action is unauthorized"` — no afecta el flujo normal.
+
+> **v0.8.10 — por qué `FlightPhase.Approach` puede no alcanzarse nunca:**
+> `FlightManager.Telemetry.cs` hardcodea `DistanceToDestinationNm = -1` siempre en
+> `BuildPhaseInput()`, dejando muerta la rama de distancia en la transición
+> `Descent → Approach` de `FlightPhaseStateMachine`. Solo puede disparar la rama de
+> altitud (`altAboveDest = altitud − elevación del DESTINO PLANEADO < aglThr`). Si el
+> aterrizaje real es en un aeropuerto con elevación muy distinta a la planeada (caso
+> real: SKCL 3162 ft planeado vs SKBO 8361 ft real), `altAboveDest` puede no bajar del
+> umbral ni en el touchdown — la fase interna `Approach` nunca se alcanza (el log de
+> status salta de `APR` directo a `LDG`, sin pasar por `FIN`). Por esto la
+> re-confirmación de `ReconfirmApproachRunway` se extendió a `FlightPhase.Descent`.
+> Efecto colateral conocido, no corregido: `CheckStabilizedApproachGate`/
+> `CheckApproachBelowGate` solo corren `if (CurrentPhase == FlightPhase.Approach)` —
+> el criterio Stabilized Approach completo (hasta 15 pts) no se evalúa en este
+> escenario (omisión neutra).
+
+### QNH de llegada — provisional durante el vuelo, confirmado/revertido al filear (v0.8.10)
+
+El check de QNH de llegada (`ApproachValidator`, gate TL−1000 ft o fallback 1000 ft AGL)
+puede disparar antes de que `EffectiveDestination` se resuelva (a mucha distancia/
+altitud todavía), penalizando contra el destino planeado — potencialmente equivocado —
+de forma antes irreversible. Rediseño estilo "comisarios de F1":
+
+```
+CheckViolations() / CheckStabilizedApproachGate()  (gates TL−1000 ft / 1000 ft AGL)
+    → CheckArrivalQnhProvisionalAsync(destIcao, ctx.QnhMb)
+         destIcao = EffectiveDestination ?? DestIcao  ← puede seguir siendo el planeado
+         log/OSD en tiempo real (Log_QnhPenaltyProvisional si Δ>2 hPa)
+         → NO toca QnhViolations — guarda _provisionalArrivalQnhViolation (null/true/false)
+
+FilePirep()  (antes de BuildScoreData())
+    → await FinalizeArrivalQnhAsync(arrivalIcao, AircraftQnhMb)
+         arrivalIcao = destino FINAL conocido; AircraftQnhMb = QNH ACTUAL (no el
+         capturado en el check temprano — el piloto pudo haber corregido después)
+         → re-consulta METAR fresco contra arrivalIcao
+         → si Δ>2 hPa: QnhViolations++ ; log Log_QnhFinalPenalty
+         → si Δ≤2 hPa y había flag provisional: log Log_QnhPenaltyReversed (sin sumar)
+         → sin METAR definitivo: no puntúa en ningún sentido; descarta el flag
+           provisional con Log_QnhFinalIndeterminate en vez de mantenerlo silenciosamente
+```
+
+Los checks de salida (vs METAR de origen, `CheckQnhAsync`) y de clima (vs STD 1013,
+`CheckStdPressure`) **no cambiaron** — nunca son ambiguos, siguen siendo inmediatos.
 
 ---
 

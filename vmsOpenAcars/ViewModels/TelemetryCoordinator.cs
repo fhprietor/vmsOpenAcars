@@ -42,6 +42,8 @@ namespace vmsOpenAcars.ViewModels
         private RunwayTouchdownResult _approachThreshold;
         private string                _approachDestination;
         private DateTime              _lastApproachCapture = DateTime.MinValue;
+        private DateTime              _lastApproachAirportQuery = DateTime.MinValue;
+        private bool                  _reconfirmingApproachAirport;
         internal List<ApproachTrackPoint> ApproachBuffer { get; } = new List<ApproachTrackPoint>();
 
         // ── UI delta tracking ─────────────────────────────────────────────────────
@@ -193,14 +195,27 @@ namespace vmsOpenAcars.ViewModels
                 Task.Run(() => LookupArrivalParking(arrAp, aLat, aLon));
             }
 
-            if (phase == FlightPhase.Approach && _navDataService.IsAvailable)
+            // {Descent, Approach} treated as one logical "approaching" superstate now
+            // that diversion detection runs in both — reset only when entering the pair
+            // from outside it, not on every Descent→Approach transition, so a runway
+            // already resolved during Descent survives that transition instead of being
+            // wiped and reacquired.
+            bool enteringApproachSuperstate =
+                (phase == FlightPhase.Descent || phase == FlightPhase.Approach) &&
+                prevPhase != FlightPhase.Descent && prevPhase != FlightPhase.Approach;
+            bool leavingApproachSuperstate =
+                (prevPhase == FlightPhase.Descent || prevPhase == FlightPhase.Approach) &&
+                phase != FlightPhase.Descent && phase != FlightPhase.Approach;
+
+            if (enteringApproachSuperstate && _navDataService.IsAvailable)
             {
                 ApproachBuffer.Clear();
-                _lastApproachCapture = DateTime.MinValue;
-                _approachThreshold   = null;
-                _approachDestination = null;
+                _lastApproachCapture      = DateTime.MinValue;
+                _lastApproachAirportQuery = DateTime.MinValue;
+                _approachThreshold        = null;
+                _approachDestination      = null;
             }
-            else if (phase != FlightPhase.Approach)
+            else if (leavingApproachSuperstate)
             {
                 _approachThreshold = null;
             }
@@ -291,61 +306,34 @@ namespace vmsOpenAcars.ViewModels
             }
 
             // ── Approach track capture ────────────────────────────────────────────
-            if (_flightManager?.CurrentPhase == FlightPhase.Approach)
+            // Runs during Descent too, not just Approach — a severe diversion (e.g. to
+            // an airport much higher/lower than the planned destination) can keep the
+            // phase machine from ever reaching FlightPhase.Approach at all (see
+            // FlightPhaseStateMachine's Descent case: both its transition conditions are
+            // computed relative to the PLANNED destination). Without this, diversion
+            // detection would never run for that flight.
+            var currentPhase = _flightManager?.CurrentPhase;
+            if (currentPhase == FlightPhase.Approach || currentPhase == FlightPhase.Descent)
             {
-                if (_approachThreshold == null && _navDataService.IsAvailable)
+                double computedAgl = _flightManager.CurrentAGL;
+
+                // Keep re-confirming the approaching airport/runway via NavData's
+                // nearest/approach-airport match — not just resolving once — until the
+                // 1000 ft AGL stabilized-approach gate fires. Parallel runways sharing an
+                // initial fix (e.g. SKBO 14L/14R via AMVES) are geometrically ambiguous
+                // right at that fix; the match only becomes reliable once the aircraft
+                // diverges onto a specific final course, so a single early resolution can
+                // lock in the wrong runway for the rest of the approach. The endpoint's
+                // score is cross-track-dominated (validated by NavData for SKBO 14L/14R,
+                // ~355 m separation) — trusted directly, no local tie-break needed.
+                if (_navDataService.IsAvailable && !_reconfirmingApproachAirport
+                    && computedAgl > 1000
+                    && (DateTime.UtcNow - _lastApproachAirportQuery).TotalSeconds >= 5.0)
                 {
-                    string dest   = _flightManager.ActivePlan?.Destination;
-                    string alt    = _flightManager.ActivePlan?.Alternate;
-                    string origin = _flightManager.ActivePlan?.Origin;
-
-                    _approachThreshold = !string.IsNullOrEmpty(dest)
-                        ? _navDataService.GetRunwayThreshold(dest, e.Latitude, e.Longitude, e.HeadingDeg)
-                        : null;
-
-                    if (_approachThreshold != null)
-                    {
-                        _approachDestination = dest;
-                    }
-                    else if (!string.IsNullOrEmpty(alt))
-                    {
-                        _approachThreshold = _navDataService.GetRunwayThreshold(
-                            alt, e.Latitude, e.Longitude, e.HeadingDeg);
-                        if (_approachThreshold != null)
-                        {
-                            _approachDestination = alt;
-                            _cb.Log?.Invoke($"⚠️ Approaching ALTERNATE — {alt}", Theme.Warning);
-                            _flightManager.SetEffectiveDestination(alt);
-                        }
-                    }
-
-                    // Neither the planned destination nor the planned alternate matched —
-                    // check the departure airport. Covers an emergency/return-to-field
-                    // that diverts back to origin instead of the filed alternate; without
-                    // this, EffectiveDestination never gets set before touchdown and the
-                    // QNH gate checks (TL-1000 / 1000 ft AGL) keep validating against the
-                    // planned destination's METAR instead of the airport actually being
-                    // approached.
-                    if (_approachThreshold == null && !string.IsNullOrEmpty(origin) &&
-                        !origin.Equals(dest, StringComparison.OrdinalIgnoreCase) &&
-                        !origin.Equals(alt, StringComparison.OrdinalIgnoreCase))
-                    {
-                        _approachThreshold = _navDataService.GetRunwayThreshold(
-                            origin, e.Latitude, e.Longitude, e.HeadingDeg);
-                        if (_approachThreshold != null)
-                        {
-                            _approachDestination = origin;
-                            _cb.Log?.Invoke($"⚠️ RETURNING TO DEPARTURE — {origin}", Theme.Danger);
-                            _cb.OsdMessage?.Invoke($"RETURNING TO {origin}", OsdSeverity.Critical);
-                            _flightManager.SetEffectiveDestination(origin);
-                        }
-                    }
-
-                    if (_approachThreshold != null)
-                        Task.Run(() => LoadApproachData(_approachDestination, _approachThreshold.RunwayName));
+                    _lastApproachAirportQuery = DateTime.UtcNow;
+                    Task.Run(() => ReconfirmApproachRunway(e.Latitude, e.Longitude, e.HeadingDeg));
                 }
 
-                double computedAgl = _flightManager.CurrentAGL;
                 if (_approachThreshold != null
                     && computedAgl < 3000
                     && _landingLogService.IsAvailable
@@ -385,6 +373,89 @@ namespace vmsOpenAcars.ViewModels
             }
         }
 
+        // Resolves/re-confirms the airport+runway being approached via NavData's
+        // nearest/approach-airport endpoint. Switches _approachThreshold whenever the
+        // matched runway or airport differs from the currently resolved one (parallel-
+        // runway correction, or a genuine diversion). Runs off the RawDataUpdated thread
+        // via Task.Run — network I/O, must not block telemetry processing.
+        private async Task ReconfirmApproachRunway(double lat, double lon, double heading)
+        {
+            _reconfirmingApproachAirport = true;
+            try
+            {
+                var match = await _navDataService.FindApproachAirport(lat, lon, heading);
+                if (match == null) return;
+
+                string plannedDest = _flightManager.ActivePlan?.Destination;
+                bool diverted = !string.IsNullOrEmpty(plannedDest) &&
+                    !match.Icao.Equals(plannedDest, StringComparison.OrdinalIgnoreCase);
+
+                bool runwayChanged = _approachThreshold == null
+                    || !string.Equals(_approachDestination, match.Icao, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(_approachThreshold.RunwayName, match.RunwayName, StringComparison.OrdinalIgnoreCase);
+
+                // Reject geometrically implausible matches before treating them as a genuine
+                // diversion — a STAR turn can transiently align the aircraft's heading with a
+                // nearby small airfield's runway while the aircraft is still far off that
+                // runway's extended centerline (real case: SKGY matched with heading_diff_deg
+                // 3.1° but cross_track_nm 11.36 — nowhere near an actual approach to it).
+                bool plausible = !match.CrossTrackNm.HasValue || match.CrossTrackNm.Value <= 3.0;
+
+                // Flag the diversion (and point the touchdown fallback at the right
+                // airport) as soon as we know the ICAO — doesn't need the full runway
+                // threshold geometry below, and the QNH/Localizer gates need
+                // EffectiveDestination set as early in the approach as possible.
+                if (diverted && plausible && !match.Icao.Equals(_flightManager.DivertedAirport, StringComparison.OrdinalIgnoreCase))
+                {
+                    _approachDestination = match.Icao;
+                    _flightManager.SetEffectiveDestination(match.Icao);
+                    _flightManager.SetDivertedAirport(match.Icao);
+
+                    double? divertedElevFt = _navDataService.GetAirportElevationFt(match.Icao);
+                    if (divertedElevFt.HasValue)
+                        _flightManager.SetArrivalAirportElevation(divertedElevFt.Value);
+
+                    _cb.Log?.Invoke(
+                        string.Format(_("Lnm_DiversionDetected"), plannedDest, match.Icao),
+                        Theme.Danger);
+                    _cb.OsdMessage?.Invoke($"DIVERTING TO {match.Icao}", OsdSeverity.Critical);
+                }
+
+                if (!runwayChanged)
+                {
+                    // Local tracking didn't move, but a previous poll may have marked a false
+                    // diversion that this poll's (non-diverted) match now contradicts.
+                    if (!diverted) _flightManager.ClearDivertedAirport();
+                    return;
+                }
+
+                // Full threshold geometry (needed for the approach buffer / ILS load) has
+                // tighter tolerances than the airport match above — may still be out of
+                // range this early; retry on the next throttled cycle if so.
+                var newThreshold = _navDataService.GetRunwayThreshold(match.Icao, lat, lon, heading);
+                if (newThreshold == null) return;
+
+                bool wasResolved = _approachThreshold != null;
+                _approachThreshold   = newThreshold;
+                _approachDestination = match.Icao;
+                ApproachBuffer.Clear();
+                _lastApproachCapture = DateTime.MinValue;
+
+                if (!diverted && wasResolved)
+                {
+                    bool hadDivertedFlag = _flightManager.DivertedAirport != null;
+                    _flightManager.ClearDivertedAirport();
+                    if (hadDivertedFlag)
+                        _cb.Log?.Invoke(string.Format(_("Lnm_DiversionReverted"), match.Icao), Theme.Warning);
+                    else
+                        _cb.Log?.Invoke($"↻ RUNWAY UPDATED — {match.RunwayName} ({match.Icao})", Theme.Warning);
+                }
+
+                Task.Run(() => LoadApproachData(_approachDestination, match.RunwayName));
+            }
+            finally { _reconfirmingApproachAirport = false; }
+        }
+
         // ── Telemetry handler ─────────────────────────────────────────────────────
 
         private void OnTelemetryUpdated(object sender, TelemetryData e)
@@ -404,7 +475,8 @@ namespace vmsOpenAcars.ViewModels
 
             _lastPosition = (e.Latitude, e.Longitude);
 
-            double refElevation = FlightPhaseHelper.GetTerrainElevation(_flightManager.CurrentPhase, _flightManager.ActivePlan);
+            double refElevation = _flightManager.ArrivalAirportElevationFt
+                ?? FlightPhaseHelper.GetTerrainElevation(_flightManager.CurrentPhase, _flightManager.ActivePlan);
             double aglRelative  = e.AltitudeFeet - refElevation;
             bool radarAvailable = !e.IsOnGround && e.RadarAltitudeFeet > 0.0;
             double aglFinal     = radarAvailable ? e.RadarAltitudeFeet : Math.Max(0.0, aglRelative);
@@ -796,6 +868,12 @@ namespace vmsOpenAcars.ViewModels
                 // of the (never reached) planned one.
                 _approachDestination = airport;
                 _flightManager.SetEffectiveDestination(airport);
+                _flightManager.SetDivertedAirport(airport);
+
+                double? divertedElevFt = _navDataService.GetAirportElevationFt(airport);
+                if (divertedElevFt.HasValue)
+                    _flightManager.SetArrivalAirportElevation(divertedElevFt.Value);
+
                 _cb.Log?.Invoke(
                     string.Format(_("Lnm_ArrivalAirportMismatch"), plannedDest, airport),
                     Theme.Danger);

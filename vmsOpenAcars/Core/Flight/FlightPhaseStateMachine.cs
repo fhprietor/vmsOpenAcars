@@ -45,6 +45,7 @@ namespace vmsOpenAcars.Core.Flight
         private DateTime _goAroundStart        = DateTime.MinValue;
         private DateTime _pushbackStartTime    = DateTime.MinValue;
         private DateTime _stoppedStartTime     = DateTime.MinValue;
+        private DateTime _takeoffRollStart     = DateTime.MinValue;
         private double   _maxAltitudeReached;
         private bool     _wasOnGround          = true;
         private bool     _hasLandedThisFlight;
@@ -58,6 +59,7 @@ namespace vmsOpenAcars.Core.Flight
         private const double TaxiOutMinSpeed        = 5.0;
         private const int    TaxiOutMinSec          = 2;
         private const double SingleEngineMinRatio   = 0.5;
+        private const int    TakeoffRollConfirmSec  = 5;
 
         // ── Public state ──────────────────────────────────────────────────────
         public FlightPhase CurrentPhase { get; private set; } = FlightPhase.Idle;
@@ -214,7 +216,15 @@ namespace vmsOpenAcars.Core.Flight
                 case FlightPhase.TaxiOut:
                     EmitTaxiPosition(inp.Lat, inp.Lon, inp.Heading, inp.Origin, false);
                     if (inp.GroundSpeed > 30 && inp.Pitch < 1.0)
-                        TransitionTo(FlightPhase.TakeoffRoll, prev);
+                    {
+                        if (_takeoffRollStart == DateTime.MinValue) _takeoffRollStart = DateTime.UtcNow;
+                        else if ((DateTime.UtcNow - _takeoffRollStart).TotalSeconds >= TakeoffRollConfirmSec)
+                        {
+                            _takeoffRollStart = DateTime.MinValue;
+                            TransitionTo(FlightPhase.TakeoffRoll, prev);
+                        }
+                    }
+                    else { _takeoffRollStart = DateTime.MinValue; }
                     break;
 
                 case FlightPhase.TakeoffRoll:

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using vmsOpenAcars.Db;
 using vmsOpenAcars.Models.NavData;
 using vmsOpenAcars.Services.Interfaces;
@@ -74,6 +75,40 @@ namespace vmsOpenAcars.Services
                 };
             }
             catch { return null; }
+        }
+
+        public double? GetAirportElevationFt(string airport)
+        {
+            try
+            {
+                var info = NavDataClient.GetAirportInfo(airport);
+                return info?.ElevationFt;
+            }
+            catch { return null; }
+        }
+
+        public async Task<NearestApproachAirportResult> FindApproachAirport(
+            double lat, double lon, double heading, double radiusNm = 20, double headingTolDeg = 15)
+        {
+            var resp = await NavDataClient.GetNearestApproachAirportAsync(lat, lon, heading, radiusNm, headingTolDeg)
+                .ConfigureAwait(false);
+            if (resp == null || string.IsNullOrEmpty(resp.Icao) || resp.Runway == null) return null;
+
+            return new NearestApproachAirportResult
+            {
+                Icao              = resp.Icao,
+                Name              = resp.Name,
+                AirportDistanceNm = resp.AirportDistanceNm,
+                RunwayName        = resp.Runway.Name,
+                RunwayHeading     = resp.Runway.Heading,
+                HasIls            = resp.Runway.HasIls,
+                IlsIdent          = resp.Runway.IlsIdent,
+                IlsFreqMhz        = resp.Runway.IlsFreqMhz,
+                IlsCourse         = resp.Runway.IlsCourse,
+                HeadingDiffDeg    = resp.HeadingDiffDeg,
+                Score             = resp.Score,
+                CrossTrackNm      = resp.CrossTrackNm,
+            };
         }
 
         public static (double DistNm, double LateralFt) ComputeApproachMetrics(
@@ -373,6 +408,7 @@ namespace vmsOpenAcars.Services
                         { altDelta = d; alt = rwy; }
                     }
                     if (alt != null) best = alt;
+                    else return null;  // no runway's footprint contains this position — don't report an invalid match
                 }
 
                 // Project on the runway's TRUE geographic bearing (computed from endpoint

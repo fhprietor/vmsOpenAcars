@@ -157,10 +157,33 @@ namespace vmsOpenAcars.Core.Flight
 
             if (!_engStabilizedOsdFired && !string.IsNullOrEmpty(ActivePirepId))
             {
-                bool anyRunning = data.Eng1Running || data.Eng2Running;
-                bool allStab    = (!data.Eng1Running || _engStartMonitor.Eng1Stabilized)
-                               && (!data.Eng2Running || _engStartMonitor.Eng2Stabilized);
-                if (anyRunning && allStab &&
+                // Jets/turboprops in this fleet are always twins — require BOTH engines
+                // running and stabilized, not just whichever one currently is. Using the
+                // old "any running engine is stable" check, a not-yet-started engine 2
+                // (Eng2Running still false — "running" is gated on N1>15%, which lags N2
+                // during a real start) counted as vacuously fine, so the OSD fired off
+                // engine 1 alone while engine 2 was mid-spool-up (e.g. N2 ~40%, N1 still
+                // below threshold). Piston aircraft in this app's fleet can genuinely be
+                // single-engine (C172/C182/C208 — Eng2Running never becomes true), so they
+                // keep the original per-engine check.
+                bool isMultiEngineType = data.EngineCategory == FsuipcService.AircraftCategory.Jet
+                                       || data.EngineCategory == FsuipcService.AircraftCategory.Turboprop;
+
+                bool engineReady;
+                if (isMultiEngineType)
+                {
+                    engineReady = data.Eng1Running && data.Eng2Running
+                               && _engStartMonitor.Eng1Stabilized && _engStartMonitor.Eng2Stabilized;
+                }
+                else
+                {
+                    bool anyRunning = data.Eng1Running || data.Eng2Running;
+                    bool allStab    = (!data.Eng1Running || _engStartMonitor.Eng1Stabilized)
+                                   && (!data.Eng2Running || _engStartMonitor.Eng2Stabilized);
+                    engineReady = anyRunning && allStab;
+                }
+
+                if (engineReady &&
                     (CurrentPhase == FlightPhase.Boarding ||
                      CurrentPhase == FlightPhase.Pushback ||
                      CurrentPhase == FlightPhase.TaxiOut))
@@ -243,7 +266,7 @@ namespace vmsOpenAcars.Core.Flight
             Heading                 = CurrentHeading,
             CruiseAltitude          = _activePlan?.CruiseAltitude ?? 10000,
             TotalDistanceNm         = _activePlan?.Distance ?? 100,
-            DestinationElevation    = _destinationElevation,
+            DestinationElevation    = _arrivalAirportElevation ?? _destinationElevation,
             DistanceToDestinationNm = -1,
             Origin                  = _activePlan?.Origin ?? _currentAirport,
             Destination             = _activePlan?.Destination ?? _currentAirport,
