@@ -39,6 +39,32 @@
   El texto de la casilla, que estaba fijo en inglés, pasa por `_()` como el resto de la fila.
   Queda anotado en `CLAUDE.md` para que la próxima fila del formulario no repita el fallo.
 
+### Docs
+
+- **`CLAUDE.md`** — la clave `osd_airspace_alerts` y el alcance exacto del ajuste en la sección
+  OSD; en **Idioma**, cómo se traducen los rótulos de `SettingsForm`, que una clave ausente
+  devuelve `[[clave]]` y no inglés, y la obligación de añadir la clave a los dos `.json`; contador
+  de claves a 394. Versión actual: v0.9.10.
+- **`Docs/architecture.md`** — fila nueva en la tabla de claves de `App.config`
+  (`osd_airspace_alerts`) y versión del documento a 0.9.10.
+- **`Docs/BRIEFING.md`** (documento del piloto) — la tabla de la sección OSD documenta ahora
+  *Chimes* (que existía sin documentar) y *Restricted zones*, con la aclaración de que el log y el
+  mapa no se ven afectados; nota equivalente en el capítulo 7 (OSD Overlay); pie a v0.9.10.
+- **`Docs/MEMORY.md`** — índice revisado a v0.9.10.
+- **`vmsOpenAcars.Tests/Properties/AssemblyInfo.cs`** — la versión del ensamblado de tests seguía
+  en 0.9.4.0 (no se toca desde v0.9.4 porque Release no compila ese proyecto); alineada a 0.9.10.0
+  para que ninguna versión del repo quede descolgada de la del cliente.
+
+### Verificación
+
+- Build **Debug** y **Release** en verde (MSBuild 15.0 de VS2017), exit 0.
+- Suite completa **229/229** contra el `.exe` Debug recién compilado.
+- `es.json` y `en.json`: **394 claves cada uno**, sin diferencias en ninguna dirección.
+- Auditoría de las **18 claves de rótulo** y los **6 textos con `_()`** de `SettingsForm` contra
+  los dos idiomas: todas existen (era el fallo reportado, y no había ninguna otra).
+- La versión del cliente sale de `AssemblyVersion` (`Core/Helpers/AppInfo.cs`, `UpdateChecker`),
+  así que el 0.9.10 se propaga solo al log de ACARS y al chequeo de actualización.
+
 ---
 
 ## [0.9.9] — 2026-09-24

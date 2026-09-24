@@ -102,6 +102,8 @@ Controla el overlay de notificaciones que aparece sobre el simulador.
 | Duration (s) | Tiempo que permanece visible cada notificación (1–30 s) |
 | Screen index | Índice de la pantalla donde se muestra (0 = pantalla principal, 1 = segunda pantalla, etc.) |
 | Opacity (%) | Opacidad del overlay (10–100 %) |
+| Chimes | Reproduce un sonido distinto según la severidad (Info / Success / Warning / Critical) |
+| Restricted zones | Muestra en el overlay los avisos de zonas restringidas —`AIRSPACE {TIPO}`, `AIRSPACE AHEAD` y `ABOVE … DO NOT DESCEND`—. Si lo desmarcas, esos avisos **siguen apareciendo en el log del vuelo y en el mapa**; solo se silencia el overlay, que es el que aparece en pantalla completa con sonido. Útil si vuelas en una zona con muchas áreas activas o haces vuelo local dentro de una CTR (v0.9.10) |
 
 ### Sección Cabin Announcements
 
@@ -445,9 +447,11 @@ El overlay OSD (**On-Screen Display**) muestra notificaciones superpuestas al si
 
 > Los mensajes **Critical** parpadean en rojo durante ~1.3 s antes de mostrar el texto fijo. Los demás niveles usan fade-in/fade-out suave.
 
+> Los tres avisos de espacio aéreo restringido (`AIRSPACE`, `AIRSPACE AHEAD`, `ABOVE … DO NOT DESCEND`) se pueden silenciar en el overlay con **Settings → OSD → Restricted zones**. El registro en el log del vuelo y el polígono en el mapa no se ven afectados (v0.9.10).
+
 ### Configuración
 
-Ve a **Settings → OSD** para ajustar duración, pantalla y opacidad. Usa **MENU → Test OSD** para previsualizar el overlay antes de volar.
+Ve a **Settings → OSD** para ajustar duración, pantalla, opacidad, sonido y los avisos de zona restringida. Usa **MENU → Test OSD** para previsualizar el overlay antes de volar.
 
 ---
 
@@ -641,4 +645,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.9.9 — que tengas buen vuelo.*
+*vmsOpenAcars v0.9.10 — que tengas buen vuelo.*
