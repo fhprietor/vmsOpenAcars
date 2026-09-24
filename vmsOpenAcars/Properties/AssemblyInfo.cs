@@ -39,4 +39,7 @@ using System.Runtime.InteropServices;
 // [assembly: AssemblyVersion("1.0.*")]
 [assembly: AssemblyVersion("0.9.10.0")]
 [assembly: AssemblyFileVersion("0.9.10.0")]
-[assembly: AssemblyInformationalVersion("0.9.9")]
+// OJO: AppInfo.Version (Core/Helpers/AppInfo.cs) prefiere ESTE atributo sobre AssemblyVersion.
+// Es lo que se pinta en el título de la ventana y lo que se envía a phpVMS. Si no se sube
+// junto con los otros dos, el cliente muestra la versión anterior aunque el binario sea nuevo.
+[assembly: AssemblyInformationalVersion("0.9.10")]

@@ -78,6 +78,19 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
 - **No commitear por iniciativa propia**: el mantenedor pide el commit.
 - No commitear artefactos generados (PDF/HTML/PNG) ni `App.config`.
 
+**Versionado**
+- Publicar una versión toca **tres** atributos de `Properties/AssemblyInfo.cs`, no dos:
+  `AssemblyVersion`, `AssemblyFileVersion` y **`AssemblyInformationalVersion`**. `AppInfo.Version`
+  (`Core/Helpers/AppInfo.cs`) **prefiere el informativo** sobre el numérico, y ese valor es el que
+  se pinta en la cabecera de la ventana, el que se escribe en el log de ACARS
+  (`vmsOpenAcars v{AppInfo.Version}`) y el que se envía a phpVMS. Subir solo los dos primeros deja
+  al cliente mostrando la versión **anterior** aunque el `.exe` recién compilado tenga otro
+  `FileVersion` — pasó exactamente al publicar 0.9.10, que se seguía viendo como 0.9.9.
+  Comprobación: `(Get-Item bin\Release\vmsOpenAcars.exe).VersionInfo` → `ProductVersion`.
+- La versión del proyecto de tests se alinea a la del cliente. En **Release ese proyecto no se
+  compila**, así que es fácil que se quede atrás sin que nadie lo note (estuvo en 0.9.4.0 hasta
+  v0.9.10).
+
 ---
 
 ## Scoring — `Services/ScoringService.cs`

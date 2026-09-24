@@ -39,6 +39,22 @@
   El texto de la casilla, que estaba fijo en inglés, pasa por `_()` como el resto de la fila.
   Queda anotado en `CLAUDE.md` para que la próxima fila del formulario no repita el fallo.
 
+- **El cliente seguía anunciándose como 0.9.9 con el binario ya en 0.9.10** — reportado por el
+  mantenedor («sigo viendo 0.9.9 en el título»). `Properties/AssemblyInfo.cs` tiene tres
+  atributos de versión y al subir a 0.9.10 solo se movieron dos: `AssemblyVersion` y
+  `AssemblyFileVersion` quedaron en `0.9.10.0` pero **`AssemblyInformationalVersion` se quedó en
+  `0.9.9`** — y `AppInfo.Version` (`Core/Helpers/AppInfo.cs`) **prefiere el informativo** sobre el
+  numérico, con el numérico solo como respaldo. Ese valor es el que se pinta en la cabecera, el
+  que se escribe en el log de ACARS y el que se envía a phpVMS, así que toda la traza del cliente
+  decía 0.9.9 mientras el fichero era nuevo: se veía en `ProductVersion` del `.exe`
+  (`FileVersion=0.9.10.0` contra `ProductVersion=0.9.9`).
+
+  Corregido a `0.9.10` en el atributo, con un comentario en el propio `AssemblyInfo.cs`
+  advirtiendo de que los **tres** van juntos, y una regla nueva **Versionado** en `CLAUDE.md` con
+  la comprobación (`(Get-Item bin\Release\vmsOpenAcars.exe).VersionInfo` → `ProductVersion`).
+  El historial confirma que es un desliz de este cambio y no algo arrastrado: en 0.9.2, 0.9.8 y
+  0.9.9 los tres atributos sí se movieron juntos.
+
 ### Docs
 
 - **`CLAUDE.md`** — la clave `osd_airspace_alerts` y el alcance exacto del ajuste en la sección
@@ -62,8 +78,12 @@
 - `es.json` y `en.json`: **394 claves cada uno**, sin diferencias en ninguna dirección.
 - Auditoría de las **18 claves de rótulo** y los **6 textos con `_()`** de `SettingsForm` contra
   los dos idiomas: todas existen (era el fallo reportado, y no había ninguna otra).
-- La versión del cliente sale de `AssemblyVersion` (`Core/Helpers/AppInfo.cs`, `UpdateChecker`),
-  así que el 0.9.10 se propaga solo al log de ACARS y al chequeo de actualización.
+- La versión que muestra el cliente sale de `AppInfo.Version`, que **prefiere
+  `AssemblyInformationalVersion`** y solo cae al `AssemblyVersion` numérico si el informativo
+  falta (`Core/Helpers/AppInfo.cs`); `UpdateChecker` sí usa el numérico. Comprobado sobre los
+  binarios generados: `ProductVersion = 0.9.10` (antes del arreglo, `0.9.9`) y
+  `FileVersion = 0.9.10.0` en Debug y Release. `ProductVersion` es el indicador fiable, porque es
+  el que refleja el informativo.
 
 ---
 
