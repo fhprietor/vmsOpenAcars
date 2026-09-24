@@ -17,9 +17,6 @@ namespace vmsOpenAcars.UI.Forms
         private Button _btnAnalyse;
         private Button _btnCompare;
         private Button _btnDelete;
-#if DEBUG
-        private Button _btnSeed;
-#endif
         private Button _btnClose;
 
         public FlightRecord SelectedFlight { get; private set; }
@@ -153,19 +150,10 @@ namespace vmsOpenAcars.UI.Forms
             _btnDelete.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
             _btnDelete.Enabled  = false;
 
-#if DEBUG
-            _btnSeed = MakeBtn("SEED DEMO DATA", Color.FromArgb(60, 80, 40));
-            _btnSeed.Click  += BtnSeed_Click;
-            _btnSeed.Anchor  = AnchorStyles.Top | AnchorStyles.Left;
-#endif
-
             _btnClose = MakeBtn("CLOSE", Color.FromArgb(100, 0, 0));
             _btnClose.Click += (s, e) => Close();
             _btnClose.Anchor = AnchorStyles.Top | AnchorStyles.Right;
 
-#if DEBUG
-            pnlBottom.Controls.Add(_btnSeed);
-#endif
             pnlBottom.Controls.Add(_btnDelete);
             pnlBottom.Controls.Add(_btnCompare);
             pnlBottom.Controls.Add(_btnAnalyse);
@@ -180,9 +168,6 @@ namespace vmsOpenAcars.UI.Forms
                 _btnCompare.Location = new Point(right - _btnCompare.Width, 6);
                 right -= _btnCompare.Width + 6;
                 _btnDelete.Location  = new Point(right - _btnDelete.Width, 6);
-#if DEBUG
-                _btnSeed.Location    = new Point(6, 6);
-#endif
             };
 
             Controls.Add(_grid);
@@ -216,7 +201,7 @@ namespace vmsOpenAcars.UI.Forms
                     f.FlightNumber,
                     f.DisplayRoute,
                     f.RunwayName,
-                    f.LandingRateFpm.ToString(),
+                    f.DisplayLandingRate,
                     $"{f.GForce:F2}g",
                     f.DisplayScore);
                 _grid.Rows[row].Tag = f;
@@ -290,13 +275,5 @@ namespace vmsOpenAcars.UI.Forms
             }
             Reload();
         }
-
-#if DEBUG
-        private void BtnSeed_Click(object sender, EventArgs e)
-        {
-            (_svc as LandingLogService)?.SeedMockData();
-            Reload();
-        }
-#endif
     }
 }

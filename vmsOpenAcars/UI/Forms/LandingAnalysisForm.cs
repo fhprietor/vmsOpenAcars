@@ -157,7 +157,7 @@ namespace vmsOpenAcars.UI.Forms
             stats.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             stats.Controls.Add(StatCell("DATE",   rec.DisplayDate),              0, 0);
-            stats.Controls.Add(StatCell("VS",     $"{rec.LandingRateFpm} fpm"),  1, 0);
+            stats.Controls.Add(StatCell("VS",     rec.DisplayLandingRate),        1, 0);
             stats.Controls.Add(StatCell("G",      $"{rec.GForce:F2}g"),          2, 0);
             stats.Controls.Add(StatCell("DIST",   $"{rec.TouchdownDistFt:F0} ft"), 3, 0);
             stats.Controls.Add(StatCell("CL DEV", $"{rec.CenterlineDevFt:F0} ft"), 4, 0);
@@ -200,7 +200,7 @@ namespace vmsOpenAcars.UI.Forms
                 string scoreTag = rec.Score >= 90 ? "★★★" : rec.Score >= 75 ? "★★" : "★";
                 string date    = rec.FlightDate.ToLocalTime().ToString("MM-dd HH:mm");
                 string line = $"  {rec.FlightNumber,-10}  {date}  {rec.Origin}→{rec.Destination}  " +
-                              $"RWY {rec.RunwayName,-4}  {rec.LandingRateFpm,5} fpm  " +
+                              $"RWY {rec.RunwayName,-4}  {rec.DisplayLandingRate,9}  " +
                               $"{rec.GForce:F2}g  " +
                               $"DIST {rec.TouchdownDistFt:F0} ft  CL {rec.CenterlineDevFt:F0} ft  " +
                               $"SCORE {rec.DisplayScore} {scoreTag}";

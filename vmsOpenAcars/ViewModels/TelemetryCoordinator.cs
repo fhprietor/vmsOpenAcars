@@ -44,7 +44,41 @@ namespace vmsOpenAcars.ViewModels
         private DateTime              _lastApproachCapture = DateTime.MinValue;
         private DateTime              _lastApproachAirportQuery = DateTime.MinValue;
         private bool                  _reconfirmingApproachAirport;
-        internal List<ApproachTrackPoint> ApproachBuffer { get; } = new List<ApproachTrackPoint>();
+
+        // Approach track points, captured during Descent/Approach for the landing log.
+        // Guarded by _approachBufferLock because it is genuinely touched from two threads:
+        // points are appended on the FSUIPC polling thread (ProcessRawData) while
+        // ReconfirmApproachRunway clears it from a Task.Run (runway change / diversion).
+        // A bare List<T> mutated from both was the kind of corruption that shows up as
+        // dropped points or an IndexOutOfRange deep inside List.Add.
+        private readonly List<ApproachTrackPoint> _approachBuffer = new List<ApproachTrackPoint>();
+        private readonly object _approachBufferLock = new object();
+
+        /// <summary>Number of captured approach points. Safe to read from any thread.</summary>
+        internal int ApproachBufferCount
+        {
+            get { lock (_approachBufferLock) return _approachBuffer.Count; }
+        }
+
+        /// <summary>Copy of the captured track, for consumers that need to iterate it.</summary>
+        internal List<ApproachTrackPoint> SnapshotApproachBuffer()
+        {
+            lock (_approachBufferLock) return new List<ApproachTrackPoint>(_approachBuffer);
+        }
+
+        internal void ClearApproachBuffer()
+        {
+            lock (_approachBufferLock) _approachBuffer.Clear();
+        }
+
+        private void AddApproachPoint(ApproachTrackPoint point)
+        {
+            lock (_approachBufferLock)
+            {
+                point.SeqNo = _approachBuffer.Count;
+                _approachBuffer.Add(point);
+            }
+        }
 
         // ── UI delta tracking ─────────────────────────────────────────────────────
         private int    _lastUiAltitude;
@@ -64,7 +98,6 @@ namespace vmsOpenAcars.ViewModels
 
         // ── Telemetry state ───────────────────────────────────────────────────────
         private AcarsPosition _lastSentPosition;
-        private (double lat, double lon)? _lastPosition;
         internal AcarsPositionUpdate LastTelemetry      { get; set; }
         internal DateTime            LastPositionUpdate { get; set; } = DateTime.MinValue;
         internal TimeSpan            PositionUpdateInterval { get; }  = TimeSpan.FromSeconds(5);
@@ -209,7 +242,7 @@ namespace vmsOpenAcars.ViewModels
 
             if (enteringApproachSuperstate && _navDataService.IsAvailable)
             {
-                ApproachBuffer.Clear();
+                ClearApproachBuffer();
                 _lastApproachCapture      = DateTime.MinValue;
                 _lastApproachAirportQuery = DateTime.MinValue;
                 _approachThreshold        = null;
@@ -346,7 +379,7 @@ namespace vmsOpenAcars.ViewModels
                         _approachThreshold.ThresholdHeading,
                         e.Latitude, e.Longitude);
 
-                    if (ApproachBuffer.Count == 0)
+                    if (ApproachBufferCount == 0)
                     {
                         _cb.Log?.Invoke(
                             string.Format(_("Lnm_ApproachCaptureStart"),
@@ -356,9 +389,8 @@ namespace vmsOpenAcars.ViewModels
                             Theme.Success);
                     }
 
-                    ApproachBuffer.Add(new ApproachTrackPoint
+                    AddApproachPoint(new ApproachTrackPoint
                     {
-                        SeqNo      = ApproachBuffer.Count,
                         Lat        = e.Latitude,
                         Lon        = e.Longitude,
                         AltFt      = e.AltitudeFeet,
@@ -438,7 +470,7 @@ namespace vmsOpenAcars.ViewModels
                 bool wasResolved = _approachThreshold != null;
                 _approachThreshold   = newThreshold;
                 _approachDestination = match.Icao;
-                ApproachBuffer.Clear();
+                ClearApproachBuffer();
                 _lastApproachCapture = DateTime.MinValue;
 
                 if (!diverted && wasResolved)
@@ -451,7 +483,17 @@ namespace vmsOpenAcars.ViewModels
                         _cb.Log?.Invoke($"↻ RUNWAY UPDATED — {match.RunwayName} ({match.Icao})", Theme.Warning);
                 }
 
-                Task.Run(() => LoadApproachData(_approachDestination, match.RunwayName));
+                // Recargar el ILS/approach implica llamadas a NavData: no debe bloquear el
+                // hilo de telemetría, y sus fallos deben quedar registrados en vez de
+                // perderse sin observar.
+                FireAndForget.Run(
+                    () =>
+                    {
+                        LoadApproachData(_approachDestination, match.RunwayName);
+                        return Task.CompletedTask;
+                    },
+                    ex => _cb.Log?.Invoke($"⚠️ No se pudo recargar el approach: {ex.Message}", Theme.Warning),
+                    "carga de approach");
             }
             finally { _reconfirmingApproachAirport = false; }
         }
@@ -472,8 +514,6 @@ namespace vmsOpenAcars.ViewModels
         private void PrepareTelemetry(TelemetryData e)
         {
             if (string.IsNullOrEmpty(_flightManager?.ActivePirepId)) return;
-
-            _lastPosition = (e.Latitude, e.Longitude);
 
             double refElevation = _flightManager.ArrivalAirportElevationFt
                 ?? FlightPhaseHelper.GetTerrainElevation(_flightManager.CurrentPhase, _flightManager.ActivePlan);

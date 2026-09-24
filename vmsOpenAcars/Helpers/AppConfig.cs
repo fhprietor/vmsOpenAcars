@@ -1,4 +1,4 @@
-﻿using System.Configuration;
+using System.Configuration;
 
 namespace vmsOpenAcars.Helpers
 {
@@ -31,15 +31,21 @@ namespace vmsOpenAcars.Helpers
         // phpVMS API
         public static string VmsApiUrl => ConfigurationManager.AppSettings["vms_api_url"] ?? "";
 
-        // NavData API
-        public static string NavDataApiUrl => ConfigurationManager.AppSettings["navdata_api_url"] ?? "https://navdata.vholar.co/api/v1/";
-        public static string NavDataApiKey => ConfigurationManager.AppSettings["navdata_api_key"] ?? "vhr-1c4c4be385814eed";
+        // NavData API — sin valores por defecto: los proporciona la aerolínea virtual
+        // y el piloto los introduce en Settings. Cualquier credencial embebida aquí
+        // acabaría comiteada al repositorio.
+        public static string NavDataApiUrl => ConfigurationManager.AppSettings["navdata_api_url"] ?? "";
+        public static string NavDataApiKey => ConfigurationManager.AppSettings["navdata_api_key"] ?? "";
 
-        // X-Origin-Domain derived from the configured phpVMS URL (e.g. "vholar.co")
+        // X-Origin-Domain: se usa el valor explícito de `navdata_api_domain` si está
+        // configurado; si no, se deriva del host de vms_api_url (habitualmente el mismo
+        // dominio que sirve el servicio NavData).
         public static string NavDataApiDomain
         {
             get
             {
+                string configured = ConfigurationManager.AppSettings["navdata_api_domain"];
+                if (!string.IsNullOrWhiteSpace(configured)) return configured.Trim();
                 try
                 {
                     string url = VmsApiUrl;

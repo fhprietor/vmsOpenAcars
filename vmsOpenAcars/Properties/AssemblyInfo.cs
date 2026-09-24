@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -22,6 +22,11 @@ using System.Runtime.InteropServices;
 // The following GUID is for the ID of the typelib if this project is exposed to COM
 [assembly: Guid("736c6469-9933-4021-84c0-dbb054dc8cb8")]
 
+// Permite que el proyecto de tests (vmsOpenAcars.Tests) acceda a los tipos `internal`
+// —los helpers de geometría y los valores de respaldo de TA/TL— sin tener que hacerlos
+// públicos solo para poder probarlos.
+[assembly: InternalsVisibleTo("vmsOpenAcars.Tests")]
+
 // Version information for an assembly consists of the following four values:
 //
 //      Major Version
@@ -32,6 +37,6 @@ using System.Runtime.InteropServices;
 // You can specify all the values or you can default the Build and Revision Numbers
 // by using the '*' as shown below:
 // [assembly: AssemblyVersion("1.0.*")]
-[assembly: AssemblyVersion("0.9.2.0")]
-[assembly: AssemblyFileVersion("0.9.2.0")]
-[assembly: AssemblyInformationalVersion("0.9.2")]
+[assembly: AssemblyVersion("0.9.8.0")]
+[assembly: AssemblyFileVersion("0.9.8.0")]
+[assembly: AssemblyInformationalVersion("0.9.8")]

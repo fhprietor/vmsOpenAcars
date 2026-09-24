@@ -112,6 +112,7 @@ namespace vmsOpenAcars.Core.Flight
             _goAroundStart        = DateTime.MinValue;
             _pushbackStartTime           = DateTime.MinValue;
             _stoppedStartTime            = DateTime.MinValue;
+            _takeoffRollStart            = DateTime.MinValue;
             _maxAltitudeReached          = 0;
             _wasOnGround                 = true;
             _hasLandedThisFlight         = false;
@@ -146,8 +147,13 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             // ── Liftoff (wheels leave ground) ─────────────────────────────────
-            if (_wasOnGround && !inp.IsOnGround && CurrentPhase == FlightPhase.Takeoff)
-                _wasOnGround = inp.IsOnGround;
+            // _wasOnGround is the primary airborne/on-ground tracker. It must be
+            // refreshed unconditionally (except on the touchdown early-return below):
+            // when it was only updated inside the Takeoff case, a second liftoff after
+            // a touch-and-go or a stop-and-go left it stuck at true, so HandleAirPhases
+            // never ran again and the phase machine froze on the ground.
+            if (!inp.IsOnGround && _wasOnGround && CurrentPhase == FlightPhase.Takeoff)
+                _wasOnGround = false;
 
             // ── Touchdown detection (air → ground) ───────────────────────────
             if (!_wasOnGround && inp.IsOnGround && CurrentPhase != FlightPhase.AfterLanding)
@@ -157,6 +163,10 @@ namespace vmsOpenAcars.Core.Flight
                     CurrentPhase == FlightPhase.Landing)
                 {
                     _hasLandedThisFlight = true;
+                    // A new landing invalidates any pending takeoff-roll timer: timestamps
+                    // are absolute and would otherwise survive into the next ground roll,
+                    // firing TakeoffRoll instantly on the first sample above 30 kt.
+                    _takeoffRollStart = DateTime.MinValue;
                     OnTouchdownDetected?.Invoke(inp.VerticalSpeed);
                     TransitionTo(FlightPhase.AfterLanding, prev);
                     _wasOnGround = inp.IsOnGround;
@@ -255,6 +265,12 @@ namespace vmsOpenAcars.Core.Flight
 
         private void HandleTaxiIn(PhaseInput inp, FlightPhase prev)
         {
+            // Stop-and-go: the aircraft accelerates on the runway instead of parking.
+            // Handled in HandleAirPhases when wheels leave the ground, but clearing the
+            // timer here keeps the ground-roll state from going stale while taxiing.
+            if (inp.GroundSpeed > 60)
+                _takeoffRollStart = DateTime.MinValue;
+
             if (inp.GroundSpeed < 1)
             {
                 if (_stoppedStartTime == DateTime.MinValue)
@@ -401,11 +417,17 @@ namespace vmsOpenAcars.Core.Flight
                 }
 
                 case FlightPhase.AfterLanding:
-                    // Touch-and-go: aircraft went airborne again after landing
+                case FlightPhase.TaxiIn:
+                    // Touch-and-go / stop-and-go: the aircraft went airborne again after
+                    // landing. TaxiIn is handled here too because a slow landing lets the
+                    // AfterLanding→TaxiIn transition (GS<40) fire before the pilot applies
+                    // power — without this the machine would stay in TaxiIn for the whole
+                    // second flight and never reach OnBlock.
                     if (inp.GroundSpeed > 60 && inp.SecondsSinceTouchdown >= 5.0)
                     {
                         OnLog?.Invoke(_("Log_TouchAndGo", inp.GroundSpeed), Theme.Warning);
                         _hasLandedThisFlight = false;
+                        _takeoffRollStart   = DateTime.MinValue;
                         OnTouchAndGo?.Invoke();
                         OnApproachGateReset?.Invoke();
                         TransitionTo(FlightPhase.Climb, prev);

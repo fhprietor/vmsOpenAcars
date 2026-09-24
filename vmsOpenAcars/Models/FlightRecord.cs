@@ -18,7 +18,13 @@ namespace vmsOpenAcars.Models
         public string MetarRaw          { get; set; }
 
         public string DisplayDate        => FlightDate.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-        public string DisplayLandingRate => $"{LandingRateFpm} fpm";
+        /// <summary>
+        /// "—" when no touchdown was captured (stored as <see cref="Services.ScoringService.NoLandingData"/>),
+        /// so an unknown landing rate is never shown as a real 0 fpm landing.
+        /// </summary>
+        public string DisplayLandingRate => LandingRateFpm == Services.ScoringService.NoLandingData
+                                                ? "—"
+                                                : $"{LandingRateFpm} fpm";
         public string DisplayRoute       => $"{Origin} → {Destination}";
         public string DisplayScore       => $"{Score}/100";
     }

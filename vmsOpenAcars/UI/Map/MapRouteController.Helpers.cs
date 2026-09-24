@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Linq;
 using GMap.NET;
 using GMap.NET.WindowsForms;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Models.NavData;
 using vmsOpenAcars.Services;
@@ -561,16 +562,13 @@ namespace vmsOpenAcars.UI.Forms
             return pts;
         }
 
+        // Delegado en GeoMath: esta fórmula estaba triplicada (aquí, en
+        // AirspaceMonitorService y en ApproachChartForm) con tolerancias distintas al caso
+        // degenerado. Se mantiene el envoltorio para no tocar los ~15 puntos de llamada.
         private static void DispGeoNm(
             double lat, double lon, double bearingDeg, double distNm,
             out double outLat, out double outLon)
-        {
-            double rad    = bearingDeg * Math.PI / 180.0;
-            double meters = distNm * 1852.0;
-            double cosRef = Math.Cos(lat * Math.PI / 180.0);
-            outLat = lat + meters * Math.Cos(rad) / 111320.0;
-            outLon = lon + meters * Math.Sin(rad) / (111320.0 * cosRef);
-        }
+            => GeoMath.Project(lat, lon, bearingDeg, distNm, out outLat, out outLon);
 
         private static List<PointLatLng> ComputeHoldRacetrack(
             double holdLat, double holdLon,

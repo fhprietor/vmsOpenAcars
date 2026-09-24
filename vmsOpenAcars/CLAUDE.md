@@ -4,20 +4,28 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.2  
+**Versión actual:** v0.9.8  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
 
-- **FSUIPC** (FSUIPCClientDLL 3.3.16) · **NAudio** (2.3.0) · **Newtonsoft.Json** · **GMap.NET**
-- **System.Data.SQLite** (1.0.119) — `landing_log.sqlite` + `NavData_cache.sqlite` + LittleNavMap BD
+- **FSUIPC** (FSUIPCClientDLL 3.3.16) · **NAudio** (2.3.0) · **Newtonsoft.Json** · **GMap.NET** (2.1.7)
+- **System.Data.SQLite** (1.0.119) — `landing_log.sqlite` + `NavData_cache.sqlite`
 - **phpVMS v7** — backend REST · **SimBrief** — planes de vuelo / OFP
+
+> **Credenciales — dev vs. distribución:**
+> - `App.config` es la **configuración local de desarrollo**: contiene las claves del
+>   entorno propio para no reconfigurar la app en cada compilación. No se distribuye.
+> - `App.Release.config` es la **plantilla que se publica a los pilotos**: nunca debe
+>   llevar credenciales, URLs de aerolínea ni rutas de máquina, solo placeholders.
+> - `Helpers/AppConfig.cs` no debe tener credenciales como valor por defecto: un default
+>   en código sobrevive aunque el despliegue limpie su `.config`.
 
 ---
 
 ## Scoring — `Services/ScoringService.cs`
 
-14 criterios + 1 bonificación. Parte de 100, deduce (mín 0), luego bonus (máx 100):
+17 criterios + 1 bonificación. Parte de 100, deduce (mín 0), luego bonus (máx 100):
 
 | Criterio | Máx | Umbrales / condición |
 |---|---|---|
@@ -28,13 +36,16 @@ Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simula
 | Overspeed | 15 | 0=0, 1=7, ≥2=15 |
 | Lights Compliance | 10 | 5 pts/violación cap 10; Beacon exempto en `BeaconStrobeSharedAircraft` (DH8D) |
 | Stabilized Approach 1000 ft | 15 | speed±Vref=−5, VS<−1000=−5, VS>−100=−5, bank>7°=−3, pitch±límites=−3, gear up=−5, flaps<50%=−4 |
-| QNH Compliance | 10 | Δ>2 hPa=−5: salida vs METAR origen; climb vs STD 1013 (tras TA); llegada vs QNH (bajo TL) |
+| QNH Compliance | 10 | Δ>2 hPa=−5 ×2: salida vs METAR origen; llegada vs QNH (bajo TL) |
+| Standard Pressure | 5 | −5 si no se aplica 1013 al cruzar la TA (`StdPressureViolation`) |
 | IVAO Offline | 5 | −5 si desconectado al iniciar TaxiOut |
 | On-Time Departure | 5 | −5 si Blocks Off difiere >10 min de `sched_out` |
 | Touchdown Zone | 7 | ≤1500 ft=0, ≤2500=3, >2500=7 — activo si `TouchdownDistanceFt>0` |
 | Centreline Deviation | 7 | ≤10 ft=0, ≤30=3, >30=7 — activo si `CenterlineDeviationFt>0` |
 | Localizer Alignment | 5 | ILS not tuned=−3; heading>5°=−1 each (cap 2). Omitido si NAV1 difiere >0.05 MHz del ILS esperado a 1000 ft AGL |
 | Minimums Compliance | 5 | −5 si `BelowMinimums=true`. Omitido si Localizer fue omitido |
+| Procedure Speed | 10 | 3 pts/violación de restricción SID/STAR al pasar el fix, cap 10 |
+| Engine Stabilization | 5 | −5 si algún motor en marcha no establecido (aceite/N2) al entrar en pista |
 | **Single Engine Taxi** | **+5** | Multi-motor ≥50% de movimiento con un motor en TaxiOut o TaxiIn |
 
 ---
@@ -239,15 +250,15 @@ Corrige el caso donde el avión aterriza en un aeropuerto distinto al destino pl
 
 **Por qué la fase `Approach` puede no alcanzarse nunca (v0.8.10):** `FlightManager.Telemetry.cs` hardcodea `DistanceToDestinationNm = -1` siempre, dejando muerta la rama de distancia en `FlightPhaseStateMachine`'s transición `Descent → Approach`; solo puede disparar la rama de altitud (`altAboveDest = altitud − elevación del DESTINO PLANEADO < aglThr`). Si el aterrizaje real ocurre en un aeropuerto con elevación muy distinta a la planeada (caso real: SKCL 3162 ft planeado vs SKBO 8361 ft real, ~5200 ft de diferencia), `altAboveDest` puede no bajar del umbral — la fase interna `Approach` puede no alcanzarse nunca, el log de status salta de `APR` (código de `Descent`) directo a `LDG` sin pasar por `FIN`. La re-confirmación en `Descent` (párrafo anterior) es lo que permite detectar el desvío de todas formas.
 
-**Elevación de referencia (AGL) corregida tras confirmar un desvío (v0.9.0):** `FlightManager.ReferenceAirportElevation`/`CurrentAGL`, `BuildPhaseInput().DestinationElevation` (el mismo campo que alimenta `altAboveDest` arriba) y `TelemetryCoordinator.PrepareTelemetry`'s `altitude_agl` (enviado a phpVMS) usaban **siempre** `_activePlan.DestinationElevation` — la elevación del destino planeado — incluso después de confirmar un desvío. Con SKCL/SKBO (~5200 ft de diferencia), el AGL calculado nunca bajaba de 3000 ft ni en touchdown real, así que el buffer de aproximación nunca capturaba puntos (`⚠️ Landing log no grabado: solo 0 puntos en buffer`, confirmado en vuelo real) y el gate de Stabilized Approach tampoco disparaba. Fix: `FlightManager.SetArrivalAirportElevation(double)`/`ArrivalAirportElevationFt` (nuevo campo `_arrivalAirportElevation`), seteado en los mismos dos call sites de `ReconfirmApproachRunway`/`LookupRunwayData` vía `NavDataService.GetAirportElevationFt(icao)` (nuevo, usa `NavDataClient.GetAirportInfo(icao)?.ElevationFt`). `ReferenceAirportElevation` y `BuildPhaseInput()` ahora hacen `_arrivalAirportElevation ?? <elevación planeada>` — esto también resuelve de rebote la transición `Descent → Approach` para desvíos con diferencia de elevación (una vez `altAboveDest` usa la elevación real), por lo que el criterio Stabilized Approach (hasta 15 pts) ahora sí puede evaluarse en un desvío detectado a tiempo.
+**Elevación de referencia (AGL) corregida tras confirmar un desvío (v0.9.0):** `FlightManager.ReferenceAirportElevation`/`CurrentAGL`, `BuildPhaseInput().DestinationElevation` (el mismo campo que alimenta `altAboveDest` arriba) y `TelemetryCoordinator.PrepareTelemetry`'s `altitude_agl` (enviado a phpVMS) usaban **siempre** `_activePlan.DestinationElevation` — la elevación del destino planeado — incluso después de confirmar un desvío. Con SKCL/SKBO (~5200 ft de diferencia), el AGL calculado nunca bajaba de 3000 ft ni en touchdown real, así que el buffer de aproximación nunca capturaba puntos (`⚠️ Landing log no grabado: solo 0 puntos en buffer`, confirmado en vuelo real) y el gate de Stabilized Approach tampoco disparaba. Fix: `FlightManager.SetArrivalAirportElevation(double)`/`ArrivalAirportElevationFt` (nuevo campo `_arrivalAirportElevation`), seteado en los mismos dos call sites de `ReconfirmApproachRunway`/`LookupRunwayData` vía `NavDataService.GetAirportElevationFt(icao)` (nuevo, usa `NavDataClient.GetAirportInfo(icao)?.ElevationFt`). `ReferenceAirportElevation` y `BuildPhaseInput()` ahora hacen `_arrivalAirportElevation ?? <elevación planeada>` (v0.9.5: el campo se guarda como patrón de bits en un `long` y se accede con `Interlocked`, con `double.NaN` como "sin dato" — C# no permite `volatile` sobre `double`, y el campo se publica desde `Task.Run` mientras el hilo de polling lo lee) — esto también resuelve de rebote la transición `Descent → Approach` para desvíos con diferencia de elevación (una vez `altAboveDest` usa la elevación real), por lo que el criterio Stabilized Approach (hasta 15 pts) ahora sí puede evaluarse en un desvío detectado a tiempo.
 
-**Red de seguridad en touchdown** (`LookupRunwayData`): si la capa de Descent/Approach no llegó a resolver nada, reintenta `FindTouchdownRunway` contra destino → origen. El fallback adicional a `IApiService.GetNearestAirport` (phpVMS `/api/airports/nearest`) **se retiró en v0.8.10** — confirmado roto en producción (`404 "No query results for model [App\Models\Airport] NEAREST"`, esa ruta no existe en esta instalación de phpVMS); fallaba siempre en silencio. El método sigue existiendo en `ApiService.cs` (usado por `FlightManager.DetectNearestAirport`, problema separado) pero ya no se llama desde `LookupRunwayData`. También evalúa `CheckFlownDistance`: si la distancia volada es <60% de la planeada, loguea aviso de revisión (`Lnm_DistanceMismatch`) **independientemente** de si hubo match de pista.
+**Red de seguridad en touchdown** (`LookupRunwayData`): si la capa de Descent/Approach no llegó a resolver nada, reintenta `FindTouchdownRunway` contra destino → origen. El fallback adicional a `IApiService.GetNearestAirport` (phpVMS `/api/airports/nearest`) se retiró en v0.8.10 y **[v0.9.8] el método se eliminó por completo** — estaba roto en producción (`404 "No query results for model [App\Models\Airport] NEAREST"`, esa ruta no existe en esta instalación de phpVMS) y su único llamador (`FlightManager.DetectNearestAirport`) no tenía a su vez ningún llamador. También evalúa `CheckFlownDistance`: si la distancia volada es <60% de la planeada, loguea aviso de revisión (`Lnm_DistanceMismatch`) **independientemente** de si hubo match de pista.
 
 **Corrección del PIREP y del piloto** — `FlightManager.Lifecycle.cs` (`FilePirep`): si `_effectiveDestination` difiere del destino planeado, antes de filear:
 1. `_apiService.UpdatePirep(id, new { arr_airport_id = ... })` (mecanismo PUT ya usado para `block_off_time`/status) → log `Log_ArrivalAirportCorrected`.
 2. `PirepBuilder.BuildPayload` incluye `diversion-airport` (solo si `_divertedAirport != null` — el payload se construye como `Dictionary<string,object>`, no objeto anónimo, para que la clave quede **ausente** y no `null` cuando no hay desvío; phpVMS solo procesa una diversión si el pirep **incluye** ese campo) y `arr_airport_id` como refuerzo del `UpdatePirep` previo.
 
-`_apiService.MovePilotAsync` (`PUT /api/user { curr_airport_id }`) **ya no se llama (v0.9.0)** — confirmado roto en producción (`405 "The PUT method is not supported for route api/user"`), y confirmado en un vuelo real desviado que phpVMS ya reubica al piloto por su cuenta al procesar `diversion-airport` en el payload de `/file`. El método sigue en `ApiService.cs` documentado como roto, sin llamarse.
+La reubicación del piloto **no la hace el cliente**: se intentó con `MovePilotAsync` (`PUT /api/user { curr_airport_id }`) y se confirmó roto en producción (`405 "The PUT method is not supported for route api/user"`). [v0.9.8] El método se eliminó junto con `GetNearestAirport` (404 confirmado) y `FlightManager.DetectNearestAirport` (sin llamadores). Confirmado en un vuelo real desviado que phpVMS reubica al piloto por su cuenta al procesar `diversion-airport` en el payload de `/file`.
 
 vmsOpenAcars es responsable de garantizar `arr_airport_id` — la reubicación de `curr_airport` del piloto queda a cargo de phpVMS vía `diversion-airport`.
 
@@ -346,10 +357,10 @@ diseño, sin acceso a NavData; el debounce de 5 s resuelve el caso real sin ese 
 | `Core/Flight/FlightManager.cs` | partial (532 l): `CheckStabilizedApproachGate`/`CheckApproachBelowGate`; `CheckViolations` (TA/TL/QNH/10k ft); `SetRunwayTouchdownData`; `SetApproachData`; `SetOriginTransitionAlt/SetDestTransitionLevel`; `TransitionTo`; `SetResumedPenalties`; `BeaconStrobeSharedAircraft` (DH8D beacon exemption); `SetArrivalAirportElevation`/`ArrivalAirportElevationFt` — override de elevación de referencia tras desvío confirmado (v0.9.0); `ClearDivertedAirport()` — revierte un desvío marcado por error (v0.9.1) |
 | `Core/Flight/FlightPhaseStateMachine.cs` | `TransitionTo(phase)`; umbrales y debounce de fase; timers de transición; `TaxiOut→TakeoffRoll` con debounce 5 s (`_takeoffRollStart`, v0.9.2) |
 | `Core/Flight/ApproachValidator.cs` | gate 1 000 ft (speed, VS, bank, pitch, gear, flaps); `CheckLocalizerAlignment`; `CheckMinimums`; flag `IlsTunedCorrectly`; `CheckArrivalQnhProvisionalAsync`/`FinalizeArrivalQnhAsync` — QNH de llegada provisional/confirmado (v0.8.10); `CheckQnhAsync`/`CheckPhaseEntryLights` (TakeoffRoll) con guard una-vez-por-vuelo (`_departureQnhChecked`/`_takeoffLightsChecked`, v0.9.2) |
-| `Core/Flight/TouchdownState.cs` | `LandingRate`, `GForce`, `BankAngle`, `PitchAngle`, `TouchdownDistanceFt`, `CenterlineDeviationFt`; reset en `ResetFlightState()` |
+| `Core/Flight/TouchdownState.cs` | `LandingRate`, `GForce`, `BankAngle`, `PitchAngle`; geometría de pista (`DistanceFt`/`CenterlineDeviationFt`/`RunwayName`) publicada como una referencia inmutable `RunwayGeometry` para que el lector nunca vea un conjunto a medio actualizar (v0.9.5); reset en `ResetFlightState()` |
 | `Core/Flight/PenaltyState.cs` | `OverspeedCount`, `LightsViolations`, `StabilizedPenalty`, `QnhPenalty`; `_singleEngineTaxiDistance`; consolidado en `ScoringService` |
 | `Core/Flight/FlightManager.Telemetry.cs` | procesamiento de `RawTelemetryData`; actualiza `TouchdownState` y `PenaltyState` por ciclo |
-| `Core/Flight/FlightManager.Lifecycle.cs` | `PrefilePirep`; `FilePirep` (incluye `block_on_time` en payload; corrige `arr_airport_id` vía `UpdatePirep` y agrega `diversion-airport` cuando hay desvío confirmado — v0.8.8–v0.8.9; awaita `FinalizeArrivalQnhAsync` antes de `BuildScoreData()` — v0.8.10; `MovePilotAsync` retirado por roto, phpVMS reubica solo — v0.9.0); `CancelPirep`; `UpdatePirepStatus` (excluye OnBlock/Completed); `ResetFlightState` |
+| `Core/Flight/FlightManager.Lifecycle.cs` | `PrefilePirep`; `FilePirep` (incluye `block_on_time` en payload; corrige `arr_airport_id` vía `UpdatePirep` y agrega `diversion-airport` cuando hay desvío confirmado — v0.8.8–v0.8.9; awaita `FinalizeArrivalQnhAsync` antes de `BuildScoreData()` — v0.8.10; sin reubicación de piloto: `MovePilotAsync` se eliminó por roto, phpVMS reubica solo — v0.9.8); `CancelPirep`; `UpdatePirepStatus` (excluye OnBlock/Completed); `ResetFlightState` |
 | `ViewModels/MainViewModel.cs` | 711 l: `WireAirspaceMonitor`; `StartFlight`+`SetActivePlan`; `GetAircraftCategory()`; `HandleTaxiPositionUpdate` (criterio angular 25°); `SnapshotLandingRecord`→`SaveLandingRecord`; `UpdateAircraftState` |
 | `ViewModels/TelemetryCoordinator.cs` | puente `FsuipcService`→`FlightManager`; throttling OSD/map; eventos `OnFlightPhaseChanged`, `OnTouchdown`; **detección de aeropuerto de llegada distinto al planeado (v0.8.8–v0.9.1)** — ver sección dedicada abajo; `OnPhaseChanged` trata `{Descent, Approach}` como superestado (v0.8.10); filtro `cross_track_nm` + `ClearDivertedAirport()` en `ReconfirmApproachRunway` (v0.9.1) |
 | `ViewModels/AcarsReporter.cs` | `SendPirep`; `ResumeFromAcarsHistoryAsync`; `SendScoringCheckpointAsync` (CHK 60 s) |
@@ -366,18 +377,73 @@ diseño, sin acceso a NavData; el debounce de 5 s resuelve el caso real sin ese 
 | `Services/AirspaceMonitorService.cs` | `InitRouteAsync` (acepta initLat/initLon); `CheckPosition` (ray-casting GeoJSON); `PollIvaoAsync` (filtrado duplicados/distancia/fase); `UpdateAircraftState`; timer 3 min |
 | `Services/FsuipcService.cs` | debounce 2.5 s luces: `_pendingXxxState/At` — nuevo estado estable ≥2.5 s antes de disparar evento; elimina falsos positivos por parpadeo ~1.6 s del sim |
 | `Services/CabinAnnouncementService.cs` | `PrefetchAsync`; cola FIFO; NAudio playback; `TestAnnouncementAsync` |
-| `Services/ScoringService.cs` | 14 criterios + bonus; TDZ+Centreline ~l213; Localizer+Minimums ~l247 |
+| `Services/ScoringService.cs` | 17 criterios + bonus; TDZ+Centreline ~l213; Localizer+Minimums ~l247 |
 | `Models/NavData.cs` | `NavAirspace`, `NavAirspaceGeometry` (GeoJSON [lon,lat]), `NavAirspaceFreq`; `BriefingCheckResult` |
 | `Helpers/SystemInfoHelper.cs` | `GetBestGpu` (DXGI fallback, rango 0–3); `GetCpuString` (registro + ProcessorCount) |
-| `vmsOpenAcars.Tests/ScoringServiceTests.cs` | 66 tests MSTest: un test por criterio/umbral de `ScoringService` |
+| `vmsOpenAcars.Tests/ScoringServiceTests.cs` | 132 tests MSTest de `ScoringService`: un test por criterio y por frontera (ambos lados de cada umbral). Ver "Tests" más abajo |
+| `vmsOpenAcars.Tests/PirepStateTests.cs` | 13 tests de la clasificación de estado de PIREP (`Pirep.IsActiveState`), que decide el fallback de `FilePirep()` (v0.9.6) |
+| `vmsOpenAcars.Tests/GeoMathTests.cs` | 42 tests de geometría flat-earth y del respaldo regional de TA/TL (v0.9.8) |
+| `vmsOpenAcars.Tests/AtcPanelTests.cs` | 6 tests del orden de posiciones ATC (v0.9.8) |
+| `Helpers/GeoMath.cs` | Único punto de verdad de la geometría flat-earth: `Project`, `DistanceNm/Km`, `BearingDeg`, `BearingDiffDeg`, `ToMeters`, `CosLat` con guarda polar (v0.9.8) |
+| `Helpers/FireAndForget.cs` | `Run(work, onError, operationName)` — trabajo en segundo plano sin esperar, con la excepción **observada** y reportada al log (v0.9.8) |
+| `Helpers/TransitionDefaults.cs` | Respaldo regional de TA/TL por `iso_country` cuando NavData no los publica; devuelve 0 si el país es desconocido (v0.9.8) |
+| `Helpers/AtcStationOrder.cs` | Orden de presentación de posiciones ATC (locales primero); fuera del control WinForms para poder probarlo (v0.9.8) |
+| `UI/Forms/AtcPanel.cs` | Panel lateral ATC/ATIS detallado del mapa, con el texto completo del ATIS por estación (v0.9.8) |
 | `vmsOpenAcars.csproj` | `GenerateBindingRedirectsOutputType=true` — impide sobreescribir binding redirect manual de SQLite |
+
+---
+
+## Tests
+
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **193 tests**:
+`ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
+casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
+(`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
+el respaldo regional de TA/TL, y el orden de posiciones ATC.
+
+`InternalsVisibleTo("vmsOpenAcars.Tests")` en `Properties/AssemblyInfo.cs` permite que los
+tests accedan a los tipos `internal` (helpers) sin tener que hacerlos públicos.
+
+```bash
+msbuild vmsOpenAcars.sln /p:Configuration=Debug
+vstest.console.exe vmsOpenAcars.Tests\bin\Debug\vmsOpenAcars.Tests.dll
+```
+
+El scoring vive en un `WinExe`, así que el proyecto de tests lo referencia vía
+`ProjectReference` con `ReferenceOutputAssembly=false` (**solo** para forzar el orden de
+compilación) más un `<Reference>` a `..\vmsOpenAcars\bin\$(Configuration)\vmsOpenAcars.exe`
+que sí lo copia para el runtime. En **Release** el proyecto de tests no se compila.
+
+Al añadir un criterio a `ScoringService`: añadir su test, su entrada en
+`PirepBuilder._critKeyMap` y su clave `Score_Crit*` en `Languages/{en,es}.json`.
 
 ---
 
 ## Próximas áreas
 
-- **Touch-and-go real** — scoring y approach buffer deben resetearse para el segundo aterrizaje.
-- **MetarRaw en logbook** — `FlightRecord.MetarRaw` existe pero no se popula en `SnapshotLandingRecord`.
-- **TA/TL fallback regional** — cuando NavData devuelve `null`, sin OSD ni check STD.
-- **Panel ATC/ATIS detallado** — las formas geográficas ya muestran tipo y frecuencia vía tooltip; podría añadirse un panel lateral persistente con lista de todas las posiciones activas y ATIS completo.
-- **Approach chart — leg CI/PI/FA** — tipos de leg sin coordenadas propias (course-to-intercept, etc.) actualmente omitidos; podrían renderizarse desde el fix anterior + curso.
+Cerradas en v0.9.8: MetarRaw en el LOGBOOK, fallback regional de TA/TL, panel ATC/ATIS
+detallado y los tramos de carta sin coordenadas. Pendiente por decisión de diseño, no por
+falta de trabajo:
+
+- **Touch-and-go de entrenamiento (varios ciclos)** — v0.9.4 desbloquea la máquina de fases
+  tras un touch/stop-and-go (`TaxiIn` maneja el despegue y `_wasOnGround` se refresca sin
+  condiciones) y la segunda aproximación se puntúa desde cero. Lo que **no** está soportado
+  es un circuito de varios ciclos: la primera toma ya quedó registrada en el PIREP vía ACARS
+  y el `ApproachBuffer` se reinicia, así que solo se conserva el último aterrizaje.
+- **`landing_rate = 0` en el payload** — cuando no hubo touchdown capturado, `PirepBuilder`
+  normaliza el centinela `NoLandingData` a `0` porque phpVMS espera un número. Si se
+  confirmara que acepta `null`, sería más honesto omitir el campo.
+- **Códigos de estado de phpVMS (`PirepState`)** — solo `InProgress = 0` está verificado
+  contra producción; el resto sigue la tabla del servidor. Un valor equivocado solo puede
+  hacer que un vuelo *no* se dé por enviado (lado conservador), nunca lo contrario.
+  Confirmar si se observa un PIREP real.
+
+Deuda estructural restante, sin impacto funcional conocido:
+
+- **Métodos gigantes que sobrevivieron al refactor** — `MapRouteController.LoadRoute` ~700 l,
+  `ApproachChartForm.PaintProfileView` ~580 l, `MainForm` ~2 550 l.
+- **`DistanceToDestinationNm` hardcodeado a -1** en `BuildPhaseInput()`: deja muerta la rama
+  de distancia de la transición `Descent → Approach`. Es la causa raíz ya documentada del
+  caso de desvío severo, mitigada por la re-confirmación en `Descent`.
+- **`ProjectOnRunway` / `WithinFootprint`** siguen siendo la única parte de la geometría que
+  no pasa por `Helpers/GeoMath.cs` (tiene su propia escala y desambiguación de paralelas).

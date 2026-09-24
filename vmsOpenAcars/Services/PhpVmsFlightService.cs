@@ -1,4 +1,4 @@
-﻿// Services/PhpVmsFlightService.cs
+// Services/PhpVmsFlightService.cs
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -40,15 +40,14 @@ namespace vmsOpenAcars.Services
 
                 do
                 {
-                    string url = $"{_apiService.BaseUrl}api/flights" +
+                    string url = $"api/flights" +
                                  $"?dep_icao={airportCode}&pilot_id={pilot.Id}&available=true" +
                                  $"&page={currentPage}";
 
-                    var response = await _apiService.HttpClient.GetAsync(url);
-                    if (!response.IsSuccessStatusCode) break;
+                    string body = await _apiService.GetAsync(url);
+                    if (body == null) break;
 
-                    var json = await response.Content.ReadAsStringAsync();
-                    var obj  = JObject.Parse(json);
+                    var obj  = JObject.Parse(body);
                     var data = obj["data"] as JArray;
                     if (data == null) break;
 
@@ -180,14 +179,10 @@ namespace vmsOpenAcars.Services
 
             do
             {
-                string url = $"{_apiService.BaseUrl}api/fleet?page={currentPage}";
-                var response = await _apiService.HttpClient.GetAsync(url);
+                string body = await _apiService.GetAsync($"api/fleet?page={currentPage}");
+                if (body == null) break;
 
-                if (!response.IsSuccessStatusCode)
-                    break;
-
-                var json = await response.Content.ReadAsStringAsync();
-                var obj = JObject.Parse(json);
+                var obj = JObject.Parse(body);
 
                 var data = obj["data"] as JArray;
                 if (data != null)
@@ -214,20 +209,13 @@ namespace vmsOpenAcars.Services
         {
             try
             {
-                var payload = new { flight_id = flightId, user_id = pilotId };
-                var content = new StringContent(
-                    Newtonsoft.Json.JsonConvert.SerializeObject(payload),
-                    System.Text.Encoding.UTF8,
-                    "application/json");
+                var (success, body) = await _apiService.PostJsonAsync(
+                    "api/user/bids", new { flight_id = flightId, user_id = pilotId });
 
-                var response = await _apiService.HttpClient.PostAsync(
-                    $"{_apiService.BaseUrl}api/user/bids", content);
-
-                if (response.IsSuccessStatusCode)
+                if (success)
                     return (true, "Flight assigned successfully");
 
-                string errorContent = await response.Content.ReadAsStringAsync();
-                return (false, ParseErrorMessage(errorContent));
+                return (false, ParseErrorMessage(body));
             }
             catch (Exception ex)
             {
@@ -239,6 +227,8 @@ namespace vmsOpenAcars.Services
 
         private string ParseErrorMessage(string errorContent)
         {
+            if (string.IsNullOrEmpty(errorContent)) return "Unknown server error";
+
             try
             {
                 var errorJson = JObject.Parse(errorContent);

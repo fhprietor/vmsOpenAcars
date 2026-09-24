@@ -42,7 +42,6 @@ namespace vmsOpenAcars.ViewModels
         private TelemetryCoordinator _tc;
         private AcarsReporter        _reporter;
 
-        private int _lastEngineRpm = 0;
         private readonly Dictionary<string, IvaoAtcStation> _prevAtcStations
             = new Dictionary<string, IvaoAtcStation>(StringComparer.OrdinalIgnoreCase);
 
@@ -121,6 +120,7 @@ namespace vmsOpenAcars.ViewModels
             _reporter = new AcarsReporter(
                 _flightManager, _apiService, _fsuipc,
                 landingLogService, simbriefEnhancedService, _tc,
+                metarService,
                 new AcarsReporterCallbacks
                 {
                     Log                     = (msg, color) => OnLog?.Invoke(msg, color),
@@ -281,6 +281,12 @@ namespace vmsOpenAcars.ViewModels
         private void OnFlightManagerOsd(string msg, OsdSeverity sev) => OnOsdMessage?.Invoke(msg, sev);
         private async void OnFlightPhaseChanged(FlightPhase phase)
         {
+            // Cadencia de reporte de posición a phpVMS según la fase (5 s en despegue y
+            // aproximación, 30 s en crucero). Sin esta llamada el intervalo se quedaba
+            // fijo en su valor inicial (30 s) y toda la tabla de update_interval_* de
+            // App.config era código muerto.
+            _fsuipc?.SetUpdateIntervalForPhase(phase);
+
             if (phase == FlightPhase.TaxiOut) await CheckIvaoAtBlocksOffAsync();
 
             _tc?.OnPhaseChanged(phase, _prevPhase);
@@ -368,10 +374,33 @@ namespace vmsOpenAcars.ViewModels
                 var apps  = NavDataClient.GetApproaches(icao);
                 var info  = NavDataClient.GetAirportInfo(icao);
 
-                if (isOrigin && info?.TransitionAltitudeFt > 0)
-                    _flightManager.SetOriginTransitionAlt(info.TransitionAltitudeFt.Value);
-                else if (!isOrigin && info?.TransitionLevelFt > 0)
-                    _flightManager.SetDestTransitionLevel(info.TransitionLevelFt.Value);
+                // TA/TL: preferir el dato del NavData del aeropuerto; si no viene, usar el
+                // respaldo regional por país. Antes, la ausencia del dato dejaba sin
+                // aviso de TA/TL, sin check de 1013 en subida y sin gate de QNH por TL.
+                if (isOrigin)
+                {
+                    double ta = info?.TransitionAltitudeFt > 0
+                        ? info.TransitionAltitudeFt.Value
+                        : TransitionDefaults.GetTransitionAltitudeFt(info);
+                    if (ta > 0)
+                    {
+                        _flightManager.SetOriginTransitionAlt(ta);
+                        if (!(info?.TransitionAltitudeFt > 0))
+                            OnLog?.Invoke(string.Format(_("Log_TransitionAltFallback"), icao, (int)ta), Theme.Warning);
+                    }
+                }
+                else
+                {
+                    double tl = info?.TransitionLevelFt > 0
+                        ? info.TransitionLevelFt.Value
+                        : TransitionDefaults.GetTransitionLevelFt(info);
+                    if (tl > 0)
+                    {
+                        _flightManager.SetDestTransitionLevel(tl);
+                        if (!(info?.TransitionLevelFt > 0))
+                            OnLog?.Invoke(string.Format(_("Log_TransitionLevelFallback"), icao, (int)Math.Round(tl / 100.0)), Theme.Warning);
+                    }
+                }
 
                 if (rwys.Count == 0 && twys.Count == 0)
                     OnLog?.Invoke(_("Log_NavDataPrefetchEmpty", icao), Theme.Warning);
@@ -746,7 +775,9 @@ namespace vmsOpenAcars.ViewModels
                 System.IO.Path.GetTempPath(),
                 $"vmsOFP_{Guid.NewGuid():N}.pdf");
 
-            var response = await _apiService.HttpClient.GetAsync(url);
+            // El OFP lo sirve SimBrief, no phpVMS: usar el cliente de terceros para
+            // no filtrar la API key del piloto al descargar el PDF.
+            var response = await Services.Http.HttpClientProvider.Simbrief.GetAsync(url);
             response.EnsureSuccessStatusCode();
 
             using (var fs = new System.IO.FileStream(tempPath, System.IO.FileMode.Create, System.IO.FileAccess.Write))

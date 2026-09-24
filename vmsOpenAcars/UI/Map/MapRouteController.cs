@@ -35,6 +35,15 @@ namespace vmsOpenAcars.UI.Forms
 
         internal bool FollowAircraft { get; set; } = true;
 
+        // Token de generación de LoadRoute. Cada llamada sella el suyo (ticks) y el
+        // commit a la UI solo se aplica si sigue siendo el más reciente. Sin esto, cada
+        // cambio en el sidebar lanzaba otro Task.Run y ganaba el que TERMINARA último, no
+        // el último pedido: la ruta y el sidebar podían acabar mostrando un procedimiento
+        // ya descartado, y el spinner de la primera tarea se apagaba mientras la segunda
+        // seguía trabajando. Un cambio de pista dispara además una recarga completa de
+        // NavData, así que dos carreras consecutivas son lo normal, no la excepción.
+        private long _routeGeneration;
+
         internal bool RouteLayerVisible
         {
             set
@@ -111,9 +120,19 @@ namespace vmsOpenAcars.UI.Forms
         {
             var wps = waypoints.ToList();
 
+            // Sellar esta carga. Si otra empieza después, esta se considera obsoleta.
+            // Se llama desde el hilo de UI, pero se usa Interlocked por si el token se
+            // leyera desde la tarea de fondo en el futuro.
+            long generation = System.Threading.Interlocked.Increment(ref _routeGeneration);
+
             _spinner.StartSpin();
             System.Threading.Tasks.Task.Run(() =>
             {
+                // Abortar pronto si ya hay una carga más reciente: evita trabajo
+                // innecesario (varias llamadas a NavData) y, sobre todo, el commit.
+                if (System.Threading.Volatile.Read(ref _routeGeneration) != generation)
+                    return;
+
                 var shadowRoutes   = new List<GMapRoute>();
                 var colorRoutes    = new List<GMapRoute>();
                 var markers        = new List<GMapMarker>();
@@ -755,6 +774,14 @@ namespace vmsOpenAcars.UI.Forms
                 _map.BeginInvoke((Action)(() =>
                 {
                     if (_map.IsDisposed) return;
+
+                    // Una carga más reciente pudo terminar antes que esta: descartar el
+                    // resultado obsoleto en lugar de pintarlo por encima del bueno.
+                    // Es el único punto que decide qué se ve, así que basta con
+                    // comprobarlo aquí (más el early-out de arriba).
+                    if (System.Threading.Volatile.Read(ref _routeGeneration) != generation)
+                        return;
+
                     RouteShadowOverlay.Routes.Clear();
                     RouteOverlay.Routes.Clear();
                     AmbientOverlay.Markers.Clear();

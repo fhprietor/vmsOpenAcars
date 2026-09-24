@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -24,7 +24,10 @@ namespace vmsOpenAcars.Services
         private readonly string _apiKey;
 
         /// <summary>
-        /// Gets the underlying HttpClient instance for advanced operations.
+        /// Cliente HTTP autenticado contra phpVMS, para operaciones avanzadas sobre el
+        /// mismo host. NO debe usarse contra hosts de terceros: lleva la API key del
+        /// piloto en las cabeceras por defecto. Para terceros usar
+        /// <see cref="Services.Http.HttpClientProvider"/> (Simbrief/Metar/Ivao/General).
         /// </summary>
         public HttpClient HttpClient => _httpClient;
 
@@ -403,6 +406,13 @@ namespace vmsOpenAcars.Services
                     SubmittedAt = item["submitted_at"]?.ToString(),
                     UpdatedAt = item["updated_at"]?.ToString(),
                     Status = item["status"]?.ToString(),
+                    // `state` es el campo numérico que indica si el PIREP sigue activo o
+                    // fue archivado. Se dejaba sin leer, y el fallback de FilePirep()
+                    // acababa comparando `status` (un código de fase ACARS, no numérico)
+                    // contra "1"/"6", de modo que cualquier respuesta no nula se
+                    // interpretaba como "PIREP archivado". Si el campo no viene, se usa
+                    // Pirep.UnknownState para no confundirlo con InProgress = 0.
+                    State = item["state"]?.Value<int?>() ?? Models.Pirep.UnknownState,
                     // Objetos anidados — extraer el campo kg / nmi según corresponda
                     BlockFuel = item["block_fuel"]?["kg"]?.Value<double>() ?? 0,
                     FuelUsed = item["fuel_used"]?["kg"]?.Value<double>() ?? 0,
@@ -674,70 +684,42 @@ namespace vmsOpenAcars.Services
             }
         }
 
-        /// <summary>
-        /// Finds the nearest airport to the given coordinates using the phpVMS API.
-        /// </summary>
-        /// <param name="latitude">Current latitude.</param>
-        /// <param name="longitude">Current longitude.</param>
-        /// <returns>The ICAO code of the nearest airport, or null if not found.</returns>
-        /// <remarks>
-        /// KNOWN BROKEN against this phpVMS instance: GET api/airports/nearest returns
-        /// 404 ("No query results for model [App\Models\Airport] NEAREST") — confirmed
-        /// live, this route doesn't exist here. In practice this always returns null.
-        /// Still called by FlightManager.DetectNearestAirport (falls back to
-        /// CurrentAirport ?? "SKBO" on failure); do not add new callers until the
-        /// correct phpVMS route is confirmed.
-        /// </remarks>
-        public async Task<string> GetNearestAirport(double latitude, double longitude)
+        #endregion
+
+        #region Accesos genéricos encapsulados
+
+        // Rutas de phpVMS que no tienen método propio (listados paginados de vuelos y
+        // flota, asignación de bids). Encapsularlas aquí permite que los servicios de
+        // dominio trabajen contra phpVMS sin recibir el HttpClient autenticado.
+
+        /// <summary>GET autenticado contra phpVMS. Devuelve null si la respuesta no es 2xx.</summary>
+        public async Task<string> GetAsync(string path)
         {
             try
             {
-                string url = $"{_baseUrl}api/airports/nearest?lat={latitude}&lon={longitude}";
-                var response = await _httpClient.GetAsync(url);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var json = await response.Content.ReadAsStringAsync();
-                    var data = JObject.Parse(json)["data"];
-                    return data?["icao"]?.ToString();
-                }
+                var response = await _httpClient.GetAsync($"{_baseUrl}{path.TrimStart('/')}");
+                if (!response.IsSuccessStatusCode) return null;
+                return await response.Content.ReadAsStringAsync();
             }
-            catch { }
-
-            return null;
+            catch { return null; }
         }
 
         /// <summary>
-        /// Moves the pilot to a different airport in the phpVMS system.
+        /// POST con cuerpo JSON contra phpVMS. Devuelve el código de éxito y el cuerpo
+        /// de la respuesta (también en error, para poder reportar el mensaje del
+        /// servidor). Body es null si la petición no llegó a completarse.
         /// </summary>
-        /// <param name="airportIcao">The ICAO code of the destination airport.</param>
-        /// <exception cref="Exception">Thrown when the server returns an error response.</exception>
-        /// <remarks>
-        /// KNOWN BROKEN against this phpVMS instance: PUT api/user returns 405
-        /// ("The PUT method is not supported for route api/user. Supported methods:
-        /// GET, HEAD.") — confirmed live. No longer called from FilePirep(); phpVMS
-        /// relocates the pilot automatically when it processes `diversion-airport`
-        /// in the /file payload (confirmed live on a real diverted flight).
-        /// </remarks>
-        public async Task MovePilotAsync(string airportIcao)
+        public async Task<(bool Success, string Body)> PostJsonAsync(string path, object payload)
         {
-            var payload = new
+            try
             {
-                curr_airport_id = airportIcao
-            };
-
-            var json = JsonConvert.SerializeObject(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await _httpClient.PutAsync(
-                $"{_baseUrl}api/user", content);
-
-            var result = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new Exception($"Move pilot failed: {result}");
+                var content = new StringContent(
+                    JsonConvert.SerializeObject(payload), Encoding.UTF8, "application/json");
+                var response = await _httpClient.PostAsync($"{_baseUrl}{path.TrimStart('/')}", content);
+                string body = await response.Content.ReadAsStringAsync();
+                return (response.IsSuccessStatusCode, body);
             }
+            catch { return (false, null); }
         }
 
         #endregion

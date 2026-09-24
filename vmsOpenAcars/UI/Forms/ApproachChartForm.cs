@@ -6,6 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models.NavData;
 using vmsOpenAcars.Services;
 
@@ -65,7 +66,7 @@ namespace vmsOpenAcars.UI.Forms
             _icao        = icao;
             _preselected = preselected;
             if (initialAtc != null) ApplyAtcInternal(initialAtc);
-            InitLayout();
+            BuildLayout();
             this.Shown += (s, e) =>
             {
                 _lastDpi = GetDpiForWindow(Handle);
@@ -160,7 +161,10 @@ namespace vmsOpenAcars.UI.Forms
 
         // ── Layout ───────────────────────────────────────────────────────────────────
 
-        private void InitLayout()
+        // Nombre deliberadamente distinto de InitLayout: `Control.InitLayout()` existe y es
+        // virtual, así que un método privado con ese nombre lo ocultaba (CS0114) y podía
+        // ejecutarse —o no— en momentos inesperados del ciclo de vida del control.
+        private void BuildLayout()
         {
             Text            = $"Approach Chart — {_icao}";
             Size            = new Size(820, 1020);
@@ -363,27 +367,30 @@ namespace vmsOpenAcars.UI.Forms
                     (float)(rwy.ThresholdLat + d5 * Math.Cos(oppRad))));
             }
 
-            var bounds = ComputeBounds(geoPoints, 0.12f);
+            // La latitud de referencia del encuadre: la del umbral si hay pista, si no la
+            // media de los puntos. Determina el cos(lat) de la proyección.
+            double refLat = rwy != null
+                ? rwy.ThresholdLat
+                : geoPoints.Average(p => p.Y);
+            double cosLat = Math.Cos(refLat * Math.PI / 180.0);
+            if (cosLat < 0.1) cosLat = 0.1;   // guarda cerca de los polos
+
+            var bounds = ComputeBounds(geoPoints, 0.12f, cosLat);
             var w = _pnlPlan.ClientSize.Width;
             var h = _pnlPlan.ClientSize.Height;
 
-            Func<double, double, PointF> toScreen = (lat, lon) =>
-            {
-                float sx = (float)((lon - bounds.Left) / bounds.Width  * w);
-                float sy = (float)((bounds.Bottom - lat) / bounds.Height * h);
-                return new PointF(sx, sy);
-            };
+            Func<double, double, PointF> toScreen = MakeProjector(bounds, w, h, cosLat);
 
             // Extended centerline
             if (rwy != null)
             {
                 double crsRad = TrueRunwayBearing(rwy) * Math.PI / 180.0;
                 double oppRad = crsRad + Math.PI;
-                double cosLat = Math.Cos(rwy.ThresholdLat * Math.PI / 180);
+                double cosThr = Math.Cos(rwy.ThresholdLat * Math.PI / 180);
                 var thr = new PointF((float)rwy.ThresholdLon, (float)rwy.ThresholdLat);
                 double d5 = 5.0 / 60.0, dp = 0.5 / 60.0;
                 var extFar   = new PointF(
-                    (float)(thr.X + d5 / cosLat * Math.Sin(oppRad)),
+                    (float)(thr.X + d5 / cosThr * Math.Sin(oppRad)),
                     (float)(thr.Y + d5 * Math.Cos(oppRad)));
                 var extPast  = new PointF(
                     (float)(thr.X + dp / cosLat * Math.Sin(crsRad)),
@@ -477,18 +484,116 @@ namespace vmsOpenAcars.UI.Forms
             }
         }
 
+        /// <summary>
+        /// Tramo de procedimiento sin coordenadas propias: su extremo se define por un
+        /// rumbo (course-to-*) o por el punto de partida, no por un fix publicado.
+        /// </summary>
+        private static bool IsCoordinateLessLeg(NavApproachLeg leg)
+        {
+            if (leg == null || string.IsNullOrEmpty(leg.Type)) return false;
+            switch (leg.Type.ToUpperInvariant())
+            {
+                case "CA": case "VA": case "FA":   // ...-to-altitude
+                case "CI": case "VI": case "FM": case "VM":  // ...-to-intercept / manual
+                case "RF":                          // radio-to-fix (necesita el centro DME)
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Centro y radio de una pierna RF. El centro está en `recommended_fix` y el radio
+        /// en `dme_radius_nm`; si falta el radio, se deduce de la distancia al centro.
+        /// </summary>
+        private static bool TryGetRfArc(NavApproachLeg leg, out double cLat, out double cLon,
+                                        out double radiusNm)
+        {
+            cLat = cLon = radiusNm = 0;
+            if (!leg.CenterLat.HasValue || !leg.CenterLon.HasValue) return false;
+            cLat = leg.CenterLat.Value;
+            cLon = leg.CenterLon.Value;
+
+            if (leg.DmeRadiusNm.HasValue && leg.DmeRadiusNm.Value > 0.05)
+                radiusNm = leg.DmeRadiusNm.Value;
+            else if (leg.Lat.HasValue && leg.Lon.HasValue)
+                radiusNm = DistanceNm(cLat, cLon, leg.Lat.Value, leg.Lon.Value);
+            else
+                return false;
+
+            return radiusNm > 0.05;
+        }
+
+        /// <summary>Distancia aproximada en NM entre dos puntos (delegado en GeoMath).</summary>
+        private static double DistanceNm(double lat1, double lon1, double lat2, double lon2)
+            => GeoMath.DistanceNm(lat1, lon1, lat2, lon2);
+
+        /// <summary>
+        /// Proyecta un punto a `distNm` en la dirección `courseDeg` (delegado en GeoMath).
+        /// </summary>
+        private static PointF ProjectPoint(double lat, double lon, double courseDeg, double distNm)
+        {
+            var p = GeoMath.ProjectPoint(lat, lon, courseDeg, distNm);
+            return new PointF((float)p.Lon, (float)p.Lat);
+        }
+
         private void DrawLegRange(Graphics g, Func<double, double, PointF> toScreen,
                                    List<NavApproachLeg> legs, int startIdx, int endIdx, Pen pen, bool drawLabels)
         {
             PointF? prev = null;
+            // Ancla geográfica para las piernas sin coordenadas: la última posición real
+            // conocida. El extremo proyectado pasa a ser el ancla siguiente, de modo que
+            // una secuencia de piernas sin coordenadas encadena razonablemente.
+            (double Lat, double Lon)? rayAnchor = null;
+
             for (int i = startIdx; i < endIdx && i < legs.Count; i++)
             {
                 var leg = legs[i];
-                if (!leg.Lat.HasValue || !leg.Lon.HasValue) { prev = null; continue; }
+
+                if (!leg.Lat.HasValue || !leg.Lon.HasValue)
+                {
+                    // Extremo del tramo. Se prefiere la distancia publicada; si el
+                    // procedimiento no la trae (course-to-intercept puro), se dibuja un
+                    // vector representativo en lugar de omitir el tramo — omitirlo dejaba
+                    // un hueco que rompía la polilínea y ocultaba el viraje real.
+                    if (rayAnchor.HasValue && leg.Course > 0)
+                    {
+                        double nm = leg.DistanceNm > 0.1 ? leg.DistanceNm : 5.0;
+                        var endGeo = ProjectPoint(rayAnchor.Value.Lat, rayAnchor.Value.Lon, leg.Course, nm);
+                        var endScr = toScreen(endGeo.Y, endGeo.X);
+
+                        if (prev.HasValue)
+                        {
+                            g.DrawLine(pen, prev.Value, endScr);
+                            if (drawLabels)
+                            {
+                                DrawDirectionArrow(g, prev.Value, endScr, pen.Color);
+                                if (leg.DistanceNm > 0.1)
+                                    DrawSegmentLabel(g, prev.Value, endScr, leg.DistanceNm, leg.Course, pen.Color);
+                            }
+                        }
+
+                        prev      = endScr;
+                        rayAnchor = (endGeo.Y, endGeo.X);
+                        continue;
+                    }
+
+                    // Sin ancla ni rumbo no hay forma de situarlo: se corta la polilínea
+                    // para no inventar una recta entre extremos desconocidos.
+                    prev      = null;
+                    rayAnchor = null;
+                    continue;
+                }
+
                 var cur = toScreen(leg.Lat.Value, leg.Lon.Value);
                 if (prev.HasValue)
                 {
                     if (leg.Type == "AF" && leg.CenterLat.HasValue && leg.CenterLon.HasValue)
+                        DrawDmeArc(g, toScreen, prev.Value, cur, leg, pen);
+                    else if (leg.Type == "RF" && TryGetRfArc(leg, out double _, out double _, out double _))
+                        // RF y AF comparten geometría (arco alrededor de un centro con
+                        // sentido de viraje); DrawDmeArc ya es genérico y usa el centro
+                        // del tramo, así que se reutiliza en lugar de duplicar el arco.
                         DrawDmeArc(g, toScreen, prev.Value, cur, leg, pen);
                     else
                     {
@@ -501,7 +606,8 @@ namespace vmsOpenAcars.UI.Forms
                         }
                     }
                 }
-                prev = cur;
+                prev      = cur;
+                rayAnchor = (leg.Lat.Value, leg.Lon.Value);
             }
         }
 
@@ -658,18 +764,7 @@ namespace vmsOpenAcars.UI.Forms
             maxDist *= 1.07;
 
             // ── Glidepath source ──────────────────────────────────────────────────
-            // Only trust app.FafIndex when it points to a leg that actually has a
-            // VerticalAngle.  Many SKBO approaches ship faf_index=0 (first leg, no VA)
-            // which is never the true FAF.
-            int fafFallback = FindFafFallback(legs);
-            int fafIdx = (app.FafIndex.HasValue
-                          && app.FafIndex.Value < n
-                          && legs[app.FafIndex.Value].VerticalAngle.HasValue)
-                ? app.FafIndex.Value
-                : fafFallback;
-            // IF legs are never the FAF (ARINC 424)
-            while (fafIdx < n - 1 && legs[fafIdx].Type == "IF")
-                fafIdx++;
+            int fafIdx = ComputeFafIndex(app);
             double? gpAngle = null;
             Color   gpColor = GsColor;
             bool    gpDashed = false;
@@ -1301,14 +1396,7 @@ namespace vmsOpenAcars.UI.Forms
             for (int i = app.Legs.Count - 1; i >= 0; i--)
                 if (app.Legs[i].Course > 0) { faCourse = app.Legs[i].Course; break; }
 
-            int fafIdxB = (app.FafIndex.HasValue
-                           && app.FafIndex.Value < app.Legs.Count
-                           && app.Legs[app.FafIndex.Value].VerticalAngle.HasValue)
-                ? app.FafIndex.Value
-                : FindFafFallback(app.Legs);
-            while (fafIdxB < app.Legs.Count - 1 && app.Legs[fafIdxB].Type == "IF")
-                fafIdxB++;
-            int fafIdx = fafIdxB;
+            int fafIdx = ComputeFafIndex(app);
             string fafFix = fafIdx >= 0 && fafIdx < app.Legs.Count ? (app.Legs[fafIdx].Fix ?? "") : "";
             double fafAlt = fafIdx >= 0 && fafIdx < app.Legs.Count ? app.Legs[fafIdx].AltitudeFt : 0;
             double fafAgl = fafAlt > 0 ? fafAlt - rwyElev : 0;
@@ -1559,16 +1647,66 @@ namespace vmsOpenAcars.UI.Forms
             return (b + 360) % 360;
         }
 
-        private static RectangleF ComputeBounds(List<PointF> pts, float margin)
+        /// <summary>
+        /// Encuadre geográfico de la vista de planta, en <b>metros</b> y no en grados.
+        ///
+        /// Trabajar en grados con un factor "/1.5" fijo era incorrecto en dos sentidos:
+        /// un grado de longitud no mide lo mismo que uno de latitud (a 6° N la diferencia
+        /// es ~0.5%), y el factor fijo no tenía relación con la latitud real del
+        /// aeropuerto, así que la carta salía deformada en horizontal y con un encuadre
+        /// distinto en cada aeropuerto. Proyectando a metros con cos(lat) el aspecto es
+        /// el real y el margen es el mismo en todas partes.
+        /// </summary>
+        private static RectangleF ComputeBounds(List<PointF> pts, float margin, double cosLat)
         {
             float minLat = pts.Min(p => p.Y), maxLat = pts.Max(p => p.Y);
             float minLon = pts.Min(p => p.X), maxLon = pts.Max(p => p.X);
-            float dLat = maxLat - minLat, dLon = maxLon - minLon;
-            float span = Math.Max(dLat, dLon / 1.5f);
-            if (span < 0.01f) span = 0.5f;
-            float cx = (minLon + maxLon) / 2, cy = (minLat + maxLat) / 2;
-            float half = span * (1 + margin) / 2;
-            return new RectangleF(cx - half * 1.5f, cy - half, half * 3, half * 2);
+
+            // A metros (longitud escalada por cos(lat) para que sea comparable con latitud)
+            double latM = 111320.0;
+            double lonM = 111320.0 * cosLat;
+
+            double minY = minLat * latM, maxY = maxLat * latM;
+            double minX = minLon * lonM, maxX = maxLon * lonM;
+
+            double spanX = maxX - minX, spanY = maxY - minY;
+            double span  = Math.Max(spanX, spanY);
+            if (span < 1000.0) span = 50000.0;   // ~0.45° — mínimo razonable
+
+            double half = span * (1 + margin) / 2;
+            double cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+
+            // Rectángulo cuadrado en metros; el reparto entre ancho y alto lo decide el
+            // tamaño del panel al convertir a pantalla.
+            return new RectangleF(
+                (float)((cx - half) / lonM),
+                (float)((cy - half) / latM),
+                (float)((half * 2) / lonM),
+                (float)((half * 2) / latM));
+        }
+
+        /// <summary>
+        /// Convierte lat/lon a coordenadas de pantalla, aplicando cos(lat) a la longitud
+        /// para que la escala horizontal y la vertical coincidan (dibujo no deformado).
+        /// </summary>
+        private static Func<double, double, PointF> MakeProjector(
+            RectangleF bounds, int w, int h, double cosLat)
+        {
+            double halfSpanLon = bounds.Width  / 2.0;
+            double halfSpanLat = bounds.Height / 2.0;
+            double cxLon = bounds.Left + halfSpanLon;
+            double cyLat = bounds.Top  + halfSpanLat;
+
+            return (lat, lon) =>
+            {
+                // Usar el mismo eje (latitud) para ambas escalas normaliza el aspecto:
+                // 1 unidad de bounds equivale al mismo número de píxeles en X y en Y.
+                double dx = ((lon - cxLon) * cosLat) / halfSpanLat;   // normalizado por lat
+                double dy = (lat - cyLat) / halfSpanLat;
+                float sx = (float)(w / 2.0 + dx * (h / 2.0));
+                float sy = (float)(h / 2.0 - dy * (h / 2.0));
+                return new PointF(sx, sy);
+            };
         }
 
         private static double FindDaMda(List<NavApproachLeg> legs)
@@ -1589,6 +1727,37 @@ namespace vmsOpenAcars.UI.Forms
             for (int i = legs.Count - 2; i >= 0; i--)
                 if (legs[i].AltitudeFt > 0 && legs[i].FixType != "R" && legs[i].Type != "IF") return i;
             return 0;
+        }
+
+        /// <summary>
+        /// Índice del FAF dentro de <paramref name="legs"/>.
+        ///
+        /// Existía tres veces con ligeras variantes (vista de planta, perfil y briefing
+        /// strip), lo que permitía que las tres mostraran un FAF distinto para la misma
+        /// aproximación. Un solo punto de verdad.
+        ///
+        /// Solo se confía en `app.FafIndex` cuando apunta a un tramo que realmente tiene
+        /// ángulo vertical: muchas aproximaciones del NavData traen `faf_index = 0`, que
+        /// es el primer tramo y nunca el FAF real.
+        /// </summary>
+        private static int ComputeFafIndex(NavApproach app)
+        {
+            var legs = app?.Legs;
+            if (legs == null || legs.Count == 0) return 0;
+
+            int n = legs.Count;
+            int idx = (app.FafIndex.HasValue
+                       && app.FafIndex.Value >= 0
+                       && app.FafIndex.Value < n
+                       && legs[app.FafIndex.Value].VerticalAngle.HasValue)
+                ? app.FafIndex.Value
+                : FindFafFallback(legs);
+
+            // Los tramos IF nunca son el FAF (ARINC 424)
+            while (idx < n - 1 && legs[idx].Type == "IF")
+                idx++;
+
+            return idx;
         }
 
         private static string FormatAlt(string desc, double ft)

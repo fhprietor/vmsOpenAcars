@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
 using vmsOpenAcars.Models;
 
 namespace vmsOpenAcars.Helpers
@@ -24,6 +25,46 @@ namespace vmsOpenAcars.Helpers
         public static string GetStatusCode(FlightPhase phase)
             => PhaseToStatusCode.TryGetValue(phase, out string code) ? code : "INI";
 
+        // Alias aceptados AL REANUDAR un PIREP que no son emitidos por este cliente.
+        // El vocabulario propio (PhaseToStatusCode) se resuelve por inversión, de modo
+        // que ambos sentidos no pueden desincronizarse al añadir una fase.
+        // NO incluir aquí ninguna clave presente en PhaseToStatusCode.
+        private static readonly Dictionary<string, FlightPhase> StatusAliases =
+            new Dictionary<string, FlightPhase>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["INI"] = FlightPhase.Boarding,
+                ["PBK"] = FlightPhase.Pushback,
+                ["TKF"] = FlightPhase.Takeoff,
+                ["CLB"] = FlightPhase.Climb,
+                ["CRZ"] = FlightPhase.Enroute,
+                ["DSC"] = FlightPhase.Descent,
+                ["LND"] = FlightPhase.Landing,
+                ["ONB"] = FlightPhase.AfterLanding,
+            };
+
+        /// <summary>
+        /// Traduce el código de estado de un PIREP (columna status de phpVMS) a la fase
+        /// interna. Prioriza el vocabulario propio y cae a los alias de compatibilidad.
+        /// </summary>
+        public static FlightPhase FromPirepStatus(string status)
+        {
+            if (string.IsNullOrWhiteSpace(status)) return FlightPhase.Boarding;
+            string token = status.Trim().ToUpperInvariant();
+
+            // 1. Vocabulario que emite este cliente, por inversión de PhaseToStatusCode.
+            //    Así "APR" resuelve a Descent y "FIN" a Approach — exactamente lo que
+            //    GetStatusCode envía — sin poder divergir del sentido de emisión.
+            foreach (var kv in PhaseToStatusCode)
+                if (string.Equals(kv.Value, token, StringComparison.OrdinalIgnoreCase))
+                    return kv.Key;
+
+            // 2. Alias procedentes de otras fuentes ACARS.
+            if (StatusAliases.TryGetValue(token, out var alias)) return alias;
+
+            // 3. Desconocido: un PIREP activo suele estar en vuelo, no en tierra.
+            return FlightPhase.Enroute;
+        }
+
         public static string GetDisplayName(FlightPhase phase)
         {
             switch (phase)
@@ -40,28 +81,6 @@ namespace vmsOpenAcars.Helpers
                 case FlightPhase.TaxiIn:    return "TAXI IN";
                 case FlightPhase.Completed: return "COMPLETED";
                 default:                    return phase.ToString().ToUpper();
-            }
-        }
-
-        public static FlightPhase FromPirepStatus(string status)
-        {
-            switch (status?.ToUpperInvariant())
-            {
-                case "INI":
-                case "BST": return FlightPhase.Boarding;
-                case "PBK": return FlightPhase.Pushback;
-                case "TXI": return FlightPhase.TaxiOut;
-                case "TKF": return FlightPhase.Takeoff;
-                case "CLB": return FlightPhase.Climb;
-                case "ENR":
-                case "CRZ": return FlightPhase.Enroute;
-                case "DSC": return FlightPhase.Descent;
-                case "APR":
-                case "FIN": return FlightPhase.Approach;
-                case "LND": return FlightPhase.Landing;
-                case "ONB": return FlightPhase.AfterLanding;
-                case "ARR": return FlightPhase.TaxiIn;
-                default:    return FlightPhase.Enroute;
             }
         }
 

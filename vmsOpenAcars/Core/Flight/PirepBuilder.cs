@@ -20,6 +20,7 @@ namespace vmsOpenAcars.Core.Flight
             { "Lights Compliance",   "Score_CritLights"       },
             { "Stabilized Approach", "Score_CritStabilized"   },
             { "QNH Compliance",      "Score_CritQnh"          },
+            { "Standard Pressure",   "Score_CritStdPressure"  },
             { "IVAO Presence",       "Score_CritIvao"         },
             { "On-Time Departure",   "Score_CritDeparture"    },
             { "Touchdown Zone",      "Score_CritTdz"          },
@@ -36,8 +37,7 @@ namespace vmsOpenAcars.Core.Flight
         internal static void LogScore(ScoringResult result, Action<string, Color> log)
         {
             string ratingKey = "Score_" + result.LandingRating.Replace(" ", "");
-            log?.Invoke(string.Format(_("Score_Result"), result.TotalScore, _(ratingKey)), Theme.Success);
-            foreach (var ded in result.Deductions)
+            log?.Invoke(string.Format(_("Score_Result"), result.TotalScore, _(ratingKey)), Theme.Success);            foreach (var ded in result.Deductions)
             {
                 string critLabel = _critKeyMap.TryGetValue(ded.Criterion, out string ck) ? _(ck) : ded.Criterion;
                 log?.Invoke(string.Format(_("Score_Deduction"), ded.PointsDeducted, critLabel, ded.Reason), Theme.Warning);
@@ -66,7 +66,12 @@ namespace vmsOpenAcars.Core.Flight
                 ["planned_flight_time"] = a.PlannedFlightTimeMinutes,
                 ["block_fuel"] = Math.Round(a.BlockFuel, 0),
                 ["fuel_used"] = Math.Round(a.FuelUsed, 0),
-                ["landing_rate"] = a.LandingRateFpm ?? 0,
+                // phpVMS needs a number; the internal NoLandingData sentinel (-1) must
+                // never reach the server, so an uncaptured touchdown is reported as 0.
+                ["landing_rate"] = a.LandingRateFpm.HasValue &&
+                                   a.LandingRateFpm.Value != ScoringService.NoLandingData
+                                       ? a.LandingRateFpm.Value
+                                       : 0,
                 ["score"] = a.Score,
                 ["notes"] = $"vmsOpenAcars Report - Total: {a.TotalFlightTimeMinutes} min, Flight: {a.ActualFlightTimeMinutes} min, Dist: {a.TotalDistanceNm:F1} NM"
             };

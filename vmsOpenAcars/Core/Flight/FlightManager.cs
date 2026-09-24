@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using vmsOpenAcars.Core.Helpers;
@@ -52,16 +53,45 @@ namespace vmsOpenAcars.Core.Flight
         private int _apEngagedCounter = 0;
         private const int ApEngageDebounce = 6;
         private const double SingleEngineTaxiMinRatio = 0.5;
-        private string _effectiveDestination = null;
-        private string _divertedAirport = null;
-        private double? _arrivalAirportElevation = null;  // real (diverted) elevation, once known
+        // Escritos desde Task.Run (TelemetryCoordinator.ReconfirmApproachRunway /
+        // LookupRunwayData) y leídos desde el hilo de polling (BuildPhaseInput,
+        // BuildScoreData) y desde el de UI (FilePirep). volatile garantiza que el hilo
+        // lector vea el valor publicado y no una copia en caché de registro.
+        private volatile string _effectiveDestination = null;
+        private volatile string _divertedAirport = null;
+        private const double UnknownElevation = double.NaN;
+
+        // Elevación real del aeropuerto de llegada una vez confirmado un desvío.
+        // Se guarda como su patrón de bits y se accede con Interlocked (double.NaN =
+        // "sin dato") porque C# no permite `volatile` sobre double ni sobre long —solo
+        // tipos de hasta 32 bits— y este campo se publica desde Task.Run mientras el hilo
+        // de polling lo lee en cada ciclo de telemetría. Interlocked da escritura y
+        // lectura atómicas de 64 bits más la barrera de memoria necesaria.
+        private long _arrivalAirportElevationBits = BitConverter.DoubleToInt64Bits(UnknownElevation);
+
+        private double ArrivalAirportElevationRaw
+            => BitConverter.Int64BitsToDouble(Interlocked.Read(ref _arrivalAirportElevationBits));
         private bool _isNavOn, _isStrobeOn, _isTaxiLightOn, _isLandingLightOn, _isBeaconOn, _isSpoilersOn;
         private bool _pendingNavOn, _pendingBeaconOn, _pendingLandingOn, _pendingTaxiOn, _pendingStrobeOn, _pendingSpoilers;
         private DateTime _navPending, _beaconPending, _landingPending, _taxiPending, _strobePending, _spoilersPending;
         private bool _hotelModeActive;
         // Aeronaves con switch único beacon/strobe: encender strobes apaga beacon (DH8D Q400)
         private static readonly HashSet<string> BeaconStrobeSharedAircraft = new HashSet<string> { "DH8D" };
-        private const double LightDebounceSeconds = 2.0;
+
+        // Debounce de las luces de cumplimiento. Convive con el hold de 2.5 s de
+        // FsuipcService, pero NO son redundantes ni se suman: son dos cadenas paralelas
+        // sobre el mismo dato crudo.
+        //   · FsuipcService (2.5 s) debouncea solo la EMISIÓN de sus eventos
+        //     *LightChanged, que se usan para log y anuncios de cabina.
+        //   · Este (2.0 s) debouncea el ESTADO que consumen las penalizaciones
+        //     (CheckPhaseEntryLights, beacon en CheckViolations, ApproachContext).
+        // Los flags de RawTelemetryData son crudos: FsuipcService nunca los filtra, así
+        // que sin esta capa el scoring se evaluaría contra el bitfield sin debouncear y
+        // un parpadeo del sim (~1.6 s) penalizaría. Al revertir el valor antes de
+        // cumplirse el plazo, el contador se descarta, que es justo el comportamiento
+        // buscado. Mismo umbral que la capa de hardware para que ambas absorban el mismo
+        // flicker.
+        private const double LightDebounceSeconds = 2.5;
         private const double SpoilersDebounceSeconds = 1.5;
         private int _lastFlightTimeMinutesLogged = -1;
         private double _lastDistanceLogged = -1;
@@ -92,7 +122,11 @@ namespace vmsOpenAcars.Core.Flight
                     case FlightPhase.OnBlock:
                     case FlightPhase.Arrived:
                     case FlightPhase.Completed:
-                        return _arrivalAirportElevation ?? _activePlan.DestinationElevation;
+                        // Elevación real del aeropuerto de llegada si el desvío ya se
+                        // confirmó; si no, la planeada del destino.
+                        return double.IsNaN(ArrivalAirportElevationRaw)
+                                   ? _activePlan.DestinationElevation
+                                   : ArrivalAirportElevationRaw;
                     default:
                         return _activePlan.OriginElevation;
                 }
@@ -108,8 +142,13 @@ namespace vmsOpenAcars.Core.Flight
                 double agl = CurrentAltitude - ReferenceAirportElevation;
                 if (agl > 1000) return true;   // por encima del gate — aún no aplica
 
-                bool speedOk = CurrentIndicatedAirspeed >= 100 &&
-                               CurrentIndicatedAirspeed <= 160;
+                // Misma ventana de Vapp que el gate de scoring: antes estaba fijada a
+                // 100–160 kt, de modo que el indicador STABLE/UNSTABLE de la UI podía
+                // marcar estable un avión que el gate sí habría penalizado (y al revés
+                // en una aeronave ligera). Fuente única: la tabla de performance.
+                var (vappMin, vappMax) = AircraftPerformanceTable.GetApproachSpeedRange(_approachValidator.AircraftIcao);
+                bool speedOk = CurrentIndicatedAirspeed >= vappMin &&
+                               CurrentIndicatedAirspeed <= vappMax;
                 bool vsOk = CurrentVerticalSpeed >= -1000 &&
                             CurrentVerticalSpeed <= -100;
                 bool bankOk = Math.Abs(_currentBank) <= 7.0;
@@ -131,6 +170,8 @@ namespace vmsOpenAcars.Core.Flight
         public int CurrentAltitude { get; private set; }
         public int CurrentVerticalSpeed { get; private set; }
         public int?   TouchdownFpm          => _td.Fpm;
+        /// <summary>True when a touchdown was actually captured this flight.</summary>
+        public bool   TouchdownDataCaptured => _td.Captured && _td.Fpm.HasValue;
         public double TouchdownDistanceFt   => _td.DistanceFt;
         public double TouchdownCenterlineFt => _td.CenterlineDeviationFt;
         public string TouchdownRunwayName   => _td.RunwayName;
@@ -511,20 +552,6 @@ namespace vmsOpenAcars.Core.Flight
             if (_activePilot != null && IsSimulatorConnected) ValidateSimulatorPosition(lat, lon);
         }
 
-        public async Task<string> DetectNearestAirport(double latitude, double longitude)
-        {
-            if (_apiService != null)
-            {
-                var airport = await _apiService.GetNearestAirport(latitude, longitude);
-                if (!string.IsNullOrEmpty(airport))
-                {
-                    CurrentAirport = airport;
-                    return airport;
-                }
-            }
-            return CurrentAirport ?? "SKBO";
-        }
-
         public bool IsPilotAtDepartureAirport(string requiredAirport) => CurrentAirport?.Equals(requiredAirport, StringComparison.OrdinalIgnoreCase) ?? false;
 
         public void MarkOfflineFlight() => _pen.IsOfflineFlight = true;
@@ -552,6 +579,13 @@ namespace vmsOpenAcars.Core.Flight
             _approachValidator.EffectiveDestination = icao;
         }
 
+        /// <summary>
+        /// Aeropuerto de llegada real confirmado (desvío detectado), o null si el vuelo
+        /// sigue apuntando al destino planeado. Solo lectura: se fija desde
+        /// <see cref="SetEffectiveDestination"/>.
+        /// </summary>
+        public string EffectiveDestination => _effectiveDestination;
+
         // Confirmed by NavData's nearest/approach-airport match (icao != planned
         // destination) — drives the `diversion-airport` field sent at file time.
         // Distinct from _effectiveDestination: that one also gets set from the
@@ -563,8 +597,17 @@ namespace vmsOpenAcars.Core.Flight
         // overrides the originally-planned destination's elevation in
         // ReferenceAirportElevation and BuildPhaseInput()'s DestinationElevation. Set
         // alongside SetDivertedAirport at the same two call sites in TelemetryCoordinator.
-        public void SetArrivalAirportElevation(double elevationFt) => _arrivalAirportElevation = elevationFt;
-        public double? ArrivalAirportElevationFt => _arrivalAirportElevation;
+        public void SetArrivalAirportElevation(double elevationFt)
+            => Interlocked.Exchange(ref _arrivalAirportElevationBits, BitConverter.DoubleToInt64Bits(elevationFt));
+        /// <summary>Elevación real del aeropuerto de llegada, o null si aún no se conoce.</summary>
+        public double? ArrivalAirportElevationFt
+        {
+            get
+            {
+                double raw = ArrivalAirportElevationRaw;
+                return double.IsNaN(raw) ? (double?)null : raw;
+            }
+        }
 
         // Revierte un desvío marcado por error (falso positivo geométrico transitorio) cuando
         // el tracking local vuelve a confirmar el destino planeado. No se llama en touchdown —
@@ -575,7 +618,7 @@ namespace vmsOpenAcars.Core.Flight
             _divertedAirport = null;
             _effectiveDestination = null;
             _approachValidator.EffectiveDestination = null;
-            _arrivalAirportElevation = null;
+            Interlocked.Exchange(ref _arrivalAirportElevationBits, BitConverter.DoubleToInt64Bits(UnknownElevation));
         }
 
         public bool CanStartFlight()

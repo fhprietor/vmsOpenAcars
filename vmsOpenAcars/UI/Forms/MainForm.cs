@@ -42,7 +42,6 @@ namespace vmsOpenAcars.UI.Forms
         // ========== CONTROLES ==========
         private TableLayoutPanel mainLayout;
         private BufferedPanel pnlHeader;
-        private BufferedPanel pnlMessage;
         private BufferedPanel pnlFma;
         private BufferedPanel pnlStatus;
         private BufferedPanel pnlButtons;
@@ -71,7 +70,6 @@ namespace vmsOpenAcars.UI.Forms
         public Label lblSimName;
         private Button btnMenu;
         private Button btnLogin;
-        private Button btnAtis;
         private Button btnOfp;
         private Button btnMsg;
         private MapForm _mapForm;
@@ -85,14 +83,12 @@ namespace vmsOpenAcars.UI.Forms
 
         // Controles del Flight Information Panel - PROGRESO
         private Label _lblRestante;
-        private Label _lblEta;
         private Label _lblTiempoAire;
 
         // AERODINÁMICA
         private Label _lblIas;
         private Label _lblGs;
         private Label _lblVs;
-        private Label _lblMach;
 
         // FUEL
         private Label _lblFuelInit;
@@ -104,12 +100,6 @@ namespace vmsOpenAcars.UI.Forms
         private Label _lblCruiseVal;
         private Label _lblAglVal;
         private Label _lblQnhVal;
-
-        // CLIMA
-        private Label _lblWind;
-        private Label _lblOat;
-        private Label _lblTat;
-        private Label _lblTr;
 
         // SISTEMAS
         private Label _lblGear;
@@ -204,7 +194,7 @@ namespace vmsOpenAcars.UI.Forms
                     var flightManager       = new FlightManager(apiService, weatherService);
                     var fsuipc              = new FsuipcService();
                     var phpVmsFlightService     = new PhpVmsFlightService(apiService);
-                    var simbriefEnhancedService = new SimbriefEnhancedService(apiService);
+                    var simbriefEnhancedService = new SimbriefEnhancedService();
 
                     _viewModel = new MainViewModel(
                         flightManager, fsuipc, apiService,
@@ -214,11 +204,29 @@ namespace vmsOpenAcars.UI.Forms
 
                     _osd = new OsdOverlayForm();
                 }
+                else
+                {
+                    // Sin URL/API key no hay servicios: avisar y no continuar, porque todo
+                    // el resto de la inicialización depende de _viewModel.
+                    MessageBox.Show(
+                        "Falta configurar la aerolínea virtual.\n\n" +
+                        "Abre vmsOpenAcars.exe.config (o el diálogo SETTINGS) e introduce la " +
+                        "API URL y la API Key de tu phpVMS antes de iniciar la aplicación.",
+                        "Configuración incompleta",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Error inicializando servicios: {ex.Message}");
+                return;
             }
+
+            // Guarda defensiva: sin servicios no hay nada que suscribir, y continuar
+            // provocaría un NullReferenceException en el constructor del formulario.
+            if (_viewModel == null) return;
+
             _viewModel.OnFlightStarted += () =>
             {
                 _isFlightActive = true;
@@ -231,6 +239,7 @@ namespace vmsOpenAcars.UI.Forms
                 UpdateCancelButton();
             };
         }
+
         private void UpdateCancelButton()
         {
             if (btnCancel.InvokeRequired)
@@ -1877,9 +1886,15 @@ namespace vmsOpenAcars.UI.Forms
                         _viewModel.SetActivePlan(completePlan);
                         BtnMap_Click(null, EventArgs.Empty);
                         _uiService.AddLog($"✅ Plan loaded: {completePlan.Origin} → {completePlan.Destination}", Theme.Success);
-                        Task.Run(() => _viewModel.TriggerMetarFetchAsync());
+                        // Descargas de red que no deben bloquear la UI al cargar un plan.
+                        // Sus fallos se registran en el log en vez de perderse.
+                        FireAndForget.Run(() => _viewModel.TriggerMetarFetchAsync(),
+                            ex => _uiService.AddLog($"⚠️ METAR: {ex.Message}", Theme.Warning),
+                            "fetch de METAR");
                         if (_viewModel.HasOFPPdf())
-                            Task.Run(() => _viewModel.DownloadOFPPdfAsync());
+                            FireAndForget.Run(() => _viewModel.DownloadOFPPdfAsync(),
+                                ex => _uiService.AddLog($"⚠️ OFP PDF: {ex.Message}", Theme.Warning),
+                                "descarga de OFP");
                         _viewModel.UpdateFlightInfo();
                         return;
                     }
@@ -2371,12 +2386,15 @@ private void UpdateMetarPanel(MetarData[] metars)
                 { "window_height", "768" },
                 { "last_screen",   "0" },
 
-                // Conexión
+                // Conexión — estos cuatro quedan vacíos a propósito: son los datos de la
+                // aerolínea virtual y del piloto. Un valor por defecto aquí sobrevive a
+                // cualquier limpieza del .config y se comitearía al repositorio. El piloto
+                // los introduce en Settings.
                 { "language",      "es" },
-                { "vms_api_url",   "https://vholar.co/" },
-                { "airline",       "VHOLAR - FLIGHT OPERATIONS DEPARTMENT - FLIGHT DATA ANALYSIS" },
-                { "vms_api_key",   "your_phpvms_apikey" },
-                { "simbrief_user", "your_simbrief_user" },
+                { "vms_api_url",   "" },
+                { "airline",       "" },
+                { "vms_api_key",   "" },
+                { "simbrief_user", "" },
 
                 // Polling
                 { "polling_interval_ms",    "50" },

@@ -1,8 +1,8 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.9.2**
+**Versión 0.9.3**
 
-vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 14 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
+vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 17 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
 ---
 
@@ -274,7 +274,7 @@ En vuelos **internacionales** con aerolínea hispanohablante los anuncios se rep
 
 ## 5. Scoring de vuelo
 
-El score parte de **100 puntos** y aplica deducciones según **14 criterios**. Adicionalmente existe una **bonificación** por taxi en single-engine. El valor final (0–100) se envía con el PIREP a phpVMS y queda registrado en el LOGBOOK.
+El score parte de **100 puntos** y aplica deducciones según **17 criterios**. Adicionalmente existe una **bonificación** por taxi en single-engine. El valor final (0–100) se envía con el PIREP a phpVMS y queda registrado en el LOGBOOK.
 
 ### Tabla de criterios
 
@@ -288,12 +288,15 @@ El score parte de **100 puntos** y aplica deducciones según **14 criterios**. A
 | **Lights Compliance** | −10 pts | −5 pts por violación (cap −10). Ver detalle abajo. |
 | **Stabilized Approach** | −15 pts | Evaluado al cruzar 1 000 ft AGL en descenso. Ver detalle abajo. |
 | **QNH Compliance** | −10 pts | −5 pts si Δ QNH > 2 hPa. Verificado **dos veces**: salida (TakeoffRoll) y llegada (gate 1 000 ft AGL). |
+| **Standard Pressure** | −5 pts | −5 si no se selecciona 1013 hPa al cruzar la altitud de transición en subida. |
 | **IVAO Offline** | −5 pts | −5 si el piloto no está conectado a IVAO al iniciar el TaxiOut |
 | **On-Time Departure** | −5 pts | −5 si el Blocks Off real difiere más de 10 min del STD programado |
 | **Touchdown Zone** | −7 pts | ≤ 1 500 ft del umbral → 0 · ≤ 2 500 ft → −3 · > 2 500 ft → −7 ¹ ³ |
 | **Centreline Deviation** | −7 pts | ≤ 10 ft → 0 · ≤ 30 ft → −3 · > 30 ft → −7 ¹ |
 | **Localizer Alignment** | −5 pts | ILS no sintonizado → −3 · desviación de rumbo > 5° (× 2 máx) → −2 ¹ ² |
 | **Minimums Compliance** | −5 pts | −5 si el avión descendió bajo la DA sin aterrizar ¹ ² |
+| **Procedure Speed** | −10 pts | −3 pts por violación de una restricción de velocidad SID/STAR al pasar el fix (máx −10). |
+| **Engine Stabilization** | −5 pts | −5 si algún motor en marcha no estaba estabilizado (aceite/N2) al entrar en pista. |
 | **Single Engine Taxi** | **+5 pts** (bonus) | Se otorgan si ruedas ≥ 50 % del tiempo de movimiento con un solo motor en TaxiOut o TaxiIn. Solo aplica en aeronaves multi-motor. El score no puede superar 100. Reglas por tipo de propulsión: **Jet** → elegible solo si se cumplieron los tiempos de calentamiento y cool-down de reversas; **Turboprop** → elegible siempre (no requiere cool-down); **Pistón** → nunca elegible. |
 
 > ¹ Requiere la **NavData API** configurada en Settings (URL + API Key válida). Sin ella, estos criterios no se evalúan.  

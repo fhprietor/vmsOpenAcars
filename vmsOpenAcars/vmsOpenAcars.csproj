@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="..\packages\PdfiumViewer.Native.x86_64.no_v8-no_xfa.2018.4.8.256\build\PdfiumViewer.Native.x86_64.no_v8-no_xfa.props" Condition="Exists('..\packages\PdfiumViewer.Native.x86_64.no_v8-no_xfa.2018.4.8.256\build\PdfiumViewer.Native.x86_64.no_v8-no_xfa.props')" />
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
@@ -168,7 +168,11 @@
     <Compile Include="Core\Flight\PirepBuilder.cs" />
     <Compile Include="Core\Helpers\AppInfo.cs" />
     <Compile Include="Helpers\AppConfig.cs" />
+    <Compile Include="Helpers\AtcStationOrder.cs" />
+    <Compile Include="Helpers\GeoMath.cs" />
+    <Compile Include="Helpers\FireAndForget.cs" />
     <Compile Include="Helpers\SystemInfoHelper.cs" />
+    <Compile Include="Helpers\TransitionDefaults.cs" />
     <Compile Include="Helpers\Constants.cs" />
     <Compile Include="Helpers\FlightPhaseHelper.cs" />
     <Compile Include="Helpers\L.cs" />
@@ -203,7 +207,6 @@
     <Compile Include="Services\Interfaces\IWeatherService.cs" />
     <Compile Include="Services\FsuipcService.cs" />
     <Compile Include="Services\LocalizationService.cs" />
-    <Compile Include="Services\MockSimulator.cs" />
     <Compile Include="Services\PhpVmsFlightService.cs" />
     <Compile Include="Services\PositionValidator.cs" />
     <Compile Include="Services\ScoringService.cs" />
@@ -223,6 +226,9 @@
     <Compile Include="Services\Weatherservice.cs" />
     <Compile Include="UI\Forms\EcamDialog.cs">
       <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="UI\Forms\AtcPanel.cs">
+      <SubType>Component</SubType>
     </Compile>
     <Compile Include="UI\Forms\FlightHistoryForm.cs">
       <SubType>Form</SubType>

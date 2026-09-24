@@ -266,7 +266,9 @@ namespace vmsOpenAcars.Core.Flight
             Heading                 = CurrentHeading,
             CruiseAltitude          = _activePlan?.CruiseAltitude ?? 10000,
             TotalDistanceNm         = _activePlan?.Distance ?? 100,
-            DestinationElevation    = _arrivalAirportElevation ?? _destinationElevation,
+            DestinationElevation    = double.IsNaN(ArrivalAirportElevationRaw)
+                                          ? _destinationElevation
+                                          : ArrivalAirportElevationRaw,
             DistanceToDestinationNm = -1,
             Origin                  = _activePlan?.Origin ?? _currentAirport,
             Destination             = _activePlan?.Destination ?? _currentAirport,

@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Threading;
 using System.Threading.Tasks;
 using vmsOpenAcars.Core.Helpers;
 using vmsOpenAcars.Helpers;
@@ -29,7 +30,7 @@ namespace vmsOpenAcars.Core.Flight
             CurrentFuel = 0;
             _effectiveDestination = null;
             _divertedAirport = null;
-            _arrivalAirportElevation = null;
+            Interlocked.Exchange(ref _arrivalAirportElevationBits, BitConverter.DoubleToInt64Bits(UnknownElevation));
             _td.Reset();
             _pen.Reset();
             _approachValidator.Reset();
@@ -177,7 +178,7 @@ namespace vmsOpenAcars.Core.Flight
             // los datos de la sesión anterior)
             _effectiveDestination = null;
             _divertedAirport = null;
-            _arrivalAirportElevation = null;
+            Interlocked.Exchange(ref _arrivalAirportElevationBits, BitConverter.DoubleToInt64Bits(UnknownElevation));
             _td.Reset();
             _pen.Reset();
             _approachValidator.Reset();
@@ -265,10 +266,11 @@ namespace vmsOpenAcars.Core.Flight
                 try { await _apiService.UpdatePirep(ActivePirepId, new { arr_airport_id = arrivalIcao }); }
                 catch (Exception ex) { OnLog?.Invoke(_("Log_ErrorArrivalAirportUpdate", ex.Message), Theme.Danger); }
 
-                // MovePilotAsync (PUT api/user) is NOT called here — confirmed broken
-                // (405, method not supported) against production, and confirmed on a
-                // real diverted flight that phpVMS already relocates the pilot on its
-                // own when it processes `diversion-airport` in the /file payload below.
+                // La reubicación del piloto NO se hace desde aquí: se intentó con
+                // `MovePilotAsync` (PUT api/user) y está roto en producción (405 "The PUT
+                // method is not supported for route api/user"), así que se retiró. phpVMS
+                // reubica al piloto por su cuenta al procesar `diversion-airport` en el
+                // payload de /file — confirmado en un vuelo real desviado.
             }
 
             var finalData = PirepBuilder.BuildPayload(new PirepPayloadArgs
@@ -292,11 +294,15 @@ namespace vmsOpenAcars.Core.Flight
             {
                 // phpVMS puede procesar el PIREP y devolver un código no-2xx.
                 // Verificamos el estado real antes de asumir fallo.
+                //
+                // Se decide con `state` (el campo numérico), NO con `status`: este último
+                // es un código de fase ACARS y compararlo contra "1"/"6" daba siempre
+                // distinto, así que cualquier respuesta no nula se tomaba como "PIREP
+                // archivado" — un falso "PIREP FILED" con el vuelo sin registrar.
                 try
                 {
                     var pirepDetail = await _apiService.GetPirepDetail(ActivePirepId);
-                    if (pirepDetail?.Status != null &&
-                        pirepDetail.Status != "1" && pirepDetail.Status != "6")
+                    if (!Models.Pirep.IsActiveState(pirepDetail?.State))
                         success = true;
                 }
                 catch { }
@@ -314,7 +320,10 @@ namespace vmsOpenAcars.Core.Flight
 
         private FlightScoreData BuildScoreData() => new FlightScoreData
         {
-            LandingRate                  = (int)(_td.Fpm ?? 0),
+            LandingDataCaptured          = _td.Captured && _td.Fpm.HasValue,
+            LandingRate                  = _td.Captured && _td.Fpm.HasValue
+                                               ? _td.Fpm.Value
+                                               : Services.ScoringService.NoLandingData,
             LandingPitch                 = _td.Pitch,
             LandingBank                  = _td.Bank,
             LandingGForce                = _td.GForce,
@@ -323,6 +332,7 @@ namespace vmsOpenAcars.Core.Flight
             LightsViolations             = _approachValidator.LightsViolationCount,
             StabilizedApproachDeductions = _approachValidator.StabilizedDeductions,
             QnhViolations                = _approachValidator.QnhViolations,
+            StdPressureViolation         = _approachValidator.StdPressureViolation,
             WasOfflineFlight             = _pen.IsOfflineFlight,
             DepartedLate                 = _pen.DepartedLate,
             TouchdownDistanceFt          = _td.DistanceFt,

@@ -2,6 +2,564 @@
 
 ---
 
+## [0.9.8] — 2026-09-21
+
+### Removed
+
+- **Todo el andamiaje de simulación (mock)** — sin código de datos falsos en el binario:
+
+  - **`Services/MockSimulator.cs`** (274 l) eliminado y desregistrado del `.csproj`. Era
+    un simulador IFR sintético (SKRG → MQT → AMVES → SKBO) que **nunca se instanciaba**:
+    código muerto que además era geométricamente incorrecto (movía la posición mezclando
+    grados con seno/coseno sin corregir la longitud).
+  - **`LandingLogService.SeedMockData()`** eliminado junto con el botón **SEED DEMO DATA**
+    del LOGBOOK y su `#if DEBUG`. Inyectaba 5 vuelos falsos con trayectorias sintéticas
+    (SKRG RWY 01) para poblar la interfaz en desarrollo.
+
+  > Consecuencia: el LOGBOOK arranca **vacío** en una instalación nueva y solo se llena
+  > con vuelos reales. Las bases de datos existentes conservan sus registros; los vuelos
+  > de demostración ya insertados, si los hubiera, no se borran — hay que eliminarlos a
+  > mano desde el propio LOGBOOK.
+
+- **Artefactos de documentación generados y desactualizados** (`Docs/`):
+
+  El repositorio guardaba ~12,5 MB de PDF/HTML/PNG/JPEG generados desde los `.md`, y se
+  habían quedado atrás en silencio: `architecture.html` era de **v0.4.12** (ni siquiera
+  mencionaba la detección de desvíos, los espacios aéreos ni la carta de aproximación) y
+  `BRIEFING` —la guía del piloto, la que sí se publica— era de **v0.8.7**, cinco releases
+  por detrás del cliente. Ese PDF documentaba un producto que ya no existe: sin los fixes
+  de scoring, sin el panel ATC y sin el comportamiento de desvíos actual.
+
+  Eliminados los ocho artefactos. Los `.md` quedan como única fuente de verdad y
+  `Docs/README.md` explica ahora cómo regenerar un PDF/HTML **fuera** del control de
+  versiones, para que no vuelva a pasar.
+
+### Removed (código muerto)
+
+- **Tres métodos que ya no se llamaban desde ningún sitio**:
+
+  | Método | Por qué se elimina |
+  |---|---|
+  | `IApiService.GetNearestAirport` / `ApiService.GetNearestAirport` | Confirmado roto en producción: `GET api/airports/nearest` devuelve 404 ("No query results for model `[App\Models\Airport] NEAREST`") — esa ruta no existe en esta instalación de phpVMS |
+  | `FlightManager.DetectNearestAirport` | Su único propósito era llamar al anterior, y **no lo llamaba nadie**. Devolvía `CurrentAirport ?? "SKBO"` |
+  | `IApiService.MovePilotAsync` / `ApiService.MovePilotAsync` | Confirmado roto en producción: `PUT api/user` devuelve 405. Se dejó de llamar en v0.9.0; phpVMS reubica al piloto solo vía `diversion-airport` |
+
+  Estaban documentados como "rotos pero conservados", que es lo correcto mientras algo los
+  use. Al quedar sin llamadores pasan a ser deuda: un método roto que nadie llama conserva
+  en el código la tentación de volver a usarlo. Si algún día se confirma la ruta correcta
+  de phpVMS, hay que reimplementarlos desde cero.
+
+- **`FsuipcService.GetAutobrakeName(byte)`** — sobrecarga sin llamadores;
+  `TelemetryCoordinator.GetAutobrakeName(int)` (que sí se usa) hacía lo mismo.
+
+### Added
+
+- **Panel ATC/ATIS detallado en el mapa** (`UI/Forms/AtcPanel.cs`): botón **ATC ▸** en la
+  barra inferior que despliega un panel lateral con **todas** las posiciones activas en
+  IVAO — callsign, frecuencia y **el texto completo del ATIS** de cada estación.
+
+  Las formas geográficas del mapa ya indicaban *dónde* está cada posición a 20 NM; este
+  panel dice *qué* hay activo y con qué frecuencia, y es el único sitio donde el ATIS se
+  lee entero sin pasar el ratón por encima de cada marcador. Agrupa por aeropuerto y
+  ordena las dependencias locales primero (DEL → GND → TWR → ATIS → APP → DEP → CTR),
+  porque durante el rodaje lo urgente es la torre, no el centro de área. Se repuebla con
+  cada poll de IVAO.
+
+  La regla de orden vive en `Helpers/AtcStationOrder.cs`, fuera del control WinForms: es
+  dominio, no dibujo, y así se prueba sin arrastrar `System.Windows.Forms` a los tests.
+
+### Fixed
+
+- **La carta de aproximación deformaba la geometría y encuadraba distinto en cada
+  aeropuerto** (`ApproachChartForm`):
+
+  La vista de planta proyectaba lat/lon a píxeles con
+  `(lon - bounds.Left) / bounds.Width * w` mientras `ComputeBounds` usaba un factor
+  **`/1.5` fijo** para el ancho. Ese factor no tenía relación con la latitud del
+  aeropuerto, así que las cartas salían estiradas en horizontal y con un encuadre
+  arbitrario en cada sitio.
+
+  Ahora el encuadre se calcula **en metros** con `cos(lat)` y la conversión a pantalla
+  normaliza ambos ejes con la misma escala, de modo que un grado de longitud ocupa los
+  píxeles que le corresponden. Se añade una guarda para latitudes extremas.
+
+- **El FAF se resolvía tres veces con ligeras variantes** (`ApproachChartForm`): la vista
+  de planta, el perfil y el briefing strip calculaban el índice del FAF por separado, de
+  modo que podían mostrar un FAF distinto para la misma aproximación. Unificado en
+  `ComputeFafIndex(NavApproach)`.
+
+- **Los tramos de procedimiento sin coordenadas se omitían, rompiendo la polilínea**
+  (`ApproachChartForm`): los tipos `CI`, `VI`, `CA`, `VA`, `FA`, `FM` y `VM` no traen
+  lat/lon propias (su extremo se define por un rumbo o por el punto de partida), y el
+  render los descartaba — lo que partía la polilínea y **ocultaba el viraje real** que
+  describen. Ahora se dibujan como vector desde el último fix conocido usando su rumbo
+  publicado, prefiriendo `distance_nm` cuando existe y con un vector representativo en
+  caso contrario. Las piernas `RF` (arco de radio a fijo) se dibujan con el arco real
+  alrededor de su centro DME, reutilizando la misma rutina que los arcos `AF`.
+
+- **Los METAR no llegaban al LOGBOOK** (`AcarsReporter`): `FlightRecord.MetarRaw` existía
+  pero `SnapshotLandingRecord` nunca lo poblaba, así que la columna quedaba vacía siempre.
+  Ahora toma el METAR de llegada del servicio METAR **ya descargado durante el vuelo** —
+  el snapshot debe ser síncrono y reflejar lo que el piloto tenía delante —, y en caso de
+  desvío prefiere el slot del aeropuerto de aterrizaje real sobre el del plan.
+
+- **TA/TL sin fallback: dos criterios de scoring se perdían en silencio**
+  (`MainViewModel`, `Helpers/TransitionDefaults.cs`):
+
+  Cuando el NavData de un aeropuerto no publicaba `transition_altitude_ft` /
+  `transition_level_ft`, el cliente simplemente no hacía nada: sin aviso de TA/TL, sin
+  comprobación de 1013 al subir y sin gate de QNH de llegada por TL. Se añade un respaldo
+  regional por `iso_country` (EE. UU./Canadá 18 000 ft, Colombia 18 000, Europa 5 000,
+  etc.), marcado explícitamente en el log como respaldo. Con un país desconocido devuelve 0
+  y **no inventa** un valor.
+
+### Changed
+
+- **Geometría flat-earth consolidada** (`Helpers/GeoMath.cs`): la proyección
+  rumbo/distancia estaba implementada **tres veces** con la misma fórmula y tolerancias
+  distintas al caso degenerado (`MapRouteController.Helpers.DispGeoNm`,
+  `AirspaceMonitorService.ProjectPosition` y la local de `ApproachChartForm`). Un único
+  punto de verdad, con la guarda de `cos(lat)` para latitudes extremas. Los envoltorios
+  privados se conservan para no tocar los ~15 puntos de llamada.
+
+- **`ApproachChartForm.InitLayout()` renombrado a `BuildLayout()`**: el nombre ocultaba
+  `Control.InitLayout()` (virtual), que es un método del ciclo de vida del control —
+  `CS0114`. Un nombre que sugiere ser parte de la infraestructura de WinForms cuando no lo
+  es invita a que alguien lo llame en el momento equivocado.
+
+- **Build sin warnings**: de 19 warnings iniciales a **cero**. Además de los 14 campos
+  muertos, se corrigieron 4 `CS4014` (llamadas async sin await) y el `CS0114` anterior.
+
+- **Excepciones sin observar en tareas fire-and-forget** (`Helpers/FireAndForget.cs`): los
+  cuatro `CS4014` no eran solo ruido del compilador. Una tarea que nadie espera y falla
+  deja la excepción sin observar, y en .NET Framework 4.x eso acaba en un
+  `UnobservedTaskException` silencioso o en un cierre del proceso. Ocurría en la descarga
+  del METAR, la del PDF del OFP, la recarga del approach y el refresco de datos del
+  piloto: el usuario solo veía que "no pasó nada".
+
+  Nuevo helper `FireAndForget.Run(work, onError, operationName)` que arranca el trabajo sin
+  esperarlo **y observa la excepción**, reportándola al log en lugar de perderla. Se
+  eligió una clase aparte y no un método en `L` porque estos archivos hacen
+  `using static vmsOpenAcars.Helpers.L`, y `_` ya resuelve a ese helper de localización.
+
+- **14 campos muertos eliminados** (`MainForm`, `FlightPlannerForm`, `MainViewModel`,
+  `TelemetryCoordinator`): el build ya no produce ningún `CS0169`/`CS0414`/`CS0219`.
+
+### Added (tests)
+
+- `GeoMathTests` (25 métodos + 17 filas) y `AtcPanelTests` (6) — suite total: **193 tests**.
+  Los tests de geometría se comprueban contra valores derivados, no contra reglas de tres
+  mentales: al escribirlos descubrieron que 60 NM no son 1° de latitud con la constante
+  usada (son ~0.998°, porque 111 320 m/grado equivalen a ~60.108 NM por grado) y que
+  `GetTransitionLevelFt` devolvía 1 000 ft para un país desconocido en lugar de "no sé".
+
+
+## [0.9.7] — 2026-09-21
+
+### Fixed
+
+- **Un fallo transitorio de red borraba el METAR que ya estaba en pantalla**
+  (`MetarService`):
+
+  `SafeFetchByIcaoAsync` / `SafeFetchNearestAsync` ponían el slot a `null` **antes** de
+  pedir el METAR. Si la descarga fallaba (timeout, 500, DNS), el slot se quedaba vacío y
+  `finally` disparaba `OnMetarUpdated` con huecos, de modo que un parpadeo de red hacía
+  desaparecer un METAR válido. El valor anterior solo se reemplaza ahora cuando la
+  descarga tiene éxito; la antigüedad queda visible vía `MetarData.FetchedAt`.
+
+  Ese `null` tenía una segunda función legítima que se ha conservado de forma dirigida:
+  cuando el aeropuerto de un slot **cambia** (nuevo plan, otro origen/destino), el slot se
+  vacía en `SetStations` para que un METAR del vuelo anterior no quede en pantalla bajo la
+  etiqueta del aeropuerto nuevo. Los slots cuyo aeropuerto no cambia se conservan, que es
+  lo que permite tolerar el fallo transitorio.
+
+- **El QNH cacheado no caducaba y podía penalizar con un valor de días atrás**
+  (`WeatherService`):
+
+  `_qnhCache` guardaba el último QNH bueno por aeropuerto **sin marca de tiempo** y se
+  devolvía como último recurso cuando NavData y aviationweather fallaban. El QNH es una
+  magnitud meteorológica, no estática: comparar el altímetro del avión contra un valor
+  viejo podía penalizar por una diferencia de >2 hPa que ya no existe, o dar por bueno un
+  QNH que sí cambió.
+
+  La caché pasa a guardar `(Qnh, FetchedAt)` con **TTL de 1 hora** (un METAR es válido
+  ~1 h y se emite cada 30 min). Un valor caducado se descarta y se elimina de la caché, y
+  se devuelve `null` — que el scoring interpreta como "no se pudo comprobar" y **no
+  penaliza**. Se elige ese lado del compromiso a propósito: ante un dato que ya no
+  representa la realidad, omitir el criterio es más honesto que puntuar con él.
+
+- **`LoadRoute` no descartaba los resultados obsoletos: ganaba el que terminara último**
+  (`MapRouteController`):
+
+  Cada cambio en el sidebar (pista, SID, STAR, transición) lanzaba un `Task.Run` sin
+  cancelación ni serialización. Si una carga antigua terminaba *después* de una nueva,
+  su commit pintaba la ruta y poblaba el sidebar de un procedimiento ya descartado. Un
+  cambio de pista dispara además una recarga completa de NavData, así que dos carreras
+  consecutivas son lo normal, no la excepción. El spinner tenía el mismo problema: la
+  primera tarea en terminar lo apagaba mientras la segunda seguía trabajando, dando la
+  impresión de que la recarga había acabado.
+
+  Se añade un **token de generación** (`_routeGeneration`, sellado con `Interlocked`): la
+  carga que ya no es la más reciente aborta en el arranque de la tarea y, lo que importa,
+  no aplica su commit a la UI. El `StopSpin` vive dentro del commit, así que solo la carga
+  vigente apaga el spinner.
+
+  Se eligió el token de generación sobre un `CancellationTokenSource` por proporción: el
+  cuerpo de `LoadRoute` son ~700 líneas de geometría y llamadas a NavData, y salpicarlo de
+  comprobaciones de cancelación habría sido un cambio mucho mayor con el mismo resultado
+  para el caso real (el commit era el único punto donde el daño se materializaba).
+
+### Documented
+
+- Nota de concurrencia en `CLAUDE.md` sobre el token de generación de `LoadRoute` y el TTL
+  del QNH.
+
+
+## [0.9.6] — 2026-09-21
+
+### Fixed
+
+- **"PIREP FILED" falso: el fallback de `/file` decidía con el campo equivocado**
+  (`FlightManager.Lifecycle`, `ApiService`, `Models/Pirep`):
+
+  phpVMS puede archivar el PIREP y aun así devolver un código HTTP no-2xx, así que desde
+  v0.7.7 `FilePirep()` consulta el estado real con `GET api/pireps/{id}` antes de asumir
+  fallo. El problema era **con qué campo decidía**:
+
+  ```csharp
+  if (pirepDetail?.Status != null &&
+      pirepDetail.Status != "1" && pirepDetail.Status != "6")
+      success = true;   // <-- "archivado"
+  ```
+
+  `Status` es un **código de fase ACARS** (`"BST"`, `"TXI"`, `"FIN"`… — los mismos que esta
+  app envía vía `FlightPhaseHelper.GetStatusCode`), no un número de estado. Comparado
+  contra `"1"`/`"6"` daba siempre distinto, de modo que **cualquier respuesta no nula se
+  interpretaba como "PIREP archivado"**. Si el `/file` fallaba de verdad pero el `GET`
+  respondía, el piloto veía "PIREP FILED — SCORE: XX/100", el botón SEND se desactivaba y
+  el vuelo **no quedaba registrado**.
+
+  La raíz estaba en `ApiService.GetPirepDetail()`: **no leía el campo `state`** —el
+  numérico correcto, y el que `GetActivePireps()` ya usa para filtrar (`state == 0`)—
+  dejando `Pirep.State` sin poblar. El fallback no tenía acceso a la información correcta y
+  usaba la que sí tenía.
+
+  **Fix:**
+  - `GetPirepDetail()` puebla `State` desde `item["state"]`; si el campo no viene usa
+    `Pirep.UnknownState` (-1), distinto de `InProgress = 0` para que un DTO sin poblar no
+    se confunda con un estado leído del servidor.
+  - Nuevo `PirepState` (enum) y `Pirep.IsActiveState(int?)`: un PIREP sigue activo solo en
+    `InProgress` (0) o `Paused` (1); cualquier otro estado significa archivado.
+  - El fallback usa `state`. **Ante un estado ilegible devuelve "activo"**, es decir no
+    afirma que el PIREP se archivó: se prefiere que el piloto vea "no se pudo enviar" y
+    pueda reintentar antes que perder el vuelo en silencio.
+
+  > **Sobre los códigos de estado:** solo `InProgress = 0` está verificado contra
+  > producción (es el filtro que usa `GetActivePireps` y funciona). El resto sigue la tabla
+  > de estados de phpVMS, que no se pudo consultar en línea durante este cambio. Si se
+  > observa un PIREP real, conviene confirmarlos: un valor equivocado aquí solo puede hacer
+  > que un vuelo *no* se dé por enviado (el lado conservador), nunca al revés.
+
+### Added
+
+- `vmsOpenAcars.Tests/PirepStateTests.cs` — 13 tests de la clasificación de estado de
+  PIREP, incluido el caso que motivó el fix (estado ilegible → no afirmar archivado).
+  Suite total: **145 tests**.
+
+---
+
+## [0.9.4] — 2026-09-21
+
+### Added
+
+- **Proyecto de tests `vmsOpenAcars.Tests/` — 132 tests de `ScoringService`, todos en
+  verde** (`vmsOpenAcars.Tests/ScoringServiceTests.cs`):
+
+  El `CLAUDE.md` y el `CHANGELOG` de v0.8.0 documentaban desde entonces un proyecto
+  `vmsOpenAcars.Tests/` con 66 tests MSTest que **nunca existió en el repositorio** —
+  ni carpeta, ni `.csproj`, ni rastro en el historial de git. El motor de scoring, que
+  es lo que decide la nota del piloto, llevaba 5 releases sin ninguna red de seguridad.
+
+  La suite cubre los 17 criterios y sus umbrales con **un test por frontera, siempre en
+  sus dos lados** (`≤150` penaliza 0 y `151` penaliza 5), porque es ahí donde un cambio
+  de `<` por `<=` pasa desapercibido. Además:
+
+  - Todos los tests parten de un vuelo perfecto (score 100, cero deducciones) y añaden
+    **una sola** violación, de modo que la deducción observada es atribuible sin
+    ambigüedad a ese criterio.
+  - `AllCriteria_AreIndividuallyAttributable` exige **17 líneas de desglose únicas**: es
+    el test de regresión del bug de contador compartido entre STD y QNH.
+  - `Score_IsFlooredAtZero` lleva el vuelo a >100 pts de deducción bruta.
+  - Regresión explícita del criterio omitido sin datos de aterrizaje.
+
+  El proyecto referencia el `.exe` de la aplicación (el scoring vive en un WinExe) con un
+  `ProjectReference` `ReferenceOutputAssembly=false` que solo fuerza el **orden** de
+  compilación, más un `<Reference>` que sí copia el assembly para el runtime.
+
+  Ejecución:
+  ```
+  msbuild vmsOpenAcars.sln /p:Configuration=Debug
+  vstest.console.exe vmsOpenAcars.Tests\bin\Debug\vmsOpenAcars.Tests.dll
+  ```
+
+  En Release el proyecto de tests **no se compila** (la solución mapea su configuración
+  Release a ActiveCfg Debug sin `Build.0`), para que no entre en el paquete distribuible.
+
+### Fixed
+
+- **Touch-and-go / stop-and-go dejaban la máquina de fases congelada en `TaxiIn`**
+  (`FlightPhaseStateMachine`):
+
+  Si el avión aterrizaba y deceleraba por debajo de 40 kt, la transición
+  `AfterLanding → TaxiIn` disparaba antes de que el piloto aplicara potencia. A partir de
+  ahí, el segundo vuelo era irrecuperable: `HandleAirPhases` **no tenía `case TaxiIn`**,
+  así que la máquina se quedaba en `TaxiIn` indefinidamente y `OnBlock` nunca podía
+  alcanzarse (exige GS<1 en tierra). El caso de touch-and-go solo era alcanzable desde
+  `AfterLanding`, y el aterrizaje lento lo saltaba.
+
+  Dos causas independientes:
+  1. **`_wasOnGround` solo se actualizaba dentro del `case Takeoff`** (`if (... &&
+     CurrentPhase == FlightPhase.Takeoff)`). Tras el aterrizaje quedaba fijado en `true`
+     para siempre, de modo que `HandleAirPhases` no volvía a ejecutarse nunca más. Ahora
+     se refresca de forma incondicional (salvo en el early-return del touchdown).
+  2. **`TaxiIn` no manejaba el despegue.** El caso de touch-and-go se comparte ahora entre
+     `AfterLanding` y `TaxiIn`, con la misma condición (GS>60 kt y ≥5 s desde el
+     touchdown), de modo que ambos caminos de aterrizaje convergen.
+
+  También se limpia `_takeoffRollStart` al detectar un nuevo aterrizaje y al pasar por
+  `TaxiIn` con GS>60: los timestamps son absolutos y sobrevivían al aterrizaje, pudiendo
+  disparar `TakeoffRoll` al primer ciclo del siguiente rodaje.
+
+  **Nota:** sigue siendo un touch-and-go simplificado — el `ApproachBuffer` se limpia y la
+  segunda aproximación se puntúa desde cero, pero la **primera** ya quedó registrada en el
+  PIREP vía ACARS. Un touch-and-go de entrenamiento (varios ciclos) no está soportado como
+  tal; lo que se corrige aquí es que el vuelo no quede bloqueado.
+
+- **Un aterrizaje no capturado se puntuaba como "Butter" y enviaba `landing_rate = 0`**
+  (`ScoringService`, `FlightScoreData`, `FlightManager`, `PirepBuilder`, `AcarsReporter`,
+  `FlightRecord`, `LandingAnalysisForm`, `FlightHistoryForm`):
+
+  `LandingRate` es un `int` no anulable y se rellenaba con `_td.Fpm ?? 0`. Es decir: si el
+  touchdown nunca se detectaba, el criterio de mayor peso del sistema (**−40 pts**) se
+  evaluaba como un aterrizaje perfecto de 0 fpm, la calificación cualitativa salía
+  **"Butter"** y a phpVMS se le enviaba `landing_rate = 0` como si fuera un dato real.
+
+  Se distingue "sin datos" de "0 fpm" con un centinela explícito
+  (`ScoringService.NoLandingData = -1`) más el flag `FlightScoreData.LandingDataCaptured`,
+  en lugar de cambiar el tipo a `int?`: ese valor fluye al esquema SQLite y al payload de
+  phpVMS, donde un cambio de tipo forzaría una migración.
+
+  - El criterio Landing Rate **se omite** cuando no hay datos (con red de seguridad: el
+    flag *o* el centinela bastan, para que un constructor descuidado no devuelva un
+    "Butter" gratis).
+  - La calificación pasa a `"Unknown"` → `Score_Unknown` ("Sin datos de aterrizaje" /
+    "No landing data").
+  - `FlightRecord.DisplayLandingRate` muestra `—` en el LOGBOOK.
+  - El centinela **nunca** llega a phpVMS: `PirepBuilder` lo normaliza a `0` en el payload.
+  - Un 0 fpm real sigue puntuando como Butter (test de regresión).
+
+- **`App.config` deja de estar trackeado en git** (`.gitignore` ya lo declaraba):
+
+  La regla `App.config` del `.gitignore` no tenía efecto porque el archivo estaba
+  añadido al índice: una regla de ignore no destrackea un archivo ya seguido. El archivo
+  local se conserva intacto (es la configuración de desarrollo), pero `git rm --cached`
+  impide que vuelva a subirse por accidente. Ver la nota de credenciales en `CLAUDE.md`.
+
+### Documented
+
+- `CLAUDE.md`: eliminada la referencia al proyecto de tests inexistente, que ahora sí
+  existe y se describe con su comando de ejecución.
+- `Docs/architecture.md`: nueva sección "Tests" en las notas de build.
+
+---
+
+## [0.9.5] — 2026-09-21
+
+### Fixed
+
+- **Carreras de datos reales entre el hilo de polling y las tareas de NavData**
+  (`TelemetryCoordinator`, `TouchdownState`, `FlightManager`):
+
+  Tres estructuras se escribían desde `Task.Run` mientras el hilo de polling (20 Hz) las
+  leía y modificaba en paralelo. Ninguna estaba sincronizada.
+
+  1. **`ApproachBuffer` era un `List<T>` desnudo.** `Add` se hacía en el hilo de polling
+     (`ProcessRawData`) mientras `ReconfirmApproachRunway` le hacía `Clear()` desde un
+     `Task.Run` (cambio de pista o desvío), y `SaveLandingRecord` lo enumeraba. La
+     mutación concurrente de `List<T>` es la clase de fallo que corrompe el estado
+     interno del array y puede lanzar `IndexOutOfRangeException` dentro de `List.Add`.
+     Ahora está encapsulado tras un lock con `AddApproachPoint`/`ClearApproachBuffer`/
+     `ApproachBufferCount`/`SnapshotApproachBuffer`; `AcarsReporter` trabaja sobre una
+     **instantánea**, no sobre la lista viva.
+
+  2. **`TouchdownState.SetRunwayData` hacía tres escrituras independientes**
+     (`DistanceFt`, `CenterlineDeviationFt`, `RunwayName`) desde `Task.Run`, mientras
+     `BuildScoreData` y `SnapshotLandingRecord` las leen. Un lector podía observar un
+     conjunto a medio actualizar — nombre de pista nuevo con la distancia anterior — que
+     es exactamente lo que decide la penalización de Touchdown Zone. Las tres se publican
+     ahora como una única referencia inmutable (`RunwayGeometry`) vía `volatile`, de modo
+     que el lector ve el conjunto anterior completo o el nuevo completo.
+
+  3. **`_arrivalAirportElevation` era `double?`** (struct de 16 bytes: escritura y lectura
+     no atómicas) publicado desde `Task.Run` y leído en cada ciclo de telemetría por
+     `ReferenceAirportElevation` y `BuildPhaseInput()`. Pasa a almacenarse como su patrón
+     de bits en un `long` y accederse con `Interlocked`, con `double.NaN` como "sin dato".
+     La API pública (`ArrivalAirportElevationFt`) sigue siendo `double?`, así que los
+     consumidores no cambian.
+
+     > Nota: C# no permite `volatile` sobre `double` ni sobre `long` (solo tipos de hasta
+     > 32 bits), que es la razón del patrón de bits en lugar de un campo `volatile`.
+
+  `_effectiveDestination` y `_divertedAirport` pasan a `volatile` (referencias: la
+  escritura ya era atómica, pero faltaba la visibilidad entre hilos).
+
+### Changed
+
+- **`IsApproachStabilized` duplicaba la lógica de velocidad del gate de scoring con otro
+  valor** (`FlightManager`): el indicador STABLE/UNSTABLE de la UI usaba una ventana fija
+  de **100–160 kt**, mientras el gate de 1 000 ft que puntúa usa
+  `AircraftPerformanceTable.GetApproachSpeedRange(icao)` (65–100 en Cat A, 140–185 en
+  Cat D). El piloto podía ver "✅ STABLE" en una aeronave ligera que el gate habría
+  penalizado, o "⚠️ UNSTABLE" en un wide-body perfectamente estable. Ahora ambos leen la
+  misma fuente; era el último sitio con un umbral de velocidad hardcodeado.
+
+- **Debounce de luces: aclarado que las dos capas no son redundantes** (`FlightManager`):
+  el informe de auditoría lo señaló como "doble debounce con latencia ~4.5 s", pero el
+  análisis del flujo real muestra que son **dos cadenas paralelas sobre el mismo dato
+  crudo**, no serie: `FsuipcService` (hold 2.5 s) debouncea solo la *emisión* de sus
+  eventos `*LightChanged` (log y anuncios de cabina), mientras `FlightManager` debouncea
+  el *estado* que consumen las penalizaciones. Los flags de `RawTelemetryData` son crudos
+  —`FsuipcService` nunca los filtra— así que sin la segunda capa el scoring evaluaría el
+  bitfield sin debouncear. **No se ha cambiado la lógica**; se alineó el umbral a 2.5 s
+  (mismo flicker absorbido en ambas capas) y se documentó el porqué de cada una.
+
+### Documented
+
+- `CLAUDE.md` / `Docs/architecture.md`: notas de concurrencia en los puntos de captura de
+  aproximación y en el estado de touchdown.
+
+---
+
+## [0.9.3] — 2026-09-21
+
+### Security
+
+- **Credenciales reales de producción comiteadas en el repositorio** (`App.config`,
+  `App.Release.config`, `Helpers/AppConfig.cs`):
+
+  El repositorio contenía la API key de phpVMS de producción
+  (`vms_api_key`), la del servicio NavData (`navdata_api_key`, presente **dos veces**:
+  en `App.config` y como valor por defecto en `AppConfig.cs`) y el usuario personal de
+  SimBrief.
+
+  La separación correcta es **dev vs. distribución**, no "vaciar todo":
+  - **`App.Release.config`** (plantilla publicable) pasa a ser neutra: placeholders en
+    lugar de la URL de la aerolínea, la API key de NavData, el nombre de aerolínea y la
+    ruta de la BD del LOGBOOK.
+  - **`App.config`** (configuración local del desarrollador, no se distribuye) conserva
+    las claves del entorno propio, para no tener que reconfigurar la app en cada
+    compilación. Ahora lleva un aviso explícito de ese rol.
+  - **`Helpers/AppConfig.cs`** es donde estaba el problema real: aunque un despliegue
+    limpiara su `.config`, el código seguía inyectando la clave de NavData como default.
+    `NavDataApiUrl`/`NavDataApiKey` ya no tienen valor por defecto.
+  - `navdata_api_domain` se deja vacío en `App.config` a propósito, para que
+    `X-Origin-Domain` siga derivándose de `vms_api_url` (comportamiento idéntico al
+    anterior a este cambio).
+
+  > **Acción requerida:** las claves de NavData y phpVMS estuvieron comiteadas, así que
+  > **deben rotarse** en sus respectivos servicios — eliminarlas de la plantilla de
+  > distribución no las invalida.
+
+- **La API key de phpVMS se enviaba a simbrief.com** (`IApiService`, `ApiService`,
+  `SimbriefEnhancedService`, `MainViewModel`):
+
+  `IApiService` exponía el `HttpClient` autenticado de phpVMS
+  (`x-api-key` en `DefaultRequestHeaders`) y se reutilizaba para peticiones a terceros:
+  el fetch del OFP a `simbrief.com` y la descarga del PDF del OFP. En cada vuelo, la
+  credencial del piloto viajaba a un host externo.
+
+  **Fix en tres partes:**
+  1. Nuevo cliente dedicado `HttpClientProvider.Simbrief` — sin cabeceras de phpVMS.
+     `SimbriefEnhancedService` y `DownloadOFPPdfAsync` lo usan.
+  2. `HttpClient` eliminado de `IApiService` (permanece en `ApiService` con un comentario
+     advirtiendo que es solo para el mismo host). `SimbriefEnhancedService` ya no recibe
+     `IApiService` en su constructor: no puede alcanzar el cliente autenticado.
+  3. Las tres llamadas que `PhpVmsFlightService` hacía con el cliente crudo
+     (`api/flights`, `api/fleet`, `POST api/user/bids`) se encapsulan en
+     `IApiService.GetAsync`/`PostJsonAsync`.
+
+- **Credenciales enviadas sin escapar** — el usuario de SimBrief se interpolaba en la
+  query string sin codificar; ahora usa `Uri.EscapeDataString`.
+
+### Fixed
+
+- **`GetStatusCode` y `FromPirepStatus` no compartían vocabulario — fase errónea al
+  reanudar un PIREP** (`Helpers/FlightPhaseHelper.cs`):
+
+  `GetStatusCode` emite `PBT/TOF/ICL/APR/LAN`, pero `FromPirepStatus` buscaba
+  `PBK/TKF/CLB/DSC/LND`: ninguno de los códigos que este cliente envía era reconocido.
+  Al reanudar un vuelo la fase restaurada caía al `default` (Enroute). Peor: `"APR"` — que
+  esta app usa para **Descent** — se mapeaba a **Approach**, y `"FIN"` (Approach) no se
+  reconocía en absoluto.
+
+  `FromPirepStatus` ahora invierte `PhaseToStatusCode` para resolver primero el
+  vocabulario propio, y solo después aplica un diccionario de alias de otras fuentes
+  ACARS. Ambos sentidos ya **no pueden desincronizarse** al añadir una fase.
+
+- **El intervalo de reporte por fase era código muerto** (`FsuipcService`,
+  `MainViewModel`):
+
+  `FsuipcService.SetUpdateIntervalForPhase()` no se llamaba desde ningún sitio, así que
+  `_currentPhaseInterval` se quedaba en su valor inicial (30 s) durante todo el vuelo y
+  las seis claves `update_interval_*` de `App.config` no tenían ningún efecto: el reporte
+  de posición a phpVMS salía a una cadencia fija. Ahora se actualiza en
+  `OnFlightPhaseChanged`, restaurando la tabla documentada (5 s en despegue/llegada a
+  30 s en crucero).
+
+  > Este cambio **sí altera el volumen de tráfico** hacia phpVMS respecto a v0.9.2
+  > (más posiciones en despegue, aproximación y rodaje; menos en crucero). No afecta al
+  > bucle de telemetría ni a la máquina de fases, que corren a ritmo completo vía
+  > `RawDataUpdated`. Conviene validarlo en vuelo.
+
+- **La trayectoria de aproximación se descartaba aunque el guardado fallara**
+  (`ViewModels/AcarsReporter.cs`):
+
+  `ApproachBuffer.Clear()` estaba fuera del `if (newId > 0)`, de modo que un fallo de
+  `SaveFlight` (que devuelve −1) logueaba el error y aun así borraba el buffer — la única
+  copia de los puntos de aproximación. Ahora solo se limpia si el registro se persistió.
+
+- **El check de presión estándar consumía el tope del QNH** (`ApproachValidator`,
+  `ScoringService`, `FlightScoreData`, `PirepBuilder`):
+
+  `CheckStdPressure` (aplicar 1013 al cruzar la altitud de transición en subida)
+  incrementaba `QnhViolations`, el mismo contador que los checks de QNH de salida y
+  llegada, sujeto a un tope compartido de 10 pts. Un STD incorrecto podía agotar el tope
+  y **enmascarar** la penalización del QNH de llegada — que es precisamente el check con
+  más consecuencias del sistema. Pasa a ser un criterio propio
+  (`StdPressureViolation`, −5 pts), independiente y visible en el desglose del score.
+
+- **`NullReferenceException` al arrancar sin configuración** (`UI/Forms/MainForm.cs`):
+
+  Si `vms_api_url`/`vms_api_key` estaban vacíos, `_viewModel` quedaba `null` y
+  `InitializeViewModel()` lo desreferenciaba **fuera** del `try`, abortando el arranque
+  con una excepción sin mensaje útil. Ahora muestra un aviso explicando qué configurar y
+  retorna limpiamente.
+
+- **`navdata_api_domain` documentada pero ignorada** (`Helpers/AppConfig.cs`):
+
+  `CLAUDE.md` y `docs` describían la clave `navdata_api_domain`, pero `NavDataApiDomain`
+  siempre derivaba el host de `vms_api_url`, ignorando la clave. Ahora respeta el valor
+  explícito si está configurado y solo deriva del host como fallback.
+
+### Documented
+
+- Corregido el conteo de criterios de scoring: son **17** (no 14). El criterio
+  **Engine Stabilization** (−5 pts) no aparecía en ninguna documentación pese a existir
+  en `ScoringService` con entrada propia en `PirepBuilder`. El comentario XML de la clase
+  afirmaba una suma máxima de 120 pts listando solo 8 criterios: corregido.
+
+---
+
 ## [0.9.2] — 2026-09-20
 
 ### Fixed
@@ -1085,7 +1643,7 @@ En el vuelo SKRG→MMMX, el log pasó de ~200 líneas de 📻 a un número signi
 - **Transition Level OSD** — al descender a través del TL del aeropuerto de destino, el OSD muestra `TRANS LEVEL  SET QNH` (Warning). Dispara una sola vez por vuelo.
 - **Penalización QNH en climb (STD)** — 1 000 ft por encima de la TA, se comprueba si el altímetro está en estándar (1 013 ±2 hPa). Si no, aplica penalización de QNH (−5 pts) con OSD `PENALTY  QNH  −5 PTS`. Comparación directa contra 1 013,25 hPa; no requiere METAR.
 - **Diagnóstico de prefetch NavData** — al iniciar el vuelo, `LogNavDataPrefetch` registra en el log el conteo de pistas, calles, gates y aproximaciones por aeropuerto. Si todos los conteos son cero, avisa con `⚠️ NavData {ICAO}: sin datos`.
-- **API key por defecto** — si `navdata_api_key` está vacía o ausente, `AppConfig` usa `vhr-1c4c4be385814eed` como fallback; `App.Release.config` la incluye preconfigurada para nuevas instalaciones.
+- **API key por defecto** — si `navdata_api_key` está vacía o ausente, `AppConfig` usa una key embebida como fallback; `App.Release.config` la incluye preconfigurada para nuevas instalaciones. *(Comportamiento eliminado en v0.9.8 — ver esa entrada. La key literal se retiró de este documento: exponerla aquí la comitea al repositorio.)*
 - **Localización completa de mensajes de log** — todos los mensajes hardcodeados en `FlightManager.cs` y `MainViewModel.cs` migrados a claves de localización en `es.json` / `en.json` (70+ claves nuevas). Cubre: luces, fases, scoring, combustible, ILS, IVAO, NavData API, landing log, login, equipamiento del avión y gestión de PIREPs activos.
 
 ### Changed

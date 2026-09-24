@@ -20,6 +20,7 @@ namespace vmsOpenAcars.UI.Forms
     {
         private GMapControl        _map;
         private MapOverlayManager  _overlayManager;
+        private AtcPanel           _atcPanel;
         private MapRouteController _routeController;
         private Label          _lblStatus;
         private CheckBox       _chkFollow;
@@ -235,6 +236,24 @@ namespace vmsOpenAcars.UI.Forms
             _chkLayerSpaces = MakeLayerChk("SPACES");
             _chkLayerIvao   = MakeLayerChk("IVAO");
 
+            // Alterna el panel lateral de ATC/ATIS detallado.
+            var btnAtc = new Button
+            {
+                Text      = "ATC ▸",
+                Dock      = DockStyle.Right,
+                Width     = 62,
+                BackColor = Color.FromArgb(30, 50, 65),
+                ForeColor = Color.FromArgb(0, 180, 255),
+                FlatStyle = FlatStyle.Flat,
+                Font      = new Font("Consolas", 8, FontStyle.Bold),
+            };
+            btnAtc.FlatAppearance.BorderSize = 0;
+            btnAtc.Click += (s, e) =>
+            {
+                _atcPanel.Visible = !_atcPanel.Visible;
+                btnAtc.Text = _atcPanel.Visible ? "ATC ◂" : "ATC ▸";
+            };
+
             _chkLayerTiles.CheckedChanged += (s, e) =>
             {
                 if (_chkLayerTiles.Checked)
@@ -271,17 +290,24 @@ namespace vmsOpenAcars.UI.Forms
             bar.Controls.Add(_chkLayerSpaces);
             bar.Controls.Add(_chkLayerRoute);
             bar.Controls.Add(_chkLayerTiles);
+            bar.Controls.Add(btnAtc);
             // Fill label added last → takes remaining space after Right controls
             bar.Controls.Add(_lblStatus);
 
             _map = new GMapControl { Dock = DockStyle.Fill };
+            _atcPanel = new AtcPanel();
 
+            // Orden de docking: los controles añadidos primero reservan su borde (el
+            // último añadido tiene menor prioridad). El Fill va antes que el panel ATC
+            // para que este acople por la derecha y el mapa ocupe lo que queda; el título
+            // se añade al final porque debe quedarse con el borde superior completo.
             Controls.Add(_map);
             Controls.Add(bar);
             _sidebar = new SidebarController(
                 this, RedrawRoute, ClearApproachOverlay, DrawApproachOverlay, OpenApproachChart);
             _sidebar.Build();
             Controls.Add(_sidebar.SidebarPanel);
+            Controls.Add(_atcPanel);
             Controls.Add(titleBar);   // Top — mayor prioridad de docking
         }
 
@@ -543,8 +569,13 @@ namespace vmsOpenAcars.UI.Forms
         internal void SetAircraftCategory(FsuipcService.AircraftCategory cat)
             => _routeController.SetAircraftCategory(cat);
 
-        internal void SetAtcStations(IList<IvaoAtcStation> stations) =>
+        internal void SetAtcStations(IList<IvaoAtcStation> stations)
+        {
             _overlayManager.SetAtcStations(stations);
+            // El panel lateral es el único sitio donde el ATIS completo se lee entero;
+            // se repuebla con cada poll de IVAO.
+            _atcPanel?.SetStations(stations);
+        }
 
         public void SetMetarData(int? originWindDir, int? originWindSpeedKt,
                                  int? destWindDir,   int? destWindSpeedKt)

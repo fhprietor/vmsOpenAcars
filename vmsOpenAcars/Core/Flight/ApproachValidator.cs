@@ -57,6 +57,10 @@ namespace vmsOpenAcars.Core.Flight
         public int  QnhViolations           { get; private set; }
         public bool BelowMinimums           { get; private set; }
         public bool IlsTunedCorrectly       { get; private set; } = true;
+        // Independiente de QnhViolations: el QNH de salida/llegada y la aplicación de
+        // 1013 al cruzar la altitud de transición son checks distintos y se puntúan
+        // como criterios separados.
+        public bool StdPressureViolation    { get; private set; }
 
         // Called on touchdown: crossing the DA and landing normally is not a violation.
         // BelowMinimums is only scored if the aircraft went around or did not land.
@@ -193,6 +197,7 @@ namespace vmsOpenAcars.Core.Flight
             _destQnhChecked     = false;
             _originQnhChecked   = false;
             _provisionalArrivalQnhViolation = null;
+            StdPressureViolation = false;
             ResetGate();
         }
 
@@ -204,6 +209,7 @@ namespace vmsOpenAcars.Core.Flight
             LightsViolationCount  = 0;
             StabilizedDeductions  = 0;
             QnhViolations         = 0;
+            StdPressureViolation  = false;
             _wasOverspeed               = false;
             _lightsViolationActive      = false;
             _beaconViolationActive      = false;
@@ -599,9 +605,12 @@ namespace vmsOpenAcars.Core.Flight
             }
             else
             {
-                QnhViolations++;
+                // No incrementa QnhViolations: ese contador es exclusivamente para los
+                // checks de salida y llegada. Mezclarlos permitía que un STD incorrecto
+                // agotara el tope de QNH y enmascarara la penalización de llegada real.
+                StdPressureViolation = true;
                 OnLog?.Invoke(_("Log_QnhPenalty", label), Theme.Warning);
-                OnOsdMessage?.Invoke("PENALTY  QNH  −5 PTS", OsdSeverity.Warning);
+                OnOsdMessage?.Invoke("PENALTY  STD PRESSURE  −5 PTS", OsdSeverity.Warning);
             }
         }
     }

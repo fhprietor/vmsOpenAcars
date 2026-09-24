@@ -25,6 +25,13 @@ namespace vmsOpenAcars.Services.Http
         /// <summary>General external requests (GitHub releases, update downloads).</summary>
         public static readonly HttpClient General;
 
+        /// <summary>
+        /// SimBrief and OFP/PDF downloads. Deliberately separate from the phpVMS client:
+        /// reusing the authenticated phpVMS HttpClient here would send the pilot's phpVMS
+        /// API key to third-party hosts.
+        /// </summary>
+        public static readonly HttpClient Simbrief;
+
         static HttpClientProvider()
         {
             ServicePointManager.SecurityProtocol =
@@ -46,6 +53,9 @@ namespace vmsOpenAcars.Services.Http
 
             General = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
             General.DefaultRequestHeaders.Add("User-Agent", "vmsOpenAcars-Updater");
+
+            Simbrief = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            Simbrief.DefaultRequestHeaders.Add("User-Agent", "vmsOpenAcars/1.0");
         }
     }
 }

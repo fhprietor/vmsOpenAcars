@@ -32,11 +32,29 @@ namespace vmsOpenAcars.Services
         private double _lat, _lon;
         private bool   _hasPosition;
 
+        /// <summary>
+        /// Fija las estaciones del plan activo. Cuando el destino de un slot CAMBIA se
+        /// vacía ese slot, para que un METAR del vuelo anterior no quede en pantalla bajo
+        /// la etiqueta del aeropuerto nuevo si la primera descarga del nuevo falla.
+        /// Los slots cuyo aeropuerto no cambia se conservan: eso es lo que permite que un
+        /// fallo transitorio de red no borre un METAR válido ya descargado.
+        /// </summary>
         public void SetStations(string origin, string dest, string alternate)
         {
+            ClearSlotIfStationChanged(0, origin);
+            ClearSlotIfStationChanged(1, dest);
+            ClearSlotIfStationChanged(2, alternate);
+
             _origin    = origin;
             _dest      = dest;
             _alternate = alternate;
+        }
+
+        private void ClearSlotIfStationChanged(int slot, string newIcao)
+        {
+            string current = CurrentMetars[slot]?.RequestedIcao;
+            if (!string.Equals(current, newIcao, StringComparison.OrdinalIgnoreCase))
+                CurrentMetars[slot] = null;
         }
 
         public void UpdatePosition(double lat, double lon)
@@ -114,9 +132,13 @@ namespace vmsOpenAcars.Services
             OnStateChanged?.Invoke(s);
         }
 
+        // Nota: NO se pone el slot a null antes de pedir. El valor anterior solo se
+        // reemplaza cuando la descarga tiene éxito, de modo que un timeout o un 500
+        // transitorio no borra un METAR válido que ya estaba en pantalla. La antigüedad
+        // se expone vía MetarData.FetchedAt, así que un dato viejo es visible como tal,
+        // no indistinguible de un hueco.
         private async Task SafeFetchByIcaoAsync(string icao, int slot, string label)
         {
-            CurrentMetars[slot] = null;
             try
             {
                 var result = await FetchByIcaoAsync(icao, label);
@@ -131,7 +153,6 @@ namespace vmsOpenAcars.Services
 
         private async Task SafeFetchNearestAsync(double lat, double lon, int slot, string label)
         {
-            CurrentMetars[slot] = null;
             try
             {
                 var result = await FetchNearestAsync(lat, lon, label);

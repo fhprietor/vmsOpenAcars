@@ -6,17 +6,17 @@ using System.Linq;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using vmsOpenAcars.Models;
+using vmsOpenAcars.Services.Http;
 using vmsOpenAcars.Services.Interfaces;
 
 namespace vmsOpenAcars.Services
 {
     public class SimbriefEnhancedService
     {
-        private readonly IApiService _apiService;
-
-        public SimbriefEnhancedService(IApiService apiService)
+        // Este servicio habla con SimBrief (tercero), nunca con phpVMS: no recibe
+        // IApiService a propósito, para que no pueda alcanzar el cliente autenticado.
+        public SimbriefEnhancedService()
         {
-            _apiService = apiService;
         }
 
         /// <summary>
@@ -80,8 +80,10 @@ namespace vmsOpenAcars.Services
         {
                 try
                 {
-                    string url = $"https://www.simbrief.com/api/xml.fetcher.php?username={simbriefUsername}&json=1";
-                    var response = await _apiService.HttpClient.GetAsync(url);
+                    string url = $"https://www.simbrief.com/api/xml.fetcher.php?username={Uri.EscapeDataString(simbriefUsername)}&json=1";
+                    // SimBrief es un servicio externo: usa su propio cliente para no
+                    // enviar la API key de phpVMS a un tercero.
+                    var response = await HttpClientProvider.Simbrief.GetAsync(url);
 
                     if (!response.IsSuccessStatusCode)
                         return null;

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.Services.Interfaces;
@@ -22,6 +23,7 @@ namespace vmsOpenAcars.ViewModels
         private readonly ILandingLogService      _landingLogService;
         private readonly SimbriefEnhancedService _simbriefEnhanced;
         private readonly TelemetryCoordinator    _tc;
+        private readonly IMetarService           _metarService;
         private readonly AcarsReporterCallbacks  _cb;
 
         internal DateTime LastCheckpointSent { get; set; } = DateTime.MinValue;
@@ -34,6 +36,7 @@ namespace vmsOpenAcars.ViewModels
             ILandingLogService      landingLogService,
             SimbriefEnhancedService simbriefEnhanced,
             TelemetryCoordinator    tc,
+            IMetarService           metarService,
             AcarsReporterCallbacks  cb)
         {
             _flightManager     = flightManager;
@@ -42,6 +45,7 @@ namespace vmsOpenAcars.ViewModels
             _landingLogService = landingLogService;
             _simbriefEnhanced  = simbriefEnhanced;
             _tc                = tc;
+            _metarService      = metarService;
             _cb                = cb;
         }
 
@@ -157,7 +161,11 @@ namespace vmsOpenAcars.ViewModels
                 _cb.Log?.Invoke("✅ Vuelo reportado, listo para siguiente vuelo", Theme.Success);
                 _cb.FlightEnded?.Invoke();
                 SaveLandingRecord(pendingRecord);
-                Task.Run(RefreshPilotDataAfterPirep);
+                // Releer los datos del piloto implica una llamada HTTP y 5 s de espera; no
+                // debe bloquear el cierre del vuelo, pero un fallo debe quedar registrado.
+                FireAndForget.Run(RefreshPilotDataAfterPirep,
+                    ex => _cb.Log?.Invoke(_("Log_BaseUpdateError", ex.Message), Theme.Warning),
+                    "refresh de datos del piloto");
             }
             else
             {
@@ -178,16 +186,54 @@ namespace vmsOpenAcars.ViewModels
                 Destination     = plan?.Destination      ?? "",
                 RunwayName      = fm.TouchdownRunwayName ?? "",
                 FlightDate      = DateTime.UtcNow,
-                LandingRateFpm  = fm.TouchdownFpm        ?? 0,
+                // NoLandingData (-1) when no touchdown was captured — never 0, which would
+                // read as a real 0 fpm "Butter" landing in the logbook.
+                LandingRateFpm  = fm.TouchdownDataCaptured ? (fm.TouchdownFpm ?? 0)
+                                                           : ScoringService.NoLandingData,
                 GForce          = fm.TouchdownGForce,
                 TouchdownDistFt = fm.TouchdownDistanceFt,
                 CenterlineDevFt = fm.TouchdownCenterlineFt,
+                // METAR de llegada vigente en el momento del aterrizaje (slot 1 = DEST).
+                // Se toma del servicio, ya descargado durante el vuelo, en lugar de pedir
+                // uno nuevo: el snapshot debe ser síncrono y reflejar lo que el piloto
+                // tenía delante, no el clima de dentro de un minuto. Si el servicio no
+                // pudo obtenerlo, queda null — el LOGBOOK lo muestra como sin dato.
+                MetarRaw        = GetDestinationMetarRaw(),
             };
+        }
+
+        /// <summary>
+        /// METAR raw del aeropuerto de llegada, o null si no se descargó.
+        /// Si el aterrizaje ocurrió en un aeropuerto distinto al planeado (desvío
+        /// confirmado), se prefiere el METAR del destino real cuando el servicio lo tiene:
+        /// el slot DEST corresponde al plan, y en un desvío ese ya no es el aeropuerto
+        /// donde se aterrizó.
+        /// </summary>
+        private string GetDestinationMetarRaw()
+        {
+            var metars = _metarService?.CurrentMetars;
+            if (metars == null) return null;
+
+            string arrival = _flightManager.EffectiveDestination
+                          ?? _flightManager.ActivePlan?.Destination;
+
+            // Buscar primero el slot que corresponde al aeropuerto de llegada real.
+            if (!string.IsNullOrEmpty(arrival))
+            {
+                foreach (var m in metars)
+                {
+                    if (m != null &&
+                        string.Equals(m.RequestedIcao, arrival, StringComparison.OrdinalIgnoreCase))
+                        return m.Raw;
+                }
+            }
+
+            return metars[1]?.Raw;
         }
 
         private void SaveLandingRecord(FlightRecord record)
         {
-            int  bufCount = _tc?.ApproachBuffer?.Count ?? 0;
+            int  bufCount = _tc?.ApproachBufferCount ?? 0;
             bool svcOk    = _landingLogService?.IsAvailable ?? false;
 
             if (!svcOk)
@@ -203,12 +249,20 @@ namespace vmsOpenAcars.ViewModels
             try
             {
                 record.Score = _flightManager.LastFlightScore;
-                int newId = _landingLogService.SaveFlight(record, _tc.ApproachBuffer);
+                // Snapshot rather than the live list: while this runs, ReconfirmApproachRunway
+                // may clear the buffer from a background task.
+                int newId = _landingLogService.SaveFlight(record, _tc.SnapshotApproachBuffer());
                 if (newId > 0)
+                {
                     _cb.Log?.Invoke(_("Log_LandingLogSaved", newId, bufCount, record.RunwayName), Theme.Success);
+                    // Solo descartar la trayectoria si realmente se persistió: si SaveFlight
+                    // falla (devuelve -1) el buffer sigue siendo la única copia del track.
+                    _tc?.ClearApproachBuffer();
+                }
                 else
+                {
                     _cb.Log?.Invoke(_("Log_LandingLogBadId", newId), Theme.Danger);
-                _tc?.ApproachBuffer?.Clear();
+                }
             }
             catch (Exception ex)
             {

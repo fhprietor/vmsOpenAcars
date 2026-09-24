@@ -14,8 +14,18 @@ namespace vmsOpenAcars.Services
     /// </summary>
     public class WeatherService : IWeatherService
     {
-        private static readonly ConcurrentDictionary<string, double> _qnhCache =
-            new ConcurrentDictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        // Último QNH bueno conocido por aeropuerto, con la marca de cuándo se obtuvo.
+        // El QNH es una magnitud METEOROLÓGICA, no estática: cachearlo indefinidamente
+        // permitía comparar el altímetro del avión contra un valor de días atrás y
+        // penalizar por una diferencia que ya no existe. Pasado el TTL se trata como
+        // dato no disponible (null), que el scoring interpreta como "no se pudo
+        // comprobar" y NO penaliza — el lado conservador.
+        private static readonly ConcurrentDictionary<string, (double Qnh, DateTime FetchedAt)> _qnhCache =
+            new ConcurrentDictionary<string, (double, DateTime)>(StringComparer.OrdinalIgnoreCase);
+
+        // Un METAR es válido ~1 hora y los servicios lo emiten cada 30 min, así que más
+        // allá de eso el valor cacheado no representa el QNH actual.
+        private static readonly TimeSpan QnhCacheTtl = TimeSpan.FromHours(1);
 
         private const string MetarApiUrl =
             "https://aviationweather.gov/api/data/metar?format=json&taf=false&ids=";
@@ -23,8 +33,8 @@ namespace vmsOpenAcars.Services
         /// <summary>
         /// Obtiene el QNH real del aeropuerto.
         /// Intenta NavData primero (qnh_hpa pre-parseado); si falla, consulta
-        /// aviationweather.gov directamente. En último recurso devuelve el
-        /// último valor cacheado exitoso para el aeropuerto.
+        /// aviationweather.gov directamente. En último recurso devuelve el último valor
+        /// cacheado exitoso, siempre que esté dentro del TTL.
         /// </summary>
         public async Task<double?> GetQnhMbAsync(string icao)
         {
@@ -40,7 +50,7 @@ namespace vmsOpenAcars.Services
                     double qnh = Math.Round(weather.QnhHpa.Value, 0);
                     if (qnh >= 850 && qnh <= 1084)
                     {
-                        _qnhCache[key] = qnh;
+                        CacheQnh(key, qnh);
                         return qnh;
                     }
                 }
@@ -58,14 +68,34 @@ namespace vmsOpenAcars.Services
                     if (altimHpa >= 850 && altimHpa <= 1084)
                     {
                         double result = Math.Round(altimHpa.Value, 0);
-                        _qnhCache[key] = result;
+                        CacheQnh(key, result);
                         return result;
                     }
                 }
             }
             catch { }
 
-            return _qnhCache.TryGetValue(key, out double fallback) ? fallback : (double?)null;
+            return GetCachedQnh(key);
+        }
+
+        private static void CacheQnh(string key, double qnh)
+            => _qnhCache[key] = (qnh, DateTime.UtcNow);
+
+        /// <summary>
+        /// Devuelve el QNH cacheado solo si sigue dentro del TTL. Un valor caducado se
+        /// descarta (y se elimina de la caché) en lugar de usarse para puntuar.
+        /// </summary>
+        private static double? GetCachedQnh(string key)
+        {
+            if (!_qnhCache.TryGetValue(key, out var entry)) return null;
+
+            if (DateTime.UtcNow - entry.FetchedAt > QnhCacheTtl)
+            {
+                _qnhCache.TryRemove(key, out _);
+                return null;
+            }
+
+            return entry.Qnh;
         }
 
         /// <summary>

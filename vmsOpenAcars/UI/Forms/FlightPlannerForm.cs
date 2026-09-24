@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Collections;
 using System.Collections.Generic;
@@ -61,11 +61,9 @@ namespace vmsOpenAcars.UI
         private ListView lvAvailableFlights;
         private Button btnDeleteBid;
 
-        private bool _hasPlanned = false;
         private readonly ListViewColumnSorter _availableSorter = new ListViewColumnSorter();
 
         private Label lblTitle;
-        private Label lblAirport;
         private ListBox lstAircraft;
         private Button btnPlanWithSimbrief;
         private Button btnFetchOFP;
@@ -73,7 +71,6 @@ namespace vmsOpenAcars.UI
         private Button btnClose;
         private ProgressBar progressBar;
         private Label lblStatus;
-        private Label lblSummary;
 
         // Servicios
         private readonly IApiService _apiService;
@@ -693,7 +690,6 @@ namespace vmsOpenAcars.UI
                     string url = _simbriefService.GenerateDispatchUrl(_selectedFlight, _currentPilot, _selectedAircraft);
                     System.Diagnostics.Process.Start(url);
                     lblStatus.Text = "✈️ Plan in SimBrief, then click 'FETCH OFP'";
-                    _hasPlanned = true;
                 }
                 else
                 {
@@ -715,7 +711,6 @@ namespace vmsOpenAcars.UI
                         string url = _simbriefService.GenerateDispatchUrl(_selectedFlight, _currentPilot, _selectedAircraft);
                         System.Diagnostics.Process.Start(url);
                         lblStatus.Text = "✈️ Plan in SimBrief, then click 'FETCH OFP'";
-                        _hasPlanned = true;
                     }
                     else
                     {
@@ -908,7 +903,6 @@ namespace vmsOpenAcars.UI
         private void DisplayOFP(SimbriefPlan plan)
         {
             const int width = 42; // Ancho total de la línea (incluyendo bordes)
-            const int contentWidth = width - 4; // Espacio disponible para texto (restando "║ " y " ║")
 
             var sb = new StringBuilder();
 

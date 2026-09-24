@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 namespace vmsOpenAcars.Models
 {
@@ -16,12 +16,25 @@ namespace vmsOpenAcars.Models
     /// </summary>
     public class FlightScoreData
     {
+        // ─── Landing Data Availability ────────────────────────────────────────────
+
+        /// <summary>
+        /// True when a touchdown was actually captured this flight. When false, the
+        /// landing-dependent criteria (Landing Rate, and the rating label) are omitted
+        /// instead of being scored as a perfect 0 fpm landing. Without this flag, a
+        /// flight whose touchdown was never detected was scored as "Butter" and sent
+        /// to phpVMS with <c>landing_rate = 0</c>.
+        /// </summary>
+        public bool LandingDataCaptured { get; set; }
+
         // ─── Touchdown Data ───────────────────────────────────────────────────────
 
         /// <summary>
         /// Vertical speed at the moment of touchdown, in ft/min.
         /// Typically negative (descending). Captured by the touchdown event in the state machine.
         /// Source: FSUIPC offset 0x030C or vertical speed at gear-contact detection.
+        /// Ignored when <see cref="LandingDataCaptured"/> is false, or when it equals
+        /// <see cref="NoLandingData"/>.
         /// </summary>
         public int LandingRate { get; set; }
 
@@ -78,10 +91,19 @@ namespace vmsOpenAcars.Models
         public int StabilizedApproachDeductions { get; set; }
 
         /// <summary>
-        /// Number of QNH compliance violations (incorrect altimeter setting at departure or arrival).
-        /// Each violation = 5 pts, capped at MaxQnhDeduction (5 pts) in ScoringService.
+        /// Number of QNH compliance violations (incorrect altimeter setting at departure
+        /// or arrival). Each violation = 5 pts, capped at 10 pts in ScoringService
+        /// (departure + arrival). The climb standard-pressure check is tracked separately
+        /// by <see cref="StdPressureViolation"/>.
         /// </summary>
         public int QnhViolations { get; set; }
+
+        /// <summary>
+        /// True if the standard-pressure (QNH 1013) setting was not applied when crossing
+        /// the transition altitude in the climb. Independent of the departure/arrival QNH
+        /// checks and scored as its own criterion.
+        /// </summary>
+        public bool StdPressureViolation { get; set; }
 
         /// <summary>
         /// True if the pilot was not connected to IVAO when the flight was started.
@@ -165,6 +187,7 @@ public bool BelowMinimums { get; set; }
         /// </summary>
         public void Reset()
         {
+            LandingDataCaptured = false;
             LandingRate = 0;
             LandingPitch = 0.0;
             LandingBank = 0.0;
@@ -174,6 +197,7 @@ public bool BelowMinimums { get; set; }
             LightsViolations = 0;
             StabilizedApproachDeductions = 0;
             QnhViolations = 0;
+            StdPressureViolation = false;
             WasOfflineFlight = false;
             DepartedLate = false;
             TouchdownDistanceFt = 0;

@@ -375,15 +375,10 @@ namespace vmsOpenAcars.Services
             return inside;
         }
 
+        // Delegado en GeoMath (fórmula antes duplicada en tres módulos).
         private static void ProjectPosition(double lat, double lon,
             double headingDeg, double distNm, out double outLat, out double outLon)
-        {
-            double rad    = headingDeg * Math.PI / 180.0;
-            double meters = distNm * 1852.0;
-            double cosRef = Math.Cos(lat * Math.PI / 180.0);
-            outLat = lat + meters * Math.Cos(rad) / 111320.0;
-            outLon = lon + meters * Math.Sin(rad) / (111320.0 * cosRef);
-        }
+            => GeoMath.Project(lat, lon, headingDeg, distNm, out outLat, out outLon);
 
         private static double? GetUpperLimitFt(NavAirspace a)
         {

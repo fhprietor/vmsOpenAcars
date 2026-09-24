@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.9.2  
-> Última actualización: 2026-09-20
+> Versión del documento: 0.9.3  
+> Última actualización: 2026-09-21
 
 ---
 
@@ -582,7 +582,7 @@ _engineMonitorPanel.UpdateLifecycle(fm.GetEngineLifecycleSnapshot());
 
 ### ScoringService
 
-Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se aplican deducciones:
+Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se aplican deducciones de 17 criterios (la suma bruta supera 100, por lo que el resultado se acota a 0):
 
 | Criterio | Máx. deducción | Escala |
 |---|---|---|
@@ -594,6 +594,7 @@ Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se
 | Lights Compliance | −10 pts | −5 pts por violación, cap −10 |
 | Stabilized Approach (1000 ft) | −15 pts | Evalúa speed, VS, bank, pitch, gear y flaps a 1000 ft AGL |
 | QNH Compliance | −10 pts | −5 pts si Δ > 2 hPa — salida (TakeoffRoll) + llegada (gate 1000 ft AGL), independientes |
+| Standard Pressure | −5 pts | −5 si no se aplica 1013 hPa al cruzar la altitud de transición (climb), vía `StdPressureViolation` |
 | IVAO Offline | −5 pts | −5 si el vuelo se realizó sin conexión IVAO |
 | On-Time Departure | −5 pts | −5 si Blocks Off difiere > 10 min del STD (`sched_out`) |
 | Touchdown Zone | −7 pts | ≤1500 ft = 0 / ≤2500 ft = −3 / >2500 ft = −7 · requiere NavData API |
@@ -601,6 +602,7 @@ Calcula un score de 0–100 al finalizar el vuelo. El score comienza en 100 y se
 | Localizer Alignment | −5 pts | ILS not tuned −3; heading >5° ×2 máx −2; cap −5 · requiere NavData API + ILS approach |
 | Minimums Compliance | −5 pts | −5 si descenso bajo DA (threshold elevation + 200 ft) sin aterrizar |
 | Procedure Speed | −10 pts | −3 pts por violación de restricción SID/STAR al pasar el fix; cap −10 |
+| Engine Stabilization | −5 pts | −5 si algún motor en marcha no estaba estabilizado (aceite/N2) al entrar en pista |
 
 **Single Engine Taxi bonus (+5 pts):** requiere ≥ 50 % del tiempo de rodaje con un solo motor. Elegibilidad por tipo de propulsión:
 
@@ -660,7 +662,6 @@ void DeleteFlight(int id)       // borra en transacción: approach_track primero
 List<FlightRecord>        GetFlights()
 List<ApproachTrackPoint>  GetTrackPoints(int flightId)
 bool HasFlights()
-void SeedMockData()             // solo disponible en #if DEBUG — 5 vuelos SKRG RWY 01
 ```
 
 **Flujo de captura de aproximación:**
@@ -728,8 +729,10 @@ OnTouchdownDetectedEvent → LookupRunwayData(data)  [red de seguridad, v0.8.8]
     [v0.8.10] El fallback adicional a GetNearestAirport (phpVMS /api/airports/nearest) se
     RETIRÓ — confirmado roto en producción (404 "No query results for model
     [App\Models\Airport] NEAREST", esa ruta no existe). Fallaba siempre en silencio
-    (catch{} vacío). El método sigue en ApiService.cs (usado por
-    FlightManager.DetectNearestAirport, problema separado) pero ya no se llama aquí.
+    (catch{} vacío).
+    [v0.9.8] Ese método y su único llamador (FlightManager.DetectNearestAirport, que a su
+    vez no tenía ningún llamador) se ELIMINARON por completo. Si algún día se confirma la
+    ruta correcta de phpVMS, hay que reimplementarlo desde cero.
 
 SendPirep()
     → SnapshotLandingRecord()          ← captura plan + touchdown ANTES de FilePirep
@@ -742,10 +745,12 @@ SendPirep()
         → si _effectiveDestination != plan.Destination:
              UpdatePirep(id, { arr_airport_id: _effectiveDestination })  [v0.8.8]
              log Log_ArrivalAirportCorrected
-             (MovePilotAsync YA NO SE LLAMA — v0.9.0 — confirmado roto en producción,
-              405 "PUT method not supported for route api/user"; confirmado en vuelo real
-              que phpVMS reubica curr_airport por su cuenta al procesar diversion-airport
-              en el payload de /file más abajo)
+             (no se llama a ningún método de reubicación de piloto: se intentó con
+              MovePilotAsync (PUT api/user) y se confirmó roto en producción — 405 "PUT
+              method not supported for route api/user". [v0.9.8] El método se eliminó de
+              ApiService/IApiService. Confirmado en vuelo real que phpVMS reubica
+              curr_airport por su cuenta al procesar diversion-airport en el payload de
+              /file más abajo)
         → BuildPayload() — Dictionary<string,object>, no objeto anónimo, para poder omitir
              la clave por completo cuando no aplica (v0.8.9):
              incluye arr_airport_id siempre (refuerzo del UpdatePirep previo)
@@ -809,7 +814,11 @@ FilePirep()  (antes de BuildScoreData())
 ```
 
 Los checks de salida (vs METAR de origen, `CheckQnhAsync`) y de clima (vs STD 1013,
-`CheckStdPressure`) **no cambiaron** — nunca son ambiguos, siguen siendo inmediatos.
+`CheckStdPressure`) **no cambiaron** — nunca son ambiguos, siguen siendo inmediatos y
+definitivos. El de STD sí cambió de contabilidad (v0.9.3): escribe `StdPressureViolation`
+en lugar de incrementar `QnhViolations`, porque compartir contador con el QNH de
+salida/llegada permitía que un STD incorrecto agotara el tope de −10 pts y enmascarara la
+penalización del QNH de llegada.
 
 ---
 
@@ -947,7 +956,6 @@ donde θ es el azimut desde el Norte (grados) y R es el radio en nm. Los 8 vért
 **Espacios aéreos — `SetAirspaces(IList<NavAirspace>)` (v0.6.7):** opacidades reducidas al 50 % respecto a v0.6.6. GeoJSON `[lon, lat]` → `PointLatLng(lat, lon)`. Fill α ∈ 5–20, stroke α ∈ 40–95.
 
 **Proveedores de mapa:**
-
 | Opción | Provider |
 |---|---|
 | Dark (Carto) | `GMapProviders.GoogleChinaSatelliteMap` remapeado a Carto Dark (defecto) |
@@ -955,6 +963,29 @@ donde θ es el azimut desde el Norte (grados) y R es el radio en nm. Los 8 vért
 | Satellite (ESRI) | `GMapProviders.ArcGIS_World_Imagery` |
 
 Preferencia persistida en `App.config` clave `map_provider_index`.
+
+**Panel ATC/ATIS detallado — `UI/Forms/AtcPanel.cs` (v0.9.8):**
+
+Botón **ATC ▸** en la barra inferior que despliega un `Panel` acoplado a la derecha
+(`DockStyle.Right`, 320 px) con **todas** las posiciones activas en IVAO: callsign,
+frecuencia y **el texto completo del ATIS** de cada estación.
+
+Complementa las formas geográficas del `AtcOverlay`: aquellas indican *dónde* está cada
+posición a 20 NM, este panel dice *qué* hay activo y con qué frecuencia, y es el único
+sitio donde el ATIS se lee entero sin pasar el ratón por encima de cada marcador.
+
+- Se repuebla desde `MapForm.SetAtcStations`, es decir con cada poll de IVAO (3 min).
+- `SetStations` es thread-safe (`InvokeRequired` → `BeginInvoke`): el poll entrega desde
+  el thread-pool.
+- Agrupa por aeropuerto y ordena las dependencias locales primero
+  (DEL → GND → TWR → ATIS → APP → DEP → CTR), porque durante el rodaje lo urgente es la
+  torre, no el centro de área.
+- Orden de docking en `BuildLayout`: `_map` (Fill) → `bar` (Bottom) → `_sidebarPanel`
+  (Left) → `_atcPanel` (Right) → `titleBar` (Top, última prioridad).
+
+La regla de orden vive en `Helpers/AtcStationOrder.cs`, **fuera** del control WinForms: es
+una decisión de dominio, no de dibujo, y así se prueba sin arrastrar
+`System.Windows.Forms` al proyecto de tests.
 
 **Sidebar de procedimientos (v0.6.5 / ampliado v0.7.0):**
 
@@ -1603,7 +1634,29 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 - Configuración **Release**: `<AppConfig></AppConfig>` en el PropertyGroup de Release evita que MSBuild copie `App.config` sobre `vmsOpenAcars.exe.config`. El `App.Release.config` de producción en `bin\Release\` queda intacto.
 - `pdfium.dll` se copia siempre al directorio de salida (`CopyToOutputDirectory=Always`)
 - `Languages/*.json` se copian con `PreserveNewest`
-- `SeedMockData()` en `LandingLogService` solo compila en configuración **Debug** (`#if DEBUG`)
+- **No hay código de simulación.** `Services/MockSimulator.cs` y `LandingLogService.SeedMockData()`
+  (con su botón SEED DEMO DATA en el LOGBOOK) se retiraron en v0.9.8: el binario distribuible no
+  contiene datos de vuelo falsos ni rutas de prueba.
+
+#### Credenciales: dev vs. distribución (v0.9.3)
+Los dos archivos de configuración tienen roles **distintos y deliberados**:
+
+| Archivo | Rol | ¿Lleva credenciales? |
+|---|---|---|
+| `App.config` | Configuración local del desarrollador. MSBuild la copia al `exe.config` de Debug. | **Sí** — es el entorno propio, para no reconfigurar la app en cada compilación |
+| `App.Release.config` | Plantilla que se publica a los pilotos (ver `Docs/PRIMEROS_PASOS.md`). | **No** — solo placeholders |
+
+`App.Release.config` **no se aplica automáticamente** en ningún build (`<AppConfig></AppConfig>`
+en Release impide que `App.config` lo pise). Al preparar un paquete para publicar hay que
+copiarlo sobre el `vmsOpenAcars.exe.config` del paquete:
+
+```
+copy App.Release.config  <carpeta-del-paquete>\vmsOpenAcars.exe.config
+```
+
+Sin ese paso, el paquete hereda la configuración del equipo que lo construyó — es decir, las
+credenciales del desarrollador. Por eso `Helpers/AppConfig.cs` **no** debe tener credenciales
+como valor por defecto: un default en código sobrevive aunque el despliegue limpie su `.config`.
 
 ### Binding Redirects y SQLite (v0.6.3)
 
@@ -1621,3 +1674,46 @@ El redirect manual en `App.config` es:
 ```
 
 Cubre cualquier versión anterior de SQLite que pueda estar registrada en el GAC del usuario (p. ej. 1.0.115.5 instalada por Visual Studio o SQL Server Tools) y la redirige a la 1.0.119.0 que se distribuye con vmsOpenAcars.
+
+### Tests (v0.9.4)
+
+`vmsOpenAcars.Tests/` — proyecto MSTest hermano de `vmsOpenAcars`, incluido en
+`vmsOpenAcars.sln`. **193 tests** en cuatro suites:
+
+| Suite | Cubre |
+|---|---|
+| `ScoringServiceTests` | Los 17 criterios con sus umbrales en **ambos lados**, el bonus de single-engine, el suelo de 0 y los casos de "sin datos de aterrizaje" |
+| `PirepStateTests` | La clasificación de estado de PIREP (`Pirep.IsActiveState`), que decide el fallback de `FilePirep()` cuando phpVMS archiva el PIREP pero devuelve un código no-2xx |
+| `GeoMathTests` | Geometría flat-earth compartida y el respaldo regional de TA/TL (v0.9.8) |
+| `AtcPanelTests` | Orden de presentación de las posiciones ATC (v0.9.8) |
+
+`InternalsVisibleTo("vmsOpenAcars.Tests")` en `Properties/AssemblyInfo.cs` da acceso a los
+tipos `internal` (los helpers) sin tener que hacerlos públicos solo para probarlos.
+
+```bash
+msbuild vmsOpenAcars.sln /p:Configuration=Debug
+vstest.console.exe vmsOpenAcars.Tests\bin\Debug\vmsOpenAcars.Tests.dll
+```
+
+`ScoringService` vive en un `WinExe`, así que el proyecto de tests lo enlaza de dos formas:
+
+| Mecanismo | Propósito |
+|---|---|
+| `ProjectReference` con `ReferenceOutputAssembly=false` | Solo fuerza el **orden** de compilación: la app debe estar construida antes que los tests |
+| `<Reference>` a `..\vmsOpenAcars\bin\$(Configuration)\vmsOpenAcars.exe` con `Private=true` | Copia el assembly al output de tests para que el host de test lo resuelva **en runtime** |
+
+En **Release** el proyecto de tests no se compila: la solución mapea su configuración
+Release a `ActiveCfg = Debug` sin `Build.0`, de modo que nunca entra en el paquete
+distribuible.
+
+Convenciones:
+
+- Cada frontera se comprueba en sus **dos lados** (`≤150` penaliza 0 y `151` penaliza 5):
+  es donde un cambio de `<` por `<=` pasa desapercibido.
+- Cada test parte de un vuelo perfecto (score 100, cero deducciones) y añade **una sola**
+  violación, para que la deducción observada sea atribuible a ese criterio.
+- `AllCriteria_AreIndividuallyAttributable` exige 17 líneas de desglose únicas: es el test
+  de regresión del bug de contador compartido entre STD y QNH.
+
+Al añadir un criterio a `ScoringService` hay que tocar cuatro sitios: el cálculo, su test,
+`PirepBuilder._critKeyMap` y la clave `Score_Crit*` en `Languages/{en,es}.json`.

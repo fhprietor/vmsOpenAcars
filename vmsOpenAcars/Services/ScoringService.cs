@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using vmsOpenAcars.Models;
 
@@ -52,9 +52,9 @@ namespace vmsOpenAcars.Services
     /// in-flight violations, and procedure compliance.
     ///
     /// <para>
-    /// The score starts at 100 and deductions are applied per criterion.
-    /// Maximum raw deductions sum to 120 pts — the final score is capped at 0
-    /// (Math.Max(0, 100 − totalDeduction)):
+    /// The score starts at 100 and deductions are applied per criterion. The raw
+    /// deductions sum to more than 100, so the final score is floored at 0
+    /// (Math.Max(0, 100 − totalDeduction)) and, if a bonus applies, capped at 100.
     /// </para>
     /// <list type="table">
     ///   <listheader><term>Criterion</term><description>Max deduction</description></listheader>
@@ -65,7 +65,16 @@ namespace vmsOpenAcars.Services
     ///   <item><term>Overspeed events</term><description>15 pts</description></item>
     ///   <item><term>Lights compliance</term><description>10 pts</description></item>
     ///   <item><term>Stabilized approach (1000 ft gate)</term><description>15 pts</description></item>
-    ///   <item><term>QNH compliance</term><description>5 pts</description></item>
+    ///   <item><term>QNH compliance (departure + arrival)</term><description>10 pts</description></item>
+    ///   <item><term>Standard pressure (1013 at TA)</term><description>5 pts</description></item>
+    ///   <item><term>Touchdown zone</term><description>7 pts</description></item>
+    ///   <item><term>Centreline deviation</term><description>7 pts</description></item>
+    ///   <item><term>Localizer alignment</term><description>5 pts</description></item>
+    ///   <item><term>Minimums compliance</term><description>5 pts</description></item>
+    ///   <item><term>IVAO offline</term><description>5 pts</description></item>
+    ///   <item><term>On-time departure</term><description>5 pts</description></item>
+    ///   <item><term>Procedure speed</term><description>10 pts</description></item>
+    ///   <item><term>Engine stabilization</term><description>5 pts</description></item>
     /// </list>
     ///
     /// <para>
@@ -75,6 +84,14 @@ namespace vmsOpenAcars.Services
     /// </summary>
     public class ScoringService
     {
+        /// <summary>
+        /// Sentinel for "no landing captured". Stored in place of a real 0 fpm landing so
+        /// that "unknown" is never confused with "perfect" — a null-able int would be
+        /// cleaner, but this value flows into the SQLite schema and the phpVMS payload,
+        /// where changing the type would force a migration.
+        /// </summary>
+        public const int NoLandingData = -1;
+
         // ─── Max deduction per criterion (raw sum = 120, final score capped at 0) ─
         private const int MaxLandingRateDeduction = 40;
         private const int MaxGForceDeduction = 15;
@@ -84,6 +101,7 @@ namespace vmsOpenAcars.Services
         private const int MaxLightsDeduction = 10;
         private const int MaxStabilizedApproachDeduction = 15;
         private const int MaxQnhDeduction = 10;  // 5 pts salida + 5 pts llegada
+        private const int StdPressureDeduction = 5;  // 1013 no aplicado en la TA
         private const int OfflineFlightDeduction = 5;
         private const int LateDepartureDeduction = 5;
         private const int MaxTouchdownZoneDeduction = 7;
@@ -110,22 +128,30 @@ namespace vmsOpenAcars.Services
         {
             var result = new ScoringResult
             {
-                LandingRating = GetLandingRating(data.LandingRate)
+                LandingRating = ResolveLandingRating(data)
             };
 
-int totalDeduction = 0;
+            bool hasLandingData = data.LandingDataCaptured && data.LandingRate != NoLandingData;
+
+            int totalDeduction = 0;
 
             // ── Landing Rate ─────────────────────────────────────────────────────
-            int lrDeduction = CalcLandingRateDeduction(data.LandingRate);
-            if (lrDeduction > 0)
+            // Omitted entirely when no touchdown was captured: scoring it as 0 fpm would
+            // hand out a free pass on the heaviest criterion (−40 pts max) and label the
+            // flight "Butter".
+            if (hasLandingData)
             {
-                result.Deductions.Add(new ScoringDeduction
+                int lrDeduction = CalcLandingRateDeduction(data.LandingRate);
+                if (lrDeduction > 0)
                 {
-                    Criterion = "Landing Rate",
-                    Reason = $"{data.LandingRate} ft/min",
-                    PointsDeducted = lrDeduction
-                });
-                totalDeduction += lrDeduction;
+                    result.Deductions.Add(new ScoringDeduction
+                    {
+                        Criterion = "Landing Rate",
+                        Reason = $"{data.LandingRate} ft/min",
+                        PointsDeducted = lrDeduction
+                    });
+                    totalDeduction += lrDeduction;
+                }
             }
 
             // ── G-Force ──────────────────────────────────────────────────────────
@@ -225,6 +251,22 @@ int totalDeduction = 0;
                     PointsDeducted = qnhDeduction
                 });
                 totalDeduction += qnhDeduction;
+            }
+
+            // ── Standard Pressure (QNH 1013 at transition altitude) ───────────────
+            // Criterio propio, independiente del QNH de salida/llegada: cruzar la
+            // altitud de transición sin poner 1013 no es el mismo error que llevar el
+            // QNH equivocado en el aeropuerto, y antes se contabilizaba ambos en el
+            // mismo contador (con tope compartido), enmascarando la penalización real.
+            if (data.StdPressureViolation)
+            {
+                result.Deductions.Add(new ScoringDeduction
+                {
+                    Criterion      = "Standard Pressure",
+                    Reason         = "1013 hPa not set at transition altitude",
+                    PointsDeducted = StdPressureDeduction
+                });
+                totalDeduction += StdPressureDeduction;
             }
 
             // ── Touchdown Zone ───────────────────────────────────────────────────
@@ -498,6 +540,17 @@ int totalDeduction = 0;
             if (rate <= 450) return "Hard";
             if (rate <= 650) return "Very Hard";
             return "Slam";
+        }
+
+        /// <summary>
+        /// Resolves the rating label, or "Unknown" when the flight has no captured
+        /// touchdown. Keeps "Unknown" from ever being reported as a real landing quality.
+        /// </summary>
+        private static string ResolveLandingRating(FlightScoreData data)
+        {
+            if (!data.LandingDataCaptured || data.LandingRate == NoLandingData)
+                return "Unknown";
+            return GetLandingRating(data.LandingRate);
         }
     }
 }

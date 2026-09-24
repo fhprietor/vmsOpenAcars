@@ -1013,19 +1013,6 @@ namespace vmsOpenAcars.Services
         }
 
 
-        private static string GetAutobrakeName(byte setting)
-        {
-            switch (setting)
-            {
-                case 0: return "RTO";
-                case 1: return "OFF";
-                case 2: return "1";
-                case 3: return "2";
-                case 4: return "3";
-                case 5: return "MAX";
-                default: return setting.ToString();
-            }
-        }
         private static EnginePower DecodeEnginePower(short n1Raw, short rpmRaw)
         {
             double n1 = n1Raw * 100.0 / 16384.0;
