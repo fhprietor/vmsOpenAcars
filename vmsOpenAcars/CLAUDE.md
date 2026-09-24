@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.9  
+**Versión actual:** v0.9.10  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -56,8 +56,13 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
   las otras reglas. Nunca suprimir una acción por una suposición.
 
 **Idioma**
-- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 392 claves cada uno): toda
+- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 394 claves cada uno): toda
   clave que se añade o se quita va en los dos.
+- **Los rótulos de `SettingsForm` se traducen por `_(clave)` con el propio texto en inglés como
+  clave** (`CreateLabel("Duration (s)")` → *Duración (s)*). Una clave que falte **no cae al
+  inglés**: `LocalizationService.GetString` devuelve `[[clave]]`, así que aparece literalmente
+  `[[Airspace]]` en la pantalla. Al añadir una fila al formulario hay que añadir su clave a los
+  dos `.json` (`Restricted zones` y `Stg_AirspaceOsdAlerts` lo son desde v0.9.10).
 - Al añadir un criterio a `ScoringService`: su test, su entrada en `PirepBuilder._critKeyMap`
   y su clave `Score_Crit*` en ambos idiomas.
 
@@ -243,7 +248,17 @@ static string SimSummary  // asignado en SetSimVersion() al conectar FSUIPC
 
 TopMost, click-through, centrado en pantalla configurada, 40 px desde borde. Thread-safe. Audio: `OsdAudio.Play(severity)`, 4 WAV EmbeddedResource.
 
-App.config: `osd_enabled`, `osd_sound_enabled`, `osd_duration_seconds` (def 4), `osd_screen_index`, `osd_opacity` (def 90).
+App.config: `osd_enabled`, `osd_sound_enabled`, `osd_duration_seconds` (def 4), `osd_screen_index`, `osd_opacity` (def 90), `osd_airspace_alerts` (def true).
+
+**Avisos de zona restringida en el OSD (v0.9.10):** `osd_airspace_alerts` (fila *Restricted zones*
+→ *Alert on the OSD* en Settings → OSD, claves `Restricted zones` y `Stg_AirspaceOsdAlerts`) silencia
+**solo el OSD** de las zonas acotadas —`AIRSPACE
+{PROHIBITED|RESTRICTED|DANGER}`, `AIRSPACE AHEAD` y `ABOVE … DO NOT DESCEND`—, que es el aviso
+intrusivo (severidad Crítica con chime). El log de vuelo y el polígono en el mapa **no** se
+suprimen: el piloto que apaga el OSD sigue teniendo el registro y la traza. Se evalúa en el
+momento de disparar (`MainViewModel.LogBoundedAirspace` y el handler de `OnAirspaceOverflight`),
+así que el cambio aplica en vuelo sin reiniciar. Las entradas/salidas de CTR/TMA/RMZ
+(`OnAirspaceEntered`, informativas) no dependen de este ajuste.
 
 **Triggers OSD (MainViewModel → OnOsdMessage):**
 

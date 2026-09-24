@@ -152,9 +152,10 @@ namespace vmsOpenAcars.ViewModels
                 OnLog?.Invoke(
                     $"⚠️ OVERFLIGHT  {a.Type.ToUpper()}  {icao}  [ABOVE {upper}]  DO NOT DESCEND",
                     Theme.Warning);
-                OnOsdMessage?.Invoke(
-                    $"ABOVE  {icao}  DO NOT DESCEND",
-                    OsdSeverity.Warning);
+                if (AppConfig.OsdAirspaceAlerts)
+                    OnOsdMessage?.Invoke(
+                        $"ABOVE  {icao}  DO NOT DESCEND",
+                        OsdSeverity.Warning);
             };
 
             _airspaceMonitor.OnAirspaceEntered += (a, freq) =>
@@ -212,7 +213,12 @@ namespace vmsOpenAcars.ViewModels
             string type   = a.Type.ToUpper();
             string bounds = $"[{a.LowerLimit?.Display ?? "SFC"} – {a.UpperLimit?.Display ?? "UNL"}]";
             OnLog?.Invoke($"⚠️ {tag}  {type}  {icao}  {bounds}", Theme.Warning);
-            OnOsdMessage?.Invoke($"{tag}  {type}  {icao}", sev);
+
+            // El OSD de zonas restringidas es opcional (Settings → OSD). El log de arriba y
+            // el polígono en el mapa no se ven afectados: esto solo silencia el aviso en
+            // pantalla, que es Crítico y con chime.
+            if (AppConfig.OsdAirspaceAlerts)
+                OnOsdMessage?.Invoke($"{tag}  {type}  {icao}", sev);
         }
 
         private void TriggerAirspaceLoadAsync(string orig, string dest)

@@ -108,6 +108,17 @@ namespace vmsOpenAcars.Helpers
             set => _osdOpacity = value;
         }
 
+        // El OSD de zonas restringidas (Prohibited/Restricted/Danger) es opcional: el aviso
+        // es intrusivo por diseño —Crítico, con chiming— y hay pilotos que vuelan en zonas
+        // con muchas áreas activas y prefieren seguirlas solo en el log y en el mapa. El log
+        // NO se suprime con este ajuste: siempre queda el registro y el polígono en el mapa.
+        private static bool _osdAirspaceAlerts = GetBool("osd_airspace_alerts", true);
+        public static bool OsdAirspaceAlerts
+        {
+            get => _osdAirspaceAlerts;
+            set => _osdAirspaceAlerts = value;
+        }
+
         private static int GetInt(string key, int defaultValue)
         {
             string value = ConfigurationManager.AppSettings[key];

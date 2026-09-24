@@ -2425,6 +2425,7 @@ private void UpdateMetarPanel(MetarData[] metars)
                 { "osd_duration_seconds", "4" },
                 { "osd_screen_index",     "1" },
                 { "osd_opacity",          "90" },
+                { "osd_airspace_alerts",  "true" },
 
                 // Cabin Announcements
                 { "cabin_announcements_enabled", "true" },

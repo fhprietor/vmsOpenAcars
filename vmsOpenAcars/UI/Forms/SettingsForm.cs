@@ -41,6 +41,7 @@ namespace vmsOpenAcars.UI.Forms
         // OSD Overlay
         private CheckBox chkOsdEnabled;
         private CheckBox chkOsdSound;
+        private CheckBox chkOsdAirspace;
         private Button   btnTestOsd;
         private NumericUpDown nudOsdDuration;
         private NumericUpDown nudOsdOpacity;
@@ -380,17 +381,17 @@ namespace vmsOpenAcars.UI.Forms
             };
             left.Controls.Add(navDataPanel, 1, 11);
 
-            // ── Right table: Landing Log / OSD / Cabin (10 rows × 35 px + 1 status) ──
+            // ── Right table: Landing Log / OSD / Cabin (11 rows × 35 px + 1 status) ──
             var right = new TableLayoutPanel
             {
                 Dock        = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount    = 11,
+                RowCount    = 12,
                 BackColor   = Color.Transparent
             };
             right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35F));
             right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65F));
-            for (int i = 0; i < 10; i++)
+            for (int i = 0; i < 11; i++)
                 right.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
             right.RowStyles.Add(new RowStyle(SizeType.Absolute, 28F)); // status row
 
@@ -550,13 +551,29 @@ namespace vmsOpenAcars.UI.Forms
             chimesPanel.Controls.Add(btnTestOsd);
             right.Controls.Add(chimesPanel, 1, 6);
 
-            // row 7 — Cabin Announcements separator
+            // row 7 — Restricted-zone alerts on the OSD
+            right.Controls.Add(CreateLabel("Restricted zones"), 0, 7);
+            chkOsdAirspace = new CheckBox
+            {
+                Dock      = DockStyle.Fill,
+                Text      = _("Stg_AirspaceOsdAlerts"),
+                ForeColor = Color.White,
+                Font      = new Font("Consolas", 10)
+            };
+            chkOsdAirspace.CheckedChanged += (s, ev) =>
+            {
+                AppConfig.OsdAirspaceAlerts = chkOsdAirspace.Checked;
+                SaveConfigKey("osd_airspace_alerts", chkOsdAirspace.Checked.ToString().ToLower());
+            };
+            right.Controls.Add(chkOsdAirspace, 1, 7);
+
+            // row 8 — Cabin Announcements separator
             var sepCabin = CreateSeparator("── Cabin Announcements ──");
             right.SetColumnSpan(sepCabin, 2);
-            right.Controls.Add(sepCabin, 0, 7);
+            right.Controls.Add(sepCabin, 0, 8);
 
-            // row 8 — Cabin toggle + TEST cabin button
-            right.Controls.Add(CreateLabel("Cabin Ann."), 0, 8);
+            // row 9 — Cabin toggle + TEST cabin button
+            right.Controls.Add(CreateLabel("Cabin Ann."), 0, 9);
             var cabinPanel = new FlowLayoutPanel
             {
                 Dock         = DockStyle.Fill,
@@ -592,10 +609,10 @@ namespace vmsOpenAcars.UI.Forms
             btnTestCabin.Click += BtnTestCabin_Click;
             cabinPanel.Controls.Add(chkCabinAnnouncements);
             cabinPanel.Controls.Add(btnTestCabin);
-            right.Controls.Add(cabinPanel, 1, 8);
+            right.Controls.Add(cabinPanel, 1, 9);
 
-            // row 9 — volume slider
-            right.Controls.Add(CreateLabel("Volume"), 0, 9);
+            // row 10 — volume slider
+            right.Controls.Add(CreateLabel("Volume"), 0, 10);
             var volPanel = new FlowLayoutPanel
             {
                 Dock         = DockStyle.Fill,
@@ -630,9 +647,9 @@ namespace vmsOpenAcars.UI.Forms
             };
             volPanel.Controls.Add(trkCabinVolume);
             volPanel.Controls.Add(lblCabinVolVal);
-            right.Controls.Add(volPanel, 1, 9);
+            right.Controls.Add(volPanel, 1, 10);
 
-            // row 10 — cabin test status (spans both columns)
+            // row 11 — cabin test status (spans both columns)
             lblCabinStatus = new Label
             {
                 Dock      = DockStyle.Fill,
@@ -643,7 +660,7 @@ namespace vmsOpenAcars.UI.Forms
                 Padding   = new Padding(4, 0, 0, 0)
             };
             right.SetColumnSpan(lblCabinStatus, 2);
-            right.Controls.Add(lblCabinStatus, 0, 10);
+            right.Controls.Add(lblCabinStatus, 0, 11);
 
             // ── Assemble ──────────────────────────────────────────────────────
             outer.Controls.Add(left,    0, 0);
@@ -727,6 +744,11 @@ namespace vmsOpenAcars.UI.Forms
             if (bool.TryParse(ConfigurationManager.AppSettings["osd_sound_enabled"], out bool osdSoundParsed))
                 osdSound = osdSoundParsed;
             chkOsdSound.Checked = osdSound;
+
+            bool osdAirspace = true;
+            if (bool.TryParse(ConfigurationManager.AppSettings["osd_airspace_alerts"], out bool osdAirspaceParsed))
+                osdAirspace = osdAirspaceParsed;
+            chkOsdAirspace.Checked = osdAirspace;
 
             int osdDuration = 4;
             if (int.TryParse(ConfigurationManager.AppSettings["osd_duration_seconds"], out int durParsed))

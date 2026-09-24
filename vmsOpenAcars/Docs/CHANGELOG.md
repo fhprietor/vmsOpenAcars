@@ -2,6 +2,45 @@
 
 ---
 
+## [0.9.10] — 2026-09-24
+
+### Added
+
+- **Avisos de zona restringida en el OSD, configurables** — pedido del mantenedor. Settings →
+  OSD incorpora la fila *Restricted zones* → *Alert on the OSD*, nueva clave
+  `osd_airspace_alerts` (def `true`, así que el comportamiento actual no cambia para quien no la
+  toque).
+
+  Apaga **solo el aviso en pantalla** de las zonas acotadas: `AIRSPACE
+  {PROHIBITED|RESTRICTED|DANGER}`, `AIRSPACE AHEAD` y `ABOVE … DO NOT DESCEND` — precisamente los
+  que son intrusivos (severidad Crítica y con chime). **No** suprime el log de vuelo ni el
+  polígono en el mapa: el piloto que apaga el OSD sigue teniendo el registro y la traza, que era
+  el motivo de pedirlo (zonas con muchas áreas activas, o vuelo local dentro de una CTR). Las
+  entradas y salidas de CTR/TMA/RMZ (`OnAirspaceEntered`, informativas) quedan fuera del ajuste
+  porque no son zonas restringidas.
+
+  Se evalúa al disparar y no al iniciar sesión (`MainViewModel.LogBoundedAirspace` y el handler
+  de `OnAirspaceOverflight`), así que se puede cambiar en vuelo: aplica al siguiente aviso sin
+  reiniciar. La casilla se auto-guarda al marcarla, igual que el resto de OSD/Cabin.
+
+  Cobertura de configuración: `Helpers/AppConfig.cs` (propiedad con backing field, para el
+  cambio en caliente), `UI/Forms/SettingsForm.cs` (fila nueva en la tabla, que pasa de 11 a 12
+  filas), `UI/Forms/MainForm.cs` (default para instalaciones que regeneran el `.config`) y
+  `App.config` local de desarrollo.
+
+### Fixed
+
+- **El rótulo de la fila nueva salía como `[[Airspace]]`** — reportado por el mantenedor al
+  probarla. Los rótulos de `SettingsForm` se traducen con `_(clave)`, usando el propio texto en
+  inglés como clave; **una clave ausente no cae al inglés**: `LocalizationService.GetString`
+  devuelve `[[clave]]` y eso es lo que se pintaba en pantalla. Se añaden las claves
+  `Restricted zones` (*Zonas restringidas* / *Restricted zones*) y `Stg_AirspaceOsdAlerts`
+  (*Avisar en el OSD* / *Alert on the OSD*) a los dos idiomas — 394 claves cada uno, simétricos.
+  El texto de la casilla, que estaba fijo en inglés, pasa por `_()` como el resto de la fila.
+  Queda anotado en `CLAUDE.md` para que la próxima fila del formulario no repita el fallo.
+
+---
+
 ## [0.9.9] — 2026-09-24
 
 ### Fixed

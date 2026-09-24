@@ -1634,6 +1634,7 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 | `osd_duration_seconds` | 4 | Tiempo de visualización por notificación (s) |
 | `osd_screen_index` | 0 | Índice de pantalla para el OSD (0 = primaria) |
 | `osd_opacity` | 90 | Opacidad del OSD (10–100 %) |
+| `osd_airspace_alerts` | true | Muestra en el OSD los avisos de zona restringida (Prohibited/Restricted/Danger, `AIRSPACE AHEAD`, `ABOVE … DO NOT DESCEND`). No afecta al log de vuelo ni al polígono del mapa (v0.9.10) |
 | `cabin_announcements_enabled` | true | Activa los anuncios de cabina pregrabados |
 | `cabin_announcements_volume` | 80 | Volumen de los anuncios (0–100 %) |
 
