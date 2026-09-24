@@ -45,6 +45,26 @@ namespace vmsOpenAcars.ViewModels
         private DateTime              _lastApproachAirportQuery = DateTime.MinValue;
         private bool                  _reconfirmingApproachAirport;
 
+        // Diversion gating (v0.9.9). NavData matches an airport on heading + cross-track
+        // against an infinite centerline, so an arrival that merely overflies an aligned
+        // airfield keeps matching it. Committing a diversion needs three filters: the
+        // lateral tolerance below, "established on a final" (SelectApproachThreshold, which
+        // also requires being before the threshold), and this many consecutive polls
+        // agreeing — roughly DiversionConfirmPolls × the 5 s reconfirmation throttle.
+        private const double MaxCrossTrackNm      = 3.0;
+        private const int    DiversionConfirmPolls = 2;
+        private string _pendingDiversionIcao;
+        private int    _pendingDiversionIcaoCount;
+
+        // Last alternate airport the endpoint proposed that passed the lateral filter, even
+        // if it never qualified as a final. Used as a touchdown-runway candidate so a real
+        // diversion is still caught when the approach itself was not a straight-in final.
+        private string _lastAlternateCandidateIcao;
+
+        // Deduplication key of the last discarded match ("SKTL|ct", "SKTL|final"), so the
+        // per-poll diagnostics don't repeat one identical line down the whole descent.
+        private string _lastRejectedMatchKey;
+
         // Approach track points, captured during Descent/Approach for the landing log.
         // Guarded by _approachBufferLock because it is genuinely touched from two threads:
         // points are appended on the FSUIPC polling thread (ProcessRawData) while
@@ -247,10 +267,16 @@ namespace vmsOpenAcars.ViewModels
                 _lastApproachAirportQuery = DateTime.MinValue;
                 _approachThreshold        = null;
                 _approachDestination      = null;
+                _lastAlternateCandidateIcao = null;
+                _lastRejectedMatchKey     = null;
+                ResetPendingDiversion();
             }
             else if (leavingApproachSuperstate)
             {
                 _approachThreshold = null;
+                _lastAlternateCandidateIcao = null;
+                _lastRejectedMatchKey = null;
+                ResetPendingDiversion();
             }
 
             switch (phase)
@@ -364,7 +390,8 @@ namespace vmsOpenAcars.ViewModels
                     && (DateTime.UtcNow - _lastApproachAirportQuery).TotalSeconds >= 5.0)
                 {
                     _lastApproachAirportQuery = DateTime.UtcNow;
-                    Task.Run(() => ReconfirmApproachRunway(e.Latitude, e.Longitude, e.HeadingDeg));
+                    Task.Run(() => ReconfirmApproachRunway(
+                        e.Latitude, e.Longitude, e.HeadingDeg, e.AltitudeFeet));
                 }
 
                 if (_approachThreshold != null
@@ -410,7 +437,21 @@ namespace vmsOpenAcars.ViewModels
         // matched runway or airport differs from the currently resolved one (parallel-
         // runway correction, or a genuine diversion). Runs off the RawDataUpdated thread
         // via Task.Run — network I/O, must not block telemetry processing.
-        private async Task ReconfirmApproachRunway(double lat, double lon, double heading)
+        //
+        // A diversion is only committed once six independent filters agree, because
+        // "the endpoint returned another airport" is on its own a very weak signal (it
+        // matches on heading and lateral offset only, against an *infinite* centerline):
+        //   1. lateral plausibility — within MaxCrossTrackNm of the extended centerline;
+        //   2. angular plausibility — within MaxFinalConeAngleDeg at the threshold;
+        //   3. vertical plausibility — a usable descent gradient down to that field;
+        //   4. nearer than the planned destination — you don't divert past where you were
+        //      already going;
+        //   5. established on final — SelectApproachThreshold, which also requires being
+        //      BEFORE the threshold;
+        //   6. persistence — consecutive polls agreeing, so a single sample can't fire the
+        //      OSD alert and repoint the effective destination.
+        private async Task ReconfirmApproachRunway(
+            double lat, double lon, double heading, double altitudeMslFt)
         {
             _reconfirmingApproachAirport = true;
             try
@@ -422,50 +463,186 @@ namespace vmsOpenAcars.ViewModels
                 bool diverted = !string.IsNullOrEmpty(plannedDest) &&
                     !match.Icao.Equals(plannedDest, StringComparison.OrdinalIgnoreCase);
 
+                // ── Pre-filter: el propio plan de vuelo ──────────────────────────
+                // Si el avión está dentro del corredor de la llegada que él mismo presentó,
+                // entonces está exactamente donde su plan dice, y que el matcher nombre otro
+                // aeródromo solo puede ser la llegada pasando cerca de él. Es la comprobación
+                // más directa de todas y la única que usa lo que el piloto planificó, no solo
+                // geometría. Medido con el OFP real del vuelo SKRG→SKBQ: los puntos de su
+                // llegada dan 0 NM y el avión estuvo a 25–33 NM de esa traza durante todo el
+                // descenso del falso SKTL (se había ido hacia SKCG), así que esta regla no
+                // toca ese caso — actúa en el opuesto, el de la aproximación a KBOS.
+                //
+                // Un desvío real empieza precisamente por salirse de la llegada, así que como
+                // mucho retrasa la detección lo que tardes en abandonar el corredor (~5 NM).
+                if (diverted && RouteCorridor.IsOnArrival(
+                        _flightManager.ActivePlan?.Waypoints, lat, lon))
+                {
+                    RevertDiversionIfAny(match.Icao);
+                    LogRejectedMatchOnce(match.Icao + "|onArrival", string.Format(
+                        _("Lnm_DiversionRejectedOnArrival"), match.Icao, plannedDest));
+                    return;
+                }
+
+                // ── Filter 1: lateral plausibility ────────────────────────────────
+                // A STAR turn can transiently point the aircraft at a nearby airfield's
+                // runway while it is still far off that runway's extended centerline (real
+                // case: SKGY matched with heading_diff_deg 3.1° but cross_track_nm 11.36).
+                if (match.CrossTrackNm.HasValue && match.CrossTrackNm.Value > MaxCrossTrackNm)
+                {
+                    if (diverted)
+                    {
+                        ResetPendingDiversion();
+                        LogRejectedMatchOnce(match.Icao + "|ct", string.Format(
+                            _("Lnm_DiversionRejectedCrossTrack"),
+                            match.Icao, FormatNm(match.CrossTrackNm)));
+                    }
+                    else
+                    {
+                        // Endpoint says "planned destination" — contradicts any diversion flag.
+                        RevertDiversionIfAny(match.Icao);
+                    }
+                    return;
+                }
+
+                // Remember the last alternate the endpoint considered plausible (lateral filter
+                // passed) even if we don't act on it: if the flight later lands there without
+                // ever satisfying the final-approach tests (circling approach, short final),
+                // LookupRunwayData uses this as a touchdown candidate.
+                if (diverted) _lastAlternateCandidateIcao = match.Icao;
+
+                // ── Filter 2: angular plausibility ────────────────────────────────
+                // A fixed lateral cut-off cannot separate a real final from a coincidental
+                // alignment, because both get matched ~19 NM out: the genuine diversion to
+                // SKCG was 0.70 NM off (2.1°) while the false SKTL match was 2.99 NM off
+                // (9.0°) — and the old 3 NM cut-off passed the false one by 0.007 NM, for a
+                // single 5 s poll before it drifted out of range. As an angle the two are a
+                // factor of four apart, which is the margin that actually holds.
+                if (!NavDataService.IsWithinFinalCone(match.CrossTrackNm, match.DistToThresholdNm))
+                {
+                    if (diverted)
+                    {
+                        ResetPendingDiversion();
+                        LogRejectedMatchOnce(match.Icao + "|cone", string.Format(
+                            _("Lnm_DiversionRejectedCone"), match.Icao,
+                            FormatNm(match.CrossTrackNm), FormatNm(match.DistToThresholdNm)));
+                    }
+                    else
+                    {
+                        RevertDiversionIfAny(match.Icao);
+                    }
+                    return;
+                }
+
+                // ── Filter 3: vertical plausibility ──────────────────────────────
+                // Landing somewhere means descending toward it on a usable gradient. The
+                // false SKTL match ran 906–2 224 ft/NM (8.5°–20.1°) and got WORSE as the
+                // aircraft approached, because it was descending past a field it was never
+                // going to; the real diversion to SKCG held 260 ft/NM (2.4°). Measured
+                // against the matched airport's own elevation, so a high-plateau destination
+                // can't mask a sea-level alternate.
+                if (diverted)
+                {
+                    double? matchedElevFt = _navDataService.GetAirportElevationFt(match.Icao);
+                    if (!NavDataService.IsPlausibleDiversionDescent(
+                            altitudeMslFt, matchedElevFt, match.DistToThresholdNm))
+                    {
+                        ResetPendingDiversion();
+                        double aglFt = altitudeMslFt - (matchedElevFt ?? 0);
+                        LogRejectedMatchOnce(match.Icao + "|grad", string.Format(
+                            _("Lnm_DiversionRejectedDescent"), match.Icao,
+                            aglFt.ToString("F0"), FormatNm(match.DistToThresholdNm)));
+                        return;
+                    }
+                }
+
+                // ── Filter 4: the alternate must be nearer than the planned destination ──
+                // Otherwise the matcher can name a small airfield that merely has a runway
+                // better aligned with the current heading while the real destination is right
+                // there. Real case (KBOS): 28M was named as the diversion 15.1 NM away while
+                // the aircraft was 6.5 NM from Logan — the destination was inside the 20 NM
+                // match radius, it just had no runway within 15° of the heading during the
+                // turn. Diverting to something two miles past your destination makes no sense.
+                if (diverted)
+                {
+                    double? plannedDistNm = _navDataService.GetAirportDistanceNm(plannedDest, lat, lon);
+                    if (!NavDataService.IsPlausibleDiversionDistance(match.AirportDistanceNm, plannedDistNm))
+                    {
+                        ResetPendingDiversion();
+                        LogRejectedMatchOnce(match.Icao + "|far", string.Format(
+                            _("Lnm_DiversionRejectedFarther"), match.Icao,
+                            FormatNm(match.AirportDistanceNm), plannedDest, FormatNm(plannedDistNm)));
+                        return;
+                    }
+                }
+
+                // ── Filter 5: established on a final for the matched runway ───────
+                // NavData's cross-track is measured against an infinite centerline, so an
+                // aircraft can sit right on that line while being tens of NM PAST the
+                // threshold and thousands of feet up. SelectApproachThreshold rejects those
+                // positions (along > 0 = past the threshold), and projects on the runway's
+                // TRUE bearing, which the endpoint's own metric agrees with.
+                var newThreshold = _navDataService.GetRunwayThreshold(match.Icao, lat, lon, heading);
+                if (newThreshold == null)
+                {
+                    if (diverted)
+                    {
+                        ResetPendingDiversion();
+                        LogRejectedMatchOnce(match.Icao + "|final", string.Format(
+                            _("Lnm_DiversionRejectedNotOnFinal"),
+                            match.Icao, FormatNm(match.DistToThresholdNm),
+                            FormatNm(match.AirportDistanceNm)));
+                    }
+                    else
+                    {
+                        // Planned destination reconfirmed (if only by ICAO) → a diversion
+                        // flag already set can only be wrong. Reverting is the safe
+                        // direction: a genuine diversion keeps matching the alternate.
+                        RevertDiversionIfAny(match.Icao);
+                    }
+                    return;
+                }
+
+                // ── Filter 6: persistence ────────────────────────────────────────
+                // Only for committing a diversion. Requires the same alternate to be
+                // confirmed by consecutive polls (~5 s apart), which no fly-by can do.
+                if (diverted && !ConfirmPendingDiversion(match.Icao)) return;
+
+                // Accepted: a later rejection is new information worth logging again.
+                _lastRejectedMatchKey = null;
+
+                bool revertedNow = false;
+                if (diverted)
+                {
+                    // Flag the diversion as soon as it is genuinely established, which is
+                    // still early enough for the QNH/ILS gates: those fire at TL−1000 ft /
+                    // 1000 ft AGL, i.e. after the aircraft is on the final we just proved.
+                    if (!match.Icao.Equals(_flightManager.DivertedAirport, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _approachDestination = match.Icao;
+                        _flightManager.SetEffectiveDestination(match.Icao);
+                        _flightManager.SetDivertedAirport(match.Icao);
+
+                        double? divertedElevFt = _navDataService.GetAirportElevationFt(match.Icao);
+                        if (divertedElevFt.HasValue)
+                            _flightManager.SetArrivalAirportElevation(divertedElevFt.Value);
+
+                        _cb.Log?.Invoke(
+                            string.Format(_("Lnm_DiversionDetected"), plannedDest, match.Icao),
+                            Theme.Danger);
+                        _cb.OsdMessage?.Invoke($"DIVERTING TO {match.Icao}", OsdSeverity.Critical);
+                    }
+                }
+                else
+                {
+                    revertedNow = RevertDiversionIfAny(match.Icao);
+                }
+
                 bool runwayChanged = _approachThreshold == null
                     || !string.Equals(_approachDestination, match.Icao, StringComparison.OrdinalIgnoreCase)
                     || !string.Equals(_approachThreshold.RunwayName, match.RunwayName, StringComparison.OrdinalIgnoreCase);
 
-                // Reject geometrically implausible matches before treating them as a genuine
-                // diversion — a STAR turn can transiently align the aircraft's heading with a
-                // nearby small airfield's runway while the aircraft is still far off that
-                // runway's extended centerline (real case: SKGY matched with heading_diff_deg
-                // 3.1° but cross_track_nm 11.36 — nowhere near an actual approach to it).
-                bool plausible = !match.CrossTrackNm.HasValue || match.CrossTrackNm.Value <= 3.0;
-
-                // Flag the diversion (and point the touchdown fallback at the right
-                // airport) as soon as we know the ICAO — doesn't need the full runway
-                // threshold geometry below, and the QNH/Localizer gates need
-                // EffectiveDestination set as early in the approach as possible.
-                if (diverted && plausible && !match.Icao.Equals(_flightManager.DivertedAirport, StringComparison.OrdinalIgnoreCase))
-                {
-                    _approachDestination = match.Icao;
-                    _flightManager.SetEffectiveDestination(match.Icao);
-                    _flightManager.SetDivertedAirport(match.Icao);
-
-                    double? divertedElevFt = _navDataService.GetAirportElevationFt(match.Icao);
-                    if (divertedElevFt.HasValue)
-                        _flightManager.SetArrivalAirportElevation(divertedElevFt.Value);
-
-                    _cb.Log?.Invoke(
-                        string.Format(_("Lnm_DiversionDetected"), plannedDest, match.Icao),
-                        Theme.Danger);
-                    _cb.OsdMessage?.Invoke($"DIVERTING TO {match.Icao}", OsdSeverity.Critical);
-                }
-
-                if (!runwayChanged)
-                {
-                    // Local tracking didn't move, but a previous poll may have marked a false
-                    // diversion that this poll's (non-diverted) match now contradicts.
-                    if (!diverted) _flightManager.ClearDivertedAirport();
-                    return;
-                }
-
-                // Full threshold geometry (needed for the approach buffer / ILS load) has
-                // tighter tolerances than the airport match above — may still be out of
-                // range this early; retry on the next throttled cycle if so.
-                var newThreshold = _navDataService.GetRunwayThreshold(match.Icao, lat, lon, heading);
-                if (newThreshold == null) return;
+                if (!runwayChanged) return;
 
                 bool wasResolved = _approachThreshold != null;
                 _approachThreshold   = newThreshold;
@@ -473,15 +650,9 @@ namespace vmsOpenAcars.ViewModels
                 ClearApproachBuffer();
                 _lastApproachCapture = DateTime.MinValue;
 
-                if (!diverted && wasResolved)
-                {
-                    bool hadDivertedFlag = _flightManager.DivertedAirport != null;
-                    _flightManager.ClearDivertedAirport();
-                    if (hadDivertedFlag)
-                        _cb.Log?.Invoke(string.Format(_("Lnm_DiversionReverted"), match.Icao), Theme.Warning);
-                    else
-                        _cb.Log?.Invoke($"↻ RUNWAY UPDATED — {match.RunwayName} ({match.Icao})", Theme.Warning);
-                }
+                // Tras un desvío revertido el cambio de pista es la misma noticia, no otra.
+                if (!diverted && wasResolved && !revertedNow)
+                    _cb.Log?.Invoke($"↻ RUNWAY UPDATED — {match.RunwayName} ({match.Icao})", Theme.Warning);
 
                 // Recargar el ILS/approach implica llamadas a NavData: no debe bloquear el
                 // hilo de telemetría, y sus fallos deben quedar registrados en vez de
@@ -497,6 +668,62 @@ namespace vmsOpenAcars.ViewModels
             }
             finally { _reconfirmingApproachAirport = false; }
         }
+
+        /// <summary>
+        /// Reverts a diversion flag once the endpoint reconfirms the planned destination.
+        /// The planned destination is the status quo ante, so this is the safe direction:
+        /// if the diversion were genuine the endpoint would keep returning the alternate.
+        /// Returns true when a flag was actually cleared.
+        /// </summary>
+        private bool RevertDiversionIfAny(string confirmedIcao)
+        {
+            ResetPendingDiversion();
+            if (_flightManager.DivertedAirport == null) return false;
+
+            _flightManager.ClearDivertedAirport();
+            _lastAlternateCandidateIcao = null;
+            _cb.Log?.Invoke(string.Format(_("Lnm_DiversionReverted"), confirmedIcao), Theme.Warning);
+            return true;
+        }
+
+        /// <summary>
+        /// Logs why an endpoint match was discarded, suppressing repeats: the endpoint keeps
+        /// returning the same airfield on every 5 s poll while the aircraft overflies it, so
+        /// without this the log would repeat one identical line all the way down the descent.
+        /// </summary>
+        private void LogRejectedMatchOnce(string key, string message)
+        {
+            if (string.Equals(_lastRejectedMatchKey, key, StringComparison.Ordinal)) return;
+            _lastRejectedMatchKey = key;
+            _cb.Log?.Invoke(message, Theme.SecondaryText);
+        }
+
+        /// <summary>
+        /// Requires <see cref="DiversionConfirmPolls"/> consecutive polls to name the same
+        /// alternate before a diversion is committed. Returns true once that is satisfied.
+        /// </summary>
+        private bool ConfirmPendingDiversion(string icao)
+        {
+            if (string.Equals(_pendingDiversionIcao, icao, StringComparison.OrdinalIgnoreCase))
+                _pendingDiversionIcaoCount++;
+            else
+            {
+                _pendingDiversionIcao      = icao;
+                _pendingDiversionIcaoCount = 1;
+            }
+            return _pendingDiversionIcaoCount >= DiversionConfirmPolls;
+        }
+
+        private void ResetPendingDiversion()
+        {
+            _pendingDiversionIcao      = null;
+            _pendingDiversionIcaoCount = 0;
+        }
+
+        /// <summary>Formats a nullable NM value for the diagnostic log ("?" when absent).</summary>
+        private static string FormatNm(double? value)
+            => value.HasValue ? value.Value.ToString("F1") : "?";
+
 
         // ── Telemetry handler ─────────────────────────────────────────────────────
 
@@ -872,52 +1099,63 @@ namespace vmsOpenAcars.ViewModels
             string airport     = _approachDestination ?? plannedDest;
             if (string.IsNullOrEmpty(airport)) return;
 
+            string resolvedAirport = airport;
+
             var result = _navDataService.FindTouchdownRunway(
                 airport, data.LatitudeDeg, data.LongitudeDeg, data.HeadingDeg);
 
             if (result == null)
             {
-                // The planned destination (or alternate already resolved during
-                // Approach) doesn't match the touchdown position/heading. Cross-
-                // reference against the departure airport — its NavData is always
-                // pre-loaded at flight start — before giving up. A genuine landing
-                // back at origin (aborted flight, short diversion) will match its
-                // runway footprint even though it never matched the destination.
-                string origin = _flightManager.ActivePlan?.Origin;
-                if (!string.IsNullOrEmpty(origin) &&
-                    !origin.Equals(airport, StringComparison.OrdinalIgnoreCase))
+                // The airport the approach phase resolved (the planned destination, or an
+                // alternate it committed to) doesn't match the touchdown position/heading.
+                // The touchdown footprint is physical evidence, so try every other airport
+                // that could plausibly be the real one before giving up.
+                foreach (string candidate in TouchdownFallbacks(plannedDest, resolvedAirport))
                 {
                     result = _navDataService.FindTouchdownRunway(
-                        origin, data.LatitudeDeg, data.LongitudeDeg, data.HeadingDeg);
-                    if (result != null)
-                        airport = origin;
+                        candidate, data.LatitudeDeg, data.LongitudeDeg, data.HeadingDeg);
+                    if (result == null) continue;
+
+                    airport = candidate;
+                    break;
                 }
 
                 if (result == null)
                 {
                     _cb.Log?.Invoke(
-                        string.Format(_("Lnm_RunwayNotFound"), airport, (int)data.HeadingDeg),
+                        string.Format(_("Lnm_RunwayNotFound"), resolvedAirport, (int)data.HeadingDeg),
                         Theme.Warning);
                     CheckFlownDistance(plannedDest);
                     return;
                 }
 
-                // Confirmed touchdown airport differs from the planned destination —
-                // redirect the effective destination so QNH checks, the arrival
-                // parking lookup and the filed PIREP all use the real airport instead
-                // of the (never reached) planned one.
+                // Redirect the effective destination so QNH checks, the arrival parking
+                // lookup and the filed PIREP all use the airport we just found on the
+                // ground instead of the one the approach phase had resolved.
                 _approachDestination = airport;
                 _flightManager.SetEffectiveDestination(airport);
-                _flightManager.SetDivertedAirport(airport);
+                _lastAlternateCandidateIcao = null;
 
-                double? divertedElevFt = _navDataService.GetAirportElevationFt(airport);
-                if (divertedElevFt.HasValue)
-                    _flightManager.SetArrivalAirportElevation(divertedElevFt.Value);
+                if (!airport.Equals(plannedDest, StringComparison.OrdinalIgnoreCase))
+                {
+                    _flightManager.SetDivertedAirport(airport);
 
-                _cb.Log?.Invoke(
-                    string.Format(_("Lnm_ArrivalAirportMismatch"), plannedDest, airport),
-                    Theme.Danger);
-                _cb.OsdMessage?.Invoke($"LANDED AT {airport} — NOT {plannedDest}", OsdSeverity.Critical);
+                    double? divertedElevFt = _navDataService.GetAirportElevationFt(airport);
+                    if (divertedElevFt.HasValue)
+                        _flightManager.SetArrivalAirportElevation(divertedElevFt.Value);
+
+                    _cb.Log?.Invoke(
+                        string.Format(_("Lnm_ArrivalAirportMismatch"), plannedDest, airport),
+                        Theme.Danger);
+                    _cb.OsdMessage?.Invoke($"LANDED AT {airport} — NOT {plannedDest}", OsdSeverity.Critical);
+                }
+                else
+                {
+                    // Landed at the planned destination after all: drop any diversion flag
+                    // still pointing at an alternate (and its elevation override) so the
+                    // PIREP and the reference AGL come from the planned airport.
+                    _flightManager.ClearDivertedAirport();
+                }
             }
 
             _flightManager.SetRunwayTouchdownData(
@@ -931,6 +1169,40 @@ namespace vmsOpenAcars.ViewModels
                 Theme.Success);
 
             CheckFlownDistance(plannedDest);
+        }
+
+        /// <summary>
+        /// Airports to test against the touchdown footprint when the airport the approach
+        /// phase resolved doesn't match, in order:
+        /// <list type="number">
+        /// <item>the departure airport — its NavData is always pre-loaded at flight start,
+        /// and an aborted flight or short diversion lands back there;</item>
+        /// <item>the last alternate the approach matcher proposed, which covers a genuine
+        /// diversion whose approach was never a straight-in final (circling approach, short
+        /// final) and therefore never passed the established-on-final gate;</item>
+        /// <item>the planned destination, which the approach phase may have replaced with a
+        /// diversion that turned out to be wrong.</item>
+        /// </list>
+        /// Duplicates (including the already-tried resolved airport) are skipped.
+        /// </summary>
+        private IEnumerable<string> TouchdownFallbacks(string plannedDest, string resolved)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrEmpty(resolved)) seen.Add(resolved);
+
+            string[] order =
+            {
+                _flightManager.ActivePlan?.Origin,
+                _lastAlternateCandidateIcao,
+                plannedDest,
+            };
+
+            foreach (string icao in order)
+            {
+                if (string.IsNullOrEmpty(icao)) continue;
+                if (!seen.Add(icao)) continue;
+                yield return icao;
+            }
         }
 
         // Secondary heuristic: even when the runway matched the planned destination,

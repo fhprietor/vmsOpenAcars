@@ -10,9 +10,10 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 | `PRIMEROS_PASOS.md` | **Pilotos nuevos** | Alta en phpVMS, API key, descarga e instalación |
 | `architecture.md` | **Desarrolladores** | Arquitectura, módulos, esquemas de BD, notas de build |
 | `CHANGELOG.md` | Todos | Historial de versiones, con causa raíz de cada corrección |
+| `CHANGELOG-0.9.2-0.9.9.md` | Todos | Resumen corto de lo cambiado entre v0.9.2 y v0.9.9 (el detalle está en `CHANGELOG.md`) |
 | `feature_map_sidebar.md` | Desarrolladores | Notas de la feature del sidebar de procedimientos |
-| `MEMORY.md` | Mantenedor | Índice del estado del proyecto |
-| `project_vmsOpenAcars.md` | Mantenedor | Estado de alto nivel y áreas pendientes |
+| `MEMORY.md` | Mantenedor | Índice de mantenimiento — **no es fuente de verdad**, se queda atrás |
+| `project_vmsOpenAcars.md` | Mantenedor | Estado de alto nivel (⚠️ escrito a v0.9.2) |
 
 La guía técnica para agentes y mantenedores está en `CLAUDE.md`, en la **raíz** del repo.
 

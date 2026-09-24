@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.9.3  
-> Última actualización: 2026-09-21
+> Versión del documento: 0.9.9  
+> Última actualización: 2026-09-24
 
 ---
 
@@ -679,12 +679,39 @@ a 5 s, activo mientras AGL > 1000 ft:
               GET /nearest/approach-airport/ — desambigua pistas paralelas por score
               (dominado por cross_track_nm — validado NavData para SKBO 14L/14R, ~355 m)
          → si null (404 o sin match) → no hace nada, reintenta en 5 s
-         → plausible = !CrossTrackNm.HasValue || CrossTrackNm <= 3.0 NM  [v0.9.1] — filtra
-              matches geométricamente imposibles (un giro de STAR puede alinear el heading del
-              avión con la pista de un aeródromo cercano por pura coincidencia, aunque el avión
-              esté a >10 NM del eje extendido de esa pista; caso real SKGY: heading_diff 3.1°
-              pero cross_track_nm 11.36 — el endpoint ya envía este campo, antes se descartaba)
-         → si diverted (icao ≠ plan.Destination) y plausible y no marcado aún:
+         → si icao == plan.Destination → ClearDivertedAirport() y sigue la rama de runway de abajo
+         → si diverted (icao ≠ plan.Destination): un pre-filtro contra el propio plan [v0.9.9]
+              y seis filtros independientes. Se rechaza en cuanto uno falla, con log único por
+              aeródromo+motivo (LogRejectedMatchOnce → Lnm_DiversionRejected*).
+              Pre-filtro — RouteCorridor.IsOnArrival(plan.Waypoints, lat, lon) [v0.9.9]: si el
+                   avión está dentro de los últimos 40 NM de la traza del navlog de SimBrief
+                   (corredor de 5 NM a cada lado), está donde su propio plan dice, y que el
+                   matcher nombre otro aeródromo solo puede ser la llegada pasando cerca de él →
+                   RevertDiversionIfAny() + return. Sin navlog (plan de phpVMS o sin OFP) no
+                   opina. Medido con el OFP real del SKRG→SKBQ: el falso SKTL estaba a 25–33 NM
+                   de esa traza, así que la regla no lo toca; actúa en el caso opuesto.
+              1. lateral — !CrossTrackNm.HasValue || CrossTrackNm <= 3.0 NM  [v0.9.1]: un giro de
+                   STAR puede alinear casualmente el heading con la pista de un aeródromo
+                   cercano estando a >10 NM del eje (SKGY: heading_diff 3.1° pero
+                   cross_track_nm 11.36 — el endpoint ya envía el campo, antes se descartaba)
+              2. angular — IsWithinFinalCone: |cross| ≤ max(0.25 NM, dist_umbral·tan 4°). El
+                   corte lateral fijo no separa los casos reales —el falso SKTL pasó por
+                   0.007 NM— pero como ángulo están a un factor de cuatro (9.0° contra 2.1°)
+              3. vertical — IsPlausibleDiversionDescent: AGL medido contra la elevación del
+                   campo EMPAREJADO, dividido entre las NM que faltan, ≤ 700 ft/NM. Caza la
+                   clase SKTL desde el primer sondeo (906–2 224 ft/NM y empeorando al acercarse);
+                   los falsos de Boston tenían perfil normal (295–622) y pasan
+              4. distancia — IsPlausibleDiversionDistance: el alterno tiene que estar más cerca
+                   que el destino planeado. Detiene el 28M de Boston (15.1 NM) con Logan a
+                   6.5 NM; KOWD (6.58 NM) estaba MÁS cerca que Logan (11.35) y solo lo para el
+                   filtro 2 — cada regla cubre un caso distinto
+              5. establecido en final — GetRunwayThreshold/SelectApproachThreshold: rumbo ±15°
+                   (magnético contra magnético) + ≤2 NM del eje VERDADERO + along ≤ 0
+              6. persistencia — DiversionConfirmPolls = 2 sondeos consecutivos nombrando el
+                   mismo alterno: una sola muestra no dispara el OSD ni reorienta el destino
+              (el último alterno que pasó el filtro 1 se recuerda en _lastAlternateCandidateIcao
+              aunque no se actúe sobre él — alimenta TouchdownFallbacks)
+         → al pasar todo, si aún no estaba marcado:
               _approachDestination = icao; SetEffectiveDestination(icao); SetDivertedAirport(icao)
               GetAirportElevationFt(icao) → si éxito: SetArrivalAirportElevation(elevFt)  [v0.9.0]
                    corrige ReferenceAirportElevation/CurrentAGL y BuildPhaseInput().DestinationElevation
@@ -700,8 +727,7 @@ a 5 s, activo mientras AGL > 1000 ft:
                    que cambien ni el ICAO ni la pista localmente resueltos
               return
          → si runwayChanged (icao o runway.name distintos al ya resuelto):
-              GetRunwayThreshold(icao, lat, lon, hdg)  ← geometría más estricta (heading-delta
-                   ≤15° AND |cross| ≤2 NM AND along<0), puede fallar si aún está lejos → reintenta
+              (el threshold ya viene resuelto del filtro 5 de arriba — newThreshold)
               si resuelto → _approachThreshold = nuevo; _approachDestination = icao
                           → ApproachBuffer.Clear() (puntos previos, umbral equivocado)
                           → Task.Run(LoadApproachData(icao, runway.name))
@@ -716,9 +742,12 @@ a 5 s, activo mientras AGL > 1000 ft:
          _approachBuffer.Add(ApproachTrackPoint)
 OnTouchdownDetectedEvent → LookupRunwayData(data)  [red de seguridad, v0.8.8]
     → FindTouchdownRunway(_approachDestination ?? plan.Destination, lat, lon, hdg)
-    → si null → FindTouchdownRunway(plan.Origin, lat, lon, hdg)  ← por si la capa de
-         Descent/Approach de arriba no llegó a resolver nada (aproximación muy corta,
-         servicio caído)
+    → si null → prueba en orden TouchdownFallbacks [v0.9.9]: plan.Origin → último alterno
+         propuesto por el matcher (_lastAlternateCandidateIcao) → destino planeado, sin
+         duplicados. Cubre tres huecos: que la capa de Descent/Approach no resolviera nada
+         (aproximación muy corta, servicio caído), un desvío real sin final recta (circuito o
+         final corta, que nunca pasa el filtro 5) y un _approachDestination equivocado, que
+         antes dejaba el destino planeado sin probar nunca
          si encontrado →
              _approachDestination = airport; SetEffectiveDestination(airport); SetDivertedAirport(airport)
              GetAirportElevationFt(airport) → si éxito: SetArrivalAirportElevation(elevFt)  [v0.9.0]
@@ -1675,17 +1704,19 @@ El redirect manual en `App.config` es:
 
 Cubre cualquier versión anterior de SQLite que pueda estar registrada en el GAC del usuario (p. ej. 1.0.115.5 instalada por Visual Studio o SQL Server Tools) y la redirige a la 1.0.119.0 que se distribuye con vmsOpenAcars.
 
-### Tests (v0.9.4)
+### Tests (v0.9.9)
 
 `vmsOpenAcars.Tests/` — proyecto MSTest hermano de `vmsOpenAcars`, incluido en
-`vmsOpenAcars.sln`. **193 tests** en cuatro suites:
+`vmsOpenAcars.sln`. **229 tests** en seis suites:
 
 | Suite | Cubre |
 |---|---|
 | `ScoringServiceTests` | Los 17 criterios con sus umbrales en **ambos lados**, el bonus de single-engine, el suelo de 0 y los casos de "sin datos de aterrizaje" |
 | `PirepStateTests` | La clasificación de estado de PIREP (`Pirep.IsActiveState`), que decide el fallback de `FilePirep()` cuando phpVMS archiva el PIREP pero devuelve un código no-2xx |
-| `GeoMathTests` | Geometría flat-earth compartida y el respaldo regional de TA/TL (v0.9.8) |
+| `GeoMathTests` | Geometría flat-earth compartida (incluida `DistanceToSegmentNm` y su recorte en los extremos), el respaldo regional de TA/TL y la lectura de `NavAirportInfo` (v0.9.8, v0.9.9) |
 | `AtcPanelTests` | Orden de presentación de las posiciones ATC (v0.9.8) |
+| `ApproachThresholdTests` | "Está en final" (`SelectApproachThreshold`), el cono angular (`IsWithinFinalCone`), el gradiente de descenso (`IsPlausibleDiversionDescent`) y la regla de distancia (`IsPlausibleDiversionDistance`), con las coordenadas y altitudes exactas de dos vuelos reales: el falso SKTL, el SKCG legítimo y los tres falsos de la aproximación a KBOS (v0.9.9) |
+| `RouteCorridorTests` | El corredor de la llegada planificada sobre el navlog real de SimBrief de un SKRG→SKBQ, incluido que la llegada son los últimos tramos **por distancia** y no los marcados `is_sid_star` (v0.9.9) |
 
 `InternalsVisibleTo("vmsOpenAcars.Tests")` en `Properties/AssemblyInfo.cs` da acceso a los
 tipos `internal` (los helpers) sin tener que hacerlos públicos solo para probarlos.

@@ -10,6 +10,7 @@ namespace vmsOpenAcars.Services
     public class NavDataService : INavDataService
     {
         private const double MetersPerDegLat  = 111320.0;
+        private const double MetersPerNm      = 1852.0;
         private const double FtPerMeter       = 3.28084;
         private const double RunwayBufferM    = 30.0;
         private const double RunwayWidthScale = 1.0;
@@ -33,48 +34,109 @@ namespace vmsOpenAcars.Services
         public RunwayTouchdownResult GetRunwayThreshold(
             string airport, double lat, double lon, double heading)
         {
-            try
-            {
-                var runways = NavDataClient.GetRunways(airport);
-                if (runways.Count == 0) return null;
-
-                const double HEADING_TOL_DEG = 15.0;
-                const double CROSS_TOL_M     = 3704.0;  // ~2 NM
-
-                NavRunway best      = null;
-                double    bestCross = double.MaxValue;
-                double    bestDelta = double.MaxValue;
-
-                foreach (var rwy in runways)
-                {
-                    double d = HeadingDelta(rwy.Heading, heading);
-                    if (d > HEADING_TOL_DEG) continue;
-
-                    Project(lat, lon, rwy.ThresholdLat, rwy.ThresholdLon, rwy.Heading,
-                            out double along, out double cross);
-                    double absCross = Math.Abs(cross);
-
-                    if (absCross > CROSS_TOL_M) continue;
-                    if (along > 0) continue;  // already past threshold
-
-                    if (best == null
-                        || absCross < bestCross - 50.0
-                        || (absCross < bestCross + 50.0 && d < bestDelta))
-                    {
-                        best = rwy; bestCross = absCross; bestDelta = d;
-                    }
-                }
-
-                if (best == null) return null;
-                return new RunwayTouchdownResult
-                {
-                    RunwayName       = best.Name,
-                    ThresholdLat     = best.ThresholdLat,
-                    ThresholdLon     = best.ThresholdLon,
-                    ThresholdHeading = best.Heading,
-                };
-            }
+            try { return SelectApproachThreshold(NavDataClient.GetRunways(airport), lat, lon, heading); }
             catch { return null; }
+        }
+
+        /// <summary>
+        /// Pure "is this aircraft on a final for one of these runways?" test — the geometric
+        /// definition of being established on an approach, and the discriminator between a
+        /// genuine diversion and merely flying past an aligned airfield:
+        /// <list type="bullet">
+        /// <item>runway heading within 15° of the aircraft's heading (magnetic vs magnetic —
+        /// both values come from magnetic references, so the local variation cancels),</item>
+        /// <item>at most ~2 NM off the extended centerline,</item>
+        /// <item><b>before</b> the threshold — <c>along &lt;= 0</c>. An aircraft north of
+        /// SKTL's rwy 35 threshold, for instance, is past the runway it appears aligned
+        /// with, so it can never be landing on it.</item>
+        /// </list>
+        /// Returns null when no runway qualifies.
+        /// </summary>
+        internal static RunwayTouchdownResult SelectApproachThreshold(
+            IList<NavRunway> runways, double lat, double lon, double heading)
+        {
+            if (runways == null || runways.Count == 0) return null;
+
+            const double HEADING_TOL_DEG = 15.0;
+            const double CROSS_TOL_M     = 3704.0;  // ~2 NM
+
+            NavRunway best      = null;
+            double    bestCross = double.MaxValue;
+            double    bestDelta = double.MaxValue;
+
+            foreach (var rwy in runways)
+            {
+                double d = HeadingDelta(rwy.Heading, heading);
+                if (d > HEADING_TOL_DEG) continue;
+
+                // The projection axis must be the TRUE geographic bearing, not rwy.Heading.
+                // Using the magnetic heading rotates the centerline by the local variation —
+                // 8.3°E at SKTL/SKCG, i.e. 2.8 NM of apparent cross-track error at 19 NM.
+                // That error is exactly what made the real diversion to SKCG (truly 0.70 NM
+                // off) compute as 3.51 NM and get discarded, while the SKTL fly-by (2.99 NM)
+                // computed as 5.70 NM and got discarded for the wrong reason.
+                // ProjectOnRunway() already projects on the true bearing.
+                Project(lat, lon, rwy.ThresholdLat, rwy.ThresholdLon, TrueRunwayBearing(rwy),
+                        out double along, out double cross);
+                double absCross = Math.Abs(cross);
+
+                if (absCross > CROSS_TOL_M) continue;
+                if (along > 0) continue;  // already past threshold
+
+                if (best == null
+                    || absCross < bestCross - 50.0
+                    || (absCross < bestCross + 50.0 && d < bestDelta))
+                {
+                    best = rwy; bestCross = absCross; bestDelta = d;
+                }
+            }
+
+            if (best == null) return null;
+            return new RunwayTouchdownResult
+            {
+                RunwayName       = best.Name,
+                ThresholdLat     = best.ThresholdLat,
+                ThresholdLon     = best.ThresholdLon,
+                // True bearing: ComputeApproachMetrics() projects on this value, so handing it
+                // the magnetic heading reintroduces the same variation error in the landing-log
+                // lateral/distance series (up to ~600 ft at variation ≥ 13°).
+                ThresholdHeading = TrueRunwayBearing(best),
+            };
+        }
+
+        /// <summary>Maximum angle off the extended centerline, at the threshold, for a match
+        /// to count as an established final rather than a coincidental alignment.</summary>
+        internal const double MaxFinalConeAngleDeg = 4.0;
+
+        /// <summary>Minimum lateral allowance in NM, so the cone does not collapse to zero
+        /// within a mile of the threshold (where the angle degenerates).</summary>
+        internal const double FinalConeFloorNm = 0.25;
+
+        /// <summary>
+        /// Angular plausibility of an approach match: how far off the extended centerline the
+        /// aircraft is, measured as an angle at the threshold rather than as a fixed lateral
+        /// distance. A fixed cut-off cannot separate the two real cases, because both matched
+        /// ~19 NM from the threshold:
+        /// <list type="bullet">
+        /// <item>genuine diversion to SKCG — 0.70 NM off = <b>2.1°</b>,</item>
+        /// <item>false SKTL match (SKTL simply shares SKCG's coastal alignment, heading within
+        /// 0.9°) — 2.99 NM off = <b>9.0°</b>, which squeezed past the old 3 NM cut-off by
+        /// 0.007 NM in a single 5 s poll (5 s later it had drifted to 3.06 NM and would have
+        /// been rejected).</item>
+        /// </list>
+        /// As a cone the two are a factor of four apart. Missing values are treated as
+        /// acceptable here: this is an <i>extra</i> filter, and the fixed-tolerance and
+        /// before-threshold tests still apply.
+        /// </summary>
+        internal static bool IsWithinFinalCone(double? crossTrackNm, double? distToThresholdNm)
+        {
+            if (!crossTrackNm.HasValue || !distToThresholdNm.HasValue) return true;
+
+            double allowedNm = Math.Max(
+                FinalConeFloorNm,
+                distToThresholdNm.Value * Math.Tan(MaxFinalConeAngleDeg * Math.PI / 180.0));
+
+            return Math.Abs(crossTrackNm.Value) <= allowedNm;
         }
 
         public double? GetAirportElevationFt(string airport)
@@ -85,6 +147,70 @@ namespace vmsOpenAcars.Services
                 return info?.ElevationFt;
             }
             catch { return null; }
+        }
+
+        /// <summary>
+        /// Distance in NM from a position to an airport, or null when NavData has no record
+        /// of that airport. Used to compare an alternate against the planned destination.
+        /// </summary>
+        public double? GetAirportDistanceNm(string airport, double lat, double lon)
+        {
+            try
+            {
+                var info = NavDataClient.GetAirportInfo(airport);
+                if (info == null) return null;
+                return DistM(lat, lon, info.Lat, info.Lon) / MetersPerNm;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// A diversion has to be to somewhere <b>nearer</b> than where the flight was already
+        /// going. Without this, an arrival can be declared a diversion to a small airfield
+        /// that merely happens to be better aligned with the current heading while the real
+        /// destination sits right there — the KBOS case, where the approach matcher named
+        /// 28M (15.1 NM away) as the diversion while the aircraft was 6.5 NM from Logan.
+        /// Missing data doesn't block: this is an extra filter.
+        /// </summary>
+        internal static bool IsPlausibleDiversionDistance(double alternateDistanceNm, double? plannedDistanceNm)
+            => !plannedDistanceNm.HasValue || alternateDistanceNm <= plannedDistanceNm.Value;
+
+        /// <summary>Steepest descent gradient, in ft per NM, that still counts as being on an
+        /// approach to a field: 700 ft/NM is 6.6°, just above the steepest published
+        /// approaches in the world (~5.5–6.5°). A standard glidepath is 318 ft/NM (3°).</summary>
+        internal const double MaxDiversionGradientFtPerNm = 700.0;
+
+        /// <summary>Below this distance the gradient degenerates (the aircraft is over the
+        /// runway anyway) and the before-threshold / centreline tests take over.</summary>
+        internal const double MinGradientDistanceNm = 0.5;
+
+        /// <summary>
+        /// Vertical plausibility: how much height the aircraft would have to lose to reach the
+        /// matched airport's elevation, expressed per mile still to run. Landing somewhere
+        /// means descending toward it on a usable gradient — you cannot be 17 000 ft above a
+        /// field 19 NM away and be landing on it. Measured against the <b>matched airport's own
+        /// elevation</b>, not the planned destination's, so a high plateau destination cannot
+        /// mask a sea-level alternate (or the other way round).
+        ///
+        /// Real measured values: the false SKTL match ran 906–2 224 ft/NM (8.5°–20.1°, getting
+        /// <i>worse</i> as the aircraft approached, because it was descending past the field),
+        /// while the genuine diversion to SKCG held 260 ft/NM (2.4°) and the real Logan final
+        /// 310–347 ft/NM (2.9°–3.3°) — textbook glidepaths.
+        ///
+        /// This catches the vertical class of false positive on its own; it does <i>not</i> catch
+        /// the KBOS ones, whose descent profiles were perfectly normal (295–622 ft/NM) and are
+        /// stopped by the angular cone and the "nearer than planned" rules instead. Missing data
+        /// doesn't block: this is an extra filter.
+        /// </summary>
+        internal static bool IsPlausibleDiversionDescent(
+            double? altitudeMslFt, double? airportElevationFt, double? distToThresholdNm)
+        {
+            if (!altitudeMslFt.HasValue || !airportElevationFt.HasValue || !distToThresholdNm.HasValue)
+                return true;
+            if (distToThresholdNm.Value < MinGradientDistanceNm) return true;
+
+            double heightAboveFieldFt = altitudeMslFt.Value - airportElevationFt.Value;
+            return heightAboveFieldFt / distToThresholdNm.Value <= MaxDiversionGradientFtPerNm;
         }
 
         public async Task<NearestApproachAirportResult> FindApproachAirport(
@@ -108,6 +234,7 @@ namespace vmsOpenAcars.Services
                 HeadingDiffDeg    = resp.HeadingDiffDeg,
                 Score             = resp.Score,
                 CrossTrackNm      = resp.CrossTrackNm,
+                DistToThresholdNm = resp.DistToThresholdNm,
             };
         }
 

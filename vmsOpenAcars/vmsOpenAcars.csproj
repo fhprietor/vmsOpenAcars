@@ -170,6 +170,7 @@
     <Compile Include="Helpers\AppConfig.cs" />
     <Compile Include="Helpers\AtcStationOrder.cs" />
     <Compile Include="Helpers\GeoMath.cs" />
+    <Compile Include="Helpers\RouteCorridor.cs" />
     <Compile Include="Helpers\FireAndForget.cs" />
     <Compile Include="Helpers\SystemInfoHelper.cs" />
     <Compile Include="Helpers\TransitionDefaults.cs" />

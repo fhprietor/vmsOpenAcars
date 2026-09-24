@@ -81,5 +81,9 @@ namespace vmsOpenAcars.Db
         public double HeadingDiffDeg    { get; set; }
         public double Score             { get; set; }
         public double? CrossTrackNm     { get; set; }
+        /// <summary>Straight-line distance from the aircraft to the matched runway's
+        /// threshold, in NM (unsigned — it does not say whether the aircraft is before or
+        /// after the threshold; that requires projecting onto the runway axis).</summary>
+        public double? DistToThresholdNm { get; set; }
     }
 }

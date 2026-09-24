@@ -44,8 +44,10 @@
     <Reference Include="System.Xml.Linq" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ApproachThresholdTests.cs" />
     <Compile Include="AtcPanelTests.cs" />
     <Compile Include="GeoMathTests.cs" />
+    <Compile Include="RouteCorridorTests.cs" />
     <Compile Include="PirepStateTests.cs" />
     <Compile Include="ScoringServiceTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

@@ -286,5 +286,46 @@ namespace vmsOpenAcars.Tests
             Assert.AreEqual(0, TransitionDefaults.GetTransitionLevelFt(Info("ZZ")), 1e-9);
             Assert.AreEqual(0, TransitionDefaults.GetTransitionLevelFt(null), 1e-9);
         }
+
+        // ── DistanceToSegmentNm: la recta recortada, no la infinita ─────────────
+
+        /// <summary>
+        /// La diferencia con <c>Project</c> es el recorte a [0,1]: un punto más allá del final
+        /// del tramo se mide contra el extremo, no contra la recta prolongada. Es lo que hace
+        /// falta para medir desviación de traza (un avión pasado el destino no está "sobre la
+        /// ruta"), y es justo lo que no se puede obtener proyectando sobre la recta infinita.
+        /// </summary>
+        [TestMethod]
+        public void DistanceToSegmentNm_ClampsToTheEndpoints()
+        {
+            // Tramo de 1° de latitud sobre el meridiano 0 (≈60 NM).
+            const double lat1 = 0.0, lon1 = 0.0;
+            const double lat2 = 1.0, lon2 = 0.0;
+
+            // Sobre el tramo (punto medio y extremos).
+            Assert.AreEqual(0.0, GeoMath.DistanceToSegmentNm(0.5, 0.0, lat1, lon1, lat2, lon2), 0.01);
+            Assert.AreEqual(0.0, GeoMath.DistanceToSegmentNm(0.0, 0.0, lat1, lon1, lat2, lon2), 0.01);
+            Assert.AreEqual(0.0, GeoMath.DistanceToSegmentNm(1.0, 0.0, lat1, lon1, lat2, lon2), 0.01);
+
+            // Perpendicular por el punto medio: 0.1° de longitud en el ecuador ≈ 6 NM.
+            Assert.AreEqual(6.0, GeoMath.DistanceToSegmentNm(0.5, 0.1, lat1, lon1, lat2, lon2), 0.1);
+
+            // Más allá del extremo final: la distancia es la del extremo, no la de la recta
+            // (que seguiría siendo 0 porque el punto está sobre el meridiano).
+            double beyondNm = GeoMath.DistanceToSegmentNm(1.5, 0.0, lat1, lon1, lat2, lon2);
+            Assert.AreEqual(0.5 * GeoMath.MetersPerDegLat / GeoMath.MetersPerNm, beyondNm, 0.1);
+            Assert.IsTrue(beyondNm > 0.0, "un punto pasado el final NO está sobre la traza");
+
+            // Y antes del extremo inicial, igual.
+            Assert.AreEqual(beyondNm, GeoMath.DistanceToSegmentNm(-0.5, 0.0, lat1, lon1, lat2, lon2), 0.1);
+        }
+
+        [TestMethod]
+        public void DistanceToSegmentNm_DegenerateSegment_IsDistanceToThePoint()
+        {
+            // Un tramo de longitud cero (dos fixes en el mismo sitio) no debe dividir por cero.
+            double d = GeoMath.DistanceToSegmentNm(0.0, 0.1, 0.0, 0.0, 0.0, 0.0);
+            Assert.AreEqual(6.0, d, 0.1);
+        }
     }
 }

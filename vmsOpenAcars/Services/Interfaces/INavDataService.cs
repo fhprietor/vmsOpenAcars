@@ -12,6 +12,7 @@ namespace vmsOpenAcars.Services.Interfaces
         RunwayTouchdownResult FindTakeoffRunway(string airport, double lat, double lon, double heading);
         RunwayTouchdownResult GetRunwayThreshold(string airport, double lat, double lon, double heading);
         double?               GetAirportElevationFt(string icao);
+        double?               GetAirportDistanceNm(string icao, double lat, double lon);
         Task<NearestApproachAirportResult> FindApproachAirport(double lat, double lon, double heading, double radiusNm = 20, double headingTolDeg = 15);
         RunwayEntry           FindRunwayEntry(string airport, double lat, double lon, double heading);
         string                FindNearestTaxiway(string airport, double lat, double lon, double heading);

@@ -106,5 +106,30 @@ namespace vmsOpenAcars.Helpers
             double d = Math.Abs(a - b) % 360.0;
             return d > 180.0 ? 360.0 - d : d;
         }
+
+        /// <summary>
+        /// Distancia perpendicular, en NM, de un punto al <b>segmento</b> que va de
+        /// (<paramref name="lat1"/>,<paramref name="lon1"/>) a (<paramref name="lat2"/>,<paramref name="lon2"/>).
+        /// A diferencia de <see cref="Project"/>, que mide contra la recta infinita, aquí el
+        /// parámetro se recorta a [0,1]: más allá de los extremos la distancia crece, que es lo
+        /// que hace falta para medir la separación de un avión respecto a la traza de una ruta
+        /// (un punto pasado el destino no está "sobre la ruta").
+        /// </summary>
+        internal static double DistanceToSegmentNm(
+            double lat, double lon, double lat1, double lon1, double lat2, double lon2)
+        {
+            ToMeters(lat1, lon1, lat2, lon2, out double dy, out double dx);
+            ToMeters(lat1, lon1, lat, lon, out double py, out double px);
+
+            double lenSq = dx * dx + dy * dy;
+            double t = 0.0;
+            if (lenSq > 1e-9) t = (px * dx + py * dy) / lenSq;
+            if (t < 0.0) t = 0.0;
+            else if (t > 1.0) t = 1.0;
+
+            double ex = px - t * dx;
+            double ey = py - t * dy;
+            return Math.Sqrt(ex * ex + ey * ey) / MetersPerNm;
+        }
     }
 }

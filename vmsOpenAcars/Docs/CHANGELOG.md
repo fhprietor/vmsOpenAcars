@@ -2,6 +2,187 @@
 
 ---
 
+## [0.9.9] — 2026-09-24
+
+### Fixed
+
+- **Falso desvío por alineación casual con un aeródromo de la derrota** — reportado en vuelo:
+  PIREP `E7DK47e88XdabzoL` (SKRG→SKBQ del 20/09/2026, con un desvío simulado a SKCG). A las
+  15:12:47, descendiendo a ~17 000 ft en lat 9.22349, lon -75.43016, rumbo 348, el cliente
+  anunció `DIVERTING TO SKTL` — un aeródromo en el que el piloto no pensaba aterrizar. Diez
+  minutos después detectó SKCG, que sí era correcto.
+
+  Causa: `NavDataService.FindApproachAirport` (`GET /nearest/approach-airport/`) empareja por
+  **rumbo + cross-track**, y mide ese cross-track contra una centerline **infinita**. SKTL
+  comparte la alineación costera de la llegada (su rwy 35 va a 348.9° magnética y el avión
+  volaba a 348; `heading_diff_deg` **0.9°**), así que el endpoint siguió devolviendo SKTL
+  durante **siete minutos** de descenso. El filtro de 3 NM introducido en v0.9.1 lo dejó pasar
+  por **0.007 NM** (`cross_track_nm` = 2.993) durante **un solo sondeo** — 5 s después ya era
+  3.06 NM y habría sido rechazado.
+
+  Lo decisivo es que ambos matches, el falso y el real, están a **~19 NM del umbral**
+  (19.13 vs 19.04), así que la distancia no los distingue: lo que los separa es el **ángulo**
+  (9.0° contra 2.1°).
+
+- **Tres falsos desvíos seguidos en la aproximación a KBOS** — mismo vuelo, día siguiente
+  (PIREP del 22-23/09/2026, SKCG→KBOS, A320, **v0.9.2**): durante el descenso y el viraje de
+  encaje a la final de Logan el cliente anunció `DIVERTING TO 28M` (03:44:33), `TO 1B9`
+  (03:45:38) y `TO KOWD` (03:46:09), y revirtió a KBOS a las 03:47:49. Ese último desvío
+  además dejó la captura de aproximación apuntando **a la pista 28 de Norwood mientras el
+  avión estaba en Logan** (`INICIO CAPTURA APROX: PISTA 28 | Dist 3,4 NM` a las 03:47:16).
+
+  Mecanismo distinto al de SKTL: aquí el destino real **estaba dentro del radio de 20 NM**
+  del matcher (a 6.5 NM en el primer evento), pero durante el viraje no tenía ninguna pista a
+  menos de 15° del rumbo en curso, así que el endpoint devolvía el aeródromo pequeño mejor
+  alineado. Los tres `cross_track_nm` —1.244, 2.993 y 1.203 NM— están por debajo del corte de
+  3 NM de v0.9.1: los tres pasaban el filtro viejo, y el de 1B9 por 0.007 NM otra vez.
+
+  `ReconfirmApproachRunway` exige ahora **seis** filtros independientes para marcar un desvío:
+
+  1. **Lateral** — `cross_track_nm ≤ 3 NM`, como en v0.9.1.
+  2. **Angular** — `NavDataService.IsWithinFinalCone`: `|cross| ≤ max(0.25 NM,
+     dist_umbral · tan 4°)`. Un corte lateral fijo no puede separar los casos reales: el falso
+     de 28M estaba a 1.244 NM del eje (pasaba los 3 NM) pero a 14.99 NM del umbral, o sea
+     4.7°; el desvío real a SKCG estaba a 0.70 NM y 2.1°. El suelo de 0.25 NM evita que el
+     cono colapse a cero a menos de una milla del umbral, donde el ángulo degenera.
+  3. **Vertical** — `NavDataService.IsPlausibleDiversionDescent`: el AGL sobre el aeródromo
+     emparejado, dividido entre las millas que faltan, no puede pasar de 700 ft/NM (6.6°).
+     Propuesta del piloto al ver el caso SKTL ("es ridículo pensar en aterrizar en un
+     aeropuerto 10 000 pies por debajo, a tan corta distancia"), y los datos reales le dan la
+     razón sin ambigüedad: la serie completa del falso SKTL corrió a **906–2 224 ft/NM**
+     (8.5°–20.1°) y **empeoraba** conforme el avión se acercaba, porque descendía pasando de
+     largo junto a un campo en el que nunca iba a aterrizar; el desvío **real** a SKCG se
+     mantenía en 260 ft/NM (2.4°) y la final de Logan en 310–347 ft/NM (2.9°–3.3°) — sendas de
+     planeo de manual. Se mide contra la elevación del aeródromo **emparejado**, no la del
+     destino planeado, para que un destino en altiplano no enmascare un alterno a nivel del mar.
+     Caza por sí solo la clase SKTL desde el primer sondeo; **no** caza los falsos de Boston,
+     cuyo perfil de descenso era normal (2.8°–5.8°) y a los que paran el cono y la distancia.
+  4. **El alterno tiene que estar más cerca que el destino planeado** —
+     `NavDataService.IsPlausibleDiversionDistance`. No se desvía uno a un aeropuerto que está
+     más lejos que aquel al que ya iba: en el primer evento de Boston el "alterno" (28M)
+     estaba a 15.1 NM mientras el avión tenía Logan a 6.5 NM. Esta regla detiene ese caso con
+     un margen de 2.3×, donde el cono sólo lo detenía por 0.7°.
+  5. **Establecido en final** — `SelectApproachThreshold` (extraído de `GetRunwayThreshold`
+     para poder probarlo) exige además estar **antes del umbral** (`along ≤ 0`).
+  6. **Persistencia** — dos sondeos consecutivos (~10 s) nombrando el mismo alterno, para que
+     una sola muestra no dispare el OSD ni reoriente el destino efectivo.
+
+  Replay de la aproximación real completa (14 posiciones, 03:44–03:50) contra el endpoint en
+  vivo con la puerta nueva: **cero falsos desvíos**, y la pista real (KBOS 04R) resuelta desde
+  9.45 NM — 33 s antes de la reversión que se observó en el log, de modo que la captura de
+  aproximación habría sido la correcta desde el principio.
+
+  Marcar el desvío un poco más tarde (al establecerse en final, no al primer match) no degrada
+  nada: desde v0.8.10 el veredicto de QNH de llegada es provisional y se decide al filear, y los
+  gates de QNH/ILS disparan a TL−1000 ft / 1000 ft AGL, después de esa final.
+
+- **`SelectApproachThreshold` proyectaba sobre el rumbo magnético de la pista, no el
+  verdadero** — la variación magnética local (8.4°E aquí) rota el eje y produce un error lateral
+  de `distancia × sin(variación)`: **2.8 NM a 19 NM de distancia**. En la práctica ese error
+  hacía que el desvío **real** a SKCG (0.70 NM del eje, medido por el endpoint con 0.703)
+  calculara 3.51 NM y superara la tolerancia de 2 NM — es decir, la primera versión de este fix
+  **habría dejado pasar el desvío real mientras rechazaba el falso**, por el motivo equivocado.
+  `ProjectOnRunway` ya proyectaba con `TrueRunwayBearing`; ahora el umbral también. Y
+  `ThresholdHeading` devuelve el bearing verdadero en vez del magnético, porque alimenta
+  `ComputeApproachMetrics`, que proyecta con él (misma clase de error, hasta ~600 ft de
+  desviación lateral en el landing log con variación ≥ 13°).
+
+- **La llegada del propio plan de vuelo como comprobación de "¿estoy donde debería?"** —
+  sugerencia del piloto, y es la más directa de todas: el OFP de SimBrief trae el navlog completo
+  con las coordenadas de cada fix (`SimbriefPlan.Waypoints`), así que la llegada presentada es una
+  polilínea medible. Nuevo `Helpers/RouteCorridor.cs`: si el avión está dentro de su corredor
+  (5 NM a cada lado de los últimos 40 NM de la traza planificada), está exactamente donde su plan
+  dice, y que el matcher nombre otro aeródromo solo puede ser la llegada pasando cerca de él → no
+  se marca desvío.
+
+  Se pudo **validar con datos reales** porque el último OFP del usuario en SimBrief seguía siendo
+  el del vuelo SKRG→SKBQ (ruta `BIVI1B BIVIG UW3 SERVO DCT LOLUD LOLU1A`): los puntos de su
+  llegada planificada dan **0 NM** de desviación, y el avión se mantuvo a **25–33 NM** de esa
+  traza durante todo el descenso del falso SKTL, porque se había ido hacia SKCG. Es decir, esta
+  regla **no** habría tocado ese caso —allí deciden los seis filtros geométricos— y actúa en el
+  escenario opuesto: volando la llegada presentada, que es exactamente donde ocurrieron los tres
+  falsos de KBOS.
+
+  De ese caso, en cambio, **no se pudo verificar el beneficio**: ese vuelo no tiene PIREP en la
+  API (se comprobaron los 20; ninguno con KBOS), así que no hay ni ruta ni OFP que medir. Queda
+  anotado como la única parte del arreglo sin validar contra vuelo real.
+
+  El corredor se define por **distancia** (los últimos 40 NM de la traza) y no por las banderas
+  `IsSidStar`/`Stage` del navlog, porque en este OFP real el fix de transición **LOLUD** llegó con
+  `is_sid_star = 0` pese a pertenecer a la llegada: filtrar por bandera dejaba el corredor
+  reducido a un tramo de 11 NM. Un desvío real empieza precisamente por salirse de la llegada,
+  así que el coste es retrasar la detección lo que se tarde en abandonar 5 NM de corredor. Sin
+  navlog (plan construido desde phpVMS, o sin OFP) la regla no opina y deciden los seis filtros.
+
+- **Fuga en la red de seguridad de touchdown** — `LookupRunwayData` probaba el aeropuerto
+  resuelto por la fase de aproximación y, como fallback, el de origen. Si `_approachDestination`
+  había quedado apuntando a un alterno equivocado, el destino planeado **no se probaba nunca** y
+  el PIREP se habría fileado con la llegada incorrecta. Ahora la huella de pista de touchdown
+  (evidencia física) se contrasta contra una lista ordenada y sin duplicados: aeropuerto
+  resuelto → origen → último alterno propuesto por el matcher → **destino planeado**. Aterrizar
+  en el destino planeado tras un desvío revertido limpia también el flag y su override de
+  elevación.
+
+### Added
+
+- **`NavDataService.SelectApproachThreshold`** (`internal static`, puro) — la definición de
+  "está en final", testeable sin red.
+- **`NavDataService.IsWithinFinalCone`** (`internal static`, puro) con
+  `MaxFinalConeAngleDeg` (4°) y `FinalConeFloorNm` (0.25).
+- **`NavDataService.IsPlausibleDiversionDistance`** (`internal static`, puro) y
+  `INavDataService.GetAirportDistanceNm(icao, lat, lon)` — un desvío tiene que ser a un
+  aeropuerto más cercano que el destino planeado.
+- **`NavDataService.IsPlausibleDiversionDescent`** (`internal static`, puro) con
+  `MaxDiversionGradientFtPerNm` (700 ft/NM ≈ 6.6°) y `MinGradientDistanceNm` (0.5) — el AGL
+  sobre el aeródromo emparejado tiene que ser alcanzable con un gradiente de descenso usable.
+  `ReconfirmApproachRunway` recibe ahora la altitud MSL de la telemetría.
+- **`dist_to_threshold_nm`** se mapea en `NearestApproachAirportResult` y alimenta los filtros
+  angular y vertical, y el diagnóstico (antes se descartaba).
+- **`Helpers/RouteCorridor.cs`** (nuevo, puro) — `ArrivalFixes` / `DistanceFromArrivalNm` /
+  `IsOnArrival`: el corredor de la llegada planificada, con `ArrivalCorridorNm` (5) y
+  `ArrivalWindowNm` (40). Y **`GeoMath.DistanceToSegmentNm`**, que faltaba: el código solo tenía
+  proyección sobre la recta infinita, y medir desviación de traza necesita la recta **recortada**
+  a sus extremos (un punto pasado el destino no está "sobre la ruta").
+- **Claves de log nuevas** (`es.json` + `en.json`): `Lnm_DiversionRejectedCrossTrack`,
+  `Lnm_DiversionRejectedCone`, `Lnm_DiversionRejectedDescent`, `Lnm_DiversionRejectedFarther`,
+  `Lnm_DiversionRejectedOnArrival`, `Lnm_DiversionRejectedNotOnFinal`. Los rechazos se registran
+  **una sola vez** por aeródromo y motivo, para no repetir la misma línea en cada sondeo de 5 s
+  durante todo el descenso.
+- **`vmsOpenAcars.Tests/RouteCorridorTests.cs`** (nuevo) — 7 tests sobre el **navlog real de
+  SimBrief** del vuelo SKRG→SKBQ, con las coordenadas que entregó el OFP: la llegada son los
+  últimos tramos y no los marcados `is_sid_star` (LOLUD llegó sin la bandera), los puntos de la
+  llegada dan 0 NM, el corredor aguanta 3 NM al lado y suelta a 7, un punto en crucero no cuenta
+  como llegada, las seis posiciones reales del falso SKTL están a más de 20 NM del plan, y sin
+  navlog la regla no suprime nada.
+- **`vmsOpenAcars.Tests/ApproachThresholdTests.cs`** — 26 tests. Nueve usan las **coordenadas
+  exactas de los dos vuelos reales**: el falso SKTL (SKRG→SKBQ) y los tres falsos de la
+  aproximación a KBOS (28M, 1B9, KOWD) con sus `cross_track_nm`/`dist_to_threshold_nm`/altitudes
+  reales, más la final correcta de Logan. Además comprueban que el eje devuelto es el
+  **verdadero** (340.58° SKTL rwy 35, 2.31° SKCG rwy 01) y no el magnético, el límite y el suelo
+  del cono, el gradiente con su frontera exacta y su suelo, que el AGL se mide contra la
+  elevación del aeródromo emparejado, la regla de distancia, 1 NM pasado el umbral, 3 NM
+  laterales, rumbo fuera de 15°, la recíproca y el desempate de paralelas.
+- **Suite total: 229 tests** (los data-driven de `ScoringServiceTests` cuentan una vez por fila).
+  Build Debug y Release en verde y suite completa en verde antes de esta entrada.
+
+### Docs
+
+- **`Docs/architecture.md`** — el flujo de re-detección de aeropuerto incluye ya el pre-filtro
+  del corredor y los seis filtros, la red de seguridad de touchdown con sus cuatro candidatos y
+  la sección de tests a v0.9.9 (229). Versión del documento: 0.9.9.
+- **`Docs/BRIEFING.md`** — la nota de desvíos al día con v0.9.9 (senda de descenso, final,
+  distancia y persistencia), pie a v0.9.9.
+- **`CLAUDE.md`** — nueva sección **"Reglas de trabajo"**: el repo es la única memoria que
+  sobrevive a un cambio de modelo o de sesión, así que se escriben explícitamente la
+  verificación contra servicios reales, los tests con datos de vuelo reales, la obligación de
+  declarar lo no verificado, el patrón "un helper puro por regla" y la simetría de idiomas. Y
+  **"Decisiones del mantenedor pendientes"** en Próximas áreas (rotar claves, `vmsOpenAcars.txt`,
+  el PIREP ausente del SKCG→KBOS).
+- **`Docs/MEMORY.md`** deja de presentarse como fuente de verdad (la verdad es `CLAUDE.md` +
+  `Docs/CHANGELOG.md`); **`Docs/README.md`** indexa el resumen 0.9.2→0.9.9, que estaba huérfano.
+
+---
+
 ## [0.9.8] — 2026-09-21
 
 ### Removed
