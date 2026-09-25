@@ -2,6 +2,55 @@
 
 ---
 
+## [0.9.11] — 2026-09-24
+
+### Added
+
+- **Campo editable para la URL de NavData en Settings** — pedido del mantenedor al ver que
+  `navdata_api_url` existía en la configuración y se usaba en **todas** las llamadas
+  (`NavDataClient` la lee en cada petición, no la cachea), pero no había ninguna forma de
+  editarla desde la aplicación: había que abrir `vmsOpenAcars.exe.config` a mano. La sección
+  **NavData API** de Settings tiene ahora la fila *NavData URL* → *URL NavData* encima de la API
+  Key, con la tabla izquierda pasando de 12 a 13 filas.
+
+  Es además una promesa incumplida que queda saldada: el `BRIEFING` (documento del piloto) ya
+  listaba *NavData API URL* como campo de esa pantalla desde antes, y el campo no existía.
+
+- **El TEST de NavData valida lo que hay escrito, no lo guardado** — `NavDataClient.TestApiAsync`
+  acepta un `urlOverride` opcional y Settings le pasa el contenido del campo. Sin eso, pegar una
+  URL nueva y pulsar TEST habría validado contra la URL antigua, dando por bueno un valor que
+  todavía no se había guardado. Mismo criterio que la key, que ya se pasaba desde el formulario.
+
+  Guardar un cambio de URL o de key sigue reiniciando la aplicación (`HasChanges()` lo detecta),
+  que es el comportamiento que ya tenían las credenciales.
+
+### Docs
+
+- **`Docs/BRIEFING.md`** — la tabla de la sección NavData API dice ahora que la URL **sí** es un
+  campo editable, que guardar reinicia la app y que TEST usa lo escrito; y aclara que
+  *Origin Domain* **no** se edita en pantalla (se deduce del dominio de la API de phpVMS, y solo
+  se toca a mano en el `.config` si NavData vive en otro dominio). Pie a v0.9.11.
+- **`CLAUDE.md`** — versión actual a v0.9.11; firma de `NavDataClient.TestApiAsync` con el nuevo
+  parámetro; contador de claves de idioma a 395.
+- **`Docs/architecture.md`** — fila de `navdata_api_url` en la tabla de claves, indicando que se
+  edita en Settings; versión del documento a 0.9.11.
+- **`Docs/MEMORY.md`** — índice revisado a v0.9.11.
+
+### Verificación
+
+- Build **Debug** y **Release** en verde (MSBuild 15.0 de VS2017), exit 0.
+- Suite completa **229/229**.
+- `es.json` y `en.json`: **395 claves cada uno**, simétricos. `NavData URL` → *URL NavData* en
+  español y *NavData URL* en inglés.
+- Versión en los binarios: `FileVersion = 0.9.11.0` y **`ProductVersion = 0.9.11`** en Debug y
+  Release — los tres atributos movidos juntos, siguiendo la regla añadida en v0.9.10.
+- **No verificado**: que el formulario se vea bien con la fila extra no se puede comprobar sin
+  abrir la interfaz. La tabla izquierda pasa de 420 a 455 px de alto y el área de contenido ronda
+  los 474 px con el tamaño por defecto de la ventana (920×560), así que entra; con la ventana en
+  su tamaño mínimo (760×520) es la fila del estado de NavData la que puede quedar apretada.
+
+---
+
 ## [0.9.10] — 2026-09-24
 
 ### Added

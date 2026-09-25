@@ -32,6 +32,7 @@ namespace vmsOpenAcars.UI.Forms
         private TextBox txtSimbriefExtraRmk;
 
         // NavData API
+        private TextBox txtNavDataApiUrl;
         private TextBox txtNavDataApiKey;
         private Label   lblNavDataStatus;
 
@@ -203,17 +204,17 @@ namespace vmsOpenAcars.UI.Forms
                 BackColor = Color.FromArgb(40, 80, 120)
             };
 
-            // ── Left table: Connection / SimBrief / NavData (12 rows × 35 px) ─
+            // ── Left table: Connection / SimBrief / NavData (13 rows × 35 px) ─
             var left = new TableLayoutPanel
             {
                 Dock        = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount    = 12,
+                RowCount    = 13,
                 BackColor   = Color.Transparent
             };
             left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35F));
             left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65F));
-            for (int i = 0; i < 12; i++)
+            for (int i = 0; i < 13; i++)
                 left.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
 
             // row 0 — API URL
@@ -282,13 +283,21 @@ namespace vmsOpenAcars.UI.Forms
             left.SetColumnSpan(sepNavData, 2);
             left.Controls.Add(sepNavData, 0, 9);
 
-            // row 10 — NavData API Key
-            left.Controls.Add(CreateLabel("NavDataKey"), 0, 10);
+            // row 10 — NavData API URL
+            // La clave existía en App.config y se usaba en todas las llamadas, pero no se podía
+            // editar desde la app: había que tocar el .exe.config a mano. El BRIEFING ya la
+            // documentaba como campo de esta pantalla, así que prometía algo que no existía.
+            left.Controls.Add(CreateLabel("NavData URL"), 0, 10);
+            txtNavDataApiUrl = CreateTextBox();
+            left.Controls.Add(txtNavDataApiUrl, 1, 10);
+
+            // row 11 — NavData API Key
+            left.Controls.Add(CreateLabel("NavDataKey"), 0, 11);
             txtNavDataApiKey = CreateTextBox();
             txtNavDataApiKey.UseSystemPasswordChar = true;
-            left.Controls.Add(txtNavDataApiKey, 1, 10);
+            left.Controls.Add(txtNavDataApiKey, 1, 11);
 
-            // row 11 — NavData status + TEST
+            // row 12 — NavData status + TEST
             left.Controls.Add(CreateLabel("NavData"), 0, 11);
             var navDataPanel = new Panel { Dock = DockStyle.Fill };
             lblNavDataStatus = new Label
@@ -318,7 +327,11 @@ namespace vmsOpenAcars.UI.Forms
                 btnTestApi.Enabled  = false;
                 lblNavDataStatus.Text      = "Connecting...";
                 lblNavDataStatus.ForeColor = Color.FromArgb(200, 200, 100);
-                var result = await NavDataClient.TestApiAsync(txtNavDataApiKey.Text.Trim())
+                // El TEST usa la URL escrita y no la guardada: así valida lo que el piloto acaba
+                // de teclear, sin obligarle a guardar (y reiniciar) para comprobarlo.
+                var result = await NavDataClient.TestApiAsync(
+                                       txtNavDataApiKey.Text.Trim(),
+                                       txtNavDataApiUrl.Text.Trim())
                                                .ConfigureAwait(true);
                 if (!result.Reachable)
                 {
@@ -379,7 +392,7 @@ namespace vmsOpenAcars.UI.Forms
                 lblNavDataStatus.Width  = btnRefreshCache.Left - 4;
                 lblNavDataStatus.Top    = (navDataPanel.Height - lblNavDataStatus.Height) / 2;
             };
-            left.Controls.Add(navDataPanel, 1, 11);
+            left.Controls.Add(navDataPanel, 1, 12);
 
             // ── Right table: Landing Log / OSD / Cabin (11 rows × 35 px + 1 status) ──
             var right = new TableLayoutPanel
@@ -731,6 +744,7 @@ namespace vmsOpenAcars.UI.Forms
 
             txtSimbriefCi.Text       = ConfigurationManager.AppSettings["simbrief_civalue"]  ?? "30";
             txtSimbriefExtraRmk.Text = ConfigurationManager.AppSettings["simbrief_extrarmk"] ?? "";
+            txtNavDataApiUrl.Text    = ConfigurationManager.AppSettings["navdata_api_url"]    ?? "";
             txtNavDataApiKey.Text    = ConfigurationManager.AppSettings["navdata_api_key"]    ?? "";
             lblNavDataStatus.Text    = AppConfig.NavDataApiUrl;
             txtLandingLogPath.Text   = ConfigurationManager.AppSettings["landing_log_path"]   ?? "";
@@ -803,6 +817,7 @@ namespace vmsOpenAcars.UI.Forms
                 (cmbSimbriefUnits.SelectedItem?.ToString() ?? "")  != Cfg("simbrief_units", "lbs")           ||
                 txtSimbriefCi.Text.Trim()                          != Cfg("simbrief_civalue", "30")          ||
                 txtSimbriefExtraRmk.Text.Trim()                    != Cfg("simbrief_extrarmk")               ||
+                txtNavDataApiUrl.Text.Trim()                       != Cfg("navdata_api_url")                 ||
                 txtNavDataApiKey.Text.Trim()                       != Cfg("navdata_api_key")                 ||
                 txtLandingLogPath.Text.Trim()                      != Cfg("landing_log_path");
                 // osd_* and cabin_announcements_* are auto-saved on change — excluded from HasChanges
@@ -902,6 +917,7 @@ namespace vmsOpenAcars.UI.Forms
                     SetValue(config, "simbrief_units", cmbSimbriefUnits.SelectedItem.ToString());
                 SetValue(config, "simbrief_civalue",  txtSimbriefCi.Text.Trim());
                 SetValue(config, "simbrief_extrarmk", txtSimbriefExtraRmk.Text.Trim());
+                SetValue(config, "navdata_api_url",   txtNavDataApiUrl.Text.Trim());
                 SetValue(config, "navdata_api_key",   txtNavDataApiKey.Text.Trim());
                 SetValue(config, "landing_log_path",  txtLandingLogPath.Text.Trim());
 

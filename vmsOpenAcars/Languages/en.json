@@ -80,6 +80,7 @@
   "Stg_NavDataKeyInvalid": "Invalid API key",
 
   "NavDataKey": "API Key",
+  "NavData URL": "NavData URL",
   "NavData": "NavData API",
   "Landing DB": "Landing DB",
   "OSD": "OSD",

@@ -1,6 +1,6 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.9.10  
+> Versión del documento: 0.9.11  
 > Última actualización: 2026-09-24
 
 ---
@@ -1625,7 +1625,7 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 | `fuel_tolerance_absolute` | 50 | Tolerancia combustible (kg) |
 | `simbrief_civalue` | 30 | Cost Index para SimBrief |
 | `simbrief_units` | lbs | Unidades combustible SimBrief |
-| `navdata_api_url` | _(vacío)_ | URL base del servicio NavData API |
+| `navdata_api_url` | _(vacío)_ | URL base del servicio NavData API. Editable en Settings → NavData API desde v0.9.11; antes solo se cambiaba a mano en el `.config` |
 | `navdata_api_key` | _(vacío)_ | API key del servicio NavData |
 | `navdata_api_domain` | _(vacío)_ | Dominio de la aerolínea (cabecera `X-Origin-Domain`) |
 | `landing_log_path` | _(vacío)_ | Ruta al archivo `landing_log.sqlite` |

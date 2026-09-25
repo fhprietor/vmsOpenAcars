@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.10  
+**Versión actual:** v0.9.11  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -56,7 +56,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
   las otras reglas. Nunca suprimir una acción por una suposición.
 
 **Idioma**
-- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 394 claves cada uno): toda
+- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 395 claves cada uno): toda
   clave que se añade o se quita va en los dos.
 - **Los rótulos de `SettingsForm` se traducen por `_(clave)` con el propio texto en inglés como
   clave** (`CreateLabel("Duration (s)")` → *Duración (s)*). Una clave que falte **no cae al
@@ -161,7 +161,7 @@ static List<NavProcedure> GetSids / GetStars(icao)
 static List<NavIls>       GetIls(icao)
 static List<NavAirportWaypoint> GetAirportWaypoints(icao, radiusNm)
 static Task<List<NavAirspace>>  GetAirspacesAsync(lat, lon)   // sin radius_nm; servidor devuelve 200 nm fijos
-static Task<NavApiTestResult>   TestApiAsync(apiKeyOverride)  // llama NavDataCache.SyncAirac()
+static Task<NavApiTestResult>   TestApiAsync(apiKeyOverride, urlOverride = null)  // llama NavDataCache.SyncAirac()
 static Task<BriefingCheckResult> CheckAnnouncementAsync(phase, lang)
 static Task<byte[]>              FetchBytesAsync(path)
 static Task<NavWeather>          GetWeatherAsync(icao)        // TTL 5 min en memoria
@@ -170,6 +170,14 @@ static Task<NavWeather>          GetWeatherAsync(icao)        // TTL 5 min en me
 Caché por capas: (1) `ConcurrentDictionary` en sesión por ICAO → (2) `NavDataCache` SQLite por AIRAC → para airspaces: (3) `_airspaceMemCache` en sesión + (4) `airspace_entries` SQLite TTL 7 días.
 
 Auth: `X-API-Key` + `X-Origin-Domain` de `App.config` (`navdata_api_key`, `navdata_api_domain`).
+
+**Editable desde Settings (v0.9.11):** la sección *NavData API* del formulario tiene ahora campo
+para `navdata_api_url` (fila *NavData URL* → *URL NavData*), encima de la API Key. Hasta v0.9.11
+la URL solo se podía cambiar editando `vmsOpenAcars.exe.config` a mano, aunque el `BRIEFING` ya
+la documentaba como campo de esa pantalla. Guardarla reinicia la app (`HasChanges()` lo detecta);
+el botón **TEST** en cambio usa lo que haya escrito en ese momento —`TestApiAsync(key, urlOverride)`—
+para poder validar una URL nueva sin guardar. `navdata_api_domain` **sigue** sin campo: se deduce
+del host de `vms_api_url` y solo se define a mano si NavData vive en otro dominio.
 
 ### NavDataCache — `Services/NavDataCache.cs`
 

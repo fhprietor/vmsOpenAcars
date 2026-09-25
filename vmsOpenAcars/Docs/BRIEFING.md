@@ -74,9 +74,11 @@ vmsOpenAcars consulta el servicio **NavData API** para calcular con precisión l
 
 | Campo | Descripción |
 |---|---|
-| NavData API URL | URL base del servicio NavData de tu aerolínea virtual |
+| NavData API URL | URL base del servicio NavData de tu aerolínea virtual (p. ej. `https://navdata.tuaerolinea.com/api`) |
 | NavData API Key | Clave de acceso proporcionada por tu aerolínea virtual |
-| Origin Domain | Dominio de la aerolínea (para validación de origen HTTP) |
+| Origin Domain | **No se edita aquí**: se deduce automáticamente del dominio de tu API de phpVMS. Solo si tu aerolínea sirve NavData en otro dominio hay que definirlo a mano en `vmsOpenAcars.exe.config` (`navdata_api_domain`) |
+
+Al cambiar la **URL** o la **key** y guardar, la aplicación se reinicia para aplicar los cambios. El botón **TEST** en cambio usa lo que tengas escrito en ese momento —no lo guardado—, así que puedes pegar una URL nueva, pulsar TEST y comprobar que responde **antes** de guardar (v0.9.11).
 
 Pulsa **TEST** para verificar la conectividad y la validez de la API key. El botón muestra en verde el ciclo AIRAC vigente si todo es correcto, en naranja si el servicio está activo pero la key es inválida, y en rojo si el servicio no es alcanzable.
 
@@ -645,4 +647,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.9.10 — que tengas buen vuelo.*
+*vmsOpenAcars v0.9.11 — que tengas buen vuelo.*
