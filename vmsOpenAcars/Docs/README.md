@@ -9,6 +9,7 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 | `BRIEFING.md` | **Pilotos** | Guía de usuario: configuración, flujo de vuelo, scoring, mapa, LOGBOOK |
 | `PRIMEROS_PASOS.md` | **Pilotos nuevos** | Alta en phpVMS, API key, descarga e instalación |
 | `architecture.md` | **Desarrolladores** | Arquitectura, módulos, esquemas de BD, notas de build |
+| `SETUP-ENTORNO.md` | **Desarrolladores** | Cómo montar el proyecto en otro equipo: qué no viaja por git (`App.config`, `packages/`), toolchain, y `dsh` (DeepSeek Harness) |
 | `CHANGELOG.md` | Todos | Historial de versiones, con causa raíz de cada corrección |
 | `CHANGELOG-0.9.2-0.9.9.md` | Todos | Resumen corto de lo cambiado entre v0.9.2 y v0.9.9 (el detalle está en `CHANGELOG.md`) |
 | `feature_map_sidebar.md` | Desarrolladores | Notas de la feature del sidebar de procedimientos |

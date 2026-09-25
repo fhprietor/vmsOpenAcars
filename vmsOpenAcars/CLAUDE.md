@@ -73,6 +73,9 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
 - **`Docs/MEMORY.md` y `Docs/project_vmsOpenAcars.md` no son fuente de verdad** (son resúmenes
   de mantenimiento y se quedan atrás: `MEMORY.md` llegó a decir v0.9.2 con el cliente en
   v0.9.9). La verdad es `CLAUDE.md` + `Docs/CHANGELOG.md`.
+- Para montar el proyecto en otro equipo (o cambiar de agente) está `Docs/SETUP-ENTORNO.md`:
+  qué **no** viaja por git —`App.config` y `packages/` están ignorados—, el toolchain y cómo se
+  levanta `dsh` con `%USERPROFILE%\.dsh`.
 
 **Git**
 - **No commitear por iniciativa propia**: el mantenedor pide el commit.
