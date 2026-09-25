@@ -80,7 +80,9 @@ vmsOpenAcars consulta el servicio **NavData API** para calcular con precisión l
 
 Al cambiar la **URL** o la **key** y guardar, la aplicación se reinicia para aplicar los cambios. El botón **TEST** en cambio usa lo que tengas escrito en ese momento —no lo guardado—, así que puedes pegar una URL nueva, pulsar TEST y comprobar que responde **antes** de guardar (v0.9.11).
 
-Pulsa **TEST** para verificar la conectividad y la validez de la API key. El botón muestra en verde el ciclo AIRAC vigente si todo es correcto, en naranja si el servicio está activo pero la key es inválida, y en rojo si el servicio no es alcanzable.
+La sección tiene, en este orden: la **URL**, la **key**, una **línea de estado** con el resultado del test, y debajo los botones **REFRESH** y **TEST** (v0.9.12 — antes el resultado y los botones compartían la misma línea y los mensajes largos se cortaban).
+
+Pulsa **TEST** para verificar la conectividad y la validez de la API key. El resultado aparece en la línea de estado, encima de los botones: en verde el ciclo AIRAC vigente si todo es correcto, en naranja si el servicio está activo pero la key es inválida, y en rojo si el servicio no es alcanzable. Esa línea muestra el AIRAC que ya conozca la sesión aunque no hayas pulsado TEST todavía.
 
 Pulsa **REFRESH NAVDATA** para invalidar manualmente la caché de procedimientos (SIDs, STARs, aproximaciones). Úsalo cuando la aerolínea haya corregido datos de NavData dentro del mismo ciclo AIRAC y necesites que la app descargue los datos actualizados sin tener que esperar al próximo ciclo. No afecta a los espacios aéreos ni requiere reiniciar la app.
 
@@ -647,4 +649,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.9.11 — que tengas buen vuelo.*
+*vmsOpenAcars v0.9.12 — que tengas buen vuelo.*

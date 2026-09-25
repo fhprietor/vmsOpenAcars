@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.11  
+**Versión actual:** v0.9.12  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -178,6 +178,25 @@ la documentaba como campo de esa pantalla. Guardarla reinicia la app (`HasChange
 el botón **TEST** en cambio usa lo que haya escrito en ese momento —`TestApiAsync(key, urlOverride)`—
 para poder validar una URL nueva sin guardar. `navdata_api_domain` **sigue** sin campo: se deduce
 del host de `vms_api_url` y solo se define a mano si NavData vive en otro dominio.
+
+**Rejilla del formulario: una celda, un control.** `SettingsForm` construye todo con índices de
+fila explícitos y sin comprobación: dos controles en la **misma celda** de un `TableLayoutPanel`
+no dan error —el último se pinta encima— y el síntoma es un rótulo tapado, no un fallo. Pasó al
+añadir la URL en v0.9.11 (el rótulo *NavData API* se quedó en la fila de la Key) y se corrigió en
+v0.9.12. Al insertar una fila hay que **renumerar todo lo que va debajo** y comprobar el resultado
+celda por celda, no solo que compile.
+
+**Reparto de espacio en `SettingsForm` (v0.9.12).** El alto útil de contenido es `alto de ventana
+− 99` px: barra de título 35 + panel de botones 44 + `Padding` 4 y 16. La columna izquierda son
+filas de 35 px, así que **cada fila nueva hay que pagarla**: 14 filas = 490 px y de ahí la ventana
+en 920×600 (`MinimumSize` al mismo alto, para no poder encogerla hasta cortar la rejilla). Un
+resultado de texto largo no debe compartir celda con botones ni resolverse con aritmética de
+`Resize`: eso es lo que recortaba el mensaje de estado de NavData hasta v0.9.12. Se usan filas
+separadas y `FlowLayoutPanel` para los grupos de botones.
+
+Rótulos y campos de la columna izquierda, en orden: ApiUrl, ApiKey, SimbriefUser, Airline,
+Language · *── SimBrief Dispatch ──* · SimbriefUnits, SimbriefCI, SimbriefRmk · *── NavData API ──* ·
+NavData URL, NavDataKey, NavData (resultado del test), y una fila sin rótulo para `[REFRESH] [TEST]`.
 
 ### NavDataCache — `Services/NavDataCache.cs`
 

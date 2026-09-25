@@ -2,6 +2,68 @@
 
 ---
 
+## [0.9.12] — 2026-09-24
+
+### Fixed
+
+- **La API Key de NavData se quedaba sin su propia línea** — reportado por el mantenedor al ver
+  la pantalla. Al añadir la fila de la URL en v0.9.11, el rótulo *NavData API* de la fila de
+  estado se quedó apuntando a la **fila 11**, que es la de la API Key: dos `Label` en la **misma
+  celda** del `TableLayoutPanel`, el segundo pintado encima del primero, y la fila 12 con la
+  columna 0 vacía. Resultado visible: la API Key aparecía rotulada como *NavData API* y compartía
+  línea con el estado/`TEST`/`REFRESH`, en vez de tener la suya entre la URL y el estado.
+
+  Es un fallo de la v0.9.11 y se explica solo: ese rótulo estaba en la fila 11 y la renumeración
+  movió a su vez la Key de la 10 a la 11, así que la celda quedó ocupada dos veces. Ninguna
+  comprobación automática lo detecta —los `Label` superpuestos no dan error de compilación ni de
+  ejecución— así que lo que lo caza es revisar la rejilla: **una celda, un control**.
+
+  Corregido a la fila 12, con un comentario en el propio código explicando por qué el rótulo del
+  estado va en su fila y no en la de arriba.
+
+- **`REFRESH` y `TEST` compartían celda con el resultado del test** — pedido del mantenedor.
+  Estaban en el mismo `Panel` que el texto de estado y se repartían el ancho en un manejador de
+  `Resize` a mano: los botones se quedaban con el borde derecho y al `Label` del resultado le
+  tocaba el ancho sobrante, así que en cuanto el mensaje era largo —`AIRAC 2509 until …⚠ EXPIRED`,
+  o `Cache cleared — reload flight plan to fetch updated data`— se cortaba justo donde el piloto
+  necesita leerlo. Ahora cada cosa tiene su fila: el resultado en una, los dos botones en otra,
+  alineados a la derecha en un `FlowLayoutPanel` con `RightToLeft` (el orden en pantalla sigue
+  siendo `[REFRESH][TEST]`) y sin manejador de `Resize`, que era pura aritmética manual
+  sustituible por el layout.
+
+- **El resultado del test ya no repite la URL.** Tenía `Text = AppConfig.NavDataApiUrl` de cuando
+  el rótulo de estado era la única forma de ver la URL configurada. Con el campo propio de la
+  v0.9.11 era redundante, y ahora muestra el ciclo AIRAC si la sesión ya lo conoce y queda en
+  blanco hasta que se pulse `TEST`.
+
+- **La última fila de la columna izquierda se habría recortado.** La tabla pasó de 13 a 14 filas
+  (490 px) y el área de contenido útil son `alto − 99` px —barra de título 35, botones 44,
+  `Padding` 4 y 16—: con los 560 px de ventana eran 461 px, así que la fila nueva no cabía. La
+  ventana pasa a 920×**600** y el `MinimumSize` al mismo alto, para que no se pueda encoger hasta
+  dejar la rejilla cortada.
+
+La sección queda así:
+
+| Fila | Columna 0 | Columna 1 |
+|---|---|---|
+| 9 | *── NavData API ──* (span 2) | |
+| 10 | NavData URL | `navdata_api_url` |
+| 11 | API Key | `navdata_api_key` (enmascarada) |
+| 12 | NavData API | resultado del test / estado del AIRAC |
+| 13 | _(vacía: los botones se explican solos)_ | `[REFRESH] [TEST]` |
+
+### Verificación
+
+- Build **Debug** y **Release** en verde; suite completa **229/229**.
+- Rejilla de la tabla izquierda auditada celda por celda (14 filas × 2 columnas): hay
+  **un solo control por celda**, sin superposiciones, y la fila 13 sólo lleva los botones. Es la
+  comprobación que faltaba en v0.9.11.
+- Versión **0.9.12** en los tres atributos de `AssemblyInfo` y en el proyecto de tests.
+- **No verificado**: que se vea bien en pantalla. La superposición era invisible al compilador,
+  así que la confirmación definitiva es abrir Settings.
+
+---
+
 ## [0.9.11] — 2026-09-24
 
 ### Added

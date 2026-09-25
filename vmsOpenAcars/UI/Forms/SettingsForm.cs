@@ -75,9 +75,14 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeForm()
         {
-            // Landscape: wider form, roughly half the original height
-            this.Size        = new Size(920, 560);
-            this.MinimumSize = new Size(760, 520);
+            // Landscape: wider form, roughly half the original height.
+            // Alto a 600 desde v0.9.12: la columna izquierda tiene 14 filas de 35 px (490 px) y el
+            // área de contenido útil son (alto − 99) px —barra de título 35, botones 44, padding 4
+            // y 16—, así que con 560 el área eran 461 px y la última fila se recortaba. El mínimo
+            // se fija al mismo alto por el mismo motivo: no tiene sentido poder encoger la ventana
+            // hasta dejar la rejilla cortada.
+            this.Size        = new Size(920, 600);
+            this.MinimumSize = new Size(760, 600);
             this.StartPosition    = FormStartPosition.CenterParent;
             this.FormBorderStyle  = FormBorderStyle.None;
             this.BackColor        = Color.FromArgb(20, 30, 40);
@@ -204,17 +209,17 @@ namespace vmsOpenAcars.UI.Forms
                 BackColor = Color.FromArgb(40, 80, 120)
             };
 
-            // ── Left table: Connection / SimBrief / NavData (13 rows × 35 px) ─
+            // ── Left table: Connection / SimBrief / NavData (14 rows × 35 px) ─
             var left = new TableLayoutPanel
             {
                 Dock        = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount    = 13,
+                RowCount    = 14,
                 BackColor   = Color.Transparent
             };
             left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35F));
             left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65F));
-            for (int i = 0; i < 13; i++)
+            for (int i = 0; i < 14; i++)
                 left.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
 
             // row 0 — API URL
@@ -297,25 +302,35 @@ namespace vmsOpenAcars.UI.Forms
             txtNavDataApiKey.UseSystemPasswordChar = true;
             left.Controls.Add(txtNavDataApiKey, 1, 11);
 
-            // row 12 — NavData status + TEST
-            left.Controls.Add(CreateLabel("NavData"), 0, 11);
-            var navDataPanel = new Panel { Dock = DockStyle.Fill };
+            // row 12 — NavData status (solo el resultado del test)
+            // El rótulo va en la columna 0 de ESTA fila: si se deja en la 11 se apila con el de la
+            // API Key (misma celda), la tapa, y la Key se queda sin su propia línea.
+            left.Controls.Add(CreateLabel("NavData"), 0, 12);
             lblNavDataStatus = new Label
             {
-                Text      = AppConfig.NavDataApiUrl,
+                // Ya no repite la URL —tiene su propio campo arriba—: muestra el ciclo AIRAC si
+                // esta sesión ya lo conoce (lo llena TestApiAsync), y en blanco hasta que se pulse
+                // TEST. Antes el rótulo de estado era la única forma de ver la URL configurada.
+                Text      = string.IsNullOrEmpty(NavDataClient.AiracCycle)
+                            ? string.Empty
+                            : $"AIRAC {NavDataClient.AiracCycle}  until {NavDataClient.AiracValidUntil}",
                 ForeColor = Color.FromArgb(160, 200, 160),
                 Font      = new Font("Consolas", 9),
-                Anchor    = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
-                Left      = 0,
-                Height    = 22,
+                Dock      = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft
             };
+            left.Controls.Add(lblNavDataStatus, 1, 12);
+
+            // row 13 — botones de NavData, en su propia fila
+            // Antes compartían celda con el resultado del test y se repartían el ancho a mano en un
+            // Resize handler: el texto de estado quedaba recortado al ancho sobrante y los botones
+            // se comían el sitio del mensaje.
             var btnTestApi = new Button
             {
                 Text      = "TEST",
                 Width     = 46,
                 Height    = 22,
-                Anchor    = AnchorStyles.Right | AnchorStyles.Top,
+                Margin    = new Padding(0, 6, 0, 0),
                 BackColor = Color.FromArgb(50, 70, 90),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
@@ -366,7 +381,7 @@ namespace vmsOpenAcars.UI.Forms
                 Text      = "REFRESH",
                 Width     = 60,
                 Height    = 22,
-                Anchor    = AnchorStyles.Right | AnchorStyles.Top,
+                Margin    = new Padding(0, 6, 4, 0),
                 BackColor = Color.FromArgb(50, 70, 50),
                 ForeColor = Color.FromArgb(140, 220, 140),
                 FlatStyle = FlatStyle.Flat,
@@ -380,19 +395,19 @@ namespace vmsOpenAcars.UI.Forms
                 lblNavDataStatus.Text      = "Cache cleared — reload flight plan to fetch updated data";
                 lblNavDataStatus.ForeColor = Color.FromArgb(140, 220, 140);
             };
-            navDataPanel.Controls.Add(lblNavDataStatus);
-            navDataPanel.Controls.Add(btnTestApi);
-            navDataPanel.Controls.Add(btnRefreshCache);
-            navDataPanel.Resize += (s, ev) =>
+            var navDataButtons = new FlowLayoutPanel
             {
-                btnTestApi.Left         = navDataPanel.Width - btnTestApi.Width;
-                btnTestApi.Top          = (navDataPanel.Height - btnTestApi.Height) / 2;
-                btnRefreshCache.Left    = btnTestApi.Left - btnRefreshCache.Width - 2;
-                btnRefreshCache.Top     = (navDataPanel.Height - btnRefreshCache.Height) / 2;
-                lblNavDataStatus.Width  = btnRefreshCache.Left - 4;
-                lblNavDataStatus.Top    = (navDataPanel.Height - lblNavDataStatus.Height) / 2;
+                Dock          = DockStyle.Fill,
+                // RightToLeft: el primero añadido queda más a la derecha, así el orden en pantalla
+                // sigue siendo [REFRESH][TEST] como antes.
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents  = false,
+                BackColor     = Color.Transparent,
+                Padding       = new Padding(0)
             };
-            left.Controls.Add(navDataPanel, 1, 12);
+            navDataButtons.Controls.Add(btnTestApi);
+            navDataButtons.Controls.Add(btnRefreshCache);
+            left.Controls.Add(navDataButtons, 1, 13);
 
             // ── Right table: Landing Log / OSD / Cabin (11 rows × 35 px + 1 status) ──
             var right = new TableLayoutPanel

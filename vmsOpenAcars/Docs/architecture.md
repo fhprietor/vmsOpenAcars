@@ -1,6 +1,6 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.9.11  
+> Versión del documento: 0.9.12  
 > Última actualización: 2026-09-24
 
 ---
