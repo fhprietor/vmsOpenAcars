@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.12  
+**Versión actual:** v0.9.14  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -56,7 +56,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
   las otras reglas. Nunca suprimir una acción por una suposición.
 
 **Idioma**
-- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 395 claves cada uno): toda
+- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 416 claves cada uno): toda
   clave que se añade o se quita va en los dos.
 - **Los rótulos de `SettingsForm` se traducen por `_(clave)` con el propio texto en inglés como
   clave** (`CreateLabel("Duration (s)")` → *Duración (s)*). Una clave que falte **no cae al
@@ -67,6 +67,12 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
   y su clave `Score_Crit*` en ambos idiomas.
 
 **Documentación**
+- **`CLAUDE.md` tiene un techo duro de 65 536 bytes** (64 KB): es el presupuesto de instrucciones
+  del agente, y el harness **trunca en silencio** lo que sobra, empezando por el final del archivo
+  —o sea *Próximas áreas*, justo lo que no se puede perder—. Se pasó de 67 KB en v0.9.13 y se
+  movieron a `Docs/architecture.md` la narrativa de desvíos (~21 KB) y el índice de archivos
+  (~10 KB), quedando en ~38 KB. **Lo largo va a `Docs/architecture.md`**; aquí se deja un resumen
+  con puntero. Antes de añadir una sección grande: `(Get-Item CLAUDE.md).Length`.
 - `Docs/CHANGELOG.md` es el **canónico**: cada entrada lleva causa raíz y las cifras que la
   demuestran. Se actualiza junto con `CLAUDE.md`, en el mismo cambio.
 - `Docs/README.md` es el índice: un `.md` nuevo se lista ahí o queda huérfano.
@@ -355,165 +361,54 @@ FsuipcService offsets: `0x0350 INT16` NAV1 freq BCD (`100+d3×10+d2+d1×0.1+d0×
 
 ## Aeropuerto de llegada distinto al planeado — v0.8.8–v0.9.9
 
-Corrige el caso donde el avión aterriza en un aeropuerto distinto al destino planeado (emergencia, regreso a origen, desvío real) sin que el PIREP quede registrado con el `arr_airport_id`/`diversion-airport` correctos en phpVMS, y sin penalizar QNH/Localizer/Minimums contra el METAR de un destino nunca alcanzado.
+Resuelve el aterrizaje en un aeropuerto distinto al planeado (emergencia, regreso a origen,
+desvío real) sin que el PIREP quede con el `arr_airport_id`/`diversion-airport` equivocados y sin
+puntuar QNH/Localizer/Minimums contra el METAR de un destino nunca alcanzado.
 
-**Mecanismo principal — `NavDataService.FindApproachAirport` (`GET /nearest/approach-airport/`):** dado lat/lon/heading, NavData devuelve el aeropuerto+pista más alineados dentro de `radius_nm` (20) y `heading_tol` (15°), con desambiguación de **pistas paralelas** por `score` (dominado por `cross_track_nm`, la desviación perpendicular al eje extendido de cada pista — validado por NavData para SKBO 14L/14R, ~355 m de separación). Se confía directamente en `icao`/`runway.name`/`score`, sin reimplementar el desempate localmente.
+- **Detección**: `NavDataService.FindApproachAirport` (`GET /nearest/approach-airport/`) durante
+  Descent y Approach, cada 5 s.
+- **Un desvío se marca solo si pasa seis filtros** —lateral 3 NM, cono angular 4°, gradiente de
+  descenso ≤700 ft/NM contra la elevación del campo emparejado, alterno más cerca que el destino,
+  establecido en final (`along ≤ 0`) y persistencia de 2 sondeos— **y** no está dentro del corredor
+  de la llegada del propio plan (`Helpers/RouteCorridor.IsOnArrival`: 5 NM a cada lado de los
+  últimos 40 NM de la traza del navlog).
+- **QNH de llegada**: provisional durante el vuelo, se decide una sola vez al filear
+  (`FinalizeArrivalQnhAsync`), con el destino final y el QNH actual del avión.
+- **Al filear**: `UpdatePirep(arr_airport_id)` + `diversion-airport` en el payload; la reubicación
+  del piloto la hace phpVMS. La elevación de referencia (AGL) se corrige con el campo real.
+- **Ayudas puras, cada una con su test**: `SelectApproachThreshold`, `IsWithinFinalCone`,
+  `IsPlausibleDiversionDescent`, `IsPlausibleDiversionDistance`, `RouteCorridor` y
+  `GeoMath.DistanceToSegmentNm`.
 
-**Re-confirmación continua durante Descent + Approach** (`TelemetryCoordinator.ProcessRawData` + `ReconfirmApproachRunway`, throttled a 5 s, activo mientras AGL > 1000 ft — **extendido a `FlightPhase.Descent` en v0.8.10**, antes solo corría en `Approach`): a diferencia de una resolución única, sigue consultando el endpoint durante todo el descenso/aproximación — necesario tanto por pistas paralelas con fix inicial compartido (ambigüedad geométrica que solo se resuelve al divergir hacia el curso final) como por desvíos severos donde la fase interna `Approach` puede no alcanzarse nunca (ver más abajo). Si el ICAO/pista resuelto cambia respecto al ya confirmado:
-- **Diversión** (ICAO ≠ destino planeado): se marca **solo cuando el avión está establecido en una final** para esa pista, tras pasar seis filtros (lateral ≤3 NM, cono angular de 4°, gradiente de descenso ≤700 ft/NM, alterno más cerca que el destino, `SelectApproachThreshold` con `along ≤ 0` y persistencia de 2 sondeos — v0.9.9, ver la subsección dedicada) vía `FlightManager.SetEffectiveDestination` + `SetDivertedAirport`, log `Lnm_DiversionDetected`, OSD Critical. Sigue ocurriendo **antes** de los gates de QNH (TL−1000 ft y 1000 ft AGL en `ApproachValidator.cs`, que usan `EffectiveDestination ?? DestIcao`) — clave para que el METAR/ILS correcto se use en tiempo real, no solo al filear.
-- **Corrección de pista paralela sin diversión** (mismo ICAO, pista distinta): re-resuelve `_approachThreshold` vía `GetRunwayThreshold` (geometría más estricta, necesaria para el buffer de aproximación/`ComputeApproachMetrics`), limpia `ApproachBuffer` (los puntos previos se calcularon contra el umbral equivocado) y relanza `LoadApproachData` para recargar el ILS/approach de la pista correcta.
+> El detalle —causa raíz, cifras medidas y los casos reales (falso SKTL, SKGY, los tres falsos de
+> KBOS y SKCL→SKBO)— está en **`Docs/architecture.md` → "Aeropuerto de llegada distinto al
+> planeado"**. Se movió allí en **v0.9.13** porque `CLAUDE.md` superaba el presupuesto de
+> instrucciones del agente (65 536 bytes) y el harness lo truncaba, perdiendo justo el final de
+> "Próximas áreas".
 
-`TelemetryCoordinator.OnPhaseChanged` trata `{Descent, Approach}` como un superestado único: el reset de `_approachThreshold`/`_approachDestination` solo ocurre al **entrar** al par desde afuera (ej. `Climb → Descent`), no en la transición interna `Descent → Approach` — así lo ya resuelto durante Descent sobrevive si la máquina de fases sí llega a `Approach` más tarde.
+## RAAS y guía de rodaje — v0.9.14
 
-**Por qué la fase `Approach` puede no alcanzarse nunca (v0.8.10):** `FlightManager.Telemetry.cs` hardcodea `DistanceToDestinationNm = -1` siempre, dejando muerta la rama de distancia en `FlightPhaseStateMachine`'s transición `Descent → Approach`; solo puede disparar la rama de altitud (`altAboveDest = altitud − elevación del DESTINO PLANEADO < aglThr`). Si el aterrizaje real ocurre en un aeropuerto con elevación muy distinta a la planeada (caso real: SKCL 3162 ft planeado vs SKBO 8361 ft real, ~5200 ft de diferencia), `altAboveDest` puede no bajar del umbral — la fase interna `Approach` puede no alcanzarse nunca, el log de status salta de `APR` (código de `Descent`) directo a `LDG` sin pasar por `FIN`. La re-confirmación en `Descent` (párrafo anterior) es lo que permite detectar el desvío de todas formas.
+Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el piloto.
 
-**Elevación de referencia (AGL) corregida tras confirmar un desvío (v0.9.0):** `FlightManager.ReferenceAirportElevation`/`CurrentAGL`, `BuildPhaseInput().DestinationElevation` (el mismo campo que alimenta `altAboveDest` arriba) y `TelemetryCoordinator.PrepareTelemetry`'s `altitude_agl` (enviado a phpVMS) usaban **siempre** `_activePlan.DestinationElevation` — la elevación del destino planeado — incluso después de confirmar un desvío. Con SKCL/SKBO (~5200 ft de diferencia), el AGL calculado nunca bajaba de 3000 ft ni en touchdown real, así que el buffer de aproximación nunca capturaba puntos (`⚠️ Landing log no grabado: solo 0 puntos en buffer`, confirmado en vuelo real) y el gate de Stabilized Approach tampoco disparaba. Fix: `FlightManager.SetArrivalAirportElevation(double)`/`ArrivalAirportElevationFt` (nuevo campo `_arrivalAirportElevation`), seteado en los mismos dos call sites de `ReconfirmApproachRunway`/`LookupRunwayData` vía `NavDataService.GetAirportElevationFt(icao)` (nuevo, usa `NavDataClient.GetAirportInfo(icao)?.ElevationFt`). `ReferenceAirportElevation` y `BuildPhaseInput()` ahora hacen `_arrivalAirportElevation ?? <elevación planeada>` (v0.9.5: el campo se guarda como patrón de bits en un `long` y se accede con `Interlocked`, con `double.NaN` como "sin dato" — C# no permite `volatile` sobre `double`, y el campo se publica desde `Task.Run` mientras el hilo de polling lo lee) — esto también resuelve de rebote la transición `Descent → Approach` para desvíos con diferencia de elevación (una vez `altAboveDest` usa la elevación real), por lo que el criterio Stabilized Approach (hasta 15 pts) ahora sí puede evaluarse en un desvío detectado a tiempo.
-
-**Red de seguridad en touchdown** (`LookupRunwayData`): si el aeropuerto que resolvió la fase de aproximación no matchea la huella de pista del touchdown, prueba una lista ordenada y sin duplicados — **aeropuerto resuelto → origen → último alterno propuesto por el matcher → destino planeado** (v0.9.9; antes solo resuelto → origen, así que un `_approachDestination` equivocado dejaba el destino planeado sin probar nunca). El fallback adicional a `IApiService.GetNearestAirport` (phpVMS `/api/airports/nearest`) se retiró en v0.8.10 y **[v0.9.8] el método se eliminó por completo** — estaba roto en producción (`404 "No query results for model [App\Models\Airport] NEAREST"`, esa ruta no existe en esta instalación de phpVMS) y su único llamador (`FlightManager.DetectNearestAirport`) no tenía a su vez ningún llamador. También evalúa `CheckFlownDistance`: si la distancia volada es <60% de la planeada, loguea aviso de revisión (`Lnm_DistanceMismatch`) **independientemente** de si hubo match de pista.
-
-**Corrección del PIREP y del piloto** — `FlightManager.Lifecycle.cs` (`FilePirep`): si `_effectiveDestination` difiere del destino planeado, antes de filear:
-1. `_apiService.UpdatePirep(id, new { arr_airport_id = ... })` (mecanismo PUT ya usado para `block_off_time`/status) → log `Log_ArrivalAirportCorrected`.
-2. `PirepBuilder.BuildPayload` incluye `diversion-airport` (solo si `_divertedAirport != null` — el payload se construye como `Dictionary<string,object>`, no objeto anónimo, para que la clave quede **ausente** y no `null` cuando no hay desvío; phpVMS solo procesa una diversión si el pirep **incluye** ese campo) y `arr_airport_id` como refuerzo del `UpdatePirep` previo.
-
-La reubicación del piloto **no la hace el cliente**: se intentó con `MovePilotAsync` (`PUT /api/user { curr_airport_id }`) y se confirmó roto en producción (`405 "The PUT method is not supported for route api/user"`). [v0.9.8] El método se eliminó junto con `GetNearestAirport` (404 confirmado) y `FlightManager.DetectNearestAirport` (sin llamadores). Confirmado en un vuelo real desviado que phpVMS reubica al piloto por su cuenta al procesar `diversion-airport` en el payload de `/file`.
-
-vmsOpenAcars es responsable de garantizar `arr_airport_id` — la reubicación de `curr_airport` del piloto queda a cargo de phpVMS vía `diversion-airport`.
-
-**Validado contra producción (vholar.co):** el `PUT arr_airport_id` es aceptado mientras el PIREP está `state=0/in_progress` (justo cuando se llama, antes de `/file`); un PIREP ya `Accepted` (`state=2`) lo rechaza con 503 — irrelevante para el flujo normal.
-
-### QNH de llegada: provisional durante el vuelo, confirmado/revertido al filear (v0.8.10)
-
-El check de QNH de llegada (`ApproachValidator`, gate TL−1000 ft o fallback a 1000 ft AGL) usa `EffectiveDestination ?? DestIcao` — si dispara antes de que el desvío se detecte (posible incluso con la re-confirmación en Descent, ej. a mucha altitud/distancia todavía), penalizaba contra el destino planeado equivocado **de forma permanente e irreversible** (caso real: avión a 1028 hPa comparado contra SKCL a 1011 hPa mientras en realidad se aproximaba a SKBO). Rediseñado estilo "comisarios de F1": se advierte en tiempo real, pero el veredicto que puntúa se decide una sola vez, al filear, con la mejor información disponible:
-
-- `ApproachValidator.CheckArrivalQnhProvisionalAsync(icao, aircraftQnhMb)` — reemplaza a `CheckQnhAsync` en los dos call sites de llegada (TL−1000 ft y fallback 1000 ft AGL). Loguea/OSD en tiempo real (`Log_QnhPenaltyProvisional`) pero **no toca `QnhViolations`** — guarda el veredicto en `_provisionalArrivalQnhViolation` (tri-state: null/true/false).
-- `ApproachValidator.FinalizeArrivalQnhAsync(finalDestIcao, currentAircraftQnhMb)` — único punto que suma a `QnhViolations` para el componente de llegada. Llamado una sola vez, **awaited**, desde `FlightManager.Lifecycle.FilePirep()` **antes** de `BuildScoreData()`/`ComputeScore()`, usando el destino final (`_effectiveDestination ?? plan.Destination`) y el QNH **actual** del avión (no el capturado en el check temprano — el piloto pudo haber corregido el altímetro después). Si no hay METAR definitivo, nunca puntúa en ningún sentido (ni penaliza ni revierte silenciosamente lo ya marcado).
-- Los checks de salida (vs METAR de origen) y de clima (vs STD 1013) **no cambiaron** — nunca son ambiguos, siguen siendo inmediatos y definitivos vía `CheckQnhAsync`/`CheckStdPressure`.
-- Claves nuevas: `Log_QnhPenaltyProvisional`, `Log_QnhFinalPenalty`, `Log_QnhPenaltyReversed`, `Log_QnhFinalIndeterminate`.
-
-**Nuevos tipos/métodos (v0.8.8–v0.8.9):** `Models/NavData.cs` → `NavApproachAirportResponse`/`NavApproachAirportRunway`; `Db/RunwayService.cs` → `NearestApproachAirportResult`; `NavDataClient.GetNearestApproachAirportAsync`; `NavDataService`/`INavDataService.FindApproachAirport`; `FlightManager.SetDivertedAirport`/`DivertedAirport`.
-
-**Claves de log nuevas (v0.8.8–v0.8.9):** `Lnm_ArrivalAirportMismatch`, `Lnm_DiversionDetected`, `Lnm_DistanceMismatch`, `Log_ArrivalAirportCorrected`, `Log_ErrorArrivalAirportUpdate`, `Log_ErrorPilotPositionUpdate` (`Languages/en.json` + `es.json`).
-
-### Falsos positivos de desvío durante giros de STAR (v0.9.1)
-
-Vuelo real (`9QJYgErnggMdgKPO`, SKLT→SKBO) reveló que `ReconfirmApproachRunway` podía marcar como "desvío" un aeropuerto que el avión solo cruzaba de pasada durante un giro de STAR, a decenas de NM de distancia — y que ese falso positivo **nunca se revertía** aunque el tracking local volviera a confirmar el destino planeado segundos después, sobreviviendo incluso un touch-and-go y una segunda aproximación completa. Confirmado en vivo contra NavData con las coordenadas exactas del log: `GET /nearest/approach-airport/` matcheó SKGY con `heading_diff_deg: 3.1` (coincidencia casual de rumbo durante el giro) pero `cross_track_nm: 11.36` — el avión estaba a más de 11 NM del eje extendido de esa pista, nada parecido a una aproximación real.
-
-Dos causas independientes, ambas corregidas:
-
-1. **Sin filtro de plausibilidad geométrica** — `NearestApproachAirportResult` no exponía `cross_track_nm` (el endpoint ya lo devuelve, se descartaba). Ahora se mapea (`NavDataService.FindApproachAirport`) y `ReconfirmApproachRunway` exige `cross_track_nm ≤ 3.0` (o ausente) antes de aceptar un match como desvío genuino — la rama `GetRunwayThreshold` más abajo, que resuelve el runway real, no cambia (ya tenía su propia tolerancia estricta de 2 NM).
-2. **Sin reconciliación** — `SetEffectiveDestination`/`SetDivertedAirport`/`SetArrivalAirportElevation` solo se reseteaban en `ResetFlightState()`/`ResumeFlight()` (inicio/fin de vuelo). Nuevo `FlightManager.ClearDivertedAirport()`, llamado desde `ReconfirmApproachRunway` en cuanto un poll no-desviado reconfirma el destino planeado (tanto si `runwayChanged` como si no) — revierte los tres campos a `null`, que `ApproachValidator`/`FilePirep()` ya tratan como "usar el destino planeado" (`EffectiveDestination ?? DestIcao`). Log `Lnm_DiversionReverted` cuando había un desvío marcado que se revierte.
-
-Fuera de alcance (evaluado y descartado): filtro de tamaño de pista (`length_ft`/`width_ft`, propuesto por el usuario con SKMA/SKGY como evidencia — ni el endpoint `/nearest/approach-airport/` los expone ni hacía falta, el filtro de `cross_track_nm` ya cubre el caso real con datos que el endpoint ya envía) y conciencia de fixpoints de STAR (mismo motivo).
-
-**Claves de log nuevas:** `Lnm_DiversionReverted` (`Languages/en.json` + `es.json`).
-
-### Falso desvío por alineación casual con un aeródromo de la derrota (v0.9.9)
-
-Reportado en vuelo (PIREP `E7DK47e88XdabzoL`, SKRG→SKBQ del 20/09/2026 con desvío simulado a
-SKCG): a las 15:12:47, descendiendo a ~17 000 ft en lat 9.22349, lon -75.43016, rumbo 348, el
-cliente anunció `DIVERTING TO SKTL`. **SKTL comparte la alineación costera de la llegada** —su
-rwy 35 va a 348.9° magnética y el avión volaba a 348, `heading_diff_deg` **0.9°**— así que el
-endpoint lo devolvió durante **siete minutos** de descenso.
-
-El filtro de 3 NM de v0.9.1 lo dejó pasar por **0.007 NM** (`cross_track_nm` 2.993) durante **un
-solo sondeo**; 5 s después ya era 3.06 NM. Clave del diagnóstico: el match falso y el real están
-**ambos a ~19 NM del umbral** (19.13 vs 19.04), así que la distancia no discrimina — lo que los
-separa es el **ángulo** (9.0° contra 2.1°).
-
-`ReconfirmApproachRunway` exige ahora **seis** filtros geométricos independientes, más una
-comprobación contra el propio plan de vuelo:
-
-1. **Lateral** — `cross_track_nm ≤ MaxCrossTrackNm` (3 NM), como en v0.9.1.
-2. **Angular** — `NavDataService.IsWithinFinalCone`: `|cross| ≤ max(FinalConeFloorNm 0.25 NM,
-   dist_umbral · tan(MaxFinalConeAngleDeg 4°))`. El corte lateral fijo no puede separar los
-   casos reales; como cono están a un factor de cuatro. El suelo evita que el cono colapse a cero
-   cerca del umbral, donde el ángulo degenera.
-3. **Vertical** — `NavDataService.IsPlausibleDiversionDescent`: el AGL sobre el aeródromo
-   emparejado dividido entre las NM que faltan no puede pasar de `MaxDiversionGradientFtPerNm`
-   (700 ft/NM ≈ 6.6°, justo por encima de la aproximación publicada más empinada del mundo; una
-   senda estándar son 318 ft/NM). Caza por sí solo la clase SKTL desde el primer sondeo —su serie
-   corrió a 906–2 224 ft/NM y **empeoraba** al acercarse— y **no** caza los falsos de Boston,
-   cuyo perfil era normal (2.8°–5.8°). Se mide contra la elevación del aeródromo **emparejado**,
-   no la del destino planeado.
-4. **El alterno más cerca que el destino** — `IsPlausibleDiversionDistance`: no se desvía uno a
-   un aeropuerto que está más lejos que aquel al que ya iba.
-5. **Establecido en final** — `SelectApproachThreshold` (`GetRunwayThreshold`, con `along ≤ 0`
-   además de ≤2 NM laterales y rumbo dentro de 15°).
-6. **Persistencia** — `DiversionConfirmPolls` (2) sondeos consecutivos nombrando el mismo
-   alterno, para que una sola muestra no dispare el OSD ni reoriente el destino efectivo.
-
-### La llegada del propio plan: "¿estoy donde debería?" (v0.9.9)
-
-Antes de todo lo anterior, `ReconfirmApproachRunway` comprueba si el avión está dentro del
-corredor de la llegada que él mismo presentó: **`Helpers/RouteCorridor.IsOnArrival`**, 5 NM a cada
-lado de los últimos 40 NM de la traza del navlog de SimBrief (`SimbriefPlan.Waypoints`, que
-`SimbriefEnhancedService` llena con las coordenadas de cada fix). Si está dentro, un match que
-nombre otro aeródromo no es un desvío —es la llegada pasando cerca de él— y se revierte cualquier
-bandera. Es la comprobación más directa de todas y la única que usa lo que el piloto planificó.
-
-**Validación con datos reales:** el último OFP del usuario en SimBrief (`simbrief_user` en
-`App.config`) seguía siendo el del vuelo SKRG→SKBQ, así que se descargó entero. Los puntos de su
-llegada planificada dan 0 NM y el avión estuvo a **25–33 NM** de esa traza durante todo el
-descenso del falso SKTL (se había ido hacia SKCG): la regla **no** toca ese caso. Actúa en el
-opuesto, que es donde ocurrieron los tres falsos de KBOS. **De ese caso no se pudo verificar el
-beneficio**: ese vuelo no tiene PIREP en la API (comprobados los 20; ninguno con KBOS), así que no
-hay ruta ni OFP que medir. Es la única pieza del arreglo sin validar contra vuelo real.
-
-El corredor se define por distancia, no por las banderas `IsSidStar`/`Stage`: en ese OFP real el
-fix de transición **LOLUD** llegó con `is_sid_star = 0` pese a pertenecer a la llegada, así que
-filtrar por bandera dejaba el corredor en un tramo de 11 NM. Un desvío real empieza saliéndose de
-la llegada, así que el coste es retrasar la detección lo que se tarde en abandonar 5 NM. Sin
-navlog (plan desde phpVMS, o sin OFP) la regla no opina.
-
-`GeoMath.DistanceToSegmentNm` es nueva: el código solo tenía proyección sobre la recta infinita y
-medir desviación de traza necesita la recta **recortada** a sus extremos.
-
-### Tres falsos desvíos en la aproximación a KBOS (v0.9.9, segundo caso real)
-
-PIREP del 22-23/09/2026 (SKCG→KBOS, A320, **v0.9.2**): durante el descenso y el viraje de encaje
-a la final de Logan el cliente anunció `DIVERTING TO 28M` (03:44:33), `TO 1B9` (03:45:38) y
-`TO KOWD` (03:46:09), y revirtió a KBOS a las 03:47:49 — dejando además la captura de
-aproximación apuntando a la pista 28 de Norwood mientras el avión estaba en Logan
-(`INICIO CAPTURA APROX: PISTA 28 | Dist 3,4 NM`, 03:47:16).
-
-Mecanismo **distinto** al de SKTL: aquí el destino real estaba **dentro del radio de 20 NM** del
-matcher (a 6.5 NM en el primer evento), pero durante el viraje no tenía ninguna pista a menos de
-15° del rumbo, así que el endpoint devolvía el aeródromo pequeño mejor alineado. Los tres
-`cross_track_nm` —1.244, 2.993 y 1.203 NM— pasaban el corte de 3 NM de v0.9.1 (el de 1B9 por
-0.007 NM, igual que SKTL). Es el caso que justifica el **filtro 4**: el "alterno" 28M estaba a
-15.1 NM mientras el avión tenía Logan a 6.5 NM, y esa regla lo detiene con un margen de 2.3×
-donde el cono sólo lo detenía por 0.7°. KOWD, en cambio, estaba a 6.58 NM —**más cerca** que
-Logan a 11.35 NM— así que sólo el cono lo detiene: las dos reglas cubren cosas distintas.
-
-Replay de la aproximación real (14 posiciones, 03:44–03:50) contra el endpoint en vivo con la
-puerta nueva: **cero falsos desvíos**, y KBOS 04R resuelta desde 9.45 NM — 33 s antes de la
-reversión observada, de modo que la captura de aproximación habría sido la correcta.
-
-Replay equivalente del primer caso (22 posiciones, 15:11–15:24): SKTL **rechazado en los 13
-sondeos** en que el endpoint lo devolvió, y SKCG **aceptado** desde 17.4 NM con 0.58 NM del eje.
-
-**Claves de log nuevas:** `Lnm_DiversionRejectedCrossTrack`, `Lnm_DiversionRejectedCone`,
-`Lnm_DiversionRejectedFarther`, `Lnm_DiversionRejectedNotOnFinal`.
-
-**El eje de proyección debe ser el verdadero, no el magnético (v0.9.9).** `SelectApproachThreshold`
-proyectaba con `rwy.Heading` (magnético) mientras `ProjectOnRunway` ya usaba `TrueRunwayBearing`.
-La variación local (8.4°E aquí) rota el eje y produce `distancia × sin(variación)` de error: 2.8 NM
-a 19 NM. Con ese error el desvío **real** a SKCG (0.70 NM del eje según el endpoint, 0.703) se
-calculaba como 3.51 NM y superaba la tolerancia de 2 NM — la primera versión del fix habría
-**dejado pasar el desvío real mientras rechazaba el falso**, por el motivo equivocado. La
-comparación de rumbo sigue siendo magnética-contra-magnética (ambos valores vienen de referencias
-magnéticas y la variación se cancela); solo la proyección usa el bearing verdadero. Y
-`ThresholdHeading` devuelve el verdadero porque alimenta `ComputeApproachMetrics`, que proyecta
-con él (hasta ~600 ft de error lateral en el landing log con variación ≥ 13°).
-
-Marcar el desvío algo más tarde (al establecerse en final, no al primer match) no degrada nada:
-desde v0.8.10 el QNH de llegada es provisional y se decide al filear, y los gates de QNH/ILS
-disparan a TL−1000 ft / 1000 ft AGL, después de esa final. Los rechazos se registran **una sola
-vez** por aeródromo y motivo (`Lnm_DiversionRejectedCrossTrack`, `Lnm_DiversionRejectedCone`,
-`Lnm_DiversionRejectedFarther`, `Lnm_DiversionRejectedNotOnFinal`) — el endpoint devuelve el
-mismo aeródromo en cada sondeo de 5 s durante todo el descenso.
-
----
+- **Cuándo**: al encender la **luz de taxi** o al entrar en **TaxiOut**, lo que ocurra antes y una
+  vez por vuelo, sale `TaxiRouteForm`: lista de **pistas del aeropuerto** (por defecto la del OFP,
+  `SimbriefPlan.OriginRunway`), **ruta editable separada por espacios** (la sugiere el grafo de
+  calles) y los ajustes de RAAS / voz / volumen. `raas_enabled` en App.config lo desactiva.
+- **Avisos** (`Helpers/RaasAdvisor.cs`, puro y con estado): `APROXIMANDO PISTA` y `ESPERA ANTES DE
+  PISTA` a 150 m / 40 m del hold-short **yendo hacia él**; `CALLE X A LA DERECHA/IZQUIERDA EN N M`
+  a 250 m del cruce y `GIRA AHORA` a 60 m; `FUERA DE RUTA`; `RUTA COMPLETA`. Uno por situación, con
+  20 s de enfriamiento y re-armado al terminar: nunca repite el mismo aviso cada sondeo.
+- **Grafo** (`Helpers/TaxiGraph.cs`, puro): extremos de segmento a ≤45 m son un nodo, Dijkstra
+  hasta el umbral de la pista → secuencia de calles. Resuelve también el cruce y el lado del giro.
+- **Voz SAPI** (`Services/RaasVoice.cs`): cola FIFO en hilo propio —el hilo de telemetría nunca se
+  bloquea—, volumen propio, y **degrada en silencio** si el equipo no tiene voces (lo dice una vez
+  en el log). Usa `System.Speech`, que va con .NET Framework: nada que distribuir.
+- **Los avisos se evalúan a 1 Hz sobre la telemetría cruda**, no sobre el envío de posiciones a
+  phpVMS: ese va cada 30 s en rodaje y a 15 kt son ~230 m entre muestras, demasiado para avisar a
+  150 m de un hold-short.
+- **Bug corregido de paso**: `FindHoldingPoint` filtraba por el `heading` del hold-short, que es el
+  **eje de la pista**. Con el avión rodando perpendicular —267–270° reales contra 136° del eje en
+  SKBO— descartaba justo los hold-shorts que tenía delante; ahora exige ir **hacia** el punto.
 
 ## Detección de fases — umbrales
 
@@ -575,61 +470,26 @@ diseño, sin acceso a NavData; el debounce de 5 s resuelve el caso real sin ese 
 
 ## Referencias de archivos clave
 
-| Archivo | Contenido relevante |
-|---|---|
-| `Core/Flight/FlightManager.cs` | partial (532 l): `CheckStabilizedApproachGate`/`CheckApproachBelowGate`; `CheckViolations` (TA/TL/QNH/10k ft); `SetRunwayTouchdownData`; `SetApproachData`; `SetOriginTransitionAlt/SetDestTransitionLevel`; `TransitionTo`; `SetResumedPenalties`; `BeaconStrobeSharedAircraft` (DH8D beacon exemption); `SetArrivalAirportElevation`/`ArrivalAirportElevationFt` — override de elevación de referencia tras desvío confirmado (v0.9.0); `ClearDivertedAirport()` — revierte un desvío marcado por error (v0.9.1) |
-| `Core/Flight/FlightPhaseStateMachine.cs` | `TransitionTo(phase)`; umbrales y debounce de fase; timers de transición; `TaxiOut→TakeoffRoll` con debounce 5 s (`_takeoffRollStart`, v0.9.2) |
-| `Core/Flight/ApproachValidator.cs` | gate 1 000 ft (speed, VS, bank, pitch, gear, flaps); `CheckLocalizerAlignment`; `CheckMinimums`; flag `IlsTunedCorrectly`; `CheckArrivalQnhProvisionalAsync`/`FinalizeArrivalQnhAsync` — QNH de llegada provisional/confirmado (v0.8.10); `CheckQnhAsync`/`CheckPhaseEntryLights` (TakeoffRoll) con guard una-vez-por-vuelo (`_departureQnhChecked`/`_takeoffLightsChecked`, v0.9.2) |
-| `Core/Flight/TouchdownState.cs` | `LandingRate`, `GForce`, `BankAngle`, `PitchAngle`; geometría de pista (`DistanceFt`/`CenterlineDeviationFt`/`RunwayName`) publicada como una referencia inmutable `RunwayGeometry` para que el lector nunca vea un conjunto a medio actualizar (v0.9.5); reset en `ResetFlightState()` |
-| `Core/Flight/PenaltyState.cs` | `OverspeedCount`, `LightsViolations`, `StabilizedPenalty`, `QnhPenalty`; `_singleEngineTaxiDistance`; consolidado en `ScoringService` |
-| `Core/Flight/FlightManager.Telemetry.cs` | procesamiento de `RawTelemetryData`; actualiza `TouchdownState` y `PenaltyState` por ciclo |
-| `Core/Flight/FlightManager.Lifecycle.cs` | `PrefilePirep`; `FilePirep` (incluye `block_on_time` en payload; corrige `arr_airport_id` vía `UpdatePirep` y agrega `diversion-airport` cuando hay desvío confirmado — v0.8.8–v0.8.9; awaita `FinalizeArrivalQnhAsync` antes de `BuildScoreData()` — v0.8.10; sin reubicación de piloto: `MovePilotAsync` se eliminó por roto, phpVMS reubica solo — v0.9.8); `CancelPirep`; `UpdatePirepStatus` (excluye OnBlock/Completed); `ResetFlightState` |
-| `ViewModels/MainViewModel.cs` | 711 l: `WireAirspaceMonitor`; `StartFlight`+`SetActivePlan`; `GetAircraftCategory()`; `HandleTaxiPositionUpdate` (criterio angular 25°); `SnapshotLandingRecord`→`SaveLandingRecord`; `UpdateAircraftState` |
-| `ViewModels/TelemetryCoordinator.cs` | puente `FsuipcService`→`FlightManager`; throttling OSD/map; eventos `OnFlightPhaseChanged`, `OnTouchdown`; **detección de aeropuerto de llegada distinto al planeado (v0.8.8–v0.9.9)** — ver sección dedicada abajo; `OnPhaseChanged` trata `{Descent, Approach}` como superestado (v0.8.10); `ReconfirmApproachRunway` con los seis filtros de desvío — lateral, cono angular, gradiente de descenso, alterno más cerca, "en final" y persistencia (v0.9.9); `TouchdownFallbacks` en `LookupRunwayData` (v0.9.9) |
-| `ViewModels/AcarsReporter.cs` | `SendPirep`; `ResumeFromAcarsHistoryAsync`; `SendScoringCheckpointAsync` (CHK 60 s) |
-| `UI/Forms/MapForm.cs` | 1 473 l: event wiring; zoom/tile; delega en `MapRouteController`, `MapOverlayManager`, `SidebarController`; capas toggleables TILES/ROUTE/SPACES/IVAO |
-| `UI/Map/MapRouteController.cs` | `LoadRoute` + SID/STAR virtual + suavizado Bézier; `UpdatePosition`; `SetAircraftCategory` |
-| `UI/Map/MapRouteController.Approach.cs` | `ClearApproachOverlay`; `DrawApproachOverlay` (transition, final, centerline, missed, hold racetrack) |
-| `UI/Map/MapRouteController.Helpers.cs` | 22 helpers estáticos: `MatchProcedure`, `InterpolateArcLegs`, `BuildSmoothedRoutes`, `ComputeDmeArc`, `ComputeDepartureArc`, `ComputeHoldRacetrack`, `GeodesicBearing`, `DistanceKm`, etc. |
-| `UI/Map/MapOverlayManager.cs` | `SetAirspaces` (polígonos GeoJSON, opacidades por tipo); `SetAtcStations` (TWR círculo rojo, GND/DEL estrella, formas WebEye) |
-| `UI/Map/SidebarController.cs` | `BuildSidebar` (SID/STAR/APP con restricciones); `OpenApproachChart()` |
-| `UI/Forms/ApproachChartForm.cs` | carta GDI+ (v0.6.8). Plan view: legs, arcos AF (`DrawDmeArc`), IAF/FAF/MAP. Profile: glideslope naranja, glidepath verde, DA/MDA rojo. Se abre desde `SidebarController.OpenApproachChart()` |
-| `Services/NavDataService.cs` | `SelectApproachThreshold` — "está en final" (rumbo ±15° magnético-contra-magnético + ≤2 NM del eje **verdadero** + `along ≤ 0`), `internal static` y puro para poder testearlo (v0.9.9); `IsWithinFinalCone` + `MaxFinalConeAngleDeg` (4°) + `FinalConeFloorNm` (0.25) — plausibilidad angular de un match (v0.9.9); `IsPlausibleDiversionDescent` + `MaxDiversionGradientFtPerNm` (700) + `MinGradientDistanceNm` (0.5) — gradiente de descenso usable hasta el campo emparejado (v0.9.9); `IsPlausibleDiversionDistance` + `GetAirportDistanceNm` — un desvío tiene que ser a un aeropuerto más cercano que el destino (v0.9.9); `ProjectOnRunway`+`WithinFootprint` (retorna `null` si ninguna pista pasa el footprint, v0.9.2); `TrueRunwayBearing`; `FindTaxiwaySegmentBearing`; `NextIntersection`; `GetAirportElevationFt` (vía `NavDataClient.GetAirportInfo`, v0.9.0) |
-| `Services/NavDataClient.cs` | `LoadAirportAsync` (6 endpoints paralelos); `GetAirspacesAsync` (sin radius_nm, caché 2 capas); `GetWeatherAsync` (TTL 5 min); `GetNearestApproachAirportAsync` (sin caché, posición cambia cada llamada — v0.8.9) |
-| `Services/NavDataCache.cs` | `CreateSchema` (3 tablas); `TryGetAirspace/StoreAirspace` (TTL 7 días); `SyncAirac` (purga airport+navaid, no airspaces) |
-| `Services/AirspaceMonitorService.cs` | `InitRouteAsync` (acepta initLat/initLon); `CheckPosition` (ray-casting GeoJSON); `PollIvaoAsync` (filtrado duplicados/distancia/fase); `UpdateAircraftState`; timer 3 min |
-| `Services/FsuipcService.cs` | debounce 2.5 s luces: `_pendingXxxState/At` — nuevo estado estable ≥2.5 s antes de disparar evento; elimina falsos positivos por parpadeo ~1.6 s del sim |
-| `Services/CabinAnnouncementService.cs` | `PrefetchAsync`; cola FIFO; NAudio playback; `TestAnnouncementAsync` |
-| `Services/ScoringService.cs` | 17 criterios + bonus; TDZ+Centreline ~l213; Localizer+Minimums ~l247 |
-| `Models/NavData.cs` | `NavAirspace`, `NavAirspaceGeometry` (GeoJSON [lon,lat]), `NavAirspaceFreq`; `BriefingCheckResult` |
-| `Helpers/SystemInfoHelper.cs` | `GetBestGpu` (DXGI fallback, rango 0–3); `GetCpuString` (registro + ProcessorCount) |
-| `vmsOpenAcars.Tests/ScoringServiceTests.cs` | 132 tests MSTest de `ScoringService`: un test por criterio y por frontera (ambos lados de cada umbral). Ver "Tests" más abajo |
-| `vmsOpenAcars.Tests/PirepStateTests.cs` | 13 tests de la clasificación de estado de PIREP (`Pirep.IsActiveState`), que decide el fallback de `FilePirep()` (v0.9.6) |
-| `vmsOpenAcars.Tests/GeoMathTests.cs` | 44 tests de geometría flat-earth (incluida `DistanceToSegmentNm` y su recorte en los extremos), del respaldo regional de TA/TL y de la lectura de `NavAirportInfo` (v0.9.8, v0.9.9) |
-| `vmsOpenAcars.Tests/RouteCorridorTests.cs` | 7 tests de `RouteCorridor` sobre el **navlog real de SimBrief** del vuelo SKRG→SKBQ: la llegada son los últimos tramos por distancia y no los marcados `is_sid_star` (LOLUD llegó sin bandera), los puntos de la llegada dan 0 NM, el corredor aguanta 3 NM al lado y suelta a 7, un punto en crucero no cuenta como llegada, las posiciones reales del falso SKTL están a más de 20 NM del plan, y sin navlog no se suprime nada (v0.9.9) |
-| `vmsOpenAcars.Tests/AtcPanelTests.cs` | 6 tests del orden de posiciones ATC (v0.9.8) |
-| `vmsOpenAcars.Tests/ApproachThresholdTests.cs` | 26 tests de "está en final" (`SelectApproachThreshold`), del cono angular (`IsWithinFinalCone`), del gradiente de descenso (`IsPlausibleDiversionDescent`) y de la regla de distancia (`IsPlausibleDiversionDistance`). Nueve usan las **coordenadas y altitudes exactas de dos vuelos reales**: el falso SKTL (sus seis sondeos, todos rechazados por el gradiente) y el SKCG legítimo; más los tres falsos de la aproximación a KBOS —28M, 1B9 y KOWD, que **pasan** el gradiente porque su perfil era normal— y la final correcta de Logan 04R. Además comprueban que el eje devuelto es el **verdadero** (340.58° SKTL rwy 35, 2.31° SKCG rwy 01) y no el magnético, el límite y el suelo del cono, la frontera exacta y el suelo del gradiente, que el AGL se mide contra la elevación del campo emparejado, 1 NM pasado el umbral, 3 NM laterales, rumbo fuera de 15°, la recíproca y el desempate de paralelas (v0.9.9) |
-| `Helpers/GeoMath.cs` | Único punto de verdad de la geometría flat-earth: `Project`, `ProjectPoint`, `DistanceNm/Km`, `BearingDeg`, `BearingDiffDeg`, `ToMeters`, `CosLat` con guarda polar, y `DistanceToSegmentNm` — recta **recortada** a los extremos, que es lo que hace falta para medir desviación de traza (v0.9.8, v0.9.9) |
-| `Helpers/RouteCorridor.cs` | Corredor de la llegada planificada: `ArrivalFixes` (los últimos `ArrivalWindowNm` 40 NM de la traza del navlog, por distancia y no por `IsSidStar`), `DistanceFromArrivalNm`, `IsOnArrival` (5 NM). Sin navlog no opina (v0.9.9) |
-| `Helpers/FireAndForget.cs` | `Run(work, onError, operationName)` — trabajo en segundo plano sin esperar, con la excepción **observada** y reportada al log (v0.9.8) |
-| `Helpers/TransitionDefaults.cs` | Respaldo regional de TA/TL por `iso_country` cuando NavData no los publica; devuelve 0 si el país es desconocido (v0.9.8) |
-| `Helpers/AtcStationOrder.cs` | Orden de presentación de posiciones ATC (locales primero); fuera del control WinForms para poder probarlo (v0.9.8) |
-| `UI/Forms/AtcPanel.cs` | Panel lateral ATC/ATIS detallado del mapa, con el texto completo del ATIS por estación (v0.9.8) |
-| `vmsOpenAcars.csproj` | `GenerateBindingRedirectsOutputType=true` — impide sobreescribir binding redirect manual de SQLite |
+El índice de archivos con lo relevante de cada uno —qué hace cada partial, dónde viven los
+helpers puros, qué cubre cada suite de tests— está en **`Docs/architecture.md` → "Referencias de
+archivos clave"** (movido allí en **v0.9.13** por el mismo motivo de presupuesto que la sección
+anterior).
 
 ---
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **229 tests**:
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **242 tests**:
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
 el respaldo regional de TA/TL, el orden de posiciones ATC, la definición de "está en final"
 (`SelectApproachThreshold` + `IsWithinFinalCone` + `IsPlausibleDiversionDescent` +
-`IsPlausibleDiversionDistance`), y el corredor de la llegada planificada (`RouteCorridor`).
+`IsPlausibleDiversionDistance`), el corredor de la llegada planificada (`RouteCorridor`) y el
+RAAS con la guía de rodaje (`RaasTests`: grafo, ruta editable y avisos).
 Los casos centrales usan **coordenadas, altitudes y navlogs de vuelos reales**, no geometría
-inventada: el falso SKTL, el SKCG legítimo y los tres falsos de KBOS.
+inventada: el falso SKTL, el SKCG legítimo, los tres falsos de KBOS y el rodaje completo del
+`MNjR664PBAr25RbD` (106 segmentos reales de SKBO y las posiciones del pushback y del rodaje).
 
 `InternalsVisibleTo("vmsOpenAcars.Tests")` en `Properties/AssemblyInfo.cs` permite que los
 tests accedan a los tipos `internal` (helpers) sin tener que hacerlos públicos.
@@ -684,6 +544,32 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   - **El vuelo SKCG→KBOS del 22-23/09/2026 no tiene PIREP en la API** (se comprobaron los 20;
     ninguno con KBOS) aunque su log muestra la puntuación y el aterrizaje registrado. O el
     `/file` falló esa vez, o el PIREP se borró: ese vuelo no estaría acreditado.
+
+- **El fin del pushback no está en NavData (verificado, sin implementar).** Probados en vivo:
+  `/airport/{icao}/pushback/`, `/pushbacks/`, `/stands/`, `/gates/`, `/aprons/` → **404**, y el
+  objeto de parking solo trae `name, number, suffix, type, radius_ft, heading, has_jetway,
+  airline_codes, lat, lon` (`airline_codes` llega en la respuesta y no se mapea en `NavParking`).
+
+  Lo que se creía derivable era el **eje** del pushback: el segmento `P`/`PT` cuyo extremo arranca
+  en el puesto apunta en el recíproco del morro — en SKBO puesto 49 (rumbo 216°, radio 75 ft) el
+  extremo lejano del segmento `C/P` cae a **187 ft con rumbo 037°**, contra los 036° teóricos.
+  **Pero no sirve ni el eje**: el pushback real de esa traza terminó a **432 ft con rumbo 083°**,
+  es decir con el morro ya girado ~47° (el remolque acaba en curva), y el punto derivado queda a
+  **327 ft** del real. Conclusión: NavData da el **puesto** (aquí a 3 ft), no el recorrido.
+
+  La fuente correcta es la **telemetría**, y ya está implementada: el fin del pushback es el
+  **freno de parqueo puesto estando en fase `Pushback`** — `ParkingBrakeChanged` →
+  `OnParkingBrakeChanged` ya lo loguea (`Log_ParkingBrakeSet`) y esa línea **lleva la posición**.
+  Aquí: `── PUSHBACK ──` 21:50:58 → freno puesto **21:52:39** en 4.69788,-74.13721, **101 s** de
+  empuje; el último `PBT` muestreado quedó a **18 ft** de ese punto. Nada que derivar.
+
+  Por qué el tramo final no tiene posiciones: `EmitTaxiPosition` solo se llama en `TaxiOut`,
+  `AfterLanding` y `TaxiIn` — **no** en `Pushback` —, así que entre el último `PBT` (21:52:18) y
+  el primer `TXI` (21:56:18) el avión estuvo parado con el freno puesto y sin muestrear.
+
+  Evidencia: PIREP `MNjR664PBAr25RbD`, SKBO, log `SALIENDO DESDE G49` (el puesto que resuelve
+  `FindNearestParking`/`BuildParkingName`) 21:45:40 → `BST` 21:45:47 → freno liberado 21:50:46 →
+  `PBT` 21:51:18–21:52:18 → freno puesto 21:52:39.
 
 - **Touch-and-go de entrenamiento (varios ciclos)** — v0.9.4 desbloquea la máquina de fases
   tras un touch/stop-and-go (`TaxiIn` maneja el despegue y `_wasOnGround` se refresca sin

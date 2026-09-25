@@ -86,6 +86,31 @@ Pulsa **TEST** para verificar la conectividad y la validez de la API key. El res
 
 Pulsa **REFRESH NAVDATA** para invalidar manualmente la caché de procedimientos (SIDs, STARs, aproximaciones). Úsalo cuando la aerolínea haya corregido datos de NavData dentro del mismo ciclo AIRAC y necesites que la app descargue los datos actualizados sin tener que esperar al próximo ciclo. No afecta a los espacios aéreos ni requiere reiniciar la app.
 
+### Guía de rodaje (RAAS) — v0.9.14
+
+Al encender la **luz de taxi** (o al detectarse el inicio del rodaje) aparece una ventana para
+preparar el rodaje:
+
+| Campo | Qué es |
+|---|---|
+| **Pista de despegue** | Lista con las pistas del aeropuerto. Por defecto, la que trae tu plan de SimBrief |
+| **Ruta** | La sugerida por el programa (la más corta por las calles), **editable**: escribe las calles separadas por espacios, por ejemplo `B M K1 V`. Si ATC te dio otra, ponla tú |
+| **RECALCULAR** | Vuelve a calcular la ruta para la pista elegida |
+| **RAAS / Voz / Volumen** | Avisos en el log y en pantalla, voz hablada y su volumen (al moverlo se oye una prueba) |
+
+Con la guía activa, el programa avisa como un RAAS de verdad:
+
+- **`APROXIMANDO PISTA 14R`** y **`ESPERA ANTES DE PISTA 14R`** al acercarte a un punto de espera
+  **yendo hacia él** (si lo pasas de largo en paralelo, no dice nada).
+- **`CALLE M A LA DERECHA EN 120 METROS`** antes de cada giro de la ruta, y **`GIRA AHORA`** al
+  llegar al cruce.
+- **`FUERA DE RUTA, VUELVE A CALLE B`** si te sales de la ruta que pusiste, y **`RUTA DE RODAJE
+  COMPLETA`** al terminarla.
+
+Cada aviso se dice **una sola vez** por situación: no repite «calle B, próximo a C» cada pocos
+segundos. Si eliges **AHORA NO**, el rodaje sigue como siempre (y puedes desactivar el popup
+definitivo con `raas_enabled` en la configuración). La voz usa la de Windows (SAPI); si tu equipo no
+tiene ninguna instalada, los avisos salen igual en el log y en pantalla y te avisa de ello una vez.
 ### Sección Landing Log
 
 El LOGBOOK guarda el historial de tus aterrizajes con trayectoria de aproximación en una base de datos SQLite local.
@@ -649,4 +674,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.9.12 — que tengas buen vuelo.*
+*vmsOpenAcars v0.9.14 — que tengas buen vuelo.*

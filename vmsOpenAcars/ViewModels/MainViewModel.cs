@@ -77,6 +77,14 @@ namespace vmsOpenAcars.ViewModels
         internal event Action<IList<NavAirspace>>     OnAirspacesReady;
         internal event Action<IList<IvaoAtcStation>> OnAtcStationsUpdated;
 
+        /// <summary>Pide mostrar el popup de rodaje (RAAS). Lo atiende `MainForm`.</summary>
+        internal event Action<TaxiRoutePrompt> OnTaxiRoutePromptRequested;
+
+        /// <summary>Arranca la guía de rodaje con lo que eligió el piloto en el popup.</summary>
+        internal void StartTaxiGuidance(string airport, string runway, string route,
+                                        bool raasEnabled, bool voiceEnabled, int volume)
+            => _tc?.StartTaxiGuidance(airport, runway, route, raasEnabled, voiceEnabled, volume);
+
         public MainViewModel(
             FlightManager flightManager,
             FsuipcService fsuipc,
@@ -116,6 +124,12 @@ namespace vmsOpenAcars.ViewModels
                     SimulatorNameChanged    = name          => OnSimulatorNameChanged?.Invoke(name),
                 });
             _tc.WireEvents();
+
+            // RAAS: el coordinador decide *cuándo* preguntar (luz de taxi / TaxiOut); el
+            // formulario principal es quien pinta el popup y devuelve la elección.
+            // OJO: esto va DESPUÉS de crear `_tc` — `SubscribeToEvents()` corre antes y ahí
+            // `_tc` todavía es null (fue un NullReferenceException en el arranque).
+            _tc.OnTaxiRoutePromptRequested += p => OnTaxiRoutePromptRequested?.Invoke(p);
 
             _reporter = new AcarsReporter(
                 _flightManager, _apiService, _fsuipc,

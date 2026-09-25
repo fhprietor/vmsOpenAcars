@@ -317,6 +317,7 @@ namespace vmsOpenAcars.Services
             catch { return null; }
         }
 
+        /// <summary>El avión va hacia el punto de espera, no de través rodando en paralelo.</summary>
         public HoldingPoint FindHoldingPoint(
             string airport, double lat, double lon, double heading)
         {
@@ -325,17 +326,38 @@ namespace vmsOpenAcars.Services
                 var holdShorts = NavDataClient.GetHoldShorts(airport);
                 NavHoldShort best = null;
                 double bestDist   = double.MaxValue;
+                bool   bestToward = false;
 
                 foreach (var hs in holdShorts)
                 {
-                    if (HeadingDelta(hs.Heading, heading) > 45.0) continue;
                     double d = DistM(lat, lon, hs.Lat, hs.Lon);
-                    if (d < HoldingRadiusM && d < bestDist) { bestDist = d; best = hs; }
+                    if (d >= HoldingRadiusM || d >= bestDist) continue;
+
+                    // El `heading` de un hold-short es el EJE DE LA PISTA, no la dirección con la
+                    // que uno llega. El filtro de ±45° que había aquí comparaba ese eje con el
+                    // rumbo del avión, así que descartaba justo los hold-shorts que tenía delante:
+                    // en el rodaje real de SKBO (PIREP MNjR664PBAr25RbD) el avión pasó a 5–22 m
+                    // de los de la 14R rodando a 267–270° con eje 136° — 134° de diferencia — y no
+                    // se avisó nunca. Lo que discrimina es ir HACIA el punto: si el hold-short
+                    // queda de través (rodando en paralelo), no se avisa.
+                    bool toward = double.IsNaN(heading)
+                        || HeadingDelta(BearingDeg(lat, lon, hs.Lat, hs.Lon), heading) <= 90.0;
+                    if (!toward) continue;   // de través: se ignora aunque esté más cerca
+
+                    bestDist   = d;
+                    best       = hs;
+                    bestToward = toward;
                 }
 
                 if (best == null) return null;
                 string twy = NearestTaxiway(NavDataClient.GetTaxiways(airport), lat, lon);
-                return new HoldingPoint { RunwayName = best.RunwayName, TaxiwayName = twy };
+                return new HoldingPoint
+                {
+                    RunwayName    = best.RunwayName,
+                    TaxiwayName   = twy,
+                    DistanceM     = bestDist,
+                    HeadingToward = bestToward
+                };
             }
             catch { return null; }
         }

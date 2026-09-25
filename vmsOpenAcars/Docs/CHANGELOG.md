@@ -2,6 +2,145 @@
 
 ---
 
+## [0.9.14] — 2026-09-24
+
+### Added
+
+- **RAAS: avisos de rodaje y guía giro a giro** — pedido del mantenedor («una forma más didáctica
+  e inmersiva de rodar, tipo RAAS»), con voz SAPI en esta primera versión. Sale un **popup de
+  rodaje** al encender la **luz de taxi** o al entrar en **TaxiOut** —lo que ocurra antes, una vez
+  por vuelo— donde el piloto elige la **pista del aeropuerto** (por defecto la del OFP,
+  `SimbriefPlan.OriginRunway`) y revisa la **ruta sugerida**, escrita con las calles separadas por
+  espacios y **editable** (la sugerencia es la más corta por el grafo, no la que ha dado ATC).
+
+  Avisos (log + OSD + voz), con el formato de un RAAS real:
+
+  | Aviso | Cuándo |
+  |---|---|
+  | `APROXIMANDO PISTA 14R` | a ≤150 m de un hold-short **yendo hacia él**, GS ≥ 2 kt |
+  | `ESPERA ANTES DE PISTA 14R` | a ≤40 m |
+  | `CALLE M A LA DERECHA EN 120 METROS` | a ≤250 m del cruce con la siguiente calle de la ruta |
+  | `GIRA AHORA A LA DERECHA EN CALLE M` | a ≤60 m |
+  | `FUERA DE RUTA, VUELVE A CALLE B` | la calle actual no está en la ruta |
+  | `RUTA DE RODAJE COMPLETA` | sin waypoints pendientes |
+
+  Cada aviso se dice **una vez por situación**, con 20 s de enfriamiento y re-armado al terminar la
+  situación: el log de rodaje actual repetía `CALLE B, Próximo a C` varias veces por minuto, y eso
+  en voz es inservible.
+
+- **`Helpers/TaxiGraph.cs`** (nuevo, puro) — el aeropuerto como grafo: extremos de segmento a ≤45 m
+  son un nodo, cada segmento una arista, y un Dijkstra hasta el umbral de la pista da la secuencia
+  de calles. Resuelve también el cruce entre dos calles (para la distancia al giro) y el **lado**
+  del giro a partir de los dos rumbos.
+
+- **`Helpers/RaasAdvisor.cs`** (nuevo, puro y con estado) — `TaxiRoutePlan` (parsea lo que el piloto
+  escribe de verdad: espacios, comas, flechas, `via`; colapsa nombres repetidos seguidos),
+  `ResolveGuidance` (en qué punto de la ruta va, próxima calle, distancia al cruce y lado) y el
+  motor de avisos con su antirrebote. El instante entra por parámetro: sin reloj propio, para poder
+  probarlo.
+
+- **`Services/RaasVoice.cs`** (nuevo) — voz por **SAPI** (`System.Speech`, que va con .NET
+  Framework: nada que distribuir). Cola FIFO en un hilo propio, así que **el hilo de telemetría
+  nunca se bloquea esperando a que termine de hablar**; volumen propio; intenta la voz del idioma de
+  la aplicación y, si no hay ninguna instalada, **degrada en silencio** diciéndolo una vez en el log.
+
+- **`UI/Forms/TaxiRouteForm.cs`** (nuevo) — el popup: pista, ruta editable, botón `RECALCULAR`
+  (recalcula por grafo al cambiar de pista), casillas de RAAS y voz, volumen con prueba hablada, y
+  `EMPEZAR GUÍA` / `AHORA NO`.
+
+### Fixed
+
+- **NullReferenceException al arrancar** («Error inicializando servicios: Object reference not set
+  to an instance of an object») — reportado por el mantenedor al lanzar la depuración. La
+  suscripción al nuevo evento del RAAS se puso dentro de `SubscribeToEvents()`, que
+  `MainViewModel` llama en la **línea 107**, mientras que el coordinador `_tc` se crea en la
+  **110**: la suscripción dereferenciaba un `_tc` todavía nulo y la excepción caía en el `try`
+  del arranque. Movida a después de `_tc.WireEvents()`, con un comentario en el propio código
+  avisando del orden, que es el que ya seguían las demás suscripciones al coordinador.
+
+- **El aviso de hold-short nunca sonaba en un rodaje real** — encontrado al reproducir el rodaje del
+  PIREP `MNjR664PBAr25RbD` (SKBO→MMGL). `NavDataService.FindHoldingPoint` filtraba por
+  `HeadingDelta(hs.Heading, heading) > 45°`, pero el `heading` de un hold-short es el **eje de la
+  pista**, no la dirección de llegada: en ese vuelo el avión rodó a **267–270°** mientras los
+  hold-shorts de la 14R están a **136°**, o sea **134° de diferencia** — descartados todos, incluso
+  pasando a **5–22 m** de ellos (y con una parada de **135 s** con el freno puesto a 22 m del de la
+  14R). Ahora el filtro es «voy **hacia** el punto» (rumbo al hold-short dentro de ±90° del rumbo
+  del avión), que sí discrimina: si queda de través, rodando en paralelo, no se avisa.
+
+### Verificación
+
+- Build **Debug** y **Release** en verde; suite completa **242/242** (13 tests nuevos).
+- `RaasTests` usa **106 segmentos reales de SKBO** (AIRAC 2609) y las posiciones reales del rodaje:
+  la ruta sugerida del puesto G49 a la pista 14R sale por las calles que el piloto hizo de verdad
+  (C → B → M → K → V/K1, >1 500 m), el parseo acepta lo que se escribe en la práctica, la guía
+  apunta al cruce correcto con su lado, y los cinco puntos reales frente al hold-short de la 14R
+  producen `APROXIMANDO`/`ESPERA` mientras el filtro viejo del eje los habría descartado.
+- `es.json` y `en.json`: **416 claves cada uno**, simétricos (21 nuevas).
+- Versión **0.9.14** en los tres atributos de `AssemblyInfo` y en el proyecto de tests.
+- **No verificado en vuelo**: el popup, la voz en un equipo con voces SAPI y la guía sobre un rodaje
+  nuevo. La geometría y las decisiones están probadas con datos reales; falta la sesión de
+  simulador, y en particular **oir** cómo quedan los avisos encadenados.
+
+---
+
+## [0.9.13] — 2026-09-24
+
+### Fixed
+
+- **El "resume desde el historial ACARS" estaba muerto: leía una ruta que no existe** —
+  encontrado al buscar la traza del PIREP `MNjR664PBAr25RbD` para comprobar una duda geométrica.
+  `ApiService.GetPirepAcarsAsync` pedía `GET api/pireps/{id}/acars` y esta instalación responde
+  **404** (`The route api/pireps/{id}/acars could not be found`); como el método se tragaba el
+  fallo con `return new List<>()`, el `ResumeFromAcarsHistoryAsync` que lo consume recibía una
+  lista vacía **siempre** y fallaba en silencio: ni restauraba las penalizaciones del checkpoint
+  ni mostraba el historial. Mismo patrón que `GetNearestAirport` (404) y `MovePilotAsync` (405),
+  ya eliminados en v0.9.8.
+
+  La ruta que sí existe es **`GET api/pireps/{id}/acars/position`**, la misma que el cliente usa
+  por POST para enviar cada posición: con ese PIREP (SKBO→MMGL, **ya fileado**, `state=2`)
+  devuelve **967 entradas / 1,8 MB en ~2 s**, con lat/lon, rumbo, GS, MSL, VS, IAS y `status`.
+
+- **El historial no llega en orden cronológico** — y eso habría dejado el arreglo anterior a
+  medias. `/acars/position` entrega **primero los 239 `CHK` y después las posiciones**, y dentro
+  de cada grupo tampoco respeta la hora: en ese PIREP el último `CHK` del array era el de las
+  **22:43** cuando el más reciente era el de las **02:52**. Como `ResumeFromAcarsHistoryAsync`
+  usa `LastOrDefault(status == "CHK")` para restaurar el scoring y `Skip(count - 20)` para mostrar
+  los últimos 20 apuntes, sin ordenar habría restaurado el **checkpoint equivocado** del vuelo.
+  Ahora `GetPirepAcarsAsync` ordena por `created_at` en la frontera de la API, que es donde el
+  contrato "el más nuevo al final" tiene que ser cierto.
+
+### Docs
+
+- **`CLAUDE.md` se partió en dos para que quepa.** Tenía **67,3 KB** y el presupuesto de
+  instrucciones del agente es **65 536 bytes**: el harness lo **truncaba** en cada turno, y lo que
+  cortaba era el final del archivo —*Próximas áreas*, justo las decisiones pendientes que no se
+  pueden perder (y menos al cambiar de equipo). Se movieron a `Docs/architecture.md`:
+  - la narrativa de desvíos (~21 KB: SKTL, SKGY, los tres falsos de KBOS, SKCL→SKBO, el QNH
+    provisional, el corredor y los seis filtros) → `architecture.md` → *Aeropuerto de llegada
+    distinto al planeado*, junto al flujo que ya vivía allí;
+  - el índice de archivos clave (~10 KB, 46 filas) → `architecture.md` → *Referencias de archivos
+    clave*.
+
+  En `CLAUDE.md` queda de cada uno un resumen con puntero. Resultado: **38,0 KB** y sin
+  truncación. La regla queda escrita en **Reglas de trabajo → Documentación**: el techo de 64 KB,
+  que el harness trunca en silencio, y que lo largo va a `architecture.md`.
+- **`Docs/architecture.md`** gana además una sección **API phpVMS — endpoints verificados**: qué
+  rutas existen y cuáles no en esta instalación, los códigos de `status` del ACARS (`BST`, `PBT`,
+  `TXI`, …), el formato del checkpoint `SC:` y el aviso de que el historial no llega ordenado, para
+  no volver a probarlo a ciegas.
+
+### Verificación
+
+- Build **Debug** y **Release** en verde; suite completa **229/229**.
+- `CLAUDE.md`: **38 KB**, por debajo del presupuesto con ~27 KB de margen.
+- `architecture.md`: conserva íntegras las dos secciones movidas (comprobado por encabezado).
+- Versión **0.9.13** en los tres atributos de `AssemblyInfo` y en el proyecto de tests.
+- **No verificado en vuelo**: que el resume muestre bien el historial y restaure el checkpoint
+  correcto. Los datos están comprobados contra la API real (967 entradas, orden corregido), pero el
+  camino completo —arrancar un vuelo, cortarlo, reanudarlo— necesita una sesión del simulador.
+
+---
+
 ## [0.9.12] — 2026-09-24
 
 ### Fixed

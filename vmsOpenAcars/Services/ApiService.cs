@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -549,14 +550,19 @@ namespace vmsOpenAcars.Services
         }
 
         /// <summary>
-        /// Retrieves the ACARS position history for an active PIREP.
-        /// Returns all position entries recorded so far (newest last).
+        /// Retrieves the ACARS history for a PIREP — the recorded positions and the SCH log
+        /// entries — ordered chronologically, oldest first.
         /// </summary>
         public async Task<List<Models.AcarsPosition>> GetPirepAcarsAsync(string pirepId)
         {
             try
             {
-                var response = await _httpClient.GetAsync($"{_baseUrl}api/pireps/{pirepId}/acars");
+                // /acars/position es la única ruta que existe: /acars responde 404 en esta
+                // instalación (`The route api/pireps/{id}/acars could not be found`), y como el
+                // fallo se devolvía vacío, el resume desde el historial nunca recibía nada.
+                // Verificado con el PIREP MNjR664PBAr25RbD: 967 entradas y 1,8 MB en ~2 s.
+                var response = await _httpClient.GetAsync(
+                    $"{_baseUrl}api/pireps/{pirepId}/acars/position");
                 if (!response.IsSuccessStatusCode) return new List<Models.AcarsPosition>();
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -566,8 +572,19 @@ namespace vmsOpenAcars.Services
                 var dataToken = json["data"];
                 if (dataToken == null) return new List<Models.AcarsPosition>();
 
-                return dataToken.ToObject<List<Models.AcarsPosition>>()
-                       ?? new List<Models.AcarsPosition>();
+                var entries = dataToken.ToObject<List<Models.AcarsPosition>>()
+                              ?? new List<Models.AcarsPosition>();
+
+                // La API NO devuelve el historial en orden cronológico: entrega primero todos los
+                // CHK y después las posiciones, y dentro de cada grupo tampoco respeta la hora
+                // (en ese PIREP los 239 CHK venían al principio con horas cruzadas). Los
+                // consumidores asumen "el más nuevo al final" —el resume restaura el último CHK y
+                // muestra los últimos 20 apuntes—, así que sin ordenar aquí se restauraba el
+                // checkpoint de las 22:43 en vez del de las 02:52. Se ordena en la frontera de la
+                // API, una sola vez, para que ese contrato sea cierto.
+                return entries
+                    .OrderBy(a => a.created_at ?? DateTime.MinValue)
+                    .ToList();
             }
             catch
             {

@@ -325,6 +325,40 @@ namespace vmsOpenAcars.UI.Forms
                 MessageBox.Show(message, title);
             };
 
+            // ── RAAS: popup de rodaje ─────────────────────────────────────────────
+            // El coordinador lo pide al encender la luz de taxi o al entrar en TaxiOut, una vez
+            // por vuelo. Aquí solo se pinta y se devuelve la elección: la lógica de los avisos
+            // vive en el coordinador y en los helpers puros, no en el formulario.
+            _viewModel.OnTaxiRoutePromptRequested += p =>
+            {
+                try
+                {
+                    BeginInvoke((Action)(() =>
+                    {
+                        using (var dlg = new TaxiRouteForm(p, AppConfig.RaasEnabled,
+                                                           AppConfig.RaasVoiceEnabled,
+                                                           AppConfig.RaasVolume))
+                        {
+                            if (dlg.ShowDialog(this) != DialogResult.OK)
+                            {
+                                _uiService.AddLog("🎙️ RAAS: guía de rodaje no activada", Theme.Taxi);
+                                return;
+                            }
+                            AppConfig.RaasVoiceEnabled = dlg.VoiceEnabled;
+                            AppConfig.RaasVolume       = dlg.Volume;
+                            _viewModel.StartTaxiGuidance(p.Icao, dlg.SelectedRunway, dlg.RouteText,
+                                                         dlg.RaasEnabled, dlg.VoiceEnabled,
+                                                         dlg.Volume);
+                        }
+                    }));
+                }
+                catch (Exception ex)
+                {
+                    _uiService.AddLog("⚠️ RAAS: no se pudo mostrar el popup de rodaje (" + ex.Message + ")",
+                                      Theme.Warning);
+                }
+            };
+
             _viewModel.OnShowConfirmation += async (message, title, buttons) =>
             {
                 DialogResult result = DialogResult.None;
@@ -2426,6 +2460,11 @@ private void UpdateMetarPanel(MetarData[] metars)
                 { "osd_screen_index",     "1" },
                 { "osd_opacity",          "90" },
                 { "osd_airspace_alerts",  "true" },
+
+                // RAAS (guía de rodaje)
+                { "raas_enabled",         "true" },
+                { "raas_voice_enabled",   "true" },
+                { "raas_volume",          "80" },
 
                 // Cabin Announcements
                 { "cabin_announcements_enabled", "true" },

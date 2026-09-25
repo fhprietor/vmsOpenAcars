@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Threading.Tasks;
 using vmsOpenAcars.Core.Flight;
 using vmsOpenAcars.Db;
@@ -37,6 +38,23 @@ namespace vmsOpenAcars.ViewModels
         private string   _pendingTaxiway;
         private int      _pendingTaxiwayCount;
         private const double TaxiwayChangeHeadingThreshold = 25.0;
+
+        // ── RAAS: guía de rodaje giro a giro (v0.9.14) ────────────────────────────
+        // La guía se activa desde el popup que sale al encender la luz de taxi o al detectarse
+        // el TaxiOut; a partir de ahí los avisos se evalúan sobre la **telemetría cruda** (1 Hz),
+        // no sobre el envío de posiciones a phpVMS: ese va cada 30 s en rodaje, y a 15 kt son
+        // 230 m entre muestra y muestra — demasiado para avisar de un hold-short a 150 m.
+        private readonly RaasAdvisor   _raas = new RaasAdvisor();
+        private TaxiRoutePlan          _raasPlan;
+        private string                 _raasAirport;
+        private string                 _raasRunway;
+        private bool                   _raasGuidanceActive;
+        private bool                   _raasPromptShown;
+        private DateTime               _lastRaasEval = DateTime.MinValue;
+        private static readonly TimeSpan RaasInterval = TimeSpan.FromSeconds(1);
+
+        /// <summary>Pide al UI que muestre el popup de rodaje (una vez por vuelo).</summary>
+        internal event Action<TaxiRoutePrompt> OnTaxiRoutePromptRequested;
 
         // ── Approach track capture ────────────────────────────────────────────────
         private RunwayTouchdownResult _approachThreshold;
@@ -166,6 +184,7 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.StrobeLightChanged  += OnStrobeLightChanged;
             _fsuipc.LandingLightChanged += OnLandingLightChanged;
             _fsuipc.BeaconChanged       += OnBeaconChanged;
+            _fsuipc.TaxiLightChanged    += OnTaxiLightChanged;
         }
 
         internal void UnwireEvents()
@@ -186,6 +205,7 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.StrobeLightChanged  -= OnStrobeLightChanged;
             _fsuipc.LandingLightChanged -= OnLandingLightChanged;
             _fsuipc.BeaconChanged       -= OnBeaconChanged;
+            _fsuipc.TaxiLightChanged    -= OnTaxiLightChanged;
         }
 
         // ── Post-PIREP reset ──────────────────────────────────────────────────────
@@ -199,12 +219,26 @@ namespace vmsOpenAcars.ViewModels
             _cabinCruiseSent       = false;
             _cabinOnRunwaySent     = false;
             _cabinCruiseCheckStart = DateTime.MinValue;
+
+            // RAAS: vuelo nuevo → se vuelve a preguntar la pista y se suelta la guía anterior.
+            _raasGuidanceActive = false;
+            _raasPlan           = null;
+            _raasAirport        = null;
+            _raasRunway         = null;
+            _raasPromptShown    = false;
+            _lastRaasEval       = DateTime.MinValue;
+            RaasVoice.Cancel();
         }
 
         // ── Phase change ──────────────────────────────────────────────────────────
 
         internal void OnPhaseChanged(FlightPhase phase, FlightPhase prevPhase)
         {
+            // RAAS: el TaxiOut es la otra señal de «voy a rodar» (hay quien no enciende la luz de
+            // taxi, o la enciende antes de arrancar). El popup sale una sola vez por vuelo.
+            if (phase == FlightPhase.TaxiOut && prevPhase != FlightPhase.TaxiOut)
+                RequestTaxiRoutePrompt("taxi out");
+
             if (phase == FlightPhase.Boarding && _navDataService.IsAvailable)
             {
                 double dLat  = _flightManager.CurrentLat;
@@ -343,6 +377,8 @@ namespace vmsOpenAcars.ViewModels
             }
 
             LastGroundSpeedKt = e.GroundSpeedKt;
+
+            EvaluateRaas(e);
 
             // ── Cabin cruise check ────────────────────────────────────────────────
             if (_flightManager?.CurrentPhase == FlightPhase.Enroute && !_cabinCruiseSent)
@@ -1092,6 +1128,202 @@ namespace vmsOpenAcars.ViewModels
         }
 
         // ── NavData lookups ───────────────────────────────────────────────────────
+
+        // ── RAAS: activación, avisos y guía giro a giro ───────────────────────────
+
+        /// <summary>
+        /// Enciende la guía con la pista y la ruta que eligió el piloto en el popup. La ruta es
+        /// texto libre separado por espacios; si queda vacía, no hay guía (pero sí avisos de
+        /// hold-short, que no dependen de la ruta).
+        /// </summary>
+        internal void StartTaxiGuidance(string airport, string runway, string routeText,
+                                        bool raasEnabled, bool voiceEnabled, int volume)
+        {
+            _raasAirport        = airport;
+            _raasRunway         = runway;
+            _raasPlan           = TaxiRoutePlan.Parse(routeText);
+            _raasGuidanceActive = raasEnabled;
+
+            AppConfig.RaasVoiceEnabled = voiceEnabled;
+            AppConfig.RaasVolume       = volume;
+            RaasVoice.Log = msg => _cb.Log?.Invoke("⚠️ RAAS: " + msg, Theme.Warning);
+            RaasVoice.Configure(raasEnabled && voiceEnabled, volume, AppConfig.Language);
+
+            if (raasEnabled)
+            {
+                _cb.Log?.Invoke($"🎙️ GUÍA DE RODAJE: PISTA {runway}" +
+                                (_raasPlan.Names.Count > 0 ? $"  VÍA {_raasPlan.ToText()}" : ""),
+                                Theme.Taxi);
+                if (voiceEnabled && !RaasVoice.Available)
+                    _cb.Log?.Invoke("⚠️ RAAS: sin voz SAPI en este equipo — avisos solo en pantalla",
+                                    Theme.Warning);
+            }
+        }
+
+        internal void StopTaxiGuidance()
+        {
+            _raasGuidanceActive = false;
+            _raasPlan           = null;
+            RaasVoice.Cancel();
+        }
+
+        /// <summary>Ruta sugerida por el grafo para una pista, para el popup.</summary>
+        internal string SuggestTaxiRoute(string airport, string runway, double lat, double lon)
+        {
+            try
+            {
+                var rwy = NavDataClient.GetRunways(airport)
+                    .FirstOrDefault(r => string.Equals(r.Name, runway,
+                                                       StringComparison.OrdinalIgnoreCase));
+                if (rwy == null) return "";
+                var suggestion = TaxiGraph.Suggest(TaxiSegments(airport),
+                                                   lat, lon, rwy.ThresholdLat, rwy.ThresholdLon);
+                return suggestion.Found ? suggestion.Text : "";
+            }
+            catch { return ""; }
+        }
+
+        /// <summary>
+        /// Los segmentos de calle de NavData como grafo puro. Se mapea aquí, y no en el servicio,
+        /// porque `TaxiGraph` es `internal` y `INavDataService` es público: exponer el tipo en la
+        /// interfaz obligaría a hacerlo público solo por eso.
+        /// </summary>
+        private static List<TaxiGraph.Segment> TaxiSegments(string airport)
+        {
+            var result = new List<TaxiGraph.Segment>();
+            try
+            {
+                foreach (var t in NavDataClient.GetTaxiways(airport))
+                {
+                    if (t == null || string.IsNullOrWhiteSpace(t.Name)) continue;
+                    result.Add(new TaxiGraph.Segment
+                    {
+                        Name = t.Name.Trim(),
+                        Lat1 = t.StartLat, Lon1 = t.StartLon,
+                        Lat2 = t.EndLat,   Lon2 = t.EndLon
+                    });
+                }
+            }
+            catch { }
+            return result;
+        }
+
+        private void RequestTaxiRoutePrompt(string reason)
+        {
+            if (_raasPromptShown || !AppConfig.RaasEnabled || _flightManager == null) return;
+
+            var plan = _flightManager.ActivePlan;
+            string airport = plan?.Origin ?? _flightManager.CurrentAirport;
+            if (string.IsNullOrEmpty(airport) || !_navDataService.IsAvailable) return;
+
+            _raasPromptShown = true;
+
+            double lat = _flightManager.CurrentLat;
+            double lon = _flightManager.CurrentLon;
+            string defaultRunway = plan?.OriginRunway ?? "";
+
+            Task.Run(() =>
+            {
+                var runways = NavDataClient.GetRunways(airport)
+                                          .Select(r => r.Name)
+                                          .Where(n => !string.IsNullOrEmpty(n))
+                                          .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                                          .ToList();
+                if (runways.Count == 0) return;
+
+                var prompt = new TaxiRoutePrompt
+                {
+                    Icao          = airport,
+                    DefaultRunway = runways.Contains(defaultRunway) ? defaultRunway : runways[0],
+                    Reason        = reason,
+                    SuggestedRoute = SuggestTaxiRoute(airport, defaultRunway, lat, lon),
+                    SuggestRoute   = rwy => SuggestTaxiRoute(airport, rwy, lat, lon)
+                };
+                prompt.Runways.AddRange(runways);
+                OnTaxiRoutePromptRequested?.Invoke(prompt);
+            });
+        }
+
+        private void OnTaxiLightChanged(bool on)
+        {
+            // La luz de taxi es el gesto con el que el piloto dice «empiezo a rodar»: es el
+            // momento natural para preguntar por la pista, antes de que la guía pueda servir.
+            if (on) RequestTaxiRoutePrompt("taxi light");
+        }
+
+        private void EvaluateRaas(RawTelemetryData e)
+        {
+            if (!_raasGuidanceActive || string.IsNullOrEmpty(_raasAirport)) return;
+
+            var phase = _flightManager?.CurrentPhase ?? FlightPhase.Idle;
+            bool taxiPhase = phase == FlightPhase.Pushback || phase == FlightPhase.TaxiOut
+                          || phase == FlightPhase.TakeoffRoll || phase == FlightPhase.TaxiIn
+                          || phase == FlightPhase.AfterLanding || phase == FlightPhase.Boarding;
+            if (!taxiPhase) return;
+            if (e.GroundSpeedKt > 60) return;      // despegue/aterrizaje: aquí no opinamos
+
+            if ((DateTime.UtcNow - _lastRaasEval) < RaasInterval) return;
+            _lastRaasEval = DateTime.UtcNow;
+
+            try
+            {
+                string active  = _navDataService.FindNearestTaxiway(_raasAirport, e.Latitude,
+                                                                    e.Longitude, e.HeadingDeg);
+                bool   onRwy   = _navDataService.FindRunwayEntry(_raasAirport, e.Latitude,
+                                                                 e.Longitude, e.HeadingDeg) != null;
+                var    hs      = _navDataService.FindHoldingPoint(_raasAirport, e.Latitude,
+                                                                  e.Longitude, e.HeadingDeg);
+                var guidance = _raasPlan != null && _raasPlan.Names.Count > 0
+                    ? RaasAdvisor.ResolveGuidance(TaxiSegments(_raasAirport),
+                                                  _raasPlan, e.Latitude, e.Longitude, active)
+                    : null;
+
+                var callout = _raas.Evaluate(new RaasAdvisor.Inputs
+                {
+                    OnRunway               = onRwy,
+                    GroundSpeedKt          = e.GroundSpeedKt,
+                    HoldShortRunway        = hs?.RunwayName,
+                    HoldShortDistanceM     = hs != null ? hs.DistanceM : double.NaN,
+                    HeadingTowardHoldShort = hs?.HeadingToward ?? false,
+                    ActiveTaxiway          = active,
+                    Guidance               = guidance
+                }, DateTime.UtcNow);
+
+                if (callout.Type == RaasCalloutType.None) return;
+
+                string text = FormatCallout(callout);
+                _cb.Log?.Invoke("🎙️ " + text, Theme.Taxi);
+                _cb.OsdMessage?.Invoke(text.ToUpperInvariant(), OsdSeverity.Info);
+                RaasVoice.Speak(text);
+            }
+            catch { /* la guía nunca debe tumbar el hilo de telemetría */ }
+        }
+
+        private static string FormatCallout(RaasCallout c)
+        {
+            int m = (int)Math.Round(c.DistanceM / 10.0) * 10;   // «en 120 m», no «en 117 m»
+            switch (c.Type)
+            {
+                case RaasCalloutType.HoldShortApproaching:
+                    return string.Format(_("Raas_HoldShortApproaching"), c.Runway);
+                case RaasCalloutType.HoldShortStop:
+                    return string.Format(_("Raas_HoldShortStop"), c.Runway);
+                case RaasCalloutType.OffRoute:
+                    return string.Format(_("Raas_OffRoute"), c.Taxiway);
+                case RaasCalloutType.RouteComplete:
+                    return _("Raas_RouteComplete");
+                case RaasCalloutType.TurnNow:
+                    if (c.Side == TurnSide.Right)  return string.Format(_("Raas_TurnNowRight"), c.Taxiway);
+                    if (c.Side == TurnSide.Left)   return string.Format(_("Raas_TurnNowLeft"), c.Taxiway);
+                    return string.Format(_("Raas_TurnNowStraight"), c.Taxiway);
+                case RaasCalloutType.TurnAhead:
+                    if (c.Side == TurnSide.Right)  return string.Format(_("Raas_TurnAheadRight"), c.Taxiway, m);
+                    if (c.Side == TurnSide.Left)   return string.Format(_("Raas_TurnAheadLeft"), c.Taxiway, m);
+                    return string.Format(_("Raas_TurnAheadStraight"), c.Taxiway, m);
+                default:
+                    return "";
+            }
+        }
 
         private void LookupRunwayData(TouchdownData data)
         {

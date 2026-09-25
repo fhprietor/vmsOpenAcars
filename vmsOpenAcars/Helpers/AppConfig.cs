@@ -119,6 +119,33 @@ namespace vmsOpenAcars.Helpers
             set => _osdAirspaceAlerts = value;
         }
 
+        // ── RAAS: guía de rodaje giro a giro (v0.9.14) ────────────────────────────
+        // `raas_enabled` decide si sale el popup de rodaje al encender la luz de taxi; el ajuste
+        // fino (voz sí/no y volumen) se elige en ese popup y se recuerda para el próximo vuelo.
+        private static bool _raasEnabled = GetBool("raas_enabled", true);
+        public static bool RaasEnabled
+        {
+            get => _raasEnabled;
+            set => _raasEnabled = value;
+        }
+
+        private static bool _raasVoiceEnabled = GetBool("raas_voice_enabled", true);
+        public static bool RaasVoiceEnabled
+        {
+            get => _raasVoiceEnabled;
+            set => _raasVoiceEnabled = value;
+        }
+
+        private static int _raasVolume = GetInt("raas_volume", 80);
+        public static int RaasVolume
+        {
+            get => _raasVolume;
+            set => _raasVolume = value;
+        }
+
+        /// <summary>Idioma de la interfaz ("es"/"en"): lo usa la voz del RAAS para elegir timbre.</summary>
+        public static string Language => ConfigurationManager.AppSettings["language"] ?? "es";
+
         private static int GetInt(string key, int defaultValue)
         {
             string value = ConfigurationManager.AppSettings[key];

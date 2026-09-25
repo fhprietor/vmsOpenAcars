@@ -24,6 +24,12 @@ namespace vmsOpenAcars.Db
     {
         public string RunwayName  { get; set; }
         public string TaxiwayName { get; set; }
+
+        /// <summary>Distancia al punto de espera, en metros (RAAS: 150 m avisa, 40 m insiste).</summary>
+        public double DistanceM   { get; set; }
+
+        /// <summary>El avión va HACIA el punto de espera, no de través rodando en paralelo.</summary>
+        public bool   HeadingToward { get; set; }
     }
 
     public class ParkingSpot
