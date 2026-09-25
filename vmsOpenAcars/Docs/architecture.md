@@ -1,6 +1,6 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.9.14  
+> Versión del documento: 0.9.15  
 > Última actualización: 2026-09-24
 
 ---
@@ -1849,17 +1849,18 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 | `Helpers/AtcStationOrder.cs` | Orden de presentación de posiciones ATC (locales primero); fuera del control WinForms para poder probarlo (v0.9.8) |
 | `UI/Forms/AtcPanel.cs` | Panel lateral ATC/ATIS detallado del mapa, con el texto completo del ATIS por estación (v0.9.8) |
 | `Helpers/TaxiGraph.cs` | Grafo de calles: fusión de extremos a ≤45 m, Dijkstra al umbral, cruce entre dos calles y lado del giro (v0.9.14) |
-| `Helpers/RaasAdvisor.cs` | `TaxiRoutePlan` (ruta editable), `ResolveGuidance` (próximo giro y lado) y el motor de avisos con antirrebote; puro y sin reloj propio (v0.9.14) |
+| `Helpers/RaasAdvisor.cs` | `TaxiRoutePlan` (ruta editable, `Parse`/`ToText`/`SameRoute`), `ResolveGuidance` (próximo giro y lado) y el motor de avisos con antirrebote; puro y sin reloj propio. Las reglas de «fuera de ruta» (insistencia sin acercarse a la pista), «ruta completa» (solo dentro de la pista, una vez) y la comparación de rutas son de v0.9.15 |
 | `Services/RaasVoice.cs` | Voz SAPI con cola FIFO en hilo propio, volumen y degradación silenciosa si no hay voces (v0.9.14) |
-| `UI/Forms/TaxiRouteForm.cs` | Popup de rodaje: pista, ruta editable, RAAS/voz/volumen y prueba hablada (v0.9.14) |
-| `ViewModels/TaxiRoutePrompt.cs` | Lo que el popup necesita para pintarse (pistas, pista por defecto, ruta sugerida y recalculador) (v0.9.14) |
-| `vmsOpenAcars.Tests/RaasTests.cs` | 13 tests con 106 segmentos reales de SKBO y el rodaje real del `MNjR664PBAr25RbD`: ruta por grafo, parseo de la ruta, guía y avisos (v0.9.14) |
+| `UI/Forms/TaxiRouteForm.cs` | Popup de rodaje: pista, ruta editable, RAAS/voz/volumen y prueba hablada. Si vuelve tras el pushback cambia su texto de ayuda y explica por qué (`Raas_RepromptHint`) (v0.9.14, v0.9.15) |
+| `ViewModels/TaxiRoutePrompt.cs` | Lo que el popup necesita para pintarse (pistas, pista por defecto, ruta sugerida, recalculador y si es el segundo aviso del vuelo) (v0.9.14, v0.9.15) |
+| `vmsOpenAcars.Tests/RaasTests.cs` | 16 tests con 106 segmentos reales de SKBO y el rodaje real del `MNjR664PBAr25RbD`: ruta por grafo, parseo de la ruta, guía, avisos, y las reglas de «fuera de ruta» y «ruta completa» de v0.9.15 (v0.9.14, v0.9.15) |
+| `vmsOpenAcars.Tests/RaasReplayTests.cs` | Un test que **reproduce el rodaje completo** del `MNjR664PBAr25RbD` (569 segmentos, 35 hold-shorts, 4 pistas, las 72 líneas `SCH` del log real y las 42 posiciones entre el pushback y el takeoff roll) y escribe la secuencia de avisos a `%TEMP%\raas_replay_MNjR664.txt`. Exige los cinco avisos y su orden, no solo los vuelca: es el banco para juzgar el RAAS sobre una traza real sin volar (v0.9.14, v0.9.15) |
 | `vmsOpenAcars.csproj` | `GenerateBindingRedirectsOutputType=true` — impide sobreescribir binding redirect manual de SQLite. Referencia `System.Speech` para el RAAS |
 
 ---
 
 
-## RAAS y guía de rodaje (v0.9.14)
+## RAAS y guía de rodaje (v0.9.14–v0.9.15)
 
 Avisos de rodaje tipo RAAS —con voz— y guía giro a giro por la ruta que elige el piloto. Todo el
 cálculo vive en dos helpers puros; el coordinador solo aporta los hechos y reparte la salida.
@@ -1876,6 +1877,13 @@ fase → TaxiOut  ─┘        │
                               → MainForm muestra TaxiRouteForm (pista, ruta editable,
                                 RAAS/voz/volumen) → StartTaxiGuidance(...)
 
+freno puesto en fase Pushback ─┐
+                               ├─► RequestTaxiRoutePrompt("after pushback"), una vez por vuelo
+fase → TaxiOut (sin pushback) ─┘        │
+                                        └─► recalcula desde la posición actual y **solo** abre
+                                            el popup si el grafo cambia de idea
+                                            (TaxiRoutePlan.SameRoute contra la propuesta anterior)
+
 cada frame de telemetría, 1 Hz y solo en fases de rodaje (GS ≤ 60 kt):
     FindNearestTaxiway  → calle actual
     FindRunwayEntry     → ¿estoy en pista?
@@ -1888,6 +1896,15 @@ cada frame de telemetría, 1 Hz y solo en fases de rodaje (GS ≤ 60 kt):
 **Umbrales** (`RaasAdvisor`): hold-short a 150 m (aviso) y 40 m (insistencia); giro a 250 m y 60 m;
 antirrebote de 20 s por situación. La distancia al giro es la recta al cruce, no el arco por el eje
 de la calle: el dataset corta las calles en tramos de ~30 m y para decir «en 120 m» sobra.
+
+**Fuera de ruta (v0.9.15)**: no basta con que la calle actual no esté en la lista — hay que
+**insistir 15 s** (`OffRoutePersistSec`) **sin acercarse** a la pista al menos 50 m
+(`OffRouteProgressM`) respecto al punto más cercano del episodio. La distancia recta al umbral de
+la pista elegida entra como un hecho más (`Inputs.DistanceToRunwayM`, resuelto una vez al empezar
+la guía) y **sin dato el aviso se decide solo por insistencia**. El motivo está medido en el
+replay: la ruta del grafo y la de ATC llevan al mismo sitio por calles distintas. **`RUTA DE
+RODAJE COMPLETA`** es haber entrado **en la pista** (`OnRunway` con guía activa) y se anuncia una
+sola vez por guía; antes se disparaba al agotar la lista de calles.
 
 **Grafo** (`Helpers/TaxiGraph.cs`): los extremos de segmento a ≤45 m se fusionan en un nodo —más
 ajustado y un aeropuerto real queda desconectado, porque los datasets no comparten exactamente el
@@ -1908,6 +1925,77 @@ avisar a 150 m de un hold-short.
 
 **Estado de la guía**: se crea al arrancar el rodaje y se borra en `Reset()` (vuelo nuevo) y no se
 reactiva en vuelo; el piloto puede pararla no activándola en el popup.
+
+**Segundo aviso, ya en el punto de inicio (v0.9.15)**: el popup puede salir dos veces por vuelo. El
+segundo se pide al **poner el freno de parqueo en fase `Pushback`** —el fin del empuje, con el avión
+parado— o, si no hubo pushback, **al entrar en `TaxiOut`**, que es lo que cubre los puestos remotos:
+la máquina de fases pasa de `Boarding` a `TaxiOut` por movimiento sostenido (`GroundSpeed > 5 kt`
+durante 2 s) sin exigir pushback, beacon ni motores estabilizados, así que no hace falta una
+heurística nueva de «rodaje directo». Antes de abrir la ventana se recalcula la propuesta desde la
+posición actual y se compara con la anterior (`TaxiRoutePlan.SameRoute`): si el grafo no cambia de
+idea, no hay nada que contar y no aparece nada. Medido en el rodaje real del `MNjR664PBAr25RbD`:
+
+| Desde | Propuesta del grafo |
+|---|---|
+| puesto G49 (`BST` 21:45:47) | `C P G N H M K K2 K1` (4 010 m) |
+| fin del pushback (`freno` 21:52:39) | `C P G N H M K K2 K1` (4 021 m) — **la misma** |
+| arranque del rodaje (`── TAXI OUT ──` 21:55:54) | `C P G N H M K K2 K1` — **la misma** |
+| primer `TXI` (21:56:18), ya en `B9` | `B9 C P G N H M K K2 K1` — **otra, y peor**: manda volver a `C` |
+
+De ahí las dos decisiones: el recálculo va **en el punto de inicio** (rodando, el grafo propone
+volver atrás) y **solo se avisa si la propuesta cambia** (reabrir el popup para proponer lo mismo
+sería fricción con el avión ya en movimiento).
+
+### Replay del rodaje real (`RaasReplayTests`)
+
+Pedido del mantenedor: «con los datos del pirep, haz un test y muéstrame los mensajes que saldrían
+en el rodaje, desde el pushback hasta el takeoff roll». El test mete la traza real del
+`MNjR664PBAr25RbD` (SKBO, 14R) por el mismo camino que la app —569 segmentos de calle, 35
+hold-shorts, 4 pistas, las **72 líneas `SCH` del log completo** y las 42 posiciones del pushback,
+el rodaje y la entrada en pista— y vuelca la secuencia a `%TEMP%\raas_replay_MNjR664.txt` (78
+líneas). Las filas `CHK` de scoring se dejan fuera a propósito: no son posiciones nuevas —van
+pegadas a un `TXI` o un `PBT`— y la app evalúa sobre telemetría cruda a 1 Hz, no sobre lo que se
+envía a phpVMS.
+
+El test no solo vuelca: **exige la secuencia de avisos**. Con los arreglos de v0.9.15 son cinco, en
+este orden —`TurnAhead` (la K2 a 220 m), `HoldShortApproaching`, `HoldShortStop`, `HoldShortStop`
+(la insistencia al reanudar tras 135 s de espera) y `RouteComplete`— y ni uno más.
+
+Lo que sale, con la ruta que el grafo propuso (`C P G N H M K K2 K1`):
+
+| Hora | Aviso | Realidad |
+|---|---|---|
+| 21:56:18–21:59:18 | `FUERA DE RUTA, VUELVE A CALLE B` ×8 | el avión rodaba por `B`, que no está en la ruta sugerida |
+| 22:07:48 | `CALLE K2 A LA DERECHA EN 220 METROS` | correcto: el avión siguió por `K1` |
+| 22:08:19 | `APROXIMANDO PISTA 14R` | correcto |
+| 22:08:49 | `ESPERA ANTES DE PISTA 14R` | el freno se puso 14 s después y estuvo **135 s** |
+| 22:09:19 | `RUTA DE RODAJE COMPLETA` | **prematuro**: faltaba entrar en pista |
+| 22:11:49 | `ESPERA ANTES DE PISTA 14R` | repetido al reanudar, correcto |
+| 22:12:19 | `RUTA DE RODAJE COMPLETA` | otra vez antes de `ENTRANDO PISTA 14R` (22:12:32) |
+
+Esos dos fallos —el desvío que no era desvío y el «ruta completa» antes de la pista— están
+**corregidos en v0.9.15** y el propio test los vigila:
+
+1. **La ruta sugerida es la más corta por grafo, no la de ATC.** El grafo propuso `C P G N H M K K2
+   K1` y el piloto hizo `C B9 B M K K1 V`: el mismo destino por otras calles. La comparación por
+   nombre sigue siendo la única señal disponible, así que lo que cambió es **cuándo se avisa**:
+   fuera de ruta 15 s sin acercarse a la pista. En el rodaje real el avión se acercaba todo el
+   tiempo, así que ahora no dice nada, y el test lo exige (`Assert.IsFalse(... FUERA DE RUTA)`).
+2. **`RUTA DE RODAJE COMPLETA` significa «estoy dentro de la pista»** (`OnRunway`), una sola vez
+   por guía. En el volcado corregido sale a las 22:12:50 —el primer muestreo dentro de la pista,
+   que en la app a 1 Hz es el mismo momento del `ENTRANDO PISTA 14R` de 22:12:32—.
+
+Con los dos arreglos, la secuencia de avisos del rodaje real queda en **cinco avisos de cuatro
+situaciones**: `CALLE K2 A LA DERECHA EN 220 METROS`, `APROXIMANDO PISTA 14R`, `ESPERA ANTES DE
+PISTA 14R` (×2, antes y después de la espera de 135 s) y `RUTA DE RODAJE COMPLETA` al entrar en
+pista. El `RUTA DE RODAJE COMPLETA` sale a las 22:12:50, que es el primer muestreo dentro de la
+pista: el log marca `ENTRANDO PISTA 14R por CALLE V` a las 22:12:32 y en la app, que evalúa a
+1 Hz, el aviso habría sonado en ese mismo momento.
+
+Cautela al leer el volcado: la app evalúa a **1 Hz**, la traza solo tiene una posición cada 30 s (y
+ninguna durante el pushback, porque `EmitTaxiPosition` no se llama en esa fase). El orden de los
+avisos es el real; las horas son más gruesas que en vuelo.
+
 ## API phpVMS — endpoints verificados
 
 Comprobado en vivo contra la instalación de producción, no deducido de la documentación.
@@ -2000,10 +2088,10 @@ El redirect manual en `App.config` es:
 
 Cubre cualquier versión anterior de SQLite que pueda estar registrada en el GAC del usuario (p. ej. 1.0.115.5 instalada por Visual Studio o SQL Server Tools) y la redirige a la 1.0.119.0 que se distribuye con vmsOpenAcars.
 
-### Tests (v0.9.14)
+### Tests (v0.9.15)
 
 `vmsOpenAcars.Tests/` — proyecto MSTest hermano de `vmsOpenAcars`, incluido en
-`vmsOpenAcars.sln`. **242 tests** en siete suites:
+`vmsOpenAcars.sln`. **248 tests** en ocho suites:
 
 | Suite | Cubre |
 |---|---|
@@ -2013,7 +2101,8 @@ Cubre cualquier versión anterior de SQLite que pueda estar registrada en el GAC
 | `AtcPanelTests` | Orden de presentación de las posiciones ATC (v0.9.8) |
 | `ApproachThresholdTests` | "Está en final" (`SelectApproachThreshold`), el cono angular (`IsWithinFinalCone`), el gradiente de descenso (`IsPlausibleDiversionDescent`) y la regla de distancia (`IsPlausibleDiversionDistance`), con las coordenadas y altitudes exactas de dos vuelos reales: el falso SKTL, el SKCG legítimo y los tres falsos de la aproximación a KBOS (v0.9.9) |
 | `RouteCorridorTests` | El corredor de la llegada planificada sobre el navlog real de SimBrief de un SKRG→SKBQ, incluido que la llegada son los últimos tramos **por distancia** y no los marcados `is_sid_star` (v0.9.9) |
-| `RaasTests` | RAAS y guía de rodaje sobre **106 segmentos reales de SKBO** y el rodaje del `MNjR664PBAr25RbD`: ruta por grafo hasta la 14R, parseo de la ruta editable, próximo giro y su lado, y los cinco puntos reales frente al hold-short (v0.9.14) |
+| `RaasTests` | RAAS y guía de rodaje sobre **106 segmentos reales de SKBO** y el rodaje del `MNjR664PBAr25RbD`: ruta por grafo hasta la 14R, parseo de la ruta editable, próximo giro y su lado, los cinco puntos reales frente al hold-short, y las reglas de «fuera de ruta» (insistencia + acercarse a la pista) y «ruta completa» (solo dentro de la pista, una vez) de v0.9.15 |
+| `RaasReplayTests` | **Reproducción completa del rodaje real** del `MNjR664PBAr25RbD` (SKBO, 14R): 569 segmentos, 35 hold-shorts, 4 pistas, el log `SCH` completo y las 42 posiciones muestreadas del pushback al takeoff roll, alimentadas al mismo `Evaluate` que usa la app a 1 Hz. Vuelca la **secuencia de avisos** a `%TEMP%\raas_replay_MNjR664.txt` y exige que sean los cinco correctos. Además fija la ruta que propone el grafo desde el puesto, el fin del pushback, el arranque del rodaje y el primer `TXI`, que es lo que decide si el popup vuelve a salir (v0.9.14, v0.9.15) |
 
 `InternalsVisibleTo("vmsOpenAcars.Tests")` en `Properties/AssemblyInfo.cs` da acceso a los
 tipos `internal` (los helpers) sin tener que hacerlos públicos solo para probarlos.

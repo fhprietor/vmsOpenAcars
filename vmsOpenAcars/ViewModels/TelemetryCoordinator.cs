@@ -50,6 +50,14 @@ namespace vmsOpenAcars.ViewModels
         private string                 _raasRunway;
         private bool                   _raasGuidanceActive;
         private bool                   _raasPromptShown;
+        // Segundo aviso del vuelo, ya en el punto de inicio del rodaje (fin del pushback o TaxiOut
+        // de un puesto remoto), y lo que el grafo propuso la primera vez para poder comparar.
+        private bool                   _raasRepromptShown;
+        private string                 _raasSuggestedText;
+        // Umbral de la pista elegida, resuelto una vez al empezar la guía: el motor de avisos
+        // necesita saber si el avión se ACERCA a ella, y eso se pregunta 1 vez por segundo.
+        private double                 _raasThresholdLat = double.NaN;
+        private double                 _raasThresholdLon = double.NaN;
         private DateTime               _lastRaasEval = DateTime.MinValue;
         private static readonly TimeSpan RaasInterval = TimeSpan.FromSeconds(1);
 
@@ -226,6 +234,11 @@ namespace vmsOpenAcars.ViewModels
             _raasAirport        = null;
             _raasRunway         = null;
             _raasPromptShown    = false;
+            _raasRepromptShown  = false;
+            _raasSuggestedText  = null;
+            _raasThresholdLat   = double.NaN;
+            _raasThresholdLon   = double.NaN;
+            _raas.ResetRouteState();
             _lastRaasEval       = DateTime.MinValue;
             RaasVoice.Cancel();
         }
@@ -937,8 +950,16 @@ namespace vmsOpenAcars.ViewModels
         private void OnSpoilersChanged(bool deployed) =>
             _cb.Log?.Invoke(deployed ? _("Log_SpoilersDeployed") : _("Log_SpoilersRetracted"), Theme.Warning);
 
-        private void OnParkingBrakeChanged(bool engaged) =>
+        private void OnParkingBrakeChanged(bool engaged)
+        {
             _cb.Log?.Invoke(engaged ? _("Log_ParkingBrakeSet") : _("Log_ParkingBrakeReleased"), Theme.MainText);
+
+            // Freno puesto en plena fase de pushback = fin del empuje (el remolque suelta ahí).
+            // El avión queda parado, con las manos libres: es el mejor momento para revisar la
+            // ruta si el puesto de destino del pushback cambia la primera calle del rodaje.
+            if (engaged && _flightManager != null && _flightManager.CurrentPhase == FlightPhase.Pushback)
+                RequestTaxiRoutePrompt("after pushback");
+        }
 
         private void OnEnginesChanged(bool running) =>
             _cb.Log?.Invoke(running ? _("Log_EnginesStarted") : _("Log_EnginesShutdown"),
@@ -1143,6 +1164,11 @@ namespace vmsOpenAcars.ViewModels
             _raasRunway         = runway;
             _raasPlan           = TaxiRoutePlan.Parse(routeText);
             _raasGuidanceActive = raasEnabled;
+            _raas.ResetRouteState();
+
+            ResolveRunwayThreshold(airport, runway, out double tLat, out double tLon);
+            _raasThresholdLat = tLat;
+            _raasThresholdLon = tLon;
 
             AppConfig.RaasVoiceEnabled = voiceEnabled;
             AppConfig.RaasVolume       = volume;
@@ -1164,10 +1190,37 @@ namespace vmsOpenAcars.ViewModels
         {
             _raasGuidanceActive = false;
             _raasPlan           = null;
+            _raas.ResetRouteState();
             RaasVoice.Cancel();
         }
 
-        /// <summary>Ruta sugerida por el grafo para una pista, para el popup.</summary>
+        /// <summary>
+        /// Umbral de la pista elegida, para poder medir si el avión se acerca a ella. Sin dato
+        /// (pista que no está en el dataset) se devuelve NaN y el motor decide por insistencia.
+        /// </summary>
+        private static void ResolveRunwayThreshold(string airport, string runway,
+                                                   out double lat, out double lon)
+        {
+            lat = double.NaN;
+            lon = double.NaN;
+            try
+            {
+                var rwy = NavDataClient.GetRunways(airport)
+                    .FirstOrDefault(r => string.Equals(r.Name, runway,
+                                                       StringComparison.OrdinalIgnoreCase));
+                if (rwy == null) return;
+                lat = rwy.ThresholdLat;
+                lon = rwy.ThresholdLon;
+            }
+            catch { }
+        }
+
+        /// <summary>Ruta sugerida por el grafo para una pista, desde donde está el avión ahora.</summary>
+        internal string SuggestTaxiRoute(string airport, string runway) =>
+            SuggestTaxiRoute(airport, runway, _flightManager?.CurrentLat ?? 0.0,
+                                              _flightManager?.CurrentLon ?? 0.0);
+
+        /// <summary>Ruta sugerida por el grafo para una pista, desde un punto concreto.</summary>
         internal string SuggestTaxiRoute(string airport, string runway, double lat, double lon)
         {
             try
@@ -1210,7 +1263,16 @@ namespace vmsOpenAcars.ViewModels
 
         private void RequestTaxiRoutePrompt(string reason)
         {
-            if (_raasPromptShown || !AppConfig.RaasEnabled || _flightManager == null) return;
+            if (!AppConfig.RaasEnabled || _flightManager == null) return;
+
+            // El popup sale al encender la luz de taxi o al entrar en TaxiOut. Después del
+            // pushback puede salir **una segunda vez**: el avión ya no está en el puesto, y el
+            // punto de inicio del rodaje decide qué calle se toma primero. Se pide desde el fin
+            // del pushback (freno de parqueo puesto, avión parado: buen momento) o, si no hubo
+            // pushback —puesto remoto—, al entrar en TaxiOut.
+            bool first = !_raasPromptShown;
+            if (!first && (_raasRepromptShown || !_raasGuidanceActive)) return;
+            if (!first) _raasRepromptShown = true;
 
             var plan = _flightManager.ActivePlan;
             string airport = plan?.Origin ?? _flightManager.CurrentAirport;
@@ -1231,13 +1293,27 @@ namespace vmsOpenAcars.ViewModels
                                           .ToList();
                 if (runways.Count == 0) return;
 
+                string suggested = SuggestTaxiRoute(airport, defaultRunway, lat, lon);
+
+                // Un segundo aviso que propone exactamente lo mismo es ruido: si el grafo no
+                // cambia de idea con el punto de inicio nuevo, no hay nada que contar. Medido:
+                // desde el puesto G49 y desde el fin de su pushback la propuesta es la misma.
+                if (!first && TaxiRoutePlan.SameRoute(_raasSuggestedText, suggested)) return;
+
+                if (first) _raasSuggestedText = suggested;
+                else _cb.Log?.Invoke("🎙️ Nuevo punto de rodaje: ruta recalculada desde la posición actual",
+                                     Theme.Taxi);
+
                 var prompt = new TaxiRoutePrompt
                 {
                     Icao          = airport,
                     DefaultRunway = runways.Contains(defaultRunway) ? defaultRunway : runways[0],
                     Reason        = reason,
-                    SuggestedRoute = SuggestTaxiRoute(airport, defaultRunway, lat, lon),
-                    SuggestRoute   = rwy => SuggestTaxiRoute(airport, rwy, lat, lon)
+                    Recalculated  = !first,
+                    SuggestedRoute = suggested,
+                    // La posición se lee al pulsar RECALCULAR, no al abrir el popup: si el piloto
+                    // cambia de pista, la ruta se propone desde donde está en ese momento.
+                    SuggestRoute   = rwy => SuggestTaxiRoute(airport, rwy)
                 };
                 prompt.Runways.AddRange(runways);
                 OnTaxiRoutePromptRequested?.Invoke(prompt);
@@ -1286,7 +1362,12 @@ namespace vmsOpenAcars.ViewModels
                     HoldShortDistanceM     = hs != null ? hs.DistanceM : double.NaN,
                     HeadingTowardHoldShort = hs?.HeadingToward ?? false,
                     ActiveTaxiway          = active,
-                    Guidance               = guidance
+                    Guidance               = guidance,
+                    DistanceToRunwayM      = double.IsNaN(_raasThresholdLat)
+                        ? double.NaN
+                        : GeoMath.DistanceNm(e.Latitude, e.Longitude,
+                                             _raasThresholdLat, _raasThresholdLon)
+                          * GeoMath.MetersPerNm
                 }, DateTime.UtcNow);
 
                 if (callout.Type == RaasCalloutType.None) return;

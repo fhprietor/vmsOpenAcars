@@ -350,30 +350,102 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
-        public void Advisor_OffRoute_And_RouteComplete()
+        public void Advisor_OffRoute_PersistsBeforeSayingSo()
         {
+            // Sin dato de distancia a la pista el aviso se decide por insistencia: una calle que
+            // no está en la lista puede ser un tramo por detrás del rótulo, no un desvío.
             var advisor = new RaasAdvisor();
-            var t = DateTime.UtcNow;
-
-            var off = advisor.Evaluate(new RaasAdvisor.Inputs
+            var t = new DateTime(2026, 9, 24, 22, 0, 0, DateTimeKind.Utc);
+            Func<DateTime, RaasCallout> eval = when => advisor.Evaluate(new RaasAdvisor.Inputs
             {
                 GroundSpeedKt = 10,
                 ActiveTaxiway = "D",
                 Guidance = new RouteGuidance { HasRoute = true, OnRoute = false, NextTaxiway = "B" }
-            }, t);
-            Assert.AreEqual(RaasCalloutType.OffRoute, off.Type);
+            }, when);
 
-            var done = advisor.Evaluate(new RaasAdvisor.Inputs
+            Assert.AreEqual(RaasCalloutType.None, eval(t).Type, "ni en el primer sondeo…");
+            Assert.AreEqual(RaasCalloutType.None, eval(t.AddSeconds(10)).Type, "…ni a los 10 s");
+            Assert.AreEqual(RaasCalloutType.OffRoute, eval(t.AddSeconds(16)).Type,
+                            "a los 15 s sin acercarse a la pista, sí");
+        }
+
+        [TestMethod]
+        public void Advisor_OffRoute_WhileStillClosingInOnTheRunway_StaysSilent()
+        {
+            // El caso real del `MNjR664PBAr25RbD`: la ruta sugerida por el grafo era la más corta
+            // (`C P G N H M K K2 K1`) y el piloto hizo la de ATC (`C B9 B M K K1 V`). Rodando por
+            // B —que no está en el plan— el avión se acercaba a la 14R todo el tiempo, y el aviso
+            // salió 8 veces. Acercarse a la pista reinicia la cuenta de «fuera de ruta».
+            var advisor = new RaasAdvisor();
+            var t = new DateTime(2026, 9, 24, 22, 0, 0, DateTimeKind.Utc);
+
+            for (int k = 0; k < 6; k++)   // 2,5 min de rodaje por la calle B, 200 m más cerca cada 30 s
+            {
+                var c = advisor.Evaluate(new RaasAdvisor.Inputs
+                {
+                    GroundSpeedKt = 15,
+                    ActiveTaxiway = "B",
+                    DistanceToRunwayM = 3000 - k * 200,
+                    Guidance = new RouteGuidance { HasRoute = true, OnRoute = false, NextTaxiway = "C" }
+                }, t.AddSeconds(k * 30));
+                Assert.AreEqual(RaasCalloutType.None, c.Type,
+                                $"no debe avisar mientras se acerca a la pista (sondeo {k})");
+            }
+        }
+
+        [TestMethod]
+        public void Advisor_OffRoute_WhenNotGettingCloser_FiresOnce()
+        {
+            var advisor = new RaasAdvisor();
+            var t = new DateTime(2026, 9, 24, 22, 0, 0, DateTimeKind.Utc);
+            Func<DateTime, RaasCallout> eval = when => advisor.Evaluate(new RaasAdvisor.Inputs
+            {
+                GroundSpeedKt = 15,
+                ActiveTaxiway = "D",
+                DistanceToRunwayM = 3000,      // siempre igual: no se acerca
+                Guidance = new RouteGuidance { HasRoute = true, OnRoute = false, NextTaxiway = "B" }
+            }, when);
+
+            eval(t);
+            Assert.AreEqual(RaasCalloutType.OffRoute, eval(t.AddSeconds(20)).Type);
+            Assert.AreEqual(RaasCalloutType.None, eval(t.AddSeconds(30)).Type,
+                            "el mismo desvío no se repite cada sondeo");
+        }
+
+        [TestMethod]
+        public void Advisor_RouteComplete_OnlyOnTheRunway_AndOncePerGuidance()
+        {
+            var advisor = new RaasAdvisor();
+            var t = new DateTime(2026, 9, 24, 22, 0, 0, DateTimeKind.Utc);
+
+            // Agotar la lista de calles NO es haber terminado: en el rodaje real `RUTA DE RODAJE
+            // COMPLETA` salió 3 min antes de `ENTRANDO PISTA 14R`.
+            var lastTaxiway = advisor.Evaluate(new RaasAdvisor.Inputs
             {
                 GroundSpeedKt = 10,
                 ActiveTaxiway = "V",
                 Guidance = new RouteGuidance { HasRoute = true, OnRoute = true, Done = true }
-            }, t.AddSeconds(30));
-            Assert.AreEqual(RaasCalloutType.RouteComplete, done.Type);
+            }, t);
+            Assert.AreEqual(RaasCalloutType.None, lastTaxiway.Type, "en el último cruce todavía no");
+
+            // Dentro de la pista, sí; y una sola vez, aunque el despegue dure minutos.
+            var onRwy = new RaasAdvisor.Inputs
+            {
+                OnRunway = true,
+                GroundSpeedKt = 40,
+                ActiveTaxiway = "V",
+                Guidance = new RouteGuidance { HasRoute = true, OnRoute = true, Done = true }
+            };
+            Assert.AreEqual(RaasCalloutType.RouteComplete, advisor.Evaluate(onRwy, t.AddSeconds(30)).Type);
+            Assert.AreEqual(RaasCalloutType.None, advisor.Evaluate(onRwy, t.AddSeconds(90)).Type);
+
+            advisor.ResetRouteState();
+            Assert.AreEqual(RaasCalloutType.RouteComplete, advisor.Evaluate(onRwy, t.AddSeconds(300)).Type,
+                            "una guía nueva vuelve a anunciarlo");
         }
 
         [TestMethod]
-        public void Advisor_OnTheRunway_StaysSilent()
+        public void Advisor_OnTheRunway_WithoutARoute_StaysSilent()
         {
             var advisor = new RaasAdvisor();
             var c = advisor.Evaluate(new RaasAdvisor.Inputs
@@ -384,7 +456,7 @@ namespace vmsOpenAcars.Tests
                 HoldShortDistanceM = 10,
                 HeadingTowardHoldShort = true,
                 ActiveTaxiway = "V",
-                Guidance = new RouteGuidance { HasRoute = true, OnRoute = true, Done = true }
+                Guidance = null       // el piloto no activó guía: solo hay avisos de hold-short
             }, DateTime.UtcNow);
             Assert.AreEqual(RaasCalloutType.None, c.Type, "en pista manda el RAAS de pista, no este");
         }

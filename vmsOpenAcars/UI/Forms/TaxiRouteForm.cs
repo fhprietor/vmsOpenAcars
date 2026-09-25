@@ -105,7 +105,9 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Left = 14, Top = 92, Width = 532, Height = 46,
                 ForeColor = Color.FromArgb(150, 180, 210), Font = new Font("Consolas", 8),
-                Text = _("Raas_Hint")
+                // Si el popup vuelve después del pushback, el piloto tiene que saber por qué: lo
+                // que cambió no es la pista, es el punto desde el que arranca el rodaje.
+                Text = _prompt.Recalculated ? _("Raas_RepromptHint") : _("Raas_Hint")
             };
 
             // ── RAAS y voz ────────────────────────────────────────────────────────

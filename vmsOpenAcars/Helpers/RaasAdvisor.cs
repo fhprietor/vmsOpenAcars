@@ -62,6 +62,17 @@ namespace vmsOpenAcars.Helpers
         }
 
         internal string ToText() => string.Join(" ", Names);
+
+        /// <summary>
+        /// ¿Las dos rutas son la misma? Se comparan ya normalizadas, para que «c b m» y «C B M» no
+        /// cuenten como un cambio. Lo usa el coordinador para decidir si merece la pena volver a
+        /// preguntar por la ruta cuando el avión cambia de punto de inicio (fin del pushback):
+        /// en el rodaje real de SKBO la propuesta desde el puesto y desde el fin del pushback es
+        /// la misma, así que volver a abrir el popup solo sería ruido.
+        /// </summary>
+        internal static bool SameRoute(string a, string b)
+            => string.Equals(Parse(a).ToText(), Parse(b).ToText(),
+                             StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Dónde está el próximo giro y para qué lado.</summary>
@@ -97,8 +108,22 @@ namespace vmsOpenAcars.Helpers
         /// <summary>Antirrebote: la misma situación no se repite antes de este tiempo.</summary>
         internal const double RepeatCooldownSec = 20.0;
 
+        // «Fuera de ruta» no se dice porque una calle no esté en la lista, sino porque el avión
+        // se ha perdido. En el rodaje real del `MNjR664PBAr25RbD` la ruta que propuso el grafo
+        // era la más corta geométricamente (`C P G N H M K K2 K1`) y el piloto hizo la de ATC
+        // (`C B9 B M K K1 V`): mismo destino por otras calles, y el aviso saltó 8 veces
+        // seguidas. Ahora hay que insistir `OffRoutePersistSec` sin acercarse a la pista.
+        internal const double OffRoutePersistSec = 15.0;
+
+        /// <summary>Acercarse a la pista al menos esto reinicia la cuenta: no está perdido.</summary>
+        internal const double OffRouteProgressM = 50.0;
+
         private readonly Dictionary<string, DateTime> _spoken =
             new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+
+        private DateTime? _offRouteSince;
+        private double    _offRouteBestM = double.NaN;
+        private bool      _routeCompleteAnnounced;
 
         public sealed class Inputs
         {
@@ -109,6 +134,13 @@ namespace vmsOpenAcars.Helpers
             public bool       HeadingTowardHoldShort;
             public string     ActiveTaxiway;
             public RouteGuidance Guidance;
+
+            /// <summary>
+            /// Distancia recta al umbral de la pista elegida, si se conoce. Es lo que distingue
+            /// «voy por otra calle pero me acerco» de «me he perdido»: sin dato, el aviso se
+            /// decide solo por insistencia (degradar sin datos, nunca bloquear por suposición).
+            /// </summary>
+            public double     DistanceToRunwayM = double.NaN;
 
             /// <summary>Copia ligera: el motor guarda el objeto entre llamadas en los tests.</summary>
             public Inputs Clone() => (Inputs)MemberwiseClone();
@@ -121,6 +153,30 @@ namespace vmsOpenAcars.Helpers
         internal RaasCallout Evaluate(Inputs i, DateTime utcNow)
         {
             var candidate = Decide(i);
+            var none      = new RaasCallout { Type = RaasCalloutType.None };
+
+            // «RUTA COMPLETA» se dice una vez por guía: es la llegada a la pista, no una situación
+            // que se repita, y el avión se queda dentro de la pista durante todo el despegue.
+            if (candidate.Type == RaasCalloutType.RouteComplete)
+            {
+                if (_routeCompleteAnnounced) return none;
+                _routeCompleteAnnounced = true;
+                _spoken.Clear();
+                _spoken[candidate.Key] = utcNow;
+                return candidate;
+            }
+
+            if (candidate.Type == RaasCalloutType.OffRoute)
+            {
+                TrackOffRoute(i, utcNow);
+                if (!OffRouteConfirmed(utcNow)) return none;   // todavía puede estar acercándose
+            }
+            else
+            {
+                _offRouteSince = null;
+                _offRouteBestM = double.NaN;
+            }
+
             if (candidate.Type == RaasCalloutType.None)
             {
                 _spoken.Clear();     // la situación terminó: el próximo aviso vuelve a sonar
@@ -137,12 +193,56 @@ namespace vmsOpenAcars.Helpers
             return candidate;
         }
 
+        /// <summary>Vuelo nuevo o guía reiniciada: no se arrastra nada del rodaje anterior.</summary>
+        internal void ResetRouteState()
+        {
+            _spoken.Clear();
+            _offRouteSince          = null;
+            _offRouteBestM          = double.NaN;
+            _routeCompleteAnnounced = false;
+        }
+
+        /// <summary>
+        /// Sigue el episodio de «fuera de ruta». Cada vez que el avión se acerca a la pista más
+        /// de <see cref="OffRouteProgressM"/> la cuenta se reinicia: va por otro camino, pero va.
+        /// Un aviso de desvío que salta mientras el avión avanza hacia su pista es peor que no
+        /// avisar — es exactamente lo que pasó en el rodaje real.
+        /// </summary>
+        private void TrackOffRoute(Inputs i, DateTime utcNow)
+        {
+            if (!_offRouteSince.HasValue)
+            {
+                _offRouteSince = utcNow;
+                _offRouteBestM = i.DistanceToRunwayM;
+                return;
+            }
+            if (!double.IsNaN(i.DistanceToRunwayM)
+                && (double.IsNaN(_offRouteBestM) || i.DistanceToRunwayM < _offRouteBestM - OffRouteProgressM))
+            {
+                _offRouteBestM = i.DistanceToRunwayM;
+                _offRouteSince = utcNow;
+            }
+        }
+
+        private bool OffRouteConfirmed(DateTime utcNow)
+            => _offRouteSince.HasValue
+               && (utcNow - _offRouteSince.Value).TotalSeconds >= OffRoutePersistSec;
+
         private static RaasCallout Decide(Inputs i)
         {
             var none = new RaasCallout { Type = RaasCalloutType.None };
 
-            // En pista mandan los avisos de pista (entrada, distancia restante): aquí no opinamos.
-            if (i.OnRunway) return none;
+            // Dentro de la pista manda el RAAS de pista (entrada, distancia restante): aquí lo
+            // único que queda por decir es que la ruta de rodaje se completó, y eso es
+            // precisamente haber llegado a ella. Hasta v0.9.14 se anunciaba al agotar la lista de
+            // calles —el último cruce, todavía fuera de la pista—, y en el rodaje real salió
+            // 3 min antes de `ENTRANDO PISTA 14R`.
+            if (i.OnRunway)
+            {
+                if (i.Guidance != null && i.Guidance.HasRoute)
+                    return new RaasCallout { Type = RaasCalloutType.RouteComplete, Key = "route-done" };
+                return none;
+            }
 
             // 1) Hold-short: lo más importante. Solo si el avión va HACIA él; si lo tiene a un
             //    lado mientras rueda en paralelo, avisar sería ruido.
@@ -178,8 +278,7 @@ namespace vmsOpenAcars.Helpers
                     Key = "off-route:" + i.ActiveTaxiway
                 };
 
-            if (g.Done)
-                return new RaasCallout { Type = RaasCalloutType.RouteComplete, Key = "route-done" };
+            if (g.Done) return none;      // ya en la última calle: no queda giro que anunciar
 
             if (double.IsNaN(g.DistanceToTurnM) || string.IsNullOrEmpty(g.NextTaxiway)) return none;
 

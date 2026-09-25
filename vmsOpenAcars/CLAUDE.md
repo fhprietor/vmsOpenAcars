@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.14  
+**Versión actual:** v0.9.15  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -56,7 +56,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
   las otras reglas. Nunca suprimir una acción por una suposición.
 
 **Idioma**
-- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 416 claves cada uno): toda
+- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 417 claves cada uno): toda
   clave que se añade o se quita va en los dos.
 - **Los rótulos de `SettingsForm` se traducen por `_(clave)` con el propio texto en inglés como
   clave** (`CreateLabel("Duration (s)")` → *Duración (s)*). Una clave que falte **no cae al
@@ -386,7 +386,7 @@ puntuar QNH/Localizer/Minimums contra el METAR de un destino nunca alcanzado.
 > instrucciones del agente (65 536 bytes) y el harness lo truncaba, perdiendo justo el final de
 > "Próximas áreas".
 
-## RAAS y guía de rodaje — v0.9.14
+## RAAS y guía de rodaje — v0.9.14–v0.9.15
 
 Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el piloto.
 
@@ -394,6 +394,14 @@ Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el
   vez por vuelo, sale `TaxiRouteForm`: lista de **pistas del aeropuerto** (por defecto la del OFP,
   `SimbriefPlan.OriginRunway`), **ruta editable separada por espacios** (la sugiere el grafo de
   calles) y los ajustes de RAAS / voz / volumen. `raas_enabled` en App.config lo desactiva.
+- **Segundo aviso en el punto de inicio (v0.9.15)**: el popup puede salir dos veces. El segundo se
+  pide al **poner el freno de parqueo en fase `Pushback`** (fin del empuje) o, sin pushback —puesto
+  remoto—, al entrar en `TaxiOut`; la máquina de fases ya pasa de `Boarding` a `TaxiOut` por
+  movimiento sostenido, sin beacon ni motores, así que no hace falta heurística nueva. Recalcula
+  desde la posición actual y **solo abre la ventana si el grafo cambia de propuesta**
+  (`TaxiRoutePlan.SameRoute`): medido, desde el puesto G49 y desde el fin de su pushback la ruta es
+  la misma. El recálculo va en el punto de inicio y no rodando: ya en `B9` el grafo propone
+  `B9 C P G…`, que manda volver a `C`.
 - **Avisos** (`Helpers/RaasAdvisor.cs`, puro y con estado): `APROXIMANDO PISTA` y `ESPERA ANTES DE
   PISTA` a 150 m / 40 m del hold-short **yendo hacia él**; `CALLE X A LA DERECHA/IZQUIERDA EN N M`
   a 250 m del cruce y `GIRA AHORA` a 60 m; `FUERA DE RUTA`; `RUTA COMPLETA`. Uno por situación, con
@@ -406,6 +414,13 @@ Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el
 - **Los avisos se evalúan a 1 Hz sobre la telemetría cruda**, no sobre el envío de posiciones a
   phpVMS: ese va cada 30 s en rodaje y a 15 kt son ~230 m entre muestras, demasiado para avisar a
   150 m de un hold-short.
+- **`FUERA DE RUTA` y `RUTA COMPLETA` (v0.9.15)**: el primero exige **15 s** fuera de ruta
+  **sin acercarse** a la pista (≥50 m respecto al punto más cercano del episodio) — la ruta del
+  grafo y la de ATC llegan al mismo sitio por calles distintas, y en el rodaje real eso produjo 8
+  avisos falsos; sin dato de distancia manda solo la insistencia. El segundo significa **estar
+  dentro de la pista** (`OnRunway`) y se dice una sola vez por guía: antes se disparaba al agotar
+  la lista de calles, tres minutos antes de entrar. Los dos los vigila `RaasReplayTests` sobre la
+  traza real.
 - **Bug corregido de paso**: `FindHoldingPoint` filtraba por el `heading` del hold-short, que es el
   **eje de la pista**. Con el avión rodando perpendicular —267–270° reales contra 136° del eje en
   SKBO— descartaba justo los hold-shorts que tenía delante; ahora exige ir **hacia** el punto.
@@ -479,14 +494,16 @@ anterior).
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **242 tests**:
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **248 tests**:
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
 el respaldo regional de TA/TL, el orden de posiciones ATC, la definición de "está en final"
 (`SelectApproachThreshold` + `IsWithinFinalCone` + `IsPlausibleDiversionDescent` +
 `IsPlausibleDiversionDistance`), el corredor de la llegada planificada (`RouteCorridor`) y el
-RAAS con la guía de rodaje (`RaasTests`: grafo, ruta editable y avisos).
+RAAS con la guía de rodaje (`RaasTests`: grafo, ruta editable y avisos; `RaasReplayTests`: el
+rodaje real del `MNjR664PBAr25RbD` entero contra el motor de avisos, volcado a
+`%TEMP%\raas_replay_MNjR664.txt`).
 Los casos centrales usan **coordenadas, altitudes y navlogs de vuelos reales**, no geometría
 inventada: el falso SKTL, el SKCG legítimo, los tres falsos de KBOS y el rodaje completo del
 `MNjR664PBAr25RbD` (106 segmentos reales de SKBO y las posiciones del pushback y del rodaje).

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using vmsOpenAcars.Db;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models.NavData;
 using vmsOpenAcars.Services.Interfaces;
 
@@ -324,14 +325,13 @@ namespace vmsOpenAcars.Services
             try
             {
                 var holdShorts = NavDataClient.GetHoldShorts(airport);
-                NavHoldShort best = null;
-                double bestDist   = double.MaxValue;
-                bool   bestToward = false;
+                HoldingPoint best = null;
 
                 foreach (var hs in holdShorts)
                 {
                     double d = DistM(lat, lon, hs.Lat, hs.Lon);
-                    if (d >= HoldingRadiusM || d >= bestDist) continue;
+                    if (d >= HoldingRadiusM) continue;
+                    if (best != null && d >= best.DistanceM) continue;
 
                     // El `heading` de un hold-short es el EJE DE LA PISTA, no la dirección con la
                     // que uno llega. El filtro de ±45° que había aquí comparaba ese eje con el
@@ -344,20 +344,17 @@ namespace vmsOpenAcars.Services
                         || HeadingDelta(BearingDeg(lat, lon, hs.Lat, hs.Lon), heading) <= 90.0;
                     if (!toward) continue;   // de través: se ignora aunque esté más cerca
 
-                    bestDist   = d;
-                    best       = hs;
-                    bestToward = toward;
+                    best = new HoldingPoint
+                    {
+                        RunwayName    = hs.RunwayName,
+                        DistanceM     = d,
+                        HeadingToward = true
+                    };
                 }
 
                 if (best == null) return null;
-                string twy = NearestTaxiway(NavDataClient.GetTaxiways(airport), lat, lon);
-                return new HoldingPoint
-                {
-                    RunwayName    = best.RunwayName,
-                    TaxiwayName   = twy,
-                    DistanceM     = bestDist,
-                    HeadingToward = bestToward
-                };
+                best.TaxiwayName = NearestTaxiway(NavDataClient.GetTaxiways(airport), lat, lon);
+                return best;
             }
             catch { return null; }
         }
@@ -686,29 +683,20 @@ namespace vmsOpenAcars.Services
         private static string NearestTaxiway(
             List<NavTaxiway> taxiways, double lat, double lon, double heading = double.NaN)
         {
-            string bestName  = null;
-            double bestScore = double.MaxValue;
-            bool   useHdg    = !double.IsNaN(heading);
-
-            foreach (var twy in taxiways)
+            // La regla pura (radio, penalización ×2.5 de los segmentos >50° del rumbo) vive en
+            // TaxiGraph desde v0.9.14, para que la repetición de una traza real en los tests use
+            // exactamente este criterio y no una copia que se desincronice.
+            var segments = new List<TaxiGraph.Segment>(taxiways.Count);
+            foreach (var t in taxiways)
             {
-                if (string.IsNullOrEmpty(twy.Name)) continue;
-
-                double d = DistToSegM(lat, lon, twy.StartLat, twy.StartLon, twy.EndLat, twy.EndLon);
-                if (d >= TaxiwayRadiusM) continue;
-
-                double score = d;
-                if (useHdg && d > 1.0)
+                if (t == null || string.IsNullOrEmpty(t.Name)) continue;
+                segments.Add(new TaxiGraph.Segment
                 {
-                    double brg   = BearingDeg(twy.StartLat, twy.StartLon, twy.EndLat, twy.EndLon);
-                    double delta = Math.Min(HeadingDelta(heading, brg),
-                                            HeadingDelta(heading, (brg + 180.0) % 360.0));
-                    if (delta > 50.0) score *= 2.5;
-                }
-
-                if (score < bestScore) { bestScore = score; bestName = twy.Name; }
+                    Name = t.Name, Lat1 = t.StartLat, Lon1 = t.StartLon,
+                    Lat2 = t.EndLat, Lon2 = t.EndLon
+                });
             }
-            return bestName;
+            return TaxiGraph.NearestName(segments, lat, lon, heading);
         }
 
         private static string NextIntersection(

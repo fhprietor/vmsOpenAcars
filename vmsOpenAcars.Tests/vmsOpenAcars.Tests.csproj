@@ -49,6 +49,7 @@
     <Compile Include="GeoMathTests.cs" />
     <Compile Include="RouteCorridorTests.cs" />
     <Compile Include="RaasTests.cs" />
+    <Compile Include="RaasReplayTests.cs" />
     <Compile Include="PirepStateTests.cs" />
     <Compile Include="ScoringServiceTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

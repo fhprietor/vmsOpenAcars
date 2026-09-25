@@ -225,5 +225,47 @@ namespace vmsOpenAcars.Helpers
             }
             return bearing;
         }
+
+        /// <summary>
+        /// Radio dentro del cual se considera que el avión está sobre una calle (m).
+        /// </summary>
+        internal const double TaxiwayRadiusM = 300.0;
+
+        /// <summary>
+        /// Calle más cercana, con el criterio que ya usaba `NavDataService.NearestTaxiway`: si se
+        /// pasa un rumbo, un segmento que va claramente en contra (más de 50° del rumbo o de su
+        /// recíproco) se penaliza ×2.5, para no elegir la calle paralela equivocada en una
+        /// intersección. Vive aquí —y no en el servicio— para que la repetición de una traza real
+        /// en los tests use **esta misma** regla y no una copia.
+        /// </summary>
+        internal static string NearestName(
+            IEnumerable<Segment> segments, double lat, double lon, double heading = double.NaN)
+        {
+            if (segments == null) return null;
+            string bestName  = null;
+            double bestScore = double.MaxValue;
+            bool   useHdg    = !double.IsNaN(heading);
+
+            foreach (var s in segments)
+            {
+                if (s == null || string.IsNullOrWhiteSpace(s.Name)) continue;
+
+                double d = GeoMath.DistanceToSegmentNm(lat, lon, s.Lat1, s.Lon1, s.Lat2, s.Lon2)
+                           * GeoMath.MetersPerNm;
+                if (d >= TaxiwayRadiusM) continue;
+
+                double score = d;
+                if (useHdg && d > 1.0)
+                {
+                    double brg   = GeoMath.BearingDeg(s.Lat1, s.Lon1, s.Lat2, s.Lon2);
+                    double delta = Math.Min(GeoMath.BearingDiffDeg(heading, brg),
+                                            GeoMath.BearingDiffDeg(heading, (brg + 180.0) % 360.0));
+                    if (delta > 50.0) score *= 2.5;
+                }
+
+                if (score < bestScore) { bestScore = score; bestName = s.Name; }
+            }
+            return bestName;
+        }
     }
 }

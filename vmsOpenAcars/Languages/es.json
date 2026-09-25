@@ -413,6 +413,7 @@
   "Raas_OffRoute": "FUERA DE RUTA, VUELVE A CALLE {0}",
   "Raas_RaasOn": "RAAS activo (avisos en el log y en pantalla)",
   "Raas_Recompute": "RECALCULAR",
+  "Raas_RepromptHint": "Ya no estás en el puesto: el pushback ha cambiado el punto de inicio del rodaje, así que la ruta se ha vuelto a proponer desde donde estás. Revísala o escríbela y pulsa EMPEZAR GUÍA.",
   "Raas_RouteComplete": "RUTA DE RODAJE COMPLETA",
   "Raas_RouteLabel": "Ruta (editable)",
   "Raas_RunwayLabel": "Pista de despegue",

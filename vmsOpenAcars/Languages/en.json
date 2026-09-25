@@ -415,6 +415,7 @@
   "Raas_OffRoute": "OFF ROUTE, BACK TO TAXIWAY {0}",
   "Raas_RaasOn": "RAAS on (advisories in the log and on screen)",
   "Raas_Recompute": "RECOMPUTE",
+  "Raas_RepromptHint": "You are no longer at the stand: the pushback moved the taxi start point, so the route has been suggested again from where you are. Review or type it and press START GUIDANCE.",
   "Raas_RouteComplete": "TAXI ROUTE COMPLETE",
   "Raas_RouteLabel": "Route (editable)",
   "Raas_RunwayLabel": "Departure runway",

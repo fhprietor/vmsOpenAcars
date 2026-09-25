@@ -2,6 +2,91 @@
 
 ---
 
+## [0.9.15] — 2026-09-24
+
+### Added
+
+- **La ruta de rodaje se vuelve a proponer después del pushback** — inquietud del mantenedor:
+  «la guía sugerida debería volver a aparecer después del pushback, dado que de acuerdo al spot
+  asignado el punto inicial de rodaje puede cambiar». El popup puede salir **dos veces por vuelo**:
+  la primera al encender la luz de taxi o al entrar en TaxiOut, y la segunda ya en el punto de
+  inicio del rodaje —al **poner el freno de parqueo en fase `Pushback`** (el fin del empuje, con el
+  avión parado y las manos libres) o, si no hubo pushback, **al entrar en TaxiOut**—.
+
+  No sale a ciegas: se recalcula la propuesta desde la posición actual y **solo se vuelve a
+  preguntar si el grafo cambia de idea** (`TaxiRoutePlan.SameRoute`, comparando ya normalizado).
+  Medido con el rodaje real del `MNjR664PBAr25RbD`: desde el puesto G49 y desde el fin de su
+  pushback la propuesta es la misma (`C P G N H M K K2 K1`), así que ahí no aparece nada; el
+  segundo aviso existe para los casos en que sí cambia. Y el recálculo se hace **en el punto de
+  inicio**, no rodando: desde el primer `TXI` —ya en la calle B9— el grafo propone
+  `B9 C P G N H M K K2 K1`, que manda volver a `C`.
+
+  El popup que vuelve lo dice en su texto (`Raas_RepromptHint`), y el log anota
+  «🎙️ Nuevo punto de rodaje: ruta recalculada desde la posición actual».
+
+- **«RECALCULAR» usa la posición del momento**, no la que había cuando se abrió el popup: si el
+  piloto cambia de pista después del pushback, la ruta se propone desde donde está ahora.
+
+### Fixed
+
+- **`FUERA DE RUTA, VUELVE A CALLE B` saltaba 8 veces en un rodaje en el que el piloto iba
+  perfectamente** — hallazgo del banco de pruebas `RaasReplayTests` (pedido del mantenedor:
+  «con los datos del pirep, haz un test y muéstrame los mensajes que saldrían en el rodaje,
+  desde el pushback hasta el takeoff roll»). La ruta que sugiere el grafo es la **más corta
+  geométricamente** —`C P G N H M K K2 K1`, 4 010 m— y ATC dio otra: el piloto hizo `C B9 B M K
+  K1 V`. En cuanto el avión se salió de la propuesta, el aviso salió **cada 30 s** entre
+  21:56:18 y 21:59:18 mientras rodaba por la calle B hacia la misma pista.
+
+  El aviso ahora se gana: hace falta estar fuera de ruta **15 s seguidos** (`OffRoutePersistSec`)
+  **sin acercarse** a la pista al menos 50 m (`OffRouteProgressM`) desde lo más cerca que se haya
+  estado en ese episodio. La distancia recta al umbral de la pista elegida entra en el motor como
+  un hecho más (`RaasAdvisor.Inputs.DistanceToRunwayM`, resuelto una vez al empezar la guía en
+  `TelemetryCoordinator.ResolveRunwayThreshold`), y **sin dato el aviso se decide solo por
+  insistencia** — degradar sin datos, no bloquear por suposición, como el resto de filtros.
+
+  Es la regla correcta para lo que el aviso quiere decir: «te has perdido», no «no has tomado la
+  calle que yo habría tomado». Rodando hacia la pista por otra calle el aviso calla; yendo hacia
+  otro sitio o dando vueltas, sigue avisando.
+
+- **`RUTA DE RODAJE COMPLETA` se anunciaba antes de entrar en pista** — se disparaba al agotar la
+  lista de calles, o sea en el último cruce: en el rodaje real salió a las **22:09:19**, tres
+  minutos antes del `ENTRANDO PISTA 14R por CALLE V` (22:12:32), y otra vez a las 22:12:19.
+  Ahora significa lo que dice —**el avión está dentro de la pista**— y se anuncia **una sola vez
+  por guía** (el despegue entero transcurre con el avión en pista, y con el antirrebote de 20 s se
+  habría repetido en cada sondeo).
+
+### Verificación
+
+- Build **Debug** y **Release** en verde; suite completa **248/248** (5 tests nuevos).
+- El **puesto remoto sin pushback ya estaba cubierto** y no hizo falta heurística nueva: la máquina
+  de fases pasa de `Boarding` a `TaxiOut` por movimiento sostenido
+  (`FlightPhaseStateMachine`, `GroundSpeed > 5 kt` durante 2 s), sin exigir pushback, beacon ni
+  motores estabilizados. Ese es el disparador del segundo aviso en ese caso, y la regla del cambio
+  de ruta lo deja callado cuando la propuesta es la misma.
+- `Reprompt_AfterPushback_OnlyWhenTheNewStartPointChangesTheRoute` fija las cuatro posiciones
+  reales del vuelo (puesto, fin del pushback, arranque del rodaje y primer `TXI`) con la ruta que
+  propone el grafo desde cada una, y `SameRoute_IgnoresHowThePilotWroteIt` cubre la comparación
+  normalizada.
+- `RaasReplayTests` reproduce el rodaje real del `MNjR664PBAr25RbD` (569 segmentos de SKBO, 35
+  hold-shorts, 4 pistas, las **72 líneas `SCH` del log completo** y las 42 posiciones entre el
+  pushback y el takeoff roll) contra el mismo `Evaluate` que corre la app a 1 Hz, y ahora **exige**
+  los dos arreglos sobre esos datos: ningún `FUERA DE RUTA` en todo el rodaje, y `RUTA DE RODAJE
+  COMPLETA` una sola vez y **después** de entrar en la pista. Además fija la **secuencia completa**
+  de avisos —cinco, en orden: giro a la K2, `APROXIMANDO`, `ESPERA`, `ESPERA` al reanudar y
+  `RUTA COMPLETA`—, para que cualquier regla futura que añada ruido rompa el test. El volcado queda
+  en `%TEMP%\raas_replay_MNjR664.txt`.
+- `RaasTests` añade los casos del motor puro: fuera de ruta sin insistencia, fuera de ruta
+  acercándose a la pista (el caso real), fuera de ruta sin acercarse, y `RUTA COMPLETA` solo en
+  pista y una sola vez.
+- Lo que **no cambia**: los avisos de hold-short siguen saliendo a 150 m y 40 m (`APROXIMANDO
+  PISTA 14R` 22:08:19, `ESPERA ANTES DE PISTA 14R` 22:08:49, con el freno real puesto 14 s después
+  y 135 s parado) y la guía de giro sigue anunciando el cruce (`CALLE K2 A LA DERECHA EN 220
+  METROS`).
+- **No verificado en vuelo**: los dos arreglos están probados contra la traza real y con el motor
+  puro, no en una sesión de simulador.
+
+---
+
 ## [0.9.14] — 2026-09-24
 
 ### Added
@@ -69,12 +154,22 @@
 
 ### Verificación
 
-- Build **Debug** y **Release** en verde; suite completa **242/242** (13 tests nuevos).
+- Build **Debug** y **Release** en verde; suite completa **243/243** (13 tests nuevos + el replay).
 - `RaasTests` usa **106 segmentos reales de SKBO** (AIRAC 2609) y las posiciones reales del rodaje:
   la ruta sugerida del puesto G49 a la pista 14R sale por las calles que el piloto hizo de verdad
   (C → B → M → K → V/K1, >1 500 m), el parseo acepta lo que se escribe en la práctica, la guía
   apunta al cruce correcto con su lado, y los cinco puntos reales frente al hold-short de la 14R
   producen `APROXIMANDO`/`ESPERA` mientras el filtro viejo del eje los habría descartado.
+- `RaasReplayTests` **reproduce el rodaje entero** de ese PIREP (569 segmentos, 35 hold-shorts, 4
+  pistas y las 42 posiciones reales entre el pushback y el takeoff roll) contra el mismo `Evaluate`
+  que corre la app a 1 Hz, y escribe la secuencia de avisos a `%TEMP%\raas_replay_MNjR664.txt`. Con
+  esa traza: `APROXIMANDO PISTA 14R` a 21:08:19 y `ESPERA ANTES DE PISTA 14R` a 22:08:49 (el freno
+  real se puso a las 22:09:03 y se soltó a las 22:11:18, **135 s** de espera), `CALLE K2 A LA
+  DERECHA EN 220 METROS` antes del desvío real, y el hold-short repetido tras reanudar la marcha.
+  **Dos hallazgos quedaron abiertos** en ese vuelo —`FUERA DE RUTA` saltaba 8 veces porque la ruta
+  que propone el grafo es la **más corta geométricamente** (C P G N H M K K2 K1) y no la que dio
+  ATC (C B9 B M K K1 V), y `RUTA DE RODAJE COMPLETA` se anunciaba antes de entrar en pista—:
+  corregidos en **v0.9.15**.
 - `es.json` y `en.json`: **416 claves cada uno**, simétricos (21 nuevas).
 - Versión **0.9.14** en los tres atributos de `AssemblyInfo` y en el proyecto de tests.
 - **No verificado en vuelo**: el popup, la voz en un equipo con voces SAPI y la guía sobre un rodaje

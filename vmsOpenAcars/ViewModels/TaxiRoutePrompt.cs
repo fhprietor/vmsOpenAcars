@@ -16,7 +16,13 @@ namespace vmsOpenAcars.ViewModels
         public string       SuggestedRoute { get; set; } = "";
         public Func<string, string> SuggestRoute { get; set; }
 
-        /// <summary>De dónde salió el aviso ("taxi light" / "taxi out"), para el log.</summary>
+        /// <summary>De dónde salió el aviso ("taxi light" / "taxi out" / "after pushback"), para el log.</summary>
         public string Reason { get; set; }
+
+        /// <summary>
+        /// Segundo aviso del vuelo, después del pushback: el punto de inicio del rodaje ya no es
+        /// el puesto, así que la ruta se ha vuelto a proponer desde donde está el avión.
+        /// </summary>
+        public bool Recalculated { get; set; }
     }
 }

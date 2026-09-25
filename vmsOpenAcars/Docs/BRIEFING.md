@@ -86,7 +86,7 @@ Pulsa **TEST** para verificar la conectividad y la validez de la API key. El res
 
 Pulsa **REFRESH NAVDATA** para invalidar manualmente la caché de procedimientos (SIDs, STARs, aproximaciones). Úsalo cuando la aerolínea haya corregido datos de NavData dentro del mismo ciclo AIRAC y necesites que la app descargue los datos actualizados sin tener que esperar al próximo ciclo. No afecta a los espacios aéreos ni requiere reiniciar la app.
 
-### Guía de rodaje (RAAS) — v0.9.14
+### Guía de rodaje (RAAS) — v0.9.14–v0.9.15
 
 Al encender la **luz de taxi** (o al detectarse el inicio del rodaje) aparece una ventana para
 preparar el rodaje:
@@ -104,13 +104,21 @@ Con la guía activa, el programa avisa como un RAAS de verdad:
   **yendo hacia él** (si lo pasas de largo en paralelo, no dice nada).
 - **`CALLE M A LA DERECHA EN 120 METROS`** antes de cada giro de la ruta, y **`GIRA AHORA`** al
   llegar al cruce.
-- **`FUERA DE RUTA, VUELVE A CALLE B`** si te sales de la ruta que pusiste, y **`RUTA DE RODAJE
-  COMPLETA`** al terminarla.
+- **`FUERA DE RUTA, VUELVE A CALLE B`** si te sales de la ruta que pusiste. Solo lo dice si,
+  además de salirte, **no te estás acercando a la pista**: si ATC te dio otra ruta que lleva al
+  mismo sitio, el programa calla (v0.9.15).
+- **`RUTA DE RODAJE COMPLETA`** cuando **entras en la pista**, una sola vez (v0.9.15).
 
 Cada aviso se dice **una sola vez** por situación: no repite «calle B, próximo a C» cada pocos
 segundos. Si eliges **AHORA NO**, el rodaje sigue como siempre (y puedes desactivar el popup
 definitivo con `raas_enabled` en la configuración). La voz usa la de Windows (SAPI); si tu equipo no
 tiene ninguna instalada, los avisos salen igual en el log y en pantalla y te avisa de ello una vez.
+
+**La ventana puede volver a salir después del pushback** (v0.9.15): al terminar el empuje ya no
+estás en el puesto, así que el punto donde empieza el rodaje puede haber cambiado y la ruta se
+recalcula desde ahí. Solo reaparece si el programa **propone una ruta distinta** a la anterior; si
+la propuesta es la misma, no te interrumpe. En un puesto remoto, sin pushback, esto no cambia nada:
+la ventana sale al empezar a rodar, como siempre.
 ### Sección Landing Log
 
 El LOGBOOK guarda el historial de tus aterrizajes con trayectoria de aproximación en una base de datos SQLite local.
@@ -674,4 +682,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.9.14 — que tengas buen vuelo.*
+*vmsOpenAcars v0.9.15 — que tengas buen vuelo.*
