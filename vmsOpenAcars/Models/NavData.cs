@@ -78,6 +78,34 @@ namespace vmsOpenAcars.Models.NavData
         [JsonProperty("end_node_id")]   public long? EndNodeId   { get; set; }
     }
 
+    /// <summary>
+    /// Empalme curado entre dos nodos que el escenario no une (29/09/2026). Es lo que permite
+    /// puentear un hueco real —el `K2`→`K1` de la 14R de SKBO son **76,0 m** de plataforma sin
+    /// ningún segmento— **sin volver a la heurística de proximidad** que el grafo acaba de dejar.
+    /// NavData no sirve un empalme cuyo nodo haya dejado de existir: aparece en `invalid`.
+    /// </summary>
+    internal class NavTaxiwayJoin
+    {
+        [JsonProperty("node_a")]   public long   NodeA   { get; set; }
+        [JsonProperty("node_b")]   public long   NodeB   { get; set; }
+        /// <summary>Calle que pide el empalme (el `K2` del caso de SKBO).</summary>
+        [JsonProperty("taxiway")]  public string Taxiway { get; set; }
+        [JsonProperty("gap_m")]    public double GapM    { get; set; }
+        [JsonProperty("lat_a")]    public double LatA    { get; set; }
+        [JsonProperty("lon_a")]    public double LonA    { get; set; }
+        [JsonProperty("lat_b")]    public double LatB    { get; set; }
+        [JsonProperty("lon_b")]    public double LonB    { get; set; }
+        [JsonProperty("note")]     public string Note    { get; set; }
+        [JsonProperty("source")]   public string Source  { get; set; }
+    }
+
+    internal class NavTaxiwayJoinsResponse
+    {
+        [JsonProperty("joins")]   public List<NavTaxiwayJoin> Joins   { get; set; } = new List<NavTaxiwayJoin>();
+        [JsonProperty("count")]   public int                  Count   { get; set; }
+        [JsonProperty("invalid")] public List<object>         Invalid { get; set; } = new List<object>();
+    }
+
     // ── Parking ───────────────────────────────────────────────────────────────────
 
     internal class NavParking

@@ -24,6 +24,8 @@ namespace vmsOpenAcars.Services.Interfaces
         Task<List<Pirep>>                            GetActivePireps();
         Task<bool>                                   DeletePirepById(string pirepId);
         Task<bool>                                   SendPositionUpdate(string pirepId, object telemetry);
+        /// <summary>Mensajes y eventos del vuelo (`type = 2`, LOG): avisos del RAAS y líneas informativas.</summary>
+        Task<bool>                                   SendAcarsLogs(string pirepId, AcarsLogEntry[] logs);
         Task<List<AcarsPosition>>                    GetPirepAcarsAsync(string pirepId);
         Task<(Pilot Data, string Error)>             GetPilotData();
 

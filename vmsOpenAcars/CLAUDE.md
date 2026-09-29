@@ -632,7 +632,7 @@ anterior).
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **290 tests**:
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **297 tests**:
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
@@ -703,22 +703,44 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   sobre la votación sin ocultar el apoyo). Límites: 200 observaciones por POST, 64 KB, 60 POST/min,
   5.000/día por clave, `observed_at` hasta 90 días atrás, un POST por rodaje de salida.
 
-- **Tres tareas nuestras con phpVMS (acordadas el 29/09/2026, sin empezar)** — los campos ya existen en
-  su instalación (`pirep_fields`), así que **no hay nada que esperar**:
-  1. **Enviar `Departure Runway`, `Arrival Runway` y `Taxi Route`** en `prefile`/`update`.
-     **Ojo: en `fields` va el NOMBRE, no el slug** —`"Departure Runway": "14R"`—; si se manda el slug
-     casa igual pero el nombre pintado será el slug. Y **esos tres campos salen ahora vacíos en todo
-     PIREP ACARS**: es normal (se declaran y se rellenan con `""`), **no es un error**.
-  2. **Enviar `fuel` por posición**: lo activaron en `$fillable` (`App\Models\Acars`) y hoy la columna
-     está a 0 filas porque no lo mandamos. En la respuesta llega como objeto con unidades
-     (`{localUnit, internalUnit, responseUnits}`), no como número.
-  3. **Enviar los avisos del RAAS por `acars/logs`**, con un prefijo propio para distinguirlos de las
-     `CHK` (que ya llevan el desglose del score). Nos piden que les avisemos cuando empiecen a llegar.
+- **Campos del PIREP y avisos del RAAS: hechos (v0.9.16).** Lo acordado con phpVMS el 29/09/2026:
+  1. **`Departure Runway`, `Arrival Runway` y `Taxi Route`** — `Helpers/PirepFields.cs` (puro, con
+     `PirepFieldsTests`) arma el diccionario `fields` con **el NOMBRE del campo, no el slug** (la API
+     guarda la clave como nombre y deriva el slug: con `departure-runway` el PIREP pinta el slug), y
+     **omite los que no tienen valor** para que el envío posterior de la ruta no borre con `""` la
+     pista del prefile. Al prefilear van las dos pistas del OFP (`ApiService.PrefileFlight`); al
+     confirmar la ruta en el popup, `FlightManager.SendTaxiRouteFields` manda `Taxi Route` tal cual la
+     tecleó el piloto. Y **esos tres campos salen vacíos en todo PIREP ACARS** hasta que lleguen
+     valores: es normal (se declaran y se rellenan con `""`), **no es un error**.
+  2. **`fuel` por posición: YA se enviaba** y no lo sabíamos; la posición se arma en
+     `TelemetryCoordinator.PrepareTelemetry` (`fuel = Math.Round(e.FuelLbs, 1)`, en **libras**, que es
+     su unidad interna). Sus 0 filas eran su `$fillable`, no nuestro silencio, y su arreglo activa
+     datos que ya viajaban; lo que faltaba al final era su **serialización** (corregido en `AcarsRoute`):
+     el valor estaba en su base y el resource no lo exponía. Seguimos enviando **libras**. Antes de decir
+     «no enviamos X», buscarlo en **todo** el proyecto.
+  3. **Avisos del RAAS al PIREP: hechos**, con el prefijo **`RAAS:`** (`FlightManager.LogRaasCallout`
+     desde `TelemetryCoordinator`, con la posición y en segundo plano). **Va por `POST /acars/logs`**,
+     que es lo que phpVMS recomienda: el servidor fuerza `type = 2` (LOG) y el aviso **no entra en la**
+     **traza de vuelo** —con `type = 0` entraba, y ese fue el remedio equivocado que probamos primero—.
+     Se lee con **`GET /acars/logs`**. Y **`fuel` sí se guardaba**: lo que fallaba era su serialización
+     (corregida en `AcarsRoute`), así que seguimos enviando **libras** y el cliente no cambia.
   De su lado queda **`crossings`** de NavData y nada más de phpVMS: el endpoint global, el
   `activity_log` y un `TXI_OUT`/`TXI_IN` quedaron **descartados de mutuo acuerdo**.
   **Receta del corpus, verificada:** `?id=<piloto>&source_name=vmsOpenACars&limit=1000` funciona (0,4 s);
   **`?limit=100` o más SIN filtro devuelve 503** — el filtro es lo que reduce el conjunto, así que
   **siempre con `source_name`**. Auth: **`X-API-KEY`**.
+
+- **El grafo y el `node_id`: hecho y MEDIDO, con el interruptor apagado (v0.9.16).** `TaxiGraph.Segment`
+  lleva los ids de sus extremos, los **empalmes curados** (`NavTaxiwayJoin`) entran como aristas —un
+  empalme ya es una arista entre dos nodos con una calle, así que es un `Segment` más— y el destino es
+  el **punto de espera** de la pista (`HoldShortSelector.AccessPointFor`), no su umbral de Navigraph.
+  **La identidad por id está implementada pero DESACTIVADA** (`Suggest(..., useNodeIds = false)`) porque
+  medirla dio esto, sobre los 237 segmentos reales y el caso `G74 → A3` de la 14L:
+  **proximidad → `F E X A B5 A A3`; con ids → `E F E X A B5 A A3`** — añade una calle, y el prefijo `E`
+  **no está explicado**. `TaxiRouteCaseTests.WithNodeIdsTheRouteIsMeasuredAgainstTheProximityOne` fija
+  las dos cifras: el día que se entienda el `E`, la decisión es con la medición de las **39 trazas**
+  delante, no con un caso. Y el fixture (`Fixtures/SKBO-taxi-2026-09-29.csv`) pasó a 7 columnas con los
+  ids emparejados uno a uno contra la API en vivo (237/237, ninguna fila inventada).
 
 - **Tile proxy en NavData (propuesta del mantenedor, sin empezar)**: que NavData sirva las teselas
   de CARTO con **caché**, para que la clave no viaje a cada piloto y la cuota se divida por el

@@ -85,6 +85,34 @@ namespace vmsOpenAcars.Helpers
             return string.Equals(hs.RunwayName, runway, StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// El punto de espera que sirve de **acceso** a esa pista: de los que la sirven, el más
+        /// cercano a su umbral. Es el destino correcto del grafo, y **no** el umbral de `/runways/`:
+        /// ese umbral es de **Navigraph** mientras que los puntos de espera y las calles son del
+        /// **escenario de MSFS**. Medido en SKBO 14L: el umbral de Navigraph está a **75 m** del punto
+        /// de espera y **los nodos MSFS más cercanos a él son de la calle `E`** — esa era la `E`
+        /// fantasma del final de la ruta, que no es una calle que ATC diga. Enrutar al punto de espera
+        /// termina la ruta donde el piloto realmente se detiene.
+        /// Devuelve null si la pista no tiene ningún punto publicado: entonces el que llama decide.
+        /// </summary>
+        internal static NavHoldShort AccessPointFor(IEnumerable<NavHoldShort> holdShorts,
+                                                    string runway,
+                                                    double thresholdLat, double thresholdLon)
+        {
+            if (holdShorts == null) return null;
+
+            NavHoldShort best  = null;
+            double       bestM = double.MaxValue;
+            foreach (var hs in holdShorts)
+            {
+                if (hs == null || !ServesRunway(hs, runway)) continue;
+                double d = GeoMath.DistanceNm(thresholdLat, thresholdLon, hs.Lat, hs.Lon)
+                           * GeoMath.MetersPerNm;
+                if (d < bestM) { bestM = d; best = hs; }
+            }
+            return best;
+        }
+
         /// <summary>Cómo se llama el punto de espera en el aviso: la calle por la que llega el avión
         /// si esa calle toca el nodo; si no, la sugerencia de NavData (que al menos se elige por ser
         /// un acceso); si no, la que traíamos.</summary>

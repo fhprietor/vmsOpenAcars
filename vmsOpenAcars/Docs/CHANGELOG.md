@@ -5,6 +5,102 @@
 ## [0.9.16] — 2026-09-29
 
 ### Fixed
+- **CORRECCIÓN del mismo día: dos entradas de abajo eran falsas, y la primera por un arreglo nuestro**
+  (29/09/2026, phpVMS comprobó las dos contra su base de datos):
+  - **`type` SÍ significa algo**: `0` = FLIGHT_PATH (posiciones), `1` = ROUTE, `2` = LOG (mensajes y
+    eventos). Nuestras filas `type = 2` **nunca se perdieron** —estaban guardadas— y lo que faltaba era
+    un `GET` que las sirviera. Lo añadieron y **verificado desde aquí: 139 filas, todas `type = 2`**.
+    Peor: **el remedio que aplicamos era el equivocado**. Pasar los avisos a `type = 0` los mete en la
+    traza de vuelo —perfil de altitud, mapa y **nuestro propio banco de rodaje**—, que es exactamente lo
+    que ellos advierten. Revertido: los avisos del RAAS van por **`POST /acars/logs`** (el servidor
+    fuerza `type = 2`, así que el cliente no elige el tipo) y las líneas informativas del arranque
+    vuelven a `type = 2` en `/acars/position`, que ahora sí se pueden leer.
+  - **`fuel` sí se guardaba**: el valor estaba en la base (`fuel=222.20`); lo que fallaba era **la
+    serialización** —el cast `App\Contracts\Unit` guarda el número en una propiedad protegida y el
+    resource devolvía solo los nombres de unidad—. Corregido en `AcarsRoute`: `fuel` llega como
+    `{"kg":100.79,"lbs":222.2}`. **Seguimos enviando libras** (su unidad interna) y el cliente no
+    cambia.
+  - Las **cuatro** filas de prueba de `Z12naE7Ox6pxVyde` las borraron ellos: el PIREP vuelve a **199
+    posiciones y 139 logs**, sin ninguna fila con prefijo `RAAS:`.
+  - Su documentación de la API (`api_vms.md`, con la tabla de tipos y el contrato de cada endpoint)
+    queda copiada en `Docs/api_vms.md`: varias de las confusiones de esta sesión venían de no tenerla.
+
+
+- **El grafo ya come del dato del escenario: `node_id`, empalmes curados y destino en el punto de
+  espera.** Tres cambios en `Helpers/TaxiGraph.cs` y su entorno:
+  - **`Segment` lleva los ids de sus dos extremos** (`start_node_id`/`end_node_id`, 52 bits) y el
+    fixture del caso real se regeneró con ellos: **237 de 237 segmentos emparejados** contra la API en
+    vivo, sin inventar ninguna fila.
+  - **Los empalmes curados entran como aristas** (`NavTaxiwayJoin` + `GET /airport/{icao}/taxiway-joins/`,
+    con caché por aeropuerto). Un empalme **ya es** una arista entre dos nodos con una calle, así que
+    se convierte en un `Segment` más: es lo que puentea huecos que el escenario no modela —el
+    `K2`→`K1` de la 14R son 76,0 m de plataforma sin ningún segmento— **sin devolver al grafo la
+    heurística de proximidad**.
+  - **El destino es el punto de espera de la pista, no su umbral** (`HoldShortSelector.AccessPointFor`):
+    el umbral de `/runways/` es de **Navigraph** y la red de calles del **escenario de MSFS**, y
+    mezclarlos metía **75 m** de error en SKBO 14L —los nodos MSFS más cercanos a ese umbral son de la
+    calle `E`, que es la `E` fantasma del final de la ruta—. Sin punto publicado se mantiene el umbral:
+    degrada sin dato, no se queda sin ruta.
+
+- **La identidad por `node_id` está implementada y medida, pero DESACTIVADA a propósito** — y ese es
+  el resultado de la medición que NavData pidió, no una tarea a medias. Sobre los 237 segmentos reales
+  del escenario, el mismo caso `G74 → A3` de la 14L:
+
+  | Identidad de nodos | Ruta que propone el grafo |
+  |---|---|
+  | Fusión por proximidad (hoy, por defecto) | `F E X A B5 A A3` |
+  | `node_id` del escenario | **`E F E X A B5 A A3`** |
+
+  **Añade una calle, no la acorta**, y el prefijo `E` no está explicado: o el nodo de arranque del
+  puesto se resuelve de verdad en `E`, o quitar la fusión deja al descubierto una vuelta que la
+  proximidad escondía. Activar eso sería cambiar una heurística por otra peor a ojos del piloto, así
+  que el interruptor (`useNodeIds`) queda **apagado** y `TaxiRouteCaseTests` **mide las dos variantes**
+  para que el día que se entienda el `E` la decisión sea con la cifra delante. Con la lección de los
+  **567 pares de nodos con id distinto a menos de 45 m**: el cambio afecta a cientos de sitios y puede
+  desconectar rutas que hoy funcionan, así que la decisión se toma con la medición sobre las **39
+  trazas reales**, no con este caso.
+
+- **Añadido para phpVMS** (`Docs/ANADIDO-PHPVMS-CIERRE-2026-09-29.md`): el `type = 2` que no se sirve
+  y el `fuel` que sigue sin persistirse, con la petición y la respuesta exactas para reproducirlo.
+
+- **Las líneas de log del cliente se enviaban con `type = 2`, y el servidor las aceptaba sin
+  servirlas: eran invisibles.** Probado contra su API el 29/09/2026: una posición con `type = 2`
+  recibe `{"message":"1 positions added"}` y **no aparece** en `/acars/position`; con **`type = 0`**
+  sí aparece (es el tipo de las filas `CHK`, que siempre se han visto). Es decir: los avisos del RAAS
+  recién añadidos **y las cinco líneas informativas del arranque** —versión, CPU, GPU, OS, AIRAC— se
+  guardaban donde nadie podía leerlas, justo lo contrario de «auditable desde el PIREP». Corregido en
+  `FlightManager.LogRaasCallout` y en el batch `SCH` de `MainViewModel`. Lo encontró la prueba en
+  vivo, no la lectura del código: los dos envíos devolvían `200`.
+
+- **`fuel` por posición sigue sin persistirse en su lado** (matiz a lo que anunció su cierre): una
+  posición nueva con `fuel: 222.2` se acepta y se sirve, pero su objeto `fuel` vuelve solo con las
+  unidades (`{localUnit:"kg", internalUnit:"lbs", responseUnits:[…]}`) y **sin valor**, igual que el
+  campo `distance` cuando va vacío. Se les reporta con la petición exacta. Nosotros ya lo enviábamos
+  (en libras) desde antes de su cambio en `$fillable`.
+
+- **El PIREP ya lleva la pista y la ruta de rodaje, y los avisos del RAAS dejan de vivir solo en el
+  log del piloto** (las tres tareas acordadas con phpVMS). Nuevo `Helpers/PirepFields.cs` (puro, con
+  test): arma el diccionario `fields` con **el nombre del campo, no el slug** —la API guarda la clave
+  como nombre y deriva el slug con `str_slug()`, así que mandar `departure-runway` haría que el PIREP
+  pintara el slug—, **omite los campos sin valor** (para que el envío posterior de la ruta no borre
+  con `""` la pista que ya iba en el prefile) y **conserva las calles y el orden** de la ruta del
+  piloto, que es la fuente buena de la observación. Al **prefilear** se mandan `Departure Runway` y
+  `Arrival Runway` del OFP; al **confirmar la ruta en el popup**,
+  `FlightManager.SendTaxiRouteFields` manda `Taxi Route` con el texto tal cual lo tecleó el piloto; y
+  cada aviso del RAAS se registra en el PIREP con el prefijo **`RAAS:`** (`LogRaasCallout`), que es lo
+  que phpVMS pidió para distinguirlo de las filas `CHK` —hasta ahora solo existían en el fichero local
+  del piloto, así que no eran auditables desde fuera—. Los dos envíos van en segundo plano y con el
+  `pirepId` capturado, para no bloquear ni al popup ni al hilo de telemetría. `PirepFieldsTests`
+  (6 tests) fija los nombres y usa el caso real de SKBO (`14L`, ruta `F E M A A3`).
+
+- **Corrección de una afirmación nuestra: el `fuel` por posición YA se enviaba.** Dijimos a phpVMS que
+  no lo mandábamos y era **falso**: se comprobó grepeando solo `ApiService`, cuando la posición se arma
+  en `TelemetryCoordinator.PrepareTelemetry` (`fuel = Math.Round(e.FuelLbs, 1)`, del dato de FSUIPC, en
+  **libras** —su unidad interna—). Por eso su columna estaba a 0 filas: **no era nuestro silencio, era
+  su `$fillable`**, y su arreglo activa datos que llevábamos enviando sin que se guardaran. Queda
+  pendiente confirmar con ellos que esperan el valor en libras (su respuesta anuncia `localUnit=kg` en
+  la lectura). Lección: antes de afirmar que «no enviamos algo», buscarlo en todo el proyecto y no en
+  el fichero donde se espera encontrarlo.
 
 - **Los datos de prueba de phpVMS quedan acordados, con tres tareas nuestras y una receta verificada.**
   Su cierre (29/09/2026) confirma: los campos `Departure Runway`, `Arrival Runway` y `Taxi Route` **ya

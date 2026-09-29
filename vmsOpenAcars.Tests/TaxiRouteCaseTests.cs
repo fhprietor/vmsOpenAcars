@@ -66,7 +66,18 @@ namespace vmsOpenAcars.Tests
                 if (line.Length == 0 || line.StartsWith("#")) continue;
 
                 string[] f = line.Split(',');
-                Assert.AreEqual(5, f.Length, $"línea de fixture mal formada: {line}");
+                // 5 columnas en el fixture original, 7 desde que trae los `node_id` del escenario
+                // (`start_node_id`/`end_node_id`): son los que hacen que el grafo una nodos por
+                // identidad y no por cercanía. Una fila sin id se queda con nulo y el grafo cae a la
+                // fusión de siempre, igual que el producto con una caché vieja.
+                Assert.IsTrue(f.Length == 5 || f.Length == 7, $"línea de fixture mal formada: {line}");
+                long? nodeA = null, nodeB = null;
+                if (f.Length == 7)
+                {
+                    long v;
+                    if (long.TryParse(f[5], NumberStyles.Integer, CultureInfo.InvariantCulture, out v)) nodeA = v;
+                    if (long.TryParse(f[6], NumberStyles.Integer, CultureInfo.InvariantCulture, out v)) nodeB = v;
+                }
                 _skbo.Add(new TaxiGraph.Segment
                 {
                     Name = f[0],
@@ -74,6 +85,8 @@ namespace vmsOpenAcars.Tests
                     Lon1 = double.Parse(f[2], CultureInfo.InvariantCulture),
                     Lat2 = double.Parse(f[3], CultureInfo.InvariantCulture),
                     Lon2 = double.Parse(f[4], CultureInfo.InvariantCulture),
+                    NodeA = nodeA,
+                    NodeB = nodeB,
                 });
             }
         }
@@ -86,6 +99,29 @@ namespace vmsOpenAcars.Tests
             => _skbo.Where(s => !streets.Contains(s.Name, StringComparer.OrdinalIgnoreCase)).ToList();
 
         // ── Lo que el grafo hace hoy ──────────────────────────────────────────────
+
+        /// <summary>
+        /// **La medición del cambio a `node_id`** (29/09/2026): qué sale con la identidad del
+        /// escenario y qué salía con la fusión por proximidad, sobre el mismo fixture. Se mide en vez
+        /// de suponerse porque el grafo cambia en **cientos** de sitios —los 567 pares de nodos con
+        /// id distinto a menos de 45 m que la fusión unía— y eso puede desconectar rutas que hoy
+        /// funcionan, no solo acortar una.
+        /// </summary>
+        [TestMethod]
+        public void WithNodeIdsTheRouteIsMeasuredAgainstTheProximityOne()
+        {
+            string proximity = Suggest(_skbo);
+            string withIds   = TaxiGraph.Suggest(_skbo, StandG74Lat, StandG74Lon,
+                                                 HoldShortA3Lat, HoldShortA3Lon,
+                                                 useNodeIds: true).Text;
+
+            // Medido el 29/09/2026 sobre los 237 segmentos reales del escenario:
+            Assert.AreEqual("F E X A B5 A A3", proximity, "la ruta con la fusión por proximidad");
+            Assert.AreEqual("E F E X A B5 A A3", withIds,
+                            "la ruta mirando el node_id: AÑADE una calle, no la acorta. Si esto " +
+                            "cambia, es que se entendió el prefijo `E` — y entonces hay que decidir " +
+                            "el interruptor `useNodeIds` con la medición sobre las 39 trazas.");
+        }
 
         [TestMethod]
         public void TodayTheGraphSuggestsTheShortest_WhichIsNotTheCustomaryRoute()

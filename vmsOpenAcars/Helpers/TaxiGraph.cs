@@ -26,6 +26,15 @@ namespace vmsOpenAcars.Helpers
             public double Lon1   { get; set; }
             public double Lat2   { get; set; }
             public double Lon2   { get; set; }
+
+            /// <summary>
+            /// Id de nodo de cada extremo (`start_node_id`/`end_node_id`, 52 bits). **Dos extremos
+            /// con el mismo id son el mismo nodo**, sin mirar la distancia; ver `NodeOf`. Nulo en un
+            /// dataset viejo o en un empalme curado que no los traiga, y entonces el grafo cae a la
+            /// fusión por proximidad de siempre.
+            /// </summary>
+            public long? NodeA { get; set; }
+            public long? NodeB { get; set; }
         }
 
         internal sealed class RouteSuggestion
@@ -51,7 +60,8 @@ namespace vmsOpenAcars.Helpers
         /// </summary>
         internal static RouteSuggestion Suggest(
             IEnumerable<Segment> segments,
-            double fromLat, double fromLon, double toLat, double toLon)
+            double fromLat, double fromLon, double toLat, double toLon,
+            bool useNodeIds = false)
         {
             var result = new RouteSuggestion();
             if (segments == null) return result;
@@ -60,20 +70,49 @@ namespace vmsOpenAcars.Helpers
                                         && !string.IsNullOrWhiteSpace(s.Name)).ToList();
             if (segs.Count == 0) return result;
 
-            // ── Nodos: fusión de extremos cercanos ────────────────────────────────
-            var nodeLat = new List<double>();
-            var nodeLon = new List<double>();
-            int NodeOf(double lat, double lon)
+            // ── Nodos: por `node_id` si se pide, con la proximidad como respaldo ───
+            // El escenario publica el id de cada extremo desde el 29/09/2026, así que dos nodos a
+            // menos de `SnapM` **y con id distinto** son distintos y no deberían fundirse: la fusión
+            // por proximidad **inventaba** uniones que el escenario no tiene —medido en SKBO, **567
+            // pares de nodos con id distinto a menos de 45 m**—.
+            //
+            // **Pero está DESACTIVADO por defecto, y a propósito**: medido sobre el caso real
+            // `G74 → A3` de la 14L, con ids la ruta sale **`E F E X A B5 A A3`** y con proximidad
+            // `F E X A B5 A A3` — es decir, **añade una calle** en vez de acortarla, y el prefijo `E`
+            // no está explicado todavía (¿el nodo de arranque del puesto se resuelve en `E`, o la
+            // identidad deja al descubierto una vuelta que la fusión escondía?). Sin entender eso,
+            // activarlo sería cambiar una heurística por otra peor a ojos del piloto. El grafo lleva
+            // los ids, los usa el test que mide ambas variantes, y el interruptor se decide con la
+            // medición sobre las 39 trazas reales: `WithNodeIdsTheRouteIsMeasuredAgainstTheProximityOne`.
+            var nodeLat  = new List<double>();
+            var nodeLon  = new List<double>();
+            var nodeById = new Dictionary<long, int>();
+
+            int NewNode(double lat, double lon)
             {
+                nodeLat.Add(lat);
+                nodeLon.Add(lon);
+                return nodeLat.Count - 1;
+            }
+
+            int NodeOf(double lat, double lon, long? id)
+            {
+                if (useNodeIds && id.HasValue && id.Value != 0L)
+                {
+                    int known;
+                    if (nodeById.TryGetValue(id.Value, out known)) return known;
+                    int fresh = NewNode(lat, lon);
+                    nodeById[id.Value] = fresh;
+                    return fresh;
+                }
+
                 for (int i = 0; i < nodeLat.Count; i++)
                 {
                     if (GeoMath.DistanceNm(lat, lon, nodeLat[i], nodeLon[i]) * GeoMath.MetersPerNm
                         <= SnapM)
                         return i;
                 }
-                nodeLat.Add(lat);
-                nodeLon.Add(lon);
-                return nodeLat.Count - 1;
+                return NewNode(lat, lon);
             }
 
             var edgeA    = new int[segs.Count];
@@ -81,8 +120,8 @@ namespace vmsOpenAcars.Helpers
             var edgeCost = new double[segs.Count];
             for (int i = 0; i < segs.Count; i++)
             {
-                edgeA[i]    = NodeOf(segs[i].Lat1, segs[i].Lon1);
-                edgeB[i]    = NodeOf(segs[i].Lat2, segs[i].Lon2);
+                edgeA[i]    = NodeOf(segs[i].Lat1, segs[i].Lon1, segs[i].NodeA);
+                edgeB[i]    = NodeOf(segs[i].Lat2, segs[i].Lon2, segs[i].NodeB);
                 edgeCost[i] = GeoMath.DistanceNm(segs[i].Lat1, segs[i].Lon1,
                                                  segs[i].Lat2, segs[i].Lon2) * GeoMath.MetersPerNm;
             }

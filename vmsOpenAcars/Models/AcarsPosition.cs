@@ -1,4 +1,5 @@
-﻿using System;
+using Newtonsoft.Json;
+using System;
 
 namespace vmsOpenAcars.Models
 {
@@ -43,5 +44,28 @@ namespace vmsOpenAcars.Models
     public class AcarsPositionUpdate
     {
         public AcarsPosition[] positions { get; set; }
+    }
+
+    /// <summary>
+    /// Una entrada de mensaje/evento para `POST /api/pireps/{id}/acars/logs` (29/09/2026). Es el
+    /// camino limpio para los avisos del RAAS: **el servidor fuerza `type = 2` (LOG)**, así que el
+    /// cliente no elige el tipo — que es exactamente lo que nos llevó a mandarlos con `0` y a
+    /// contaminar la traza de vuelo, que es de lo que nos avisó phpVMS. Campos del contrato:
+    /// `log`, `lat?`, `lon?`, `created_at?`.
+    /// </summary>
+    public class AcarsLogEntry
+    {
+        [JsonProperty("log")]        public string    Log       { get; set; }
+        [JsonProperty("lat")]        public double?   Lat       { get; set; }
+        [JsonProperty("lon")]        public double?   Lon       { get; set; }
+        [JsonProperty("created_at")] public DateTime? CreatedAt { get; set; }
+
+        public static AcarsLogEntry At(string log, double lat, double lon)
+            => new AcarsLogEntry { Log = log, Lat = lat, Lon = lon };
+    }
+
+    public class AcarsLogsUpdate
+    {
+        [JsonProperty("logs")] public AcarsLogEntry[] Logs { get; set; }
     }
 }

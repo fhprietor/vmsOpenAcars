@@ -178,6 +178,7 @@
     <Compile Include="Helpers\AtcStationOrder.cs" />
     <Compile Include="Helpers\GeoMath.cs" />
     <Compile Include="Helpers\HoldShortSelector.cs" />
+    <Compile Include="Helpers\PirepFields.cs" />
     <Compile Include="Helpers\MapAttribution.cs" />
     <Compile Include="Helpers\RouteCorridor.cs" />
     <Compile Include="Helpers\TaxiGraph.cs" />

@@ -60,6 +60,7 @@
     <Compile Include="EcamDialogTests.cs" />
     <Compile Include="GeoMathTests.cs" />
     <Compile Include="HoldShortSelectorTests.cs" />
+    <Compile Include="PirepFieldsTests.cs" />
     <Compile Include="MapAttributionTests.cs" />
     <Compile Include="RouteCorridorTests.cs" />
     <Compile Include="RaasTests.cs" />

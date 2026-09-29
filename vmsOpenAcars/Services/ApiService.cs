@@ -339,6 +339,11 @@ namespace vmsOpenAcars.Services
                 distance = 0,
                 flight_time = 0,
                 fuel_used = 0,
+                // Pista de salida y de llegada del OFP. Son campos PERSONALIZADOS de phpVMS
+                // (`pirep_fields`) y la clave que se manda es el NOMBRE del campo, no el slug; ver
+                // Helpers/PirepFields.cs. La ruta de rodaje todavía no existe aquí: llega cuando el
+                // piloto responde al popup y se manda desde FlightManager.SendTaxiRouteFields.
+                fields = PirepFields.Build(plan.OriginRunway, plan.DestinationRunway, null),
                 notes = SystemInfoHelper.GetPrefileNotes(),
                 source_name = $"vmsOpenAcars/{appVersion}",
                 state = "in_progress"
@@ -517,6 +522,30 @@ namespace vmsOpenAcars.Services
         #endregion
 
         #region ACARS Updates
+
+        /// <summary>
+        /// Manda mensajes/eventos del vuelo por el endpoint de **logs** (`type = 2`, LOG). Es donde
+        /// van los avisos del RAAS: son mensajes, no posiciones, y mandarlos como posición los mete
+        /// en la traza de vuelo —perfil de altitud, mapa y nuestro propio banco de rodaje—, que es
+        /// justo lo que phpVMS nos advirtió (29/09/2026). El servidor fuerza el tipo.
+        /// </summary>
+        public async Task<bool> SendAcarsLogs(string pirepId, AcarsLogEntry[] logs)
+        {
+            if (string.IsNullOrEmpty(pirepId) || logs == null || logs.Length == 0) return false;
+
+            try
+            {
+                string json = JsonConvert.SerializeObject(new AcarsLogsUpdate { Logs = logs },
+                    new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.PostAsync(
+                    $"{_baseUrl}api/pireps/{pirepId}/acars/logs", content);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch { return false; }
+        }
 
         /// <summary>
         /// Sends a position update (telemetry) for an active flight to the ACARS endpoint.

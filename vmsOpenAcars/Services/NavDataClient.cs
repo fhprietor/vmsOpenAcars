@@ -17,6 +17,9 @@ namespace vmsOpenAcars.Services
     {
         public List<NavRunway>    Runways    { get; set; } = new List<NavRunway>();
         public List<NavTaxiway>   Taxiways   { get; set; } = new List<NavTaxiway>();
+        /// <summary>Empalmes curados entre nodos (29/09/2026). Una caché vieja los trae vacíos y el
+        /// grafo simplemente no puentea: degrada, no bloquea.</summary>
+        public List<NavTaxiwayJoin> Joins    { get; set; } = new List<NavTaxiwayJoin>();
         public List<NavParking>   Parkings   { get; set; } = new List<NavParking>();
         public List<NavHoldShort> HoldShorts { get; set; } = new List<NavHoldShort>();
         public List<NavApproach>  Approaches { get; set; } = new List<NavApproach>();
@@ -103,6 +106,7 @@ namespace vmsOpenAcars.Services
 
         public static List<NavRunway>    GetRunways(string icao)    => GetCache(icao)?.Runways    ?? new List<NavRunway>();
         public static List<NavTaxiway>   GetTaxiways(string icao)   => GetCache(icao)?.Taxiways   ?? new List<NavTaxiway>();
+        public static List<NavTaxiwayJoin> GetTaxiwayJoins(string icao) => GetCache(icao)?.Joins ?? new List<NavTaxiwayJoin>();
         public static List<NavParking>   GetParkings(string icao)   => GetCache(icao)?.Parkings   ?? new List<NavParking>();
         public static List<NavHoldShort> GetHoldShorts(string icao) => GetCache(icao)?.HoldShorts ?? new List<NavHoldShort>();
         public static List<NavApproach>  GetApproaches(string icao) => GetCache(icao)?.Approaches ?? new List<NavApproach>();
@@ -445,18 +449,20 @@ namespace vmsOpenAcars.Services
 
             var tRunways    = FetchAsync<NavRunwaysResponse>   ($"{baseUrl}/airport/{icao}/runways/");
             var tTaxiways   = FetchAsync<NavTaxiwaysResponse>  ($"{baseUrl}/airport/{icao}/taxiways/");
+            var tJoins      = FetchAsync<NavTaxiwayJoinsResponse>($"{baseUrl}/airport/{icao}/taxiway-joins/");
             var tParkings   = FetchAsync<NavParkingsResponse>  ($"{baseUrl}/airport/{icao}/parkings/");
             var tHoldShorts = FetchAsync<NavHoldShortResponse> ($"{baseUrl}/airport/{icao}/holdshort/");
             var tApproaches = FetchAsync<NavApproachesResponse>($"{baseUrl}/airport/{icao}/approaches/");
             var tInfo       = FetchAsync<NavAirportInfo>       ($"{baseUrl}/airport/{icao}/");
 
-            await Task.WhenAll(tRunways, tTaxiways, tParkings, tHoldShorts, tApproaches, tInfo)
+            await Task.WhenAll(tRunways, tTaxiways, tJoins, tParkings, tHoldShorts, tApproaches, tInfo)
                       .ConfigureAwait(false);
 
             var cache = new NavAirportCache
             {
                 Runways    = tRunways.Result?.Runways       ?? new List<NavRunway>(),
                 Taxiways   = tTaxiways.Result?.Taxiways     ?? new List<NavTaxiway>(),
+                Joins      = tJoins.Result?.Joins           ?? new List<NavTaxiwayJoin>(),
                 Parkings   = tParkings.Result?.Parkings     ?? new List<NavParking>(),
                 HoldShorts = tHoldShorts.Result?.Holdshort  ?? new List<NavHoldShort>(),
                 Approaches = tApproaches.Result?.Approaches ?? new List<NavApproach>(),

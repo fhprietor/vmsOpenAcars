@@ -661,6 +661,54 @@ namespace vmsOpenAcars.Core.Flight
             catch (Exception ex) { OnLog?.Invoke(_("Log_ErrorFlightProgress", ex.Message), Theme.Danger); }
         }
 
+        /// <summary>
+        /// Manda a phpVMS la ruta de rodaje que eligió el piloto, **tal cual la tecleó**, al campo
+        /// personalizado `Taxi Route` (ver Helpers/PirepFields.cs). Es la autorización de ATC tal
+        /// como la entendió él, y es la fuente buena de la observación de rutas: la traza tiene ruido
+        /// de GPS y desvíos, el texto no. Se manda en segundo plano para no bloquear al que llama
+        /// (el popup de rodaje, o el hilo de telemetría si algún día se reenvía desde ahí).
+        /// </summary>
+        public void SendTaxiRouteFields(string departureRunway, string taxiRoute)
+        {
+            string pirepId = ActivePirepId;              // capturado: el vuelo puede resetearse antes
+            if (string.IsNullOrEmpty(pirepId)) return;
+
+            var fields = PirepFields.Build(departureRunway, null, taxiRoute);
+            if (fields.Count == 0) return;
+
+            Task.Run(async () =>
+            {
+                try { await _apiService.UpdatePirep(pirepId, new { fields }); }
+                catch { /* que el PIREP no lleve la ruta no puede tumbar el vuelo */ }
+            });
+        }
+
+        /// <summary>
+        /// Deja constancia en el PIREP de un aviso del RAAS, con el prefijo `RAAS:` para que phpVMS
+        /// pueda distinguirlo de las filas `CHK` (que llevan el desglose del score). Hasta ahora los
+        /// avisos solo vivían en el fichero de log local del piloto, así que no eran auditables desde
+        /// el PIREP. Va con la posición y en segundo plano, para no bloquear el hilo de telemetría, y
+        /// se lee con `GET /acars/logs` —el endpoint que sirve los `type = 2`—, no con
+        /// `/acars/position`: phpVMS añadió ese GET el 29/09/2026 al comprobar que nuestros avisos se
+        /// guardaban sin que nadie pudiera leerlos.
+        /// </summary>
+        public void LogRaasCallout(string text, double lat, double lon, int heading)
+        {
+            string pirepId = ActivePirepId;
+            if (string.IsNullOrEmpty(pirepId) || string.IsNullOrEmpty(text)) return;
+
+            var entry = AcarsLogEntry.At("RAAS: " + text, lat, lon);
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await _apiService.SendAcarsLogs(pirepId, new[] { entry });
+                }
+                catch { /* idem: el aviso ya se dijo y se oyó, esto es solo el registro */ }
+            });
+        }
+
         #endregion
     }
 

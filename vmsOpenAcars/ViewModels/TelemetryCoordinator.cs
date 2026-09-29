@@ -1173,6 +1173,9 @@ namespace vmsOpenAcars.ViewModels
             _raasAirport        = airport;
             _raasRunway         = runway;
             _raasPlan           = TaxiRoutePlan.Parse(routeText);
+            // La ruta que acaba de confirmar el piloto va al PIREP, en su campo personalizado: es la
+            // única copia que sobrevive al log local, y la que NavData podrá agregar después.
+            _flightManager.SendTaxiRouteFields(runway, routeText);
             _raasGuidanceActive = raasEnabled;
             _raas.ResetRouteState();
 
@@ -1239,8 +1242,17 @@ namespace vmsOpenAcars.ViewModels
                     .FirstOrDefault(r => string.Equals(r.Name, runway,
                                                        StringComparison.OrdinalIgnoreCase));
                 if (rwy == null) return "";
+                // El destino es el **punto de espera** de esa pista, no su umbral: el umbral de
+                // `/runways/` es de Navigraph y la red de calles del escenario de MSFS, y mezclarlos
+                // metía 75 m de error en SKBO 14L (la ruta acababa en la calle `E`, que no existe en
+                // las cartas). Si la pista no tiene punto publicado se mantiene el umbral: degradar
+                // sin dato, no quedarse sin ruta.
+                var access = HoldShortSelector.AccessPointFor(NavDataClient.GetHoldShorts(airport),
+                                                              runway, rwy.ThresholdLat, rwy.ThresholdLon);
+                double toLat = access?.Lat ?? rwy.ThresholdLat;
+                double toLon = access?.Lon ?? rwy.ThresholdLon;
                 var suggestion = TaxiGraph.Suggest(TaxiSegments(airport),
-                                                   lat, lon, rwy.ThresholdLat, rwy.ThresholdLon);
+                                                   lat, lon, toLat, toLon);
                 return suggestion.Found ? suggestion.Text : "";
             }
             catch { return ""; }
@@ -1263,7 +1275,25 @@ namespace vmsOpenAcars.ViewModels
                     {
                         Name = t.Name.Trim(),
                         Lat1 = t.StartLat, Lon1 = t.StartLon,
-                        Lat2 = t.EndLat,   Lon2 = t.EndLon
+                        Lat2 = t.EndLat,   Lon2 = t.EndLon,
+                        NodeA = t.StartNodeId, NodeB = t.EndNodeId
+                    });
+                }
+
+                // Y los empalmes curados como aristas: un empalme **ya es** una arista entre dos
+                // nodos con una calle, que es exactamente lo que el grafo necesita. Es lo que puentea
+                // los huecos que el escenario no modela (el `K2`→`K1` de SKBO, 76,0 m) sin devolver
+                // al grafo la heurística de proximidad que se acaba de quitar.
+                foreach (var j in NavDataClient.GetTaxiwayJoins(airport))
+                {
+                    if (j == null || string.IsNullOrWhiteSpace(j.Taxiway)) continue;
+                    if (j.NodeA == 0L || j.NodeB == 0L) continue;
+                    result.Add(new TaxiGraph.Segment
+                    {
+                        Name = j.Taxiway.Trim(),
+                        Lat1 = j.LatA, Lon1 = j.LonA,
+                        Lat2 = j.LatB, Lon2 = j.LonB,
+                        NodeA = j.NodeA, NodeB = j.NodeB
                     });
                 }
             }
@@ -1386,6 +1416,10 @@ namespace vmsOpenAcars.ViewModels
                 _cb.Log?.Invoke("🎙️ " + text, Theme.Taxi);
                 _cb.OsdMessage?.Invoke(text.ToUpperInvariant(), OsdSeverity.Info);
                 RaasVoice.Speak(text);
+                // Y queda en el PIREP, con el prefijo `RAAS:`: hasta v0.9.16 los avisos solo existían
+                // en el log local del piloto, así que no se podían auditar desde fuera.
+                _flightManager.LogRaasCallout(text, e.Latitude, e.Longitude,
+                                              (int)Math.Round(e.HeadingDeg));
             }
             catch { /* la guía nunca debe tumbar el hilo de telemetría */ }
         }
