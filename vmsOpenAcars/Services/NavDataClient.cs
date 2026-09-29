@@ -20,6 +20,10 @@ namespace vmsOpenAcars.Services
         /// <summary>Empalmes curados entre nodos (29/09/2026). Una caché vieja los trae vacíos y el
         /// grafo simplemente no puentea: degrada, no bloquea.</summary>
         public List<NavTaxiwayJoin> Joins    { get; set; } = new List<NavTaxiwayJoin>();
+        /// <summary>Versión del dataset de calles con la que se trajeron los empalmes (ver `Version`).</summary>
+        public string               JoinsVersion { get; set; }
+        /// <summary>Estadísticas de la red de calles del aeropuerto (`components`, huecos, medianas).</summary>
+        public NavTaxiNetworkStats  JoinsStats   { get; set; }
         public List<NavParking>   Parkings   { get; set; } = new List<NavParking>();
         public List<NavHoldShort> HoldShorts { get; set; } = new List<NavHoldShort>();
         public List<NavApproach>  Approaches { get; set; } = new List<NavApproach>();
@@ -107,6 +111,16 @@ namespace vmsOpenAcars.Services
         public static List<NavRunway>    GetRunways(string icao)    => GetCache(icao)?.Runways    ?? new List<NavRunway>();
         public static List<NavTaxiway>   GetTaxiways(string icao)   => GetCache(icao)?.Taxiways   ?? new List<NavTaxiway>();
         public static List<NavTaxiwayJoin> GetTaxiwayJoins(string icao) => GetCache(icao)?.Joins ?? new List<NavTaxiwayJoin>();
+
+        /// <summary>Versión del dataset de calles del aeropuerto, o <c>null</c> si aún no se ha traído.</summary>
+        public static string GetTaxiwayJoinsVersion(string icao) => GetCache(icao)?.JoinsVersion;
+
+        /// <summary>
+        /// Estadísticas de la red: **`Components &gt; 1` significa que hay trozos de red sin unir** y que
+        /// el grafo puede no llegar al destino pedido (KMIA: 2, y el segundo son los muñones del eje de
+        /// pista). Devuelve <c>null</c> si no hay dato: el llamante decide, no se inventa nada.
+        /// </summary>
+        public static NavTaxiNetworkStats GetTaxiNetworkStats(string icao) => GetCache(icao)?.JoinsStats;
         public static List<NavParking>   GetParkings(string icao)   => GetCache(icao)?.Parkings   ?? new List<NavParking>();
         public static List<NavHoldShort> GetHoldShorts(string icao) => GetCache(icao)?.HoldShorts ?? new List<NavHoldShort>();
         public static List<NavApproach>  GetApproaches(string icao) => GetCache(icao)?.Approaches ?? new List<NavApproach>();
@@ -463,6 +477,8 @@ namespace vmsOpenAcars.Services
                 Runways    = tRunways.Result?.Runways       ?? new List<NavRunway>(),
                 Taxiways   = tTaxiways.Result?.Taxiways     ?? new List<NavTaxiway>(),
                 Joins      = tJoins.Result?.Joins           ?? new List<NavTaxiwayJoin>(),
+                JoinsVersion = tJoins.Result?.Version,
+                JoinsStats   = tJoins.Result?.Stats,
                 Parkings   = tParkings.Result?.Parkings     ?? new List<NavParking>(),
                 HoldShorts = tHoldShorts.Result?.Holdshort  ?? new List<NavHoldShort>(),
                 Approaches = tApproaches.Result?.Approaches ?? new List<NavApproach>(),

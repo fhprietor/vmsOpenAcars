@@ -1301,6 +1301,21 @@ namespace vmsOpenAcars.ViewModels
             return result;
         }
 
+        /// <summary>
+        /// **El piloto pide cambiar la ruta de rodaje.** Es el caso real del ATC: se hace el pushback, se
+        /// pone el freno, **se prepara el avión** y solo entonces se llama para pedir la autorización —así
+        /// que la ruta que ATC da puede llegar minutos después del fin del empuje, y la que el piloto
+        /// aceptó entonces ya no vale—. Aquí **manda el piloto**: se salta el «una vez por vuelo», se salta
+        /// el filtro de «la ruta no cambió» (que existe para no repetir un aviso idéntico, no para bloquear
+        /// un cambio deliberado) y se recalcula desde la posición actual. Lo que teclee es lo que guía y lo
+        /// que viaja al PIREP, y en la base de rutas de NavData cuenta con **peso doble** (`typed`).
+        /// </summary>
+        internal void RequestTaxiRouteChange()
+        {
+            if (!AppConfig.RaasEnabled || _flightManager == null) return;
+            RequestTaxiRoutePrompt("manual");
+        }
+
         private void RequestTaxiRoutePrompt(string reason)
         {
             if (!AppConfig.RaasEnabled || _flightManager == null) return;
@@ -1310,9 +1325,13 @@ namespace vmsOpenAcars.ViewModels
             // punto de inicio del rodaje decide qué calle se toma primero. Se pide desde el fin
             // del pushback (freno de parqueo puesto, avión parado: buen momento) o, si no hubo
             // pushback —puesto remoto—, al entrar en TaxiOut.
-            bool first = !_raasPromptShown;
-            if (!first && (_raasRepromptShown || !_raasGuidanceActive)) return;
-            if (!first) _raasRepromptShown = true;
+            bool manual = string.Equals(reason, "manual", StringComparison.Ordinal);
+            bool first  = !_raasPromptShown;
+            if (!manual)
+            {
+                if (!first && (_raasRepromptShown || !_raasGuidanceActive)) return;
+                if (!first) _raasRepromptShown = true;
+            }
 
             var plan = _flightManager.ActivePlan;
             string airport = plan?.Origin ?? _flightManager.CurrentAirport;
@@ -1338,7 +1357,7 @@ namespace vmsOpenAcars.ViewModels
                 // Un segundo aviso que propone exactamente lo mismo es ruido: si el grafo no
                 // cambia de idea con el punto de inicio nuevo, no hay nada que contar. Medido:
                 // desde el puesto G49 y desde el fin de su pushback la propuesta es la misma.
-                if (!first && TaxiRoutePlan.SameRoute(_raasSuggestedText, suggested)) return;
+                if (!first && !manual && TaxiRoutePlan.SameRoute(_raasSuggestedText, suggested)) return;
 
                 if (first) _raasSuggestedText = suggested;
                 else _cb.Log?.Invoke("🎙️ Nuevo punto de rodaje: ruta recalculada desde la posición actual",
@@ -1362,9 +1381,22 @@ namespace vmsOpenAcars.ViewModels
 
         private void OnTaxiLightChanged(bool on)
         {
-            // La luz de taxi es el gesto con el que el piloto dice «empiezo a rodar»: es el
-            // momento natural para preguntar por la pista, antes de que la guía pueda servir.
-            if (on) RequestTaxiRoutePrompt("taxi light");
+            // La luz de taxi es el gesto con el que el piloto dice «voy a rodar», pero **no es el
+            // momento**: se enciende antes o durante el pushback, y ahí el avión todavía lo lleva el
+            // remolque y el punto de inicio del rodaje no existe —el popup salía con el avión en el
+            // puesto y la ruta se calculaba desde ahí—. Así que la luz **no abre** el popup mientras la
+            // fase sea `Pushback`; si se enciende con el empuje ya terminado, sí.
+            //
+            // Con esto los tres caminos dejan el popup **después del pushback**: el propio fin del
+            // empuje (freno de parqueo puesto en `Pushback`), esta luz ya con el avión libre, y —para un
+            // puesto remoto, donde no hay pushback— entrar en `TaxiOut`, que la máquina de fases solo da
+            // con movimiento sostenido confirmado.
+            if (!on) return;
+
+            var phase = _flightManager?.CurrentPhase ?? FlightPhase.Idle;
+            if (phase == FlightPhase.Pushback) return;
+
+            RequestTaxiRoutePrompt("taxi light");
         }
 
         private void EvaluateRaas(RawTelemetryData e)

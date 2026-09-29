@@ -357,6 +357,21 @@ namespace vmsOpenAcars.UI.Forms
         {
             GMaps.Instance.Mode = AccessMode.ServerAndCache;
 
+            // ── La obligación de los 30 días que CARTO nos puso a través de NavData ───────────────
+            // Las condiciones de las basemaps prohíben cachear en el dispositivo del usuario **más de
+            // 30 días** y retener esa caché si se deja de usar el servicio. GMap.NET guarda las teselas
+            // en su propia caché de disco y **no lee las cabeceras HTTP**, así que el TTL hay que
+            // imponerlo aquí: al abrir el mapa se borra lo que pase de 30 días. Va en `try` porque la
+            // caché es un lujo, no un requisito: si falla, el mapa se dibuja igual.
+            try
+            {
+                int purged = GMaps.Instance.PrimaryCache.DeleteOlderThan(
+                    DateTime.Now.AddDays(-30), null);
+                if (purged > 0)
+                    System.Diagnostics.Debug.WriteLine($"caché del mapa: {purged} teselas de más de 30 días borradas");
+            }
+            catch { /* la caché no puede impedir que se abra el mapa */ }
+
             // Required by OSM and most CDN-backed tile servers
             GMapProvider.UserAgent =
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0";
@@ -700,9 +715,21 @@ namespace vmsOpenAcars.UI.Forms
         public override GMapProvider[] Overlays   => new GMapProvider[] { this };
 
         public override PureImage GetTileImage(GPoint pos, int zoom)
-            => GetTileImageUsingHttp(CartoTileUrl.WithKey(
-                   $"https://a.basemaps.cartocdn.com/light_all/{zoom}/{pos.X}/{pos.Y}.png",
-                   AppConfig.CartoApiKey));
+        {
+            try
+            {
+                return GetTileImageUsingHttp(CartoTileUrl.WithKey(
+                    $"https://a.basemaps.cartocdn.com/light_all/{zoom}/{pos.X}/{pos.Y}.png",
+                    AppConfig.CartoApiKey));
+            }
+            catch (Exception ex)
+            {
+                // Contador para poder contestarle a NavData con un número y no con una impresión.
+                CartoTileUrl.TileFailures++;
+                System.Diagnostics.Debug.WriteLine("tesela light_all fallida: " + ex.Message);
+                return null;
+            }
+        }
     }
 
     internal sealed class CartoDarkProvider : GMapProvider
@@ -730,7 +757,13 @@ namespace vmsOpenAcars.UI.Forms
                     AppConfig.CartoApiKey);
                 return GetTileImageUsingHttp(url);
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                // Contador para poder contestarle a NavData con un número y no con una impresión.
+                CartoTileUrl.TileFailures++;
+                System.Diagnostics.Debug.WriteLine("tesela dark_all fallida: " + ex.Message);
+                return null;
+            }
         }
     }
 

@@ -2522,3 +2522,51 @@ Convenciones:
 
 Al añadir un criterio a `ScoringService` hay que tocar cuatro sitios: el cálculo, su test,
 `PirepBuilder._critKeyMap` y la clave `Score_Crit*` en `Languages/{en,es}.json`.
+
+---
+
+## El grafo de rodaje: identidad por `node_id`, empalmes y las mediciones del 29/09/2026
+
+> Movido aquí desde `CLAUDE.md` el 29/09/2026. El bloque creció con las mediciones del día hasta
+> pasar los **65.536 bytes** del fichero de instrucciones, y el harness **truncó en silencio**: se
+> perdió el final de *Próximas áreas*. En `CLAUDE.md` queda el resumen con puntero. Ojo: contiene
+> las cifras **antiguas** con sus correcciones fechadas; las válidas son las últimas de cada serie.
+
+  **La identidad por id está implementada pero DESACTIVADA** (`Suggest(..., useNodeIds = false)`) porque
+  medirla dio esto, sobre los 237 segmentos reales y el caso `G74 → A3` de la 14L:
+  **proximidad → `F E X A B5 A A3`; con ids → `E F E X A B5 A A3`** — añade una calle, y el prefijo `E`
+  **no está explicado**. `TaxiRouteCaseTests` fija esas dos cifras, y **la medición sobre el corpus real
+  ya está hecha** (`TaxiCorpusMeasurementTests`, 37 PIREPs de 8 pilotos y 14 aeropuertos en
+  `Fixtures/taxi-corpus-*.csv` y `Fixtures/taxi-networks-*.csv`): 36 medibles, ruta con proximidad **30**
+  y con ids **29**, **14 iguales y 15 distintas**, **1 solo con proximidad y 0 solo con ids**, y la de
+  ids **349 m más larga de media (+15%)**. La fusión por proximidad puentea huecos reales del escenario
+  (por eso se pierde una ruta y se alargan quince) y a la vez inventa uniones (con ids desaparecen idas y
+  vueltas como `A4 E A4` o `B E B`): **el interruptor sigue apagado** y se enciende con los empalmes
+  curados delante. La tabla sale a `%TEMP%\\taxi_corpus_measurement.txt`; el fixture del caso SKBO
+  (`Fixtures/SKBO-taxi-2026-09-29.csv`) pasó a 7 columnas con los ids emparejados uno a uno contra la
+  API en vivo (237/237, ninguna fila inventada).
+  **CORREGIDO el mismo día**: esos números salían de un corpus mal cortado (33 de 37 vuelos no
+  tienen fila `TOF`, así que el destino acababa en el aeropuerto de llegada). Los válidos son **13
+  idénticas, 16 distintas, 1 solo con proximidad, 0 solo con ids, +303 m (+14%)**, y KMIA es el caso
+  más claro contra el interruptor: con `node_id` no hay ruta del puesto a la entrada de la 08R.
+  **Y comprobado en los 37**: la línea `Status: TOF` está en el log de todos (el cliente la escribe
+  en cada transición de fase); lo que no hay es **fila de posición** con ese estado. Las dos
+  fronteras eligen la misma muestra, así que las cifras corregidas son firmes. **Regla: la
+  frontera de fase se lee en los logs, no en las posiciones.**
+  **Medición repetida con los empalmes ya desplegados por NavData** (mismo día): el fixture pasó de
+  **1 empalme a 25** —SKBO 14, MMGL 2, SKSM 2, y 1 en CYUL/SEGU/SKBQ/SKCG/SKCL/SKLT/SKPE; KBOS y KMIA 0
+  porque el criterio los rechaza bien (KBOS es 1 solo componente; en KMIA el par más cercano está a 2,8 m
+  con giro de 179,6° **sobre la pista**)— y el resultado es **14 idénticas / 16 distintas / 1 solo prox /
+  0 solo ids, +307 m, cobertura 31 prox / 30 ids**: **MMGL pasa de «sin ruta» a idénticas** (era el de 5 componentes, y el
+  `component_bridge` ha hecho lo que prometía). El interruptor sigue apagado, y el bloqueo **no son los
+  empalmes: es el destino** — donde falla, el punto de destino cae en el componente de los muñones del
+  eje de pista. `stats.components` permite detectarlo y el arreglo es nuestro: enrutar al nodo de
+  plataforma más cercano, en el mismo componente que el avión.
+  **Destino consciente del componente** (mismo día, ya implementado): si el destino no es alcanzable,
+  el grafo enruta al **nodo alcanzable más cercano** —el borde de plataforma, tope 500 m— y lo dice
+  (`GoalMoved`). Con eso **no queda ningún vuelo donde una política encuentre ruta y la otra no:
+  31/31**, 14 idénticas y 17 distintas. El interruptor sigue apagado: las de ids son **+329 m** (+15%).
+  Y el **umbral de confianza en dos niveles** (0,5) ya está en el grafo: primero sin los empalmes flojos y,
+  solo si sin ellos no hay ruta, con todos (`UsedLowConfidence`) — descartarlos sin más partiría CYUL, cuyo
+  único empalme tiene 0,14.
+

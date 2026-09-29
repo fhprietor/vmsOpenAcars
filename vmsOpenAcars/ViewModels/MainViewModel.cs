@@ -85,6 +85,13 @@ namespace vmsOpenAcars.ViewModels
                                         bool raasEnabled, bool voiceEnabled, int volume)
             => _tc?.StartTaxiGuidance(airport, runway, route, raasEnabled, voiceEnabled, volume);
 
+        /// <summary>
+        /// El piloto pide **cambiar la ruta de rodaje** —lo normal es que ATC se la acabe de dar por
+        /// radio, después del pushback y de tener el avión listo—. Vuelve a abrir el popup con la
+        /// sugerencia recalculada desde la posición actual, y manda lo que él teclee.
+        /// </summary>
+        internal void RequestTaxiRouteChange() => _tc?.RequestTaxiRouteChange();
+
         public MainViewModel(
             FlightManager flightManager,
             FsuipcService fsuipc,

@@ -97,6 +97,38 @@ namespace vmsOpenAcars.Models.NavData
         [JsonProperty("lon_b")]    public double LonB    { get; set; }
         [JsonProperty("note")]     public string Note    { get; set; }
         [JsonProperty("source")]   public string Source  { get; set; }
+        /// <summary>
+        /// **Confianza del empalme (0–1)** que publica NavData: `0,45 × distancia normalizada + 0,35 ×
+        /// giro + 0,20 × nombre`. Es lo que permite decidir un umbral **por confianza y no por
+        /// distancia**: en CYUL su único empalme viene con **0,14** y un giro de 68°, y no es lo mismo
+        /// que el `component_bridge` de SKBO con **0,88** y 0,6°. Ausente ⇒ se trata como 1 (el empalme
+        /// curado del `K2` no trae `turn_deg`; degradar sin dato, nunca bloquear por una suposición).
+        /// </summary>
+        [JsonProperty("confidence")] public double Confidence { get; set; } = 1.0;
+        /// <summary>Cambio de rumbo entre los dos extremos, en grados. Puede no venir (curado).</summary>
+        [JsonProperty("turn_deg")]   public double? TurnDeg { get; set; }
+        /// <summary>`gap` (hueco entre extremos sueltos) o `component_bridge` (puente entre componentes).</summary>
+        [JsonProperty("kind")]       public string Kind   { get; set; }
+    }
+
+    /// <summary>
+    /// Estadísticas de la red de calles que publica NavData junto a los empalmes: es lo que deja
+    /// **derivar el umbral de fusión de sus propios datos** en vez de llevar el 45 m escrito a mano, y
+    /// saber de antemano si en ese aeropuerto la red está completa. `components` es el aviso serio: en
+    /// KMIA son 2 y el segundo son los muñones del eje de pista.
+    /// </summary>
+    internal class NavTaxiNetworkStats
+    {
+        [JsonProperty("nodes")]            public int    Nodes          { get; set; }
+        [JsonProperty("segments")]         public int    Segments       { get; set; }
+        [JsonProperty("dangling_ends")]    public int    DanglingEnds   { get; set; }
+        [JsonProperty("components")]       public int    Components     { get; set; }
+        [JsonProperty("median_gap_m")]     public double MedianGapM     { get; set; }
+        [JsonProperty("median_segment_m")] public double MedianSegmentM { get; set; }
+        [JsonProperty("joins_published")]  public int    JoinsPublished { get; set; }
+        [JsonProperty("joins_curated")]    public int    JoinsCurated   { get; set; }
+        [JsonProperty("gaps")]             public Dictionary<string, int> Gaps { get; set; }
+            = new Dictionary<string, int>();
     }
 
     internal class NavTaxiwayJoinsResponse
@@ -104,6 +136,14 @@ namespace vmsOpenAcars.Models.NavData
         [JsonProperty("joins")]   public List<NavTaxiwayJoin> Joins   { get; set; } = new List<NavTaxiwayJoin>();
         [JsonProperty("count")]   public int                  Count   { get; set; }
         [JsonProperty("invalid")] public List<object>         Invalid { get; set; } = new List<object>();
+        /// <summary>
+        /// Hash de 12 caracteres del conjunto de nodos del aeropuerto. **Si cambia, la red cambió**: es
+        /// lo que permite invalidar caché en vez de arrastrar empalmes de una versión anterior. Hoy los
+        /// empalmes viven en la caché de sesión y cada `PrefetchAirport` los refresca, así que sirve
+        /// además para **saber de qué versión salió una ruta** cuando alguien pregunta por ella.
+        /// </summary>
+        [JsonProperty("version")] public string                Version { get; set; }
+        [JsonProperty("stats")]   public NavTaxiNetworkStats   Stats   { get; set; }
     }
 
     // ── Parking ───────────────────────────────────────────────────────────────────

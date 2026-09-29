@@ -530,6 +530,29 @@ namespace vmsOpenAcars.UI.Forms
         private void InitializeNotifications()
         {
             var trayMenu = new ContextMenuStrip();
+            // **Cambiar la ruta de rodaje a mano.** ATC suele dar la autorización por radio *después* del
+            // pushback y de tener el avión preparado, así que la ruta aceptada al terminar el empuje puede
+            // quedarse vieja. Esto reabre el popup con la sugerencia recalculada desde la posición actual y
+            // manda lo que teclee el piloto: su autorización (que en la base de rutas cuenta doble) frente
+            // a la del grafo.
+            trayMenu.Items.Add("Cambiar ruta de rodaje (ATC)", null,
+                               (s, ev) => _viewModel.RequestTaxiRouteChange());
+
+            // **Borrar la caché del mapa a mano.** La obligación de CARTO no es solo el TTL: si se deja
+            // de usar el servicio, la caché del dispositivo tiene que poder borrarse. Y de paso sirve
+            // para forzar teselas nuevas cuando un proveedor cambia algo.
+            trayMenu.Items.Add("Borrar caché del mapa", null, (s, ev) =>
+            {
+                try
+                {
+                    int n = GMap.NET.GMaps.Instance.PrimaryCache.DeleteOlderThan(DateTime.MaxValue, null);
+                    _uiService.AddLog($"🗺️ Caché del mapa borrada ({n} teselas)", Theme.SecondaryText);
+                }
+                catch (Exception ex)
+                {
+                    _uiService.AddLog("⚠️ No se pudo borrar la caché del mapa: " + ex.Message, Theme.Warning);
+                }
+            });
             trayMenu.Items.Add("Restaurar", null, (s, e) => RestoreFromTray());
             trayMenu.Items.Add(new ToolStripSeparator());
             trayMenu.Items.Add("Salir", null, (s, e) => ExitFromTray());

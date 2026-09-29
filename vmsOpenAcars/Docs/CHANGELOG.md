@@ -2,9 +2,153 @@
 
 ---
 
+## [0.9.17] — 30/09/2026
+
+Publicada después de **verificar contra el servicio real** el proxy de teselas de NavData (el hilo
+completo está en `Docs/`).
+
+### Added
+
+- **La caché de teselas cumple la obligación de CARTO/NavData.** Las condiciones de las basemaps
+  prohíben cachear en el dispositivo del piloto más de **30 días** y retener esa caché si se deja de
+  usar el servicio. GMap.NET guarda las teselas en su caché de disco y **no lee las cabeceras HTTP**,
+  así que el TTL se impone en el cliente: al abrir el mapa se borra lo que pase de 30 días, y el menú
+  de la bandeja tiene **«Borrar caché del mapa»**. Sin eso, NavData cumplía su parte y nosotros no la
+  nuestra.
+- **Contador de teselas fallidas** (`CartoTileUrl.TileFailures`): las dos capturas que descartaban el
+  error en silencio (`catch { return null; }`) ahora cuentan y dejan rastro. Es el número que NavData
+  nos pidió para saber si el proxy cumple; hoy cuenta los fallos contra CARTO directo.
+- **Cambiar la ruta de rodaje a mano** («Cambiar ruta de rodaje (ATC)» en el menú de la bandeja): el
+  caso real es hacer pushback, poner el freno, **preparar el avión y solo entonces llamar** —la
+  autorización de ATC puede llegar minutos después del fin del empuje y la ruta aceptada ahí queda
+  vieja—. Se salta el «una vez por vuelo» y el filtro de «la ruta no cambió», recalcula desde la
+  posición actual y manda lo que teclee el piloto (que en la base de rutas de NavData cuenta doble).
+
+### Changed
+
+- **El popup de ruta de rodaje ya no sale durante el pushback.** La luz de taxi se enciende antes o
+  durante el empuje, y ahí el avión todavía lo lleva el remolque y el punto de inicio del rodaje no
+  existe: el popup salía con el avión en el puesto y la ruta se calculaba desde ahí. Ahora la luz no
+  abre el popup en fase `Pushback`, y los tres caminos —fin del empuje, luz con el avión libre, y
+  `TaxiOut` para un puesto remoto— lo dejan **después** del pushback.
+- **El destino del grafo es consciente del componente** (`RouteSuggestion.GoalMoved`): si el destino
+  pedido no es alcanzable, se enruta al nodo alcanzable más cercano —el borde de plataforma— con tope
+  de 500 m. En KMIA convierte «sin ruta» en `26 24 Q P U P M1` (seis calles) donde la fusión por
+  proximidad proponía veintiocho. El Dijkstra ya sabía qué es alcanzable: no hizo falta unión-find.
+- **Umbral de confianza de los empalmes en dos niveles** (`ConfidenceFloor` = 0,5): primero se intenta
+  **sin** los empalmes dudosos y solo si con eso no hay ruta se repite con todos, marcándolo
+  (`UsedLowConfidence`). En CYUL —cuyo único empalme tiene **0,14**— descartarlo a secas partiría el
+  aeropuerto, y el test lo fija: sin él, con identidad por nodo, **no hay ruta**.
+- **Se consumen `version`, `criterion_version`, `confidence`, `kind` y `stats`** de
+  `/airport/{icao}/taxiway-joins/`; la caché de empalmes se invalidará con **los dos** tokens.
+
+### Documented
+
+- **Medición de calidad contra la traza real** (`TaxiRouteQualityTests`, 650 muestras de 36 vuelos):
+  las dos políticas proponen la mitad de lo que el piloto rodó (**recall 0,494 / 0,488**) y la
+  identidad por `node_id` propone menos ruido (**precisión 0,615** contra 0,560). 24 vuelos empatan.
+- **Las cifras del corpus se corrigieron dos veces el mismo día** (el corte del rodaje se lee en los
+  logs y no en las posiciones; y hay 25 empalmes publicados, no uno): 14 idénticas, 17 distintas,
+  **0 solo con proximidad**, +329 m de media con ids → **el interruptor sigue apagado**.
+- Documentos del hilo de teselas: `PEDIDO-NAVDATA-TILES.md` refinado, nuestras `RESPUESTA-`,
+  `RESPUESTA2-` y `RESPUESTA3-`, y las suyas `RESPUESTA5/7/8/9-`, todas indexadas en el README.
+
 ## [0.9.16] — 2026-09-29
 
 ### Fixed
+- **Umbral de confianza de los empalmes, en dos niveles (29/09/2026, mismo día).** NavData publica
+  `confidence` por empalme (0,45 × distancia + 0,35 × giro + 0,20 × nombre) y `version` y `stats` por
+  aeropuerto: todo mapeado en `NavTaxiwayJoin`/`NavTaxiwayJoinsResponse` y expuesto por
+  `NavDataClient` (`GetTaxiwayJoinsVersion`, `GetTaxiNetworkStats`), con `turn_deg` **nullable** porque
+  el empalme curado del `K2` no lo trae. La regla vive en `TaxiGraph`: **primero se intenta sin los
+  empalmes por debajo de 0,5 y solo si con eso no hay ruta se repite con todos**, marcando el
+  resultado (`UsedLowConfidence`). El motivo está medido: en **CYUL** el **único** empalme tiene
+  **0,14** de confianza y **68°** de giro —descartarlo a secas dejaría el aeropuerto partido, y el test
+  lo fija: sin él **no hay ruta** con identidad por nodo—, mientras que el puente de SKBO viene con
+  **0,88**. La medición del corpus **no cambia** con el umbral (14 idénticas / 17 distintas / 0 solo con
+  proximidad / +329 m): el umbral solo muerde donde un empalme dudoso hacía trabajo, que es exactamente
+  lo que se buscaba. `stats.components` queda además disponible para que el cliente sepa de su lado que
+  una red está partida. **Pendiente**: persistir los empalmes para que `version` invalide caché de
+  verdad —hoy viven en la caché de sesión y cada `PrefetchAirport` los sustituye enteros, así que no
+  hay nada rancio que invalidar—; y los 5 vuelos que siguen sin ruta con ninguna política (SKCG×2,
+  SKRG×2, SKLT), donde el borde de plataforma queda a más de 500 m y el caso es otro.
+
+- **Destino consciente del componente: el arreglo que cierra el caso de KMIA (29/09/2026, mismo día).**
+  NavData explicó que la red de KMIA **sí tiene la plataforma conexa** (2.728 nodos) y que lo que queda
+  aparte son **16 muñones del eje de pista** modelados como caminos, que su criterio **rechaza unir con
+  razón** (2,8 m de separación pero **giro de 179,6°**: serían dos muñones opuestos sobre el pavimento).
+  El destino de nuestra ruta caía justo ahí. El arreglo es del lado del cliente y **el Dijkstra ya lo
+  sabía**: si el destino no es alcanzable, se enruta al **nodo alcanzable más cercano** —el borde de
+  plataforma— con tope de 500 m (más allá, el destino está mal, no desconectado) y se deja dicho en
+  `RouteSuggestion.GoalMoved`/`GoalMovedM` para que el llamante lo registre. Medido en el corpus:
+  **por primera vez no hay ningún vuelo donde una política encuentre ruta y la otra no** —31 con
+  proximidad y **31** con ids, 14 idénticas y 17 distintas, **0 solo con proximidad** (antes 1)—. El
+  interruptor sigue apagado: las de ids siguen **+329 m** de media (+15%). Y 5 vuelos siguen sin ruta
+  con ninguna (2 de SKCG, 2 de SKRG, 1 de SKLT): ahí el borde de plataforma queda a más de 500 m, así
+  que el caso es otro y está por diagnosticar.
+
+- **Medición repetida con los empalmes ya publicados (29/09/2026, mismo día)**: NavData desplegó el
+  criterio calculado y el fixture de redes pasó de **1 empalme a 25** (SKBO 14 —13 calculados + 1
+  curado—, MMGL 2, SKSM 2, y 1 en CYUL, SEGU, SKBQ, SKCG, SKCL, SKLT y SKPE; KBOS y KMIA 0 porque el
+  criterio los rechaza con razón: KBOS es **1 solo componente** y en KMIA el par más cercano está a
+  2,8 m con giro de 179,6° **sobre el pavimento de pista**). Resultado: **14 idénticas, 16 distintas,
+  1 solo con proximidad, 0 solo con ids, +307 m, cobertura 31 prox / 30 ids (+14%)**, y **MMGL pasa de «sin ruta» a «las dos
+  idénticas»** — era el aeropuerto de 5 componentes, así que ahí el `component_bridge` ha hecho
+  exactamente lo que prometía. **El interruptor sigue apagado**, pero el motivo ya está medido y no es
+  lo que creíamos: el bloqueo **no son los empalmes**, es **el destino**: donde la ruta no sale con ids
+  (KMIA) el punto de destino cae en el **componente de los muñones del eje de pista**. Eso sí lo
+  arreglamos nosotros, y es la tarea siguiente: el destino tiene que estar en el componente del origen.
+
+- **CORRECCIÓN de la medición del `node_id` publicada unas horas antes: el corpus estaba mal cortado,
+  y con él la causa que le atribuí a la ruta de KMIA** (29/09/2026, el mismo día). Tres cosas:
+  - **33 de los 37 vuelos no tienen fila de posición `TOF`**, así que el extractor —que cortaba el
+    **Comprobado en los 37**: la línea `Status: TOF` **sí está en el log** de todos ellos (es el
+    registro de la transición de fase, que el cliente escribe siempre); lo que no existe es una
+    **fila de posición** con ese estado, porque las posiciones se muestrean y el instante del
+    despegue cae entre dos (`INI` con 135 kt y `ICL` a 386 ft en el caso de KMIA). Y las dos
+    fronteras —la línea de log y el primer `ICL`/`ENR` de las posiciones— **eligen la misma
+    muestra**: 37 de 37, separación 0 m. Así que las cifras corregidas son firmes, y queda la
+    regla para lo que venga: **la frontera de fase se lee en los logs, no en las posiciones**.
+    rodaje de salida en el primer `TOF` y, si no había, tomaba el final de la lista— ponía como
+    destino **el aeropuerto de llegada**, a mil kilómetros. La comparación de esos 33 no valía nada.
+    El corte correcto es el primer `TOF`/`ICL`/`ENR`; en el producto, la línea de log de la fase.
+    Corpus regenerado y medición repetida: **13 rutas idénticas, 16 distintas, 1 solo con proximidad
+    y 0 solo con ids; +303 m de media (+14%)** (antes dije 14 / 15 / 1 / 0 y +349 m). El sentido no
+    cambia —los ids pierden una ruta y alargan el resto— pero las cifras publicadas no eran válidas.
+  - **La ruta monstruosa de KMIA no la causaba el destino**, como afirmé. Probado con el mismo código
+    de la app: apuntando al **umbral** de Navigraph sale **exactamente** la ruta que el vuelo anunció
+    en su log (28 calles, `TaxiSuggestionKmIaTests` la fija), y apuntando al **punto de espera** sale
+    **la misma ruta más `L1`** — el acceso de la 08R está a **84 m** del umbral, así que para el grafo
+    es el mismo sitio—. Las 24 calles de más son de la **topología** de KMIA: 3.138 segmentos y
+    **cero empalmes curados publicados**. El cambio de destino sigue siendo correcto por otros motivos
+    (SKBO y la calle `E`), pero **no arregla este caso**.
+  - Y en el corpus corregido KMIA pasa a ser el caso más claro **contra** encender el interruptor: con
+    `node_id`, desde el puesto G181 hasta la entrada de la 08R **no encuentra ninguna ruta**.
+
+- **La medición del `node_id` está hecha, sobre el corpus real: 37 PIREPs, 8 pilotos, 14 aeropuertos.**
+  Es lo que decide el interruptor del grafo, y ya no es una promesa:
+  - **El corpus**: 37 PIREPs de vmsOpenACars en **8 pilotos** (ids 1, 10, 17, 25, 27, 34, 55, 76) y
+    **14 aeropuertos** — incluidos KMIA (3.138 segmentos), KBOS (1.477) y CYUL (608), cinco veces SKBO—,
+    con clientes de la 0.8.9 a la 0.9.16. Se descubrieron **barriendo ids con `?id=`**: `api/user` solo
+    devuelve la propia cuenta, que es el error que ya nos había mordido tres veces.
+  - **Los datos**, en `Fixtures/`: `taxi-corpus-2026-09-29.csv` (los 37 vuelos con el inicio y el último
+    punto de rodaje antes del `TOF`, de su propia traza) y `taxi-networks-2026-09-29.csv` (las 13 redes
+    con sus empalmes, 6.637 líneas). Sin red publicada solo SKYP, así que su vuelo no es medible.
+  - **El banco**: `TaxiCorpusMeasurementTests` (4 tests), que corre las dos políticas sobre los mismos
+    extremos reales y vuelca la tabla a `%TEMP%\\taxi_corpus_measurement.txt`.
+  - **Los números** (36 vuelos medibles): ruta con la fusión por proximidad **30**, con `node_id` **29**;
+    **14 idénticas y 15 distintas**; **1 solo con proximidad y NINGUNA solo con ids**; longitud media
+    **2.328 m → 2.677 m (+349 m, +15%)**.
+  - **La lectura, que es la decisión**: la fusión por proximidad **no es solo ruido** —puentea huecos
+    reales del escenario, de ahí que un vuelo pierda ruta y quince se alarguen— y a la vez **inventa
+    uniones**: con ids desaparecen idas y vueltas que la fusión creaba (`A4 E A4`, `B E B`,
+    `R A D A E A`). El intercambio no es gratis en ninguna dirección, así que **el interruptor sigue
+    apagado** y se enciende **con los empalmes curados delante**, no con una corazonada. Criterio de
+    aceptación que sale de aquí: encender cuando la cobertura con ids iguale los 30 de hoy sin alargar
+    las rutas.
+  - Y un hallazgo colateral que cierra un punto viejo: **`VHR610 SKCG→KBOS` SÍ tiene PIREP** (piloto 76,
+    cliente 0.9.2). El «ese vuelo no está acreditado» era **falso**, por mirar solo la lista propia.
+
 - **CORRECCIÓN del mismo día: dos entradas de abajo eran falsas, y la primera por un arreglo nuestro**
   (29/09/2026, phpVMS comprobó las dos contra su base de datos):
   - **`type` SÍ significa algo**: `0` = FLIGHT_PATH (posiciones), `1` = ROUTE, `2` = LOG (mensajes y

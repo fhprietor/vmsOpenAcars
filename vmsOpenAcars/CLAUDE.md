@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.16  
+**Versión actual:** v0.9.17  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -419,10 +419,14 @@ puntuar QNH/Localizer/Minimums contra el METAR de un destino nunca alcanzado.
 
 Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el piloto.
 
-- **Cuándo**: al encender la **luz de taxi** o al entrar en **TaxiOut**, lo que ocurra antes y una
-  vez por vuelo, sale `TaxiRouteForm`: lista de **pistas del aeropuerto** (por defecto la del OFP,
-  `SimbriefPlan.OriginRunway`), **ruta editable separada por espacios** (la sugiere el grafo de
-  calles) y los ajustes de RAAS / voz / volumen. `raas_enabled` en App.config lo desactiva.
+- **Cuándo (v0.9.17)**: el popup sale **después del pushback**, nunca durante. La luz de taxi se
+  enciende antes o durante el empuje, así que **no lo abre** en fase `Pushback`; los tres caminos
+  —fin del empuje (freno puesto), luz ya con el avión libre, y `TaxiOut` para un puesto remoto— lo
+  dejan después. Y el caso real del ATC —pushback, freno, **preparar el avión y solo entonces
+  llamar**— tiene salida manual: **«Cambiar ruta de rodaje (ATC)»** en el menú de la bandeja, que
+  se salta el «una vez por vuelo» y el filtro de «la ruta no cambió» y recalcula desde la posición
+  actual. El popup trae la lista de **pistas del aeropuerto** (por defecto la del OFP,
+  `SimbriefPlan.OriginRunway`), la **ruta editable** que sugiere el grafo y los ajustes de RAAS.
 - **Segundo aviso en el punto de inicio (v0.9.15)**: el popup puede salir dos veces. El segundo se
   pide al **poner el freno de parqueo en fase `Pushback`** (fin del empuje) o, sin pushback —puesto
   remoto—, al entrar en `TaxiOut`; la máquina de fases ya pasa de `Boarding` a `TaxiOut` por
@@ -632,7 +636,7 @@ anterior).
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **297 tests**:
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **305 tests**:
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
@@ -730,18 +734,13 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   **`?limit=100` o más SIN filtro devuelve 503** — el filtro es lo que reduce el conjunto, así que
   **siempre con `source_name`**. Auth: **`X-API-KEY`**.
 
-- **El grafo y el `node_id`: hecho y MEDIDO, con el interruptor apagado (v0.9.16).** `TaxiGraph.Segment`
-  lleva los ids de sus extremos, los **empalmes curados** (`NavTaxiwayJoin`) entran como aristas —un
-  empalme ya es una arista entre dos nodos con una calle, así que es un `Segment` más— y el destino es
-  el **punto de espera** de la pista (`HoldShortSelector.AccessPointFor`), no su umbral de Navigraph.
-  **La identidad por id está implementada pero DESACTIVADA** (`Suggest(..., useNodeIds = false)`) porque
-  medirla dio esto, sobre los 237 segmentos reales y el caso `G74 → A3` de la 14L:
-  **proximidad → `F E X A B5 A A3`; con ids → `E F E X A B5 A A3`** — añade una calle, y el prefijo `E`
-  **no está explicado**. `TaxiRouteCaseTests.WithNodeIdsTheRouteIsMeasuredAgainstTheProximityOne` fija
-  las dos cifras: el día que se entienda el `E`, la decisión es con la medición de las **39 trazas**
-  delante, no con un caso. Y el fixture (`Fixtures/SKBO-taxi-2026-09-29.csv`) pasó a 7 columnas con los
-  ids emparejados uno a uno contra la API en vivo (237/237, ninguna fila inventada).
-
+- **El grafo y el `node_id`: hecho, medido y con el interruptor apagado (v0.9.16).** La identidad por
+  id está implementada (por defecto `Suggest(..., useNodeIds = false)`), los **empalmes calculados** de
+  NavData entran como aristas, el **umbral de confianza** va en dos niveles (0,5) y el grafo enruta al
+  **borde de plataforma** si el destino cae en otro componente. Medido sobre 37 PIREPs: **31/31 de
+  cobertura con las dos políticas**, 14 idénticas, 17 distintas y **+329 m (+15%)** con ids → sigue
+  **apagado**. Las tres mediciones del día, con sus correcciones, en **`Docs/architecture.md` →
+  "El grafo de rodaje"**.
 - **Tile proxy en NavData (propuesta del mantenedor, sin empezar)**: que NavData sirva las teselas
   de CARTO con **caché**, para que la clave no viaje a cada piloto y la cuota se divida por el
   número de pilotos en vez de multiplicarse. Resuelve de verdad eso, el 403 por `Referer` y el
@@ -750,7 +749,7 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   **Antes de diseñarlo hay que preguntar a CARTO si sus términos permiten cachear y reservir las
   teselas** —si el proxy se considera un servicio de teselas para terceros puede exigir plan
   comercial—. El pedido concreto para el equipo de NavData (endpoint, `style` en lista blanca para
-  no ser un proxy abierto, validación de `z/x/y`, TTL y LRU) está en `Docs/architecture.md`.
+  no ser un proxy abierto, validación de `z/x/y`, TTL y LRU) está en `Docs/PEDIDO-NAVDATA-TILES.md`.
 
 - **SimConnect y datarefs de X-Plane: evaluado y DESCARTADO — se sigue con FSUIPC/XUIPC**
   (v0.9.16). El mantenedor lo planteó para quitar a los pilotos de MSFS el requisito de instalar

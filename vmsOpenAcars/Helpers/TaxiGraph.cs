@@ -35,6 +35,14 @@ namespace vmsOpenAcars.Helpers
             /// </summary>
             public long? NodeA { get; set; }
             public long? NodeB { get; set; }
+
+            /// <summary>
+            /// Confianza del empalme (0–1) tal como la publica NavData; **1 = arista firme** (un
+            /// segmento de calle, o un empalme sin dato de confianza). Es lo que permite el umbral por
+            /// confianza y no por distancia: en CYUL el **único** empalme viene con **0,14** y un giro
+            /// de 68°, y en SKBO el puente de componentes con **0,88** y 0,6°.
+            /// </summary>
+            public double Confidence { get; set; } = 1.0;
         }
 
         internal sealed class RouteSuggestion
@@ -42,6 +50,26 @@ namespace vmsOpenAcars.Helpers
             public bool          Found;
             public double        DistanceM;
             public List<string>  Names = new List<string>();
+
+            /// <summary>
+            /// El destino pedido **no estaba en la parte alcanzable de la red** y se enrutó al nodo
+            /// alcanzable más cercano a él —el borde de plataforma—, a <see cref="GoalMovedM"/> de
+            /// distancia del punto pedido. Pasa donde el punto de entrada de la pista vive en **otro
+            /// componente**: en KMIA los 16 nodos que NavData mide aparte son **muñones del eje de
+            /// pista** modelados como caminos (lateral 1–4 m del eje, con el par más cercano a 2,8 m
+            /// y giro de 179,6°), y el escenario no los une a la plataforma a propósito. Sin esto la
+            /// ruta **no se encuentra** y el piloto se queda sin guía; con esto se le guía hasta donde
+            /// la plataforma llega. Se dice, no se esconde: el llamante lo registra.
+            /// </summary>
+            public bool          GoalMoved;
+            public double        GoalMovedM;
+
+            /// <summary>
+            /// La ruta **necesitó** un empalme por debajo de <see cref="ConfidenceFloor"/>: el primer
+            /// intento (sin ellos) no llegaba y se repitió con todos. Si es <c>false</c>, la ruta salió
+            /// de aristas firmes y los empalmes dudosos no la han tocado.
+            /// </summary>
+            public bool          UsedLowConfidence;
 
             /// <summary>Ruta tal como se escribe y se edita: nombres separados por espacios.</summary>
             public string Text => string.Join(" ", Names);
@@ -54,6 +82,14 @@ namespace vmsOpenAcars.Helpers
         internal const double SnapM = 45.0;
 
         /// <summary>
+        /// Confianza mínima para que un empalme entre en el **primer** intento. Por debajo no se tira:
+        /// se prueba otra vez con él si sin él no hay ruta. **CYUL lo justifica**: su **único** empalme
+        /// tiene confianza **0,14** y giro de 68° —descartarlo a secas dejaría el aeropuerto partido—,
+        /// mientras que el puente de SKBO viene con **0,88** y 0,6° y no hay razón para dudar de él.
+        /// </summary>
+        internal const double ConfidenceFloor = 0.5;
+
+        /// <summary>
         /// Secuencia de calles más corta de (<paramref name="fromLat"/>,<paramref name="fromLon"/>)
         /// al punto de destino. Devuelve <c>Found = false</c> si no hay segmentos, si no hay ruta
         /// o si el destino no está a una distancia razonable de la red.
@@ -61,8 +97,36 @@ namespace vmsOpenAcars.Helpers
         internal static RouteSuggestion Suggest(
             IEnumerable<Segment> segments,
             double fromLat, double fromLon, double toLat, double toLon,
-            bool useNodeIds = false)
+            bool useNodeIds = false,
+            bool includeLowConfidence = false)
         {
+            // ── El umbral de confianza, en DOS niveles ────────────────────────────────────────────
+            // Primero se intenta **sin** los empalmes dudosos: si la ruta sale con aristas firmes, un
+            // empalme flojo no la ha ensuciado. Y **solo si con eso no hay ruta** se repite con todos:
+            // así el umbral **nunca puede perder una ruta**, que es lo que pasaría al descartarlos sin
+            // más. `UsedLowConfidence` deja dicho cuál de los dos niveles la encontró.
+            if (!includeLowConfidence && segments != null)
+            {
+                var strong  = new List<Segment>();
+                bool anyWeak = false;
+                foreach (var s in segments)
+                {
+                    if (s == null) continue;
+                    if (s.Confidence >= ConfidenceFloor) strong.Add(s);
+                    else anyWeak = true;
+                }
+
+                if (anyWeak)
+                {
+                    var tier1 = Suggest(strong, fromLat, fromLon, toLat, toLon, useNodeIds, true);
+                    if (tier1.Found) return tier1;
+
+                    var tier2 = Suggest(segments, fromLat, fromLon, toLat, toLon, useNodeIds, true);
+                    tier2.UsedLowConfidence = true;
+                    return tier2;
+                }
+            }
+
             var result = new RouteSuggestion();
             if (segments == null) return result;
 
@@ -179,7 +243,29 @@ namespace vmsOpenAcars.Helpers
                 }
             }
 
-            if (dist[goal] == double.MaxValue) return result;
+            if (dist[goal] == double.MaxValue)
+            {
+                // ── El destino no es alcanzable: se enruta al borde de plataforma más cercano ──
+                // El Dijkstra ya recorrió **todo** el componente del avión, así que `dist` dice qué es
+                // alcanzable sin necesidad de calcular componentes. Se elige el nodo alcanzable más
+                // cercano a lo pedido. Con un tope: si el borde alcanzable queda a más de 500 m de
+                // donde se pidió, el destino está mal, no desconectado, y no se inventa una ruta.
+                int    fallback = -1;
+                double bestM    = double.MaxValue;
+                for (int i = 0; i < nodeLat.Count; i++)
+                {
+                    if (dist[i] == double.MaxValue) continue;
+                    double d = GeoMath.DistanceNm(toLat, toLon, nodeLat[i], nodeLon[i])
+                               * GeoMath.MetersPerNm;
+                    if (d < bestM) { bestM = d; fallback = i; }
+                }
+
+                if (fallback < 0 || fallback == start || bestM > 500.0) return result;
+
+                result.GoalMoved  = true;
+                result.GoalMovedM = bestM;
+                goal = fallback;
+            }
 
             // ── Reconstrucción, colapsando tramos consecutivos de la misma calle ──
             var names = new List<string>();

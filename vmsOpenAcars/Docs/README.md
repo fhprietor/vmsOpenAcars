@@ -16,6 +16,30 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 | `api_vms.md` | **Equipo de phpVMS** (copiado) | Contrato de su API REST: la **tabla de tipos** de `acars` (`0` posiciones, `1` ruta, `2` mensajes), `acars/logs` GET y POST, `fields`, y la nota de que en `fields` va el **nombre** y no el slug |
 | `PEDIDO-NAVDATA-TILES.md` | **Equipo de NavData** | Pedido de un endpoint proxy de teselas de CARTO con caché (para dejar de distribuir la clave del mapa) |
 | `PEDIDO-NAVDATA-RUTAS-TAXI.md` | **Equipo de NavData** | Pedido de una base de rutas de rodaje acostumbradas (puesto → pista) que NavData agregue y sirva a toda la comunidad: observaciones, agregación, moderación experta y los tres campos aditivos que hacen falta |
+- `PEDIDO-NAVDATA-EMPALMES-2026-09-29.md` — pedido a NavData de **empalmes calculados** (no curados a
+- `RESPUESTA5-NAVDATA-EMPALMES-2026-09-29.md` — su respuesta: `stats`, `version`, `confidence` y
+- `RESPUESTA-NAVDATA-TILES-2026-09-29.md` — **nuestra respuesta** al proxy de teselas: verificado en
+- `RESPUESTA2-NAVDATA-TILES-2026-09-29.md` — **nuestra segunda respuesta**: los tres arreglos
+- `RESPUESTA3-NAVDATA-TILES-2026-09-30.md` — **nuestra tercera** (cierre): verificado todo lo suyo y el
+  **bloqueante de una línea** para adoptar el proxy — GMap.NET no permite cabeceras propias, así que la
+  clave de teselas tiene que poder ir como parámetro (`?key=`), como ya hace CARTO.
+- `RESPUESTA9-NAVDATA-TILES-2026-09-29.md` — **su tercera**: purga hecha, `criterion_version` entregado,
+  el consumo del mes como número, y la adenda donde admiten que **en los endpoints de rodaje el token no
+  estaba en la clave de caché** (era decorativo y los incidentes los arregló el vaciado manual).
+  verificados con `cf-cache-status` (`private` + `BYPASS` ya desplegados; la copia vieja del borde sigue),
+  y la petición de que **el token de formato cambie con el criterio**, porque nuestra invalidación va por el
+  hash de nodos y con él habríamos servido empalmes viejos.
+- `RESPUESTA8-NAVDATA-TILES-2026-09-29.md` — **su segunda respuesta**, guardada tal cual: el 401 era
+  **Cloudflare por delante** de su servidor, `voyager` era un bug real de URL, y su tabla de CYUL estaba
+  desactualizada por una caché de 24 h sin subir el token.
+  vivo (200, `X-Cache` HIT, `max-age` de 28 días, `tiles-stats`), el fallo de **autenticación después
+  de la caché** (las teselas cacheadas se sirven sin clave), la discrepancia de CYUL en su tabla, y lo
+  que asumimos nosotros (purga a 30 días, adopción del proxy con caída a CARTO directo).
+- `RESPUESTA7-NAVDATA-TILES-2026-09-29.md` — **su respuesta** al pedido, guardada tal cual.
+  empalmes **calculados** ya desplegados; su medición de KMIA corrige la nuestra (2 componentes, y el
+  destino de esa ruta cae en el componente de los muñones de pista).
+  mano), con `confidence`, estadísticas por aeropuerto y criterio que sirva en cualquier red: la fusión
+  por proximidad con un umbral fijo de 45 m no puede cubrir a la vez a SKBO y a KMIA (medido).
 | `RESPUESTA-NAVDATA-RUTAS-TAXI-2026-09-29.md` | **Equipo de NavData** | Respuesta a su respuesta: verificación de `taxiway`/`taxiways` y `node_id`, el defecto del punto de espera medido (14 puntos, 12 en las paralelas), sí al arreglo de sobre-generación, y tres cosas que necesitamos de ellos |
 | `RESPUESTA2-NAVDATA-RUTAS-TAXI-2026-09-29.md` | **Equipo de NavData** | Informe del **banco de pruebas** tras pasar ellos a los tipos de nodo del escenario: la secuencia de avisos del rodaje real cambió (aparece el giro que la sobre-generación se comía, y el hold-short episodio baja a uno), el inventario nuevo fijado en un test, y una pregunta sobre `K1`/`V` |
 | `RESPUESTA3-NAVDATA-RUTAS-TAXI-2026-09-29.md` | **Equipo de NavData** | Cierre del caso `K1`/`V` (verificado al metro), confirmación de que los tres endpoints de la base coinciden en cero tras su arreglo de caché, el criterio de `crossings` aceptado, y la corrección de nuestra lectura de las 3 observaciones de prueba |

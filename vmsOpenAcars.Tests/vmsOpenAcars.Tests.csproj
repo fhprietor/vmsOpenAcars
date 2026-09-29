@@ -68,11 +68,33 @@
     <Compile Include="PirepStateTests.cs" />
     <Compile Include="ScoringServiceTests.cs" />
     <Compile Include="TaxiRouteCaseTests.cs" />
+    <Compile Include="TaxiCorpusMeasurementTests.cs" />
+    <Compile Include="TaxiRouteQualityTests.cs" />
+    <Compile Include="TaxiConfidenceTests.cs" />
+    <Compile Include="TaxiSuggestionKmIaTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
     <!-- Taxiways reales de SKBO para el caso G74 -> A3 de 14L (TaxiRouteCaseTests). -->
     <Content Include="Fixtures\SKBO-taxi-2026-09-29.csv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Corpus real de la medición de node_id (TaxiCorpusMeasurementTests): 37 PIREPs de
+         vmsOpenACars en 8 pilotos y 14 aeropuertos, y las redes de calles de esos aeropuertos. -->
+    <Content Include="Fixtures\taxi-corpus-2026-09-29.csv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Fixtures\taxi-networks-2026-09-29.csv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Trazas de rodaje reales del corpus, con la calle resuelta (TaxiRouteQualityTests): 650
+         muestras de 36 vuelos, contra las que se mide la calidad de las dos políticas del grafo. -->
+    <Content Include="Fixtures\taxi-traces-2026-09-29.csv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Pistas y puntos de espera de KMIA para el caso de la sugerencia de VHR31
+         (TaxiSuggestionKmIaTests). -->
+    <Content Include="Fixtures\KMIA-holds-runways-2026-09-29.csv">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

@@ -26,6 +26,13 @@ namespace vmsOpenAcars.Helpers
         /// La URL de la tesela con la clave añadida. Sin clave configurada devuelve la URL tal cual,
         /// que es como estaba antes de esto: el mapa se ve con la marca de agua, no se rompe.
         /// </summary>
+        /// <summary>
+        /// Teselas que **no** se pudieron traer (CARTO o el proxy devolvieron error o vacío). Es el
+        /// contador que NavData nos pidió: **si sube mucho, el proxy no está cumpliendo** y hay que
+        /// decírselo. Se reinicia con cada arranque.
+        /// </summary>
+        internal static int TileFailures;
+
         internal static string WithKey(string url, string apiKey)
         {
             if (string.IsNullOrWhiteSpace(url)) return url;
