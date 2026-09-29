@@ -53,6 +53,14 @@ completo está en `Docs/`).
 - Documentos del hilo de teselas: `PEDIDO-NAVDATA-TILES.md` refinado, nuestras `RESPUESTA-`,
   `RESPUESTA2-` y `RESPUESTA3-`, y las suyas `RESPUESTA5/7/8/9-`, todas indexadas en el README.
 
+- **El hilo de teselas con NavData queda cerrado** (12 documentos en `Docs/`): el proxy con `?key=` +
+  `origin_domain`, `criterion_version`, el `401` del borde, `voyager` en la ruta correcta, y **una clave
+  de aerolinea que estaba en claro en su log de accesos** (10 apariciones: `%(r)s` de gunicorn escribe el
+  query string) — rotacion coordinada con **28 dias de gracia** y `expires_at = 2026-10-28` para que la
+  vieja muera sola. Nuestra auditoria: la clave no esta en el arbol, ni en el historial, ni en los documentos.
+- **`mag_var` ya esta publicado** (`/airport/{icao}/` y `/runways/`: -8,58 en SKBO, -13,73 en KBOS): se
+  desbloquea la conversion de rumbo verdadero contra magnetico del apartado de rumbo, y con ella el margen
+  completo de 15 grados en Boston, que hoy se queda en 1,3 grados.
 ## [0.9.16] — 2026-09-29
 
 ### Fixed

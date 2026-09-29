@@ -195,7 +195,7 @@ actual, **24/24 consultas OK y 613 espacios aéreos** (antes 11). Confirmado a N
 rumbo verdadero**; cerrado con `heading_reference=true`, que hace que el servidor convierta con el
 `mag_var` del candidato —medido en SKCG: `heading_diff_deg` de 7,8° a **0,7°**—. Pendiente menor:
 las comparaciones **locales** de pista (`SelectApproachThreshold`) siguen siendo verdadero contra
-magnético; se arreglaría con el `mag_var` del aeropuerto en `/airport/{icao}/` (hoy no viene) o
+magnético; se arreglaría con el `mag_var` del aeropuerto, **ya publicado** (30/09/2026) en `/airport/{icao}/` y `/runways/` o
 leyendo la variación del simulador.
 
 **Editable desde Settings (v0.9.11):** la sección *NavData API* del formulario tiene ahora campo
@@ -749,7 +749,7 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   **Antes de diseñarlo hay que preguntar a CARTO si sus términos permiten cachear y reservir las
   teselas** —si el proxy se considera un servicio de teselas para terceros puede exigir plan
   comercial—. El pedido concreto para el equipo de NavData (endpoint, `style` en lista blanca para
-  no ser un proxy abierto, validación de `z/x/y`, TTL y LRU) está en `Docs/PEDIDO-NAVDATA-TILES.md`.
+  no ser un proxy abierto, validación de `z/x/y`, TTL y LRU) está en `Docs/PEDIDO-NAVDATA-TILES.md`. **Decidido (30/09/2026): el proxy es el camino** y se adopta en v0.9.18, con caída a CARTO (clave del piloto, o tesela con marca de agua si no la tiene).
 
 - **SimConnect y datarefs de X-Plane: evaluado y DESCARTADO — se sigue con FSUIPC/XUIPC**
   (v0.9.16). El mantenedor lo planteó para quitar a los pilotos de MSFS el requisito de instalar
@@ -770,9 +770,10 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   **Queda pendiente el ámbito local**: `SelectApproachThreshold` compara nuestro rumbo verdadero con
   `rwy.Heading` magnético, así que arrastra un sesgo igual a la variación local —inofensivo en
   Colombia (8,4°) pero de 13,7° en Boston, donde la tolerancia de 15° se queda en ~1,3° de margen—.
-  Se arregla convirtiendo antes de comparar, y para eso hace falta el `mag_var` del aeropuerto:
-  hoy **no** viene en `/airport/{icao}/` ni en `/runways/` (verificado), sí en la respuesta de
-  `approach-airport`. Alternativas: pedírselo a NavData (un campo) o leer la variación del simulador.
+  Se arregla convirtiendo antes de comparar, y **el dato ya está** (30/09/2026): `mag_var` se publica
+  en `/airport/{icao}/` y en `/runways/` (medido: **-8,58** en SKBO, **-13,73** en KBOS, +0,68 en LEMD). La
+  evidencia del KBOS fija el signo: 19° verdadero contra 33,4 magnético con `mag_var` -13,73 →
+  **`magnético = verdadero − mag_var`**, dentro de 0,7°. Fijarlo en un test antes de usarlo.
   **No usar la puerta doble** (aceptar magnético *o* verdadero): el filtro que para el falso desvío
   de KOWD es justamente el cono angular, y ensancharlo lo reabriría.
 

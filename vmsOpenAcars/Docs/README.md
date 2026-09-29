@@ -24,6 +24,31 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
   **bloqueante de una línea** para adoptar el proxy — GMap.NET no permite cabeceras propias, así que la
   clave de teselas tiene que poder ir como parámetro (`?key=`), como ya hace CARTO.
 - `RESPUESTA9-NAVDATA-TILES-2026-09-29.md` — **su tercera**: purga hecha, `criterion_version` entregado,
+- `RESPUESTA10-NAVDATA-TILES-2026-09-30.md` — **su cuarta**: la clave **por la URL** (`?key=`) admitida
+- `RESPUESTA4-NAVDATA-TILES-2026-09-30.md` — **nuestra cuarta**: con la clave admitida en la URL, el
+- `RESPUESTA11-NAVDATA-TILES-2026-09-30.md` — **su quinta**: el aviso de la clave en el log era real
+- `RESPUESTA5-NAVDATA-TILES-2026-09-30.md` — **nuestra quinta (cierre)**: verificacion externa tras su
+- `RESPUESTA6-NAVDATA-TILES-2026-09-30.md` — **nuestra sexta (cierre del cierre)**: aceptados los **28
+- `CIERRE-NAVDATA-2026-09-30.md` — **su cierre de hilo completo** (9 documentos en dos dias): la tabla de
+  lo entregado (`mag_var`, espacios aereos, AIRAC desde fichero, KB de rodaje, puntos de espera, `node_id`,
+  empalmes, teselas, `expires_at`), lo que queda nuestro (v0.9.18, el contador de caidas, la clave nueva de
+  VHR) y **lo unico suyo: `runway-crossings`**, donde el caso que falta es `has_hold_short: false`.
+  dias** de gracia (un ciclo AIRAC), **si al `expires_at`** para que la clave vieja muera sola el
+  2026-10-28 —un corte que dependa de que alguien se acuerde es el mismo fallo que ya hemos visto dos
+  veces— y **si al porcentaje** de cuota con la etiqueta de proxy de mapas.
+  incidente, la auditoria de la clave en nuestro lado (limpia: ni en el historial de git, ni en Docs/, ni
+  en `vmsOpenACars.txt`) y **la rotacion que vamos a hacer**, con la unica pregunta que la frena —la
+  **ventana de gracia**—, porque cada cliente de piloto usa esa clave.
+  (**10 claves de aerolinea en claro en `logs/gunicorn.log`**, `%(r)s` de gunicorn escribe el query string),
+  arreglado con `gunicorn.conf.py` y un test que fija el formato; admiten que el primer intento **tumbo el
+  servicio unos minutos**; aceptan que el proxy sea el camino y proponen la comprobacion cruzada
+  `placeholder` suyo vs teselas con marca de agua nuestras; prefieren `?key=` **y** `origin_domain` juntos.
+  **proxy pasa a ser el camino principal** (no la opción) y la caída va en tres escalones: proxy →
+  CARTO con la clave del piloto → CARTO sin clave, **con marca de agua**, que es el escalón que se usará
+  mientras `carto_api_key` siga vacío en la distribución.
+  **solo en la ruta de teselas** (en el resto sigue habiendo 401, con test que lo fija), `origin_domain`
+  opcional en esa ruta, y la aclaracion de que `month`/`plan_limit` van dentro de `tiles`. Con esto el
+  proxy queda desbloqueado para el cliente.
   el consumo del mes como número, y la adenda donde admiten que **en los endpoints de rodaje el token no
   estaba en la clave de caché** (era decorativo y los incidentes los arregló el vaciado manual).
   verificados con `cf-cache-status` (`private` + `BYPASS` ya desplegados; la copia vieja del borde sigue),
