@@ -686,7 +686,67 @@ namespace vmsOpenAcars.UI.Forms
         }
     }
 
-    internal sealed class CartoLightProvider : GMapProvider
+    /// <summary>
+    /// Base de los dos proveedores de CARTO: **una tesela se le pide al proxy de NavData** y, solo si
+    /// eso falla, se va directo a CARTO. Ver <see cref="CartoTileUrl"/> para el por qué y para el
+    /// formato de la URL.
+    ///
+    /// La secuencia vive aquí, y no en cada proveedor, porque `GetTileImageUsingHttp` es `protected`
+    /// de `GMapProvider`: solo se puede llamar desde dentro de un tipo derivado.
+    /// </summary>
+    internal abstract class CartoProxyProvider : GMapProvider
+    {
+        /// <summary>El estilo de CARTO (`light_all`, `dark_all`), que es también el del proxy.</summary>
+        protected abstract string Style { get; }
+
+        /// <summary>La URL directa de CARTO, que es el respaldo.</summary>
+        protected abstract string DirectUrl(int zoom, GPoint pos);
+
+        public override PureImage GetTileImage(GPoint pos, int zoom)
+        {
+            string proxy = CartoTileUrl.ProxyTile(
+                CartoTileUrl.ProxyBase(AppConfig.NavDataApiUrl, AppConfig.TileProxyUrl),
+                Style, zoom, pos.X, pos.Y, AppConfig.NavDataApiKey, AppConfig.NavDataApiDomain);
+
+            if (proxy.Length > 0)
+            {
+                try
+                {
+                    PureImage viaProxy = GetTileImageUsingHttp(proxy);
+                    if (viaProxy != null) return viaProxy;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("tesela del proxy fallida (" + Style + "): " + ex.Message);
+                }
+                CartoTileUrl.ProxyFallbacks++;
+            }
+
+            try
+            {
+                PureImage direct = GetTileImageUsingHttp(
+                    CartoTileUrl.WithKey(DirectUrl(zoom, pos), AppConfig.CartoApiKey));
+
+                if (direct != null)
+                {
+                    // Sin clave de CARTO lo que llega **no es un mapa**: es el cartel «API KEY
+                    // REQUIRED». Se cuenta aparte porque es el mismo fenómeno que el contador
+                    // `placeholder` de NavData, y cruzarlos dice de qué lado está el problema.
+                    if (string.IsNullOrWhiteSpace(AppConfig.CartoApiKey)) CartoTileUrl.PlaceholderTiles++;
+                    return direct;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("tesela de CARTO fallida (" + Style + "): " + ex.Message);
+            }
+
+            CartoTileUrl.TileFailures++;
+            return null;
+        }
+    }
+
+    internal sealed class CartoLightProvider : CartoProxyProvider
     {
         // El `Id` de un provider es la CLAVE DE CACHÉ de GMap.NET (la columna `Type` de
         // `%LOCALAPPDATA%\GMap.NET\TileDBv5\Data.gmdb` es su hash). Como GMap **no vuelve a pedir
@@ -714,25 +774,13 @@ namespace vmsOpenAcars.UI.Forms
         public override PureProjection Projection => MercatorProjection.Instance;
         public override GMapProvider[] Overlays   => new GMapProvider[] { this };
 
-        public override PureImage GetTileImage(GPoint pos, int zoom)
-        {
-            try
-            {
-                return GetTileImageUsingHttp(CartoTileUrl.WithKey(
-                    $"https://a.basemaps.cartocdn.com/light_all/{zoom}/{pos.X}/{pos.Y}.png",
-                    AppConfig.CartoApiKey));
-            }
-            catch (Exception ex)
-            {
-                // Contador para poder contestarle a NavData con un número y no con una impresión.
-                CartoTileUrl.TileFailures++;
-                System.Diagnostics.Debug.WriteLine("tesela light_all fallida: " + ex.Message);
-                return null;
-            }
-        }
+        protected override string Style => "light_all";
+
+        protected override string DirectUrl(int zoom, GPoint pos)
+            => $"https://a.basemaps.cartocdn.com/light_all/{zoom}/{pos.X}/{pos.Y}.png";
     }
 
-    internal sealed class CartoDarkProvider : GMapProvider
+    internal sealed class CartoDarkProvider : CartoProxyProvider
     {
         // Ver la nota del Guid en `CartoLightProvider`: el `Id` es la clave de caché, y cambiarlo
         // es lo que invalida las teselas guardadas antes de la API key.
@@ -748,23 +796,10 @@ namespace vmsOpenAcars.UI.Forms
         public override PureProjection Projection => MercatorProjection.Instance;
         public override GMapProvider[] Overlays   => new GMapProvider[] { this };
 
-        public override PureImage GetTileImage(GPoint pos, int zoom)
-        {
-            try
-            {
-                string url = CartoTileUrl.WithKey(
-                    $"https://a.basemaps.cartocdn.com/dark_all/{zoom}/{pos.X}/{pos.Y}.png",
-                    AppConfig.CartoApiKey);
-                return GetTileImageUsingHttp(url);
-            }
-            catch (Exception ex)
-            {
-                // Contador para poder contestarle a NavData con un número y no con una impresión.
-                CartoTileUrl.TileFailures++;
-                System.Diagnostics.Debug.WriteLine("tesela dark_all fallida: " + ex.Message);
-                return null;
-            }
-        }
+        protected override string Style => "dark_all";
+
+        protected override string DirectUrl(int zoom, GPoint pos)
+            => $"https://a.basemaps.cartocdn.com/dark_all/{zoom}/{pos.X}/{pos.Y}.png";
     }
 
     internal sealed class EsriSatelliteProvider : GMapProvider

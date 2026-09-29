@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.17  
+**Versión actual:** v0.9.18  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -749,7 +749,7 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   **Antes de diseñarlo hay que preguntar a CARTO si sus términos permiten cachear y reservir las
   teselas** —si el proxy se considera un servicio de teselas para terceros puede exigir plan
   comercial—. El pedido concreto para el equipo de NavData (endpoint, `style` en lista blanca para
-  no ser un proxy abierto, validación de `z/x/y`, TTL y LRU) está en `Docs/PEDIDO-NAVDATA-TILES.md`. **Decidido (30/09/2026): el proxy es el camino** y se adopta en v0.9.18, con caída a CARTO (clave del piloto, o tesela con marca de agua si no la tiene).
+  no ser un proxy abierto, validación de `z/x/y`, TTL y LRU) está en `Docs/PEDIDO-NAVDATA-TILES.md`. **Decidido (30/09/2026): el proxy es el camino** y se adopta en v0.9.18, con caída a CARTO. **Sin clave de CARTO no hay mapa**: responde `API KEY REQUIRED`, no una tesela marcada (medido el 30/09/2026), así que el proxy es lo único que hace funcionar el mapa en la distribución. **Adoptado en v0.9.18**: los dos proveedores piden al proxy y caen a CARTO directo si falla, con `ProxyFallbacks` y `PlaceholderTiles` para reportar.
 
 - **SimConnect y datarefs de X-Plane: evaluado y DESCARTADO — se sigue con FSUIPC/XUIPC**
   (v0.9.16). El mantenedor lo planteó para quitar a los pilotos de MSFS el requisito de instalar

@@ -37,6 +37,13 @@ namespace vmsOpenAcars.Helpers
         public static string NavDataApiUrl => ConfigurationManager.AppSettings["navdata_api_url"] ?? "";
         public static string NavDataApiKey => ConfigurationManager.AppSettings["navdata_api_key"] ?? "";
 
+        /// <summary>
+        /// Base del proxy de teselas de NavData. **Vacío por defecto**: se deriva de `navdata_api_url`
+        /// + `tiles`, así que no hay que configurar nada. Solo se define a mano si el proxy vive en
+        /// otro sitio, y entonces debe apuntar a la ruta de teselas.
+        /// </summary>
+        public static string TileProxyUrl => ConfigurationManager.AppSettings["tile_proxy_url"] ?? "";
+
         // X-Origin-Domain: se usa el valor explícito de `navdata_api_domain` si está
         // configurado; si no, se deriva del host de vms_api_url (habitualmente el mismo
         // dominio que sirve el servicio NavData).

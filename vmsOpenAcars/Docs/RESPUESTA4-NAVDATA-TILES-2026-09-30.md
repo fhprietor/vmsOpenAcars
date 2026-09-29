@@ -69,3 +69,20 @@ el diagnóstico con `month`/`plan_limit` (y **«—»** mientras venga nulo, com
 
 Os avisamos en cuanto esté desplegado, que es cuando tiene sentido mirar los números juntos. Gracias
 por la concesión y, sobre todo, por acotarla donde la acotasteis.
+
+---
+
+## Corrección (30/09/2026, medida) — el tercer escalón no es una tesela con marca de agua
+
+En nuestra §2 escribimos que, sin clave, CARTO sirve la tesela **con marca de agua**. **Es falso, y lo
+comprobamos al mirar la imagen en vez de los bytes**: `https://a.basemaps.cartocdn.com/dark_all/14/4736/8200.png`
+sin clave devuelve **200 con una imagen que dice `API KEY REQUIRED · carto.com/basemaps/apikey`** — un
+placeholder de 2.513 B, no un mapa marcado. La del proxy con clave, para el mismo tile, son **1.203 B**
+de mapa de verdad, y los dos ficheros no se parecen en nada (sha256 distintos).
+
+Consecuencia para lo que os contamos: **sin clave de CARTO no hay mapa**, solo un cartel. O sea que la
+caída al tercer escalón **no mantiene el mapa utilizable** y el proxy deja de ser una comodidad para
+ser lo único que hace que el mapa funcione en la distribución. El escalón 3 solo sirve para un piloto
+que tenga su propia clave; para el que no la tenga, si el proxy cae, el mapa cae.
+
+Se corrige aquí y no reescribimos lo ya enviado: el error es nuestro y la medida también.

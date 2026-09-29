@@ -2,6 +2,33 @@
 
 ---
 
+## [0.9.18] — 30/09/2026
+
+### Changed
+
+- **Las teselas del mapa las sirve el proxy de NavData**, no CARTO: los dos proveedores de calle piden
+  `{navdata_api_url}tiles/{style}/{z}/{x}/{y}.png?key=…&origin_domain=…` y solo caen a CARTO directo si
+  el proxy falla. El motivo está medido: **sin clave de CARTO no hay mapa, hay un cartel** —
+  `dark_all/14/4736/8200.png` sin clave son 2.513 B que dicen «API KEY REQUIRED · carto.com/basemaps/apikey»,
+  frente a los 1.203 B del mismo tile por el proxy—, y los pilotos no llevan clave de CARTO. El proxy
+  deja de ser una comodidad: es lo único que hace funcionar el mapa en la distribución.
+- La clave de NavData viaja **en la URL** porque GMap.NET pide las teselas por dentro
+  (`GetTileImageUsingHttp`) y **no permite añadir cabeceras**; NavData admite esa forma **solo en esa
+  ruta** (en el resto, sin cabecera, sigue dando 401). Lo que se registra va **enmascarado**
+  (`CartoTileUrl.Mask`): la clave no puede acabar en un log.
+- `CartoTileUrl` gana lo puro y con test: **`ProxyBase`** (deriva `…/api/v1` → `…/api/v1/tiles`, con
+  `tile_proxy_url` opcional), **`ProxyTile`** y **`Mask`**; y los contadores **`ProxyFallbacks`** y
+  **`PlaceholderTiles`** para contestarle a NavData con números. `PlaceholderTiles` cuenta exactamente
+  lo mismo que su contador `placeholder`, desde el otro extremo: cruzarlos dice de qué lado está el
+  problema.
+- Los dos proveedores comparten **`CartoProxyProvider`**: la secuencia (proxy → CARTO → nada) vive en un
+  solo sitio porque `GetTileImageUsingHttp` es `protected` y solo se puede llamar desde un tipo derivado.
+
+### Note
+
+- Después de actualizar, **borrar la caché del mapa** (menú de la bandeja): la caché de GMap.NET puede
+  tener guardadas las teselas-cartel que servía CARTO antes de este cambio, y las seguiría pintando.
+
 ## [0.9.17] — 30/09/2026
 
 Publicada después de **verificar contra el servicio real** el proxy de teselas de NavData (el hilo
@@ -61,6 +88,11 @@ completo está en `Docs/`).
 - **`mag_var` ya esta publicado** (`/airport/{icao}/` y `/runways/`: -8,58 en SKBO, -13,73 en KBOS): se
   desbloquea la conversion de rumbo verdadero contra magnetico del apartado de rumbo, y con ella el margen
   completo de 15 grados en Boston, que hoy se queda en 1,3 grados.
+- **Sin clave de CARTO no hay mapa, no una tesela con marca de agua** (medido el 30/09/2026):
+  `dark_all/14/4736/8200.png` sin clave devuelve una imagen que dice `API KEY REQUIRED` (2.513 B)
+  mientras el mismo tile por el proxy son 1.203 B de mapa real. Corrige lo que habiamos escrito en el
+  hilo de NavData: la caida al tercer escalon **no** mantiene el mapa utilizable, asi que el proxy pasa a
+  ser lo unico que hace que el mapa funcione en la distribucion (los pilotos no llevan clave de CARTO).
 ## [0.9.16] — 2026-09-29
 
 ### Fixed
