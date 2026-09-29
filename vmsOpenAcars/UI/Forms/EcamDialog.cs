@@ -1,4 +1,5 @@
-﻿// EcamDialog.cs
+// EcamDialog.cs
+using System;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -24,9 +25,20 @@ namespace vmsOpenAcars.UI.Forms
         private Button btn1;
         private Button btn2;
         private Button btn3;
+        private Panel contentPanel;
+        private Panel pnlMessage;
+        private FlowLayoutPanel panelBotones;
         private string _message;
         private string _title;
         private EcamDialogButtons _buttons;
+
+        // Para poder comprobar el reparto de espacio sin enseñar la ventana (tests): los dos
+        // rectángulos están en coordenadas de `contentPanel`, así que son comparables.
+        internal Rectangle MessageHostBounds => pnlMessage.Bounds;
+        internal Rectangle ButtonsBounds     => panelBotones.Bounds;
+
+        /// <summary>Alto que pide el texto ya envuelto: si no cabe en su panel, hay que desplazar.</summary>
+        internal int MessagePreferredHeight  => lblMessage.PreferredHeight;
 
         public EcamDialog(string message, string title, EcamDialogButtons buttons = EcamDialogButtons.YesNo)
         {
@@ -108,33 +120,47 @@ namespace vmsOpenAcars.UI.Forms
             pnlTitleBar.MouseUp += (s, e) => _dragging = false;
 
             // Panel de contenido
-            Panel contentPanel = new Panel
+            contentPanel = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(10, 10, 20),
                 Padding = new Padding(10)
             };
 
-            // Mensaje
+            // Mensaje. Va dentro de un panel con desplazamiento y **dockeado**, no en posición
+            // absoluta: con `Location` fija y `AutoSize` el texto crecía hacia abajo y se pintaba
+            // ENCIMA de los botones —el aviso de discrepancia de aeronave son ~10 líneas y dejaba
+            // el NO inalcanzable—. Con el mensaje en `Dock.Fill` y los botones en `Dock.Bottom`
+            // los dos se reparten el panel y no pueden solaparse por mucho que crezca el texto;
+            // si aun así no cabe, el panel saca barra de desplazamiento.
+            pnlMessage = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.Transparent,
+                AutoScroll = true
+            };
+
             lblMessage = new Label
             {
                 Text = _message,
                 Font = new Font("Consolas", 11, FontStyle.Bold),
                 ForeColor = Color.LightGreen,
-                Location = new Point(15, 15),
+                Location = new Point(0, 0),
                 AutoSize = true,
-                MaximumSize = new Size(this.ClientSize.Width - 50, 0)
+                MaximumSize = new Size(380, 0)
             };
-            contentPanel.Controls.Add(lblMessage);
+            pnlMessage.Controls.Add(lblMessage);
 
             // Panel para botones (FlowLayoutPanel para alinearlos a la derecha)
-            FlowLayoutPanel panelBotones = new FlowLayoutPanel
+            panelBotones = new FlowLayoutPanel
             {
                 FlowDirection = FlowDirection.RightToLeft,
                 Dock = DockStyle.Bottom,
-                Height = 60,
+                Height = 50,
                 BackColor = Color.Transparent
             };
+            contentPanel.Controls.Add(pnlMessage);
+            contentPanel.Controls.Add(panelBotones);
 
             // Crear botones según la configuración
             switch (_buttons)
@@ -180,16 +206,44 @@ namespace vmsOpenAcars.UI.Forms
                     break;
             }
 
-            contentPanel.Controls.Add(panelBotones);
             this.Controls.Add(contentPanel);
             this.Controls.Add(pnlTitleBar);
 
-            // Ajustar posición del botón cerrar al redimensionar
+            // Alto a la medida del texto (ver FitToMessage) y, al redimensionar, recolocar el
+            // botón de cerrar sin tocar el reparto mensaje/botones, que lo hace el docking.
+            FitToMessage();
             this.Resize += (s, e) =>
             {
                 btnClose.Location = new Point(this.ClientSize.Width - 35, 5);
-                lblMessage.MaximumSize = new Size(this.ClientSize.Width - 50, 0);
+                FitToMessage();
             };
+        }
+
+        /// <summary>
+        /// Ajusta el alto de la ventana al texto del mensaje. El alto fijo de 250 px no daba para
+        /// un aviso largo: la discrepancia de aeronave, o la lista de vuelos activos, no cabían y
+        /// el texto se comía los botones. Aquí se calcula lo que ocupan el título, el mensaje ya
+        /// envuelto al ancho disponible y la fila de botones; si la pantalla no da para tanto, el
+        /// alto se corta en el área de trabajo y el mensaje se desplaza dentro de su panel.
+        /// </summary>
+        private void FitToMessage()
+        {
+            // El ancho se calcula por aritmética y no leyendo el `ClientSize` de los paneles:
+            // al construir, el layout todavía no ha corrido y devolvería 0.
+            int width = this.ClientSize.Width
+                        - this.Padding.Horizontal - contentPanel.Padding.Horizontal
+                        - SystemInformation.VerticalScrollBarWidth - 4;
+            if (width < 120) width = 120;
+            lblMessage.MaximumSize = new Size(width, 0);
+
+            int needed = pnlTitleBar.Height + this.Padding.Vertical + contentPanel.Padding.Vertical
+                       + panelBotones.Height + lblMessage.PreferredHeight + 12;
+
+            int maxHeight;
+            try { maxHeight = Screen.FromControl(this).WorkingArea.Height - 80; }
+            catch { maxHeight = 800; }
+
+            this.Height = Math.Max(this.MinimumSize.Height, Math.Min(needed, maxHeight));
         }
 
         private Button CreateButton(string text, Color color)

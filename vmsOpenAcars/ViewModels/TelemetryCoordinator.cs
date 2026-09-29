@@ -885,11 +885,21 @@ namespace vmsOpenAcars.ViewModels
             if (_fsuipc.AircraftManufacturer != "Unknown")
                 _cb.Log?.Invoke(_("Log_Manufacturer", _fsuipc.AircraftManufacturer), Theme.SecondaryText);
             if (_fsuipc.AircraftIcao != "????")
-                _cb.Log?.Invoke(_("Log_ICAO", _fsuipc.AircraftIcao), Theme.SecondaryText);
+            {
+                // El modelo ATC es de familia («B777» en un PMDG 777-200LR) y el título trae la
+                // variante: si se puede resolver, se enseña ESA y el crudo entre paréntesis, para
+                // que el log diga lo mismo que decide la validación contra el OFP (v0.9.16).
+                string variant = AircraftTypeMatch.ResolveVariant(_fsuipc.AircraftModel,
+                                                                  _fsuipc.AircraftTitle,
+                                                                  _fsuipc.AircraftIcao);
+                _cb.Log?.Invoke(variant.Length > 0 && variant != _fsuipc.AircraftIcao
+                    ? _("Log_IcaoResolved", variant, _fsuipc.AircraftIcao)
+                    : _("Log_ICAO", _fsuipc.AircraftIcao), Theme.SecondaryText);
+            }
             if (!string.IsNullOrEmpty(_fsuipc.AircraftTitle) && _fsuipc.AircraftTitle != "Unknown")
                 _cb.Log?.Invoke(_("Log_Aircraft", _fsuipc.AircraftTitle), Theme.MainText);
             string livery = _fsuipc.GetAircraftLivery();
-            if (livery != "Unknown" && livery != _fsuipc.AircraftIcao)
+            if (livery != AircraftLivery.Unknown && livery != _fsuipc.AircraftIcao)
                 _cb.Log?.Invoke(_("Log_Livery", livery), Theme.SecondaryText);
         }
 
@@ -1129,7 +1139,7 @@ namespace vmsOpenAcars.ViewModels
                     if (!isTaxiIn)
                     {
                         var hp = _flightManager.CurrentGroundSpeed <= 1.5
-                            ? _navDataService.FindHoldingPoint(airport, lat, lon, heading)
+                            ? _navDataService.FindHoldingPoint(airport, lat, lon, heading, _raasRunway)
                             : null;
                         if (hp != null && hp.RunwayName != _lastHoldingShortRwy)
                         {
@@ -1348,7 +1358,7 @@ namespace vmsOpenAcars.ViewModels
                 bool   onRwy   = _navDataService.FindRunwayEntry(_raasAirport, e.Latitude,
                                                                  e.Longitude, e.HeadingDeg) != null;
                 var    hs      = _navDataService.FindHoldingPoint(_raasAirport, e.Latitude,
-                                                                  e.Longitude, e.HeadingDeg);
+                                                                  e.Longitude, e.HeadingDeg, _raasRunway);
                 var guidance = _raasPlan != null && _raasPlan.Names.Count > 0
                     ? RaasAdvisor.ResolveGuidance(TaxiSegments(_raasAirport),
                                                   _raasPlan, e.Latitude, e.Longitude, active)

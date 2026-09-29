@@ -40,19 +40,40 @@
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <!-- MapAttributionTests comprueba que cada proveedor del mapa publica su crédito. -->
+    <Reference Include="GMap.NET.Core">
+      <HintPath>..\packages\GMap.NET.Core.2.1.7\lib\net48\GMap.NET.Core.dll</HintPath>
+    </Reference>
+    <!-- EcamDialogTests mide el reparto de espacio del popup: el formulario es WinForms. -->
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AircraftLiveryTests.cs" />
+    <Compile Include="AircraftTypeMatchTests.cs" />
+    <Compile Include="AirspaceRouteSamplerTests.cs" />
     <Compile Include="ApproachThresholdTests.cs" />
     <Compile Include="AtcPanelTests.cs" />
+    <Compile Include="CartoTileUrlTests.cs" />
+    <Compile Include="EcamDialogTests.cs" />
     <Compile Include="GeoMathTests.cs" />
+    <Compile Include="HoldShortSelectorTests.cs" />
+    <Compile Include="MapAttributionTests.cs" />
     <Compile Include="RouteCorridorTests.cs" />
     <Compile Include="RaasTests.cs" />
     <Compile Include="RaasReplayTests.cs" />
     <Compile Include="PirepStateTests.cs" />
     <Compile Include="ScoringServiceTests.cs" />
+    <Compile Include="TaxiRouteCaseTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Taxiways reales de SKBO para el caso G74 -> A3 de 14L (TaxiRouteCaseTests). -->
+    <Content Include="Fixtures\SKBO-taxi-2026-09-29.csv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

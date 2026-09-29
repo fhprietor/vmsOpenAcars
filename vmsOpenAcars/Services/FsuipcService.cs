@@ -1694,35 +1694,7 @@ namespace vmsOpenAcars.Services
             return AircraftCategory.Unknown;
         }
 
-        public string GetAircraftLivery()
-        {
-            if (string.IsNullOrEmpty(AircraftTitle)) return "Unknown";
-
-            string[] airlines = {
-                "United","American","Delta","Iberia","Lufthansa",
-                "British","Air France","KLM","Emirates","Qatar",
-                "Avianca","LATAM","Viva","EasyJet","Ryanair",
-                "Southwest","JetBlue","Spirit","Frontier","Alaska",
-                "Copa","Aeromexico","Air Canada","WestJet",
-                "Virgin","Etihad","Turkish","Singapore","Cathay","VHR"
-            };
-
-            foreach (var a in airlines)
-                if (AircraftTitle.Contains(a)) return a;
-
-            string[] knownIcaos = { "B38M", "B738", "A320", "A319", "A321", "B737", "B747", "B777", "B787" };
-            var parts = AircraftTitle.Split(new[] { ' ', '-', '_', '(', ')' }, StringSplitOptions.RemoveEmptyEntries);
-
-            foreach (var part in parts)
-            {
-                if (part.Length < 3 || part.Length > 4) continue;
-                if (part != part.ToUpperInvariant()) continue;
-                if (Array.IndexOf(knownIcaos, part) >= 0) continue;
-                return part;
-            }
-
-            return "Unknown";
-        }
+        public string GetAircraftLivery() => Helpers.AircraftLivery.FromTitle(AircraftTitle);
 
         public string GetAircraftDeveloper()
         {

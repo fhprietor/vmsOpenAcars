@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.15  
+**Versión actual:** v0.9.16  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -56,7 +56,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
   las otras reglas. Nunca suprimir una acción por una suposición.
 
 **Idioma**
-- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 417 claves cada uno): toda
+- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 419 claves cada uno): toda
   clave que se añade o se quita va en los dos.
 - **Los rótulos de `SettingsForm` se traducen por `_(clave)` con el propio texto en inglés como
   clave** (`CreateLabel("Duration (s)")` → *Duración (s)*). Una clave que falte **no cae al
@@ -169,7 +169,11 @@ static NavAirportInfo     GetAirportInfo(icao)          // transition_altitude/l
 static List<NavProcedure> GetSids / GetStars(icao)
 static List<NavIls>       GetIls(icao)
 static List<NavAirportWaypoint> GetAirportWaypoints(icao, radiusNm)
-static Task<List<NavAirspace>>  GetAirspacesAsync(lat, lon)   // sin radius_nm; servidor devuelve 200 nm fijos
+static Task<NavAirspacesResult> GetAirspacesAsync(lat, lon)
+    // el radio lo declara el servidor (`radius_nm`): 200 nm con su índice propio (29/09/2026;
+    // había bajado a 54). El resultado distingue «no pude preguntar» (Unavailable) de «aquí no
+    // hay nada» (200 vacío), respeta `Retry-After` del 503 POR PUNTO y trae `source`
+    // (local|openaip_api), `capped` y `countries`, que el log de la ruta pinta
 static Task<NavApiTestResult>   TestApiAsync(apiKeyOverride, urlOverride = null)  // llama NavDataCache.SyncAirac()
 static Task<BriefingCheckResult> CheckAnnouncementAsync(phase, lang)
 static Task<byte[]>              FetchBytesAsync(path)
@@ -179,6 +183,20 @@ static Task<NavWeather>          GetWeatherAsync(icao)        // TTL 5 min en me
 Caché por capas: (1) `ConcurrentDictionary` en sesión por ICAO → (2) `NavDataCache` SQLite por AIRAC → para airspaces: (3) `_airspaceMemCache` en sesión + (4) `airspace_entries` SQLite TTL 7 días.
 
 Auth: `X-API-Key` + `X-Origin-Domain` de `App.config` (`navdata_api_key`, `navdata_api_domain`).
+
+**Aviso de NavData del 29/09/2026** (respuesta y confirmación en `Docs/`): de sus seis cambios,
+**cinco no nos tocaban** —no leemos `parkings[].heading`, ni `ils_freq_mhz` sin comprobar `null`, ni
+`airway.direction`, ni `has_vertical_angle`; y el 404 de `/nearest/approach-airport/` ya se trataba
+como «sin resultado»—. **El que dolía era `/airspaces/`**: devolvía **503** cuando OpenAIP no
+respondía y no había caché, y eso llegaba como lista vacía = «cielo vacío». Medido entonces en un
+SKCG→KBOS: **12 de 16 muestras daban 503**. **Ya está arreglado en su lado** (índice propio desde los
+bulk exports por país, 129 países, radio de vuelta a 200 nm): recorriendo la ruta con el muestreo
+actual, **24/24 consultas OK y 613 espacios aéreos** (antes 11). Confirmado a NavData que **enviamos
+rumbo verdadero**; cerrado con `heading_reference=true`, que hace que el servidor convierta con el
+`mag_var` del candidato —medido en SKCG: `heading_diff_deg` de 7,8° a **0,7°**—. Pendiente menor:
+las comparaciones **locales** de pista (`SelectApproachThreshold`) siguen siendo verdadero contra
+magnético; se arreglaría con el `mag_var` del aeropuerto en `/airport/{icao}/` (hoy no viene) o
+leyendo la variación del simulador.
 
 **Editable desde Settings (v0.9.11):** la sección *NavData API* del formulario tiene ahora campo
 para `navdata_api_url` (fila *NavData URL* → *URL NavData*), encima de la API Key. Hasta v0.9.11
@@ -228,9 +246,13 @@ event Action<NavAirspace, NavAirspaceFreq> OnAirspaceEntered  // CTR/TMA/RMZ ent
 event Action<NavAirspace>                  OnAirspaceExited   // CTR/TMA/RMZ salida
 event Action<IList<IvaoAtcStation>>        OnAtcUpdated       // poll IVAO completo (3 min)
 
-Task InitRouteAsync(originIcao, destIcao)  // fetch origen(200nm) + dest(200nm) + midpoint si dist>100nm
+Task InitRouteAsync(originIcao, destIcao)  // muestrea el arco cada 0.75×radio (AirspaceRouteSampler)
+                                           // y no pisa lo cargado si no hay datos frescos
 void CheckPosition(lat, lon, altFt)        // ray-casting GeoJSON + límites verticales
 void TriggerIvaoRefresh()
+// LastAirspaceLoadUnavailable / Partial / Samples / Count / Source / Capped / Countries: cómo fue
+// la última carga, para que el log no diga «0 espacios aéreos» cuando el servidor no contestó (503)
+// y para poder reportar a NavData los corredores servidos por el respaldo o sin export de país
 ```
 
 IVAO polling: `GET https://api.ivao.aero/v2/tracker/whazzup` → `root["clients"]["atcs"]`. Callsign `{ICAO}_{POS}` — match por ICAO exacto o prefijo 2 chars FIR. **`originIcao` y `destIcao` se añaden explícitamente a `_relevantIcaos`** (v0.6.7) — garantiza que TWR/GND/DEL locales siempre se capturan incluso si NavData no devuelve ningún airspace cuyo `ExtractIcao()` coincida.
@@ -249,6 +271,13 @@ IVAO polling: `GET https://api.ivao.aero/v2/tracker/whazzup` → `root["clients"
 - Helpers: `MakeCirclePolygon(lat, lon, radiusNm, fill, stroke, n=72)` / `MakeStarPolygon(lat, lon, outerNm, innerRatio, startDeg, fill, stroke)`
 
 `IvaoAtcStation` (en `AirspaceMonitorService.cs`): `Callsign`, `Icao`, `Position`, `Frequency`, `AtisLines`. DTOs airspace en `Models/NavData.cs`: `NavAirspace`, `NavAirspaceLimit`, `NavAirspaceGeometry`, `NavAirspaceFreq`.
+
+**Crédito de las teselas del mapa (v0.9.16).** El mapa pinta en su esquina inferior derecha el crédito
+del proveedor activo —lo exigen las condiciones de CARTO («CARTO and OpenStreetMap must be credited on
+every map») y las de ESRI—. Cada proveedor lo publica en el campo `Copyright` que GMap.NET define para
+esto, `MapAttribution.For` decide el texto y **`MapAttributionTests` impide que un proveedor quede sin
+crédito**: al añadir uno nuevo al combo hay que darle el suyo. El rótulo es transparente al ratón
+(`AttributionLabel` → `HTTRANSPARENT`), para que esa esquina siga arrastrando el mapa.
 
 ---
 
@@ -424,6 +453,104 @@ Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el
 - **Bug corregido de paso**: `FindHoldingPoint` filtraba por el `heading` del hold-short, que es el
   **eje de la pista**. Con el avión rodando perpendicular —267–270° reales contra 136° del eje en
   SKBO— descartaba justo los hold-shorts que tenía delante; ahora exige ir **hacia** el punto.
+- **El punto de espera: del dato del escenario, filtrado por pista (v0.9.16).** Hasta el 29/09/2026
+  NavData publicaba los puntos **por geometría** y sobre-generaba: **14 para la 14L de SKBO**, de los
+  que solo **2** eran accesos (a 40 y 74 m del eje) y **12 eran nodos de las paralelas**, a **139–254 m
+  del eje** — el avión rueda *sobre* ellas, así que el radio de 200 m y el filtro de «no de través» no
+  los descartaban y el piloto oía «espera antes de pista **14L**» yendo a la 14R. **Ya está arreglado en
+  su lado**: los puntos salen de los **tipos de nodo del escenario** (`HSND`/`IHSND`) y SKBO pasa a
+  **26 puntos, 6 de la 14L y 1 de la 14R** (25 `hold_short` + 1 `ils_hold_short`), fijado en un test de
+  inventario. `Helpers/HoldShortSelector.cs` (puro) sigue siendo la red de seguridad y decide: filtra
+  por la **pista de destino declarada** —**preguntando a `runway_names`, la pareja física**, no a
+  `runway_name`: un punto etiquetado `32L` sirve para la 14R porque su pareja es `14R/32L`— y nombra el
+  punto con **la calle por la que llega el avión si está en `taxiways`** —en el cruce los cuatro nombres
+  son ciertos: NavData sugiere `A1` y el piloto dice `A3`—, con la sugerida como respaldo y el muestreo
+  geométrico como último recurso. Sin pista declarada **no se filtra**.
+- **El banco de pruebas del rodaje real cambió de secuencia con el dato del escenario, y a mejor**: el
+  aviso de punto de espera prematuro **se comía el aviso de giro** (a las 22:08:19 el avión estaba a
+  <200 m de un nodo de la paralela y yendo hacia él), y el episodio del hold-short salía dos veces. Con
+  los puntos nuevos: `TurnAhead · TurnNow · HoldShortApproaching · HoldShortStop · RouteComplete` —
+  cinco avisos, sin ruido—. **El banco usa `HoldShortSelector`, no una copia de la regla**: si vuelve a
+  divergir, el test lo dice.
+- **La base de rutas de rodaje está en producción y vacía (v0.9.16).** Al leerla encontramos **dos
+  incoherencias entre endpoints** —la consulta por par devolvía `total: 0` mientras la lista publicaba
+  3 observaciones de `F E M A A3`—; NavData las arregló: eran **sus filas de prueba** y la **caché de
+  24 h no se invalidaba con un borrado por `shell`**. Ahora cualquier escritura la invalida.
+  **Ojo con la lectura fácil**: esas 3 filas **no** eran «el caso ya en la base»; la primera
+  observación real será la del mantenedor. Sin datos: `200` + `customary: null`, nunca 503.
+  **No enviar observaciones sintéticas** para cruzar el umbral. Y **`K1`/`V` es el único punto de
+  espera de la 14R**, a 58 m del umbral: los puntos que daba la geometría no eran nodos del escenario,
+  lo que explica que en el rodaje real la parada de 135 s fuese 65–170 m antes del `HSND`.
+- **La calle `V` de la 14R ya no se publica: era un muñón de entrada** (29/09/2026). Es **un segmento
+  de 54 m** del eje de la pista al punto de espera, un nombre que las cartas no rotulan (misma clase:
+  `B13`, `B8`, `H4`, `J1`). El punto de la 14R pasa a `taxiways: ["K1"]`; los recuentos no cambian.
+  **Y el dataset del escenario está incompleto**: `K2` es perpendicular y desemboca en `K1` en la
+  carta, pero **el escenario no las une** (76 m entre nodos, sin segmento de ningún tipo). Medido en
+  SKBO: **515 nodos, 100 extremos sueltos, mediana 35,3 m al más cercano, 36 huecos de 45–200 m**…
+  y **567 pares de nodos distintos a menos de 45 m**, que es lo que la fusión por proximidad
+  **inventa** hoy. Es decir: **pasar a `node_id` cambia el grafo mucho más que quitar un umbral** —
+  medir el caso `G74 → A3` y el rodaje real **antes y después**, no darlo por hecho. NavData ofrece
+  publicar esos empalmes como **conocimiento curado**.
+- **Dos fuentes de coordenadas, y las cruzamos (v0.9.16).** `/runways/`, `/ils/`, `/approaches/`,
+  `/sids/`, `/stars/` son de **Navigraph**; `/taxiways/`, `/holdshort/`, `/parkings/` son del
+  **escenario de MSFS**; **los umbrales no coinciden** (mediana 33 m en SKBO, 59 m en LEMD con máximo
+  **163 m**). `TaxiGraph` enrutaba al **umbral de `/runways/`** (Navigraph) sobre una red MSFS: en
+  SKBO 14L ese umbral está a **75 m** del punto de espera y **los nodos MSFS más cercanos a él son de
+  la calle `E`** — de ahí la `E` de más de `F E X A B5 A A3 E`, que no es una calle que ATC diga.
+  **Al rehacer el grafo: enrutar al punto de espera de la pista de destino** (misma fuente que la red,
+  lo que dice ATC y el `entry_taxiway` de la base), no al umbral.
+- **Empalmes curados: `GET /airport/{icao}/taxiway-joins/`** (29/09/2026), con `node_a`/`node_b`,
+  `taxiway`, `gap_m`, `source: "curated"` e `invalid[]`. Publicado el `K2`→`K1` de SKBO (76,0 m). Es lo
+  que puentea los huecos que el escenario no modela **sin volver a una heurística de proximidad**, y lo
+  que hace que la base de conocimiento (secuencias de calles, no caminos de nodos) no dependa del grafo.
+- **`node_id` en `/taxiways/` (52 bits, `long?`)**: mapeado, **todavía sin usar**. Es lo que permite
+  borrar el umbral de 45 m del grafo, que afectaba a **318 de los 569 segmentos de SKBO** (56%).
+  NavData lo corrigió de 64 a 52 bits para que quepa en `long` y sea entero seguro en JavaScript.
+- **El caso G74 → A3 de la 14L (SKBO) está montado como fixture**: `TaxiRouteCaseTests` +
+  `Fixtures/SKBO-taxi-2026-09-29.csv` (237 segmentos reales, precisión completa). El grafo propone
+  `F E X A B5 A A3` y el mantenedor dice que la ruta normal es **`F E M A A3`**, con dos reglas que no
+  están en ningún dataset: **a `B5` no se entra para continuar** y **`X` no forma parte de la ruta**.
+  Medido: **ninguna de las cuatro variantes** (con todo, sin `X`, sin `B5`, sin las dos) produce la
+  ruta del piloto, así que no se arregla afinando el optimizador. Es el punto de partida de la base de
+  rutas reales (abajo, en "Próximas áreas") y el detalle con cifras está en `Docs/architecture.md`.
+
+## Aeronave del simulador vs. OFP — v0.9.16
+
+Tres datos del simulador para identificar la aeronave: el *title* (`0x3D00` → `AircraftTitle`,
+«777-200LR»), el **modelo ATC** (`0x0618` → `AircraftIcao`, de **familia**: `B777`, `B737`,
+`B747`) y `AircraftModel` (`0x0B26`). SimBrief publica en `aircraft.icao_code` el **designador ICAO
+de tipo**, de **variante** (`B77L`, `B77W`, `B738`). Compararlo todo con igualdad exacta daba un
+falso «AIRCRAFT MISMATCH» con el avión correcto (PMDG B77L en MSFS 2024, bloqueaba el START).
+
+- `Helpers/AircraftTypeMatch.cs` (puro, con test) resuelve en **dos niveles**: **exacto** cuando la
+  variante se puede resolver del modelo/título (`VariantFromText`, tabla de más específico a más
+  genérico) y el OFP trae designador de variante —ahí `B77W` contra `B77L` **sí avisa**, que es lo
+  que pidió el mantenedor—; y por **familia** (tres primeros caracteres) cuando al simulador solo le
+  sale el modelo ATC. La tabla incompleta cae a familia, nunca a un aviso equivocado. Sin dato
+  (`????`, vacío) no se bloquea nada.
+- La variante se resuelve del `AircraftModel` **y** del `AircraftTitle`: el log ya lo enseñaba
+  (`✈️ Aeronave: 777-200LR` con `📋 ICAO: B777`), solo que no se usaba para comparar. La línea del
+  log pasa a ser `📋 ICAO: B77L  (modelo ATC: B777)` (`Log_IcaoResolved`) para que diga lo mismo que
+  decide la validación.
+- **Una pintura no lleva dígitos** (`Helpers/AircraftLivery.cs`, puro y con test): el detector de
+  pintura vivía dentro `FsuipcService.GetAircraftLivery` y su último recurso devolvía cualquier
+  token de 3–4 caracteres en mayúsculas, así que con el título `777-200LR` imprimía «🎨 Pintura:
+  777» —el modelo disfrazado de pintura—. Si el título solo dice el modelo, no se pinta la línea.
+- **El ACARS no escanea el disco del piloto** (decisión del mantenedor, v0.9.16). El nombre de la
+  pintura no está en FSUIPC; se implementó resolverlo leyendo la matrícula (`0x3138`) y buscando su
+  `livery.cfg` en la carpeta de paquetes del simulador, y se **retiró**: «no quiero que escanee mi
+  carpeta de community; si no se puede por FSUIPC, prefiero no tener esa exactitud». Consecuencia
+  asumida: un avión cuyo título solo publica el modelo no muestra pintura. No reintroducir ese
+  recorrido sin que lo pida el mantenedor.
+- `FlightPlannerForm` compara el OFP contra el **tipo del vuelo licitado**, no contra el
+  simulador, y ahí se mantiene la igualdad exacta: el plan tiene que ser el del avión asignado.
+
+**Un mensaje largo no puede compartir caja con los botones.** `EcamDialog` (el popup de
+confirmación de toda la aplicación) llevaba el mensaje con `Location` absoluta y `AutoSize` en el
+mismo panel que los botones en `Dock.Bottom`, y como el `Label` se añadía antes se pintaba
+**encima**: el aviso de discrepancia (~10 líneas) dejaba el NO inalcanzable. Ahora el mensaje va en
+un panel con `AutoScroll` y `Dock.Fill` —no pueden solaparse por mucho que crezca el texto— y la
+ventana se ajusta al texto (`FitToMessage`). `EcamDialogTests` lo mide sin enseñar la ventana.
 
 ## Detección de fases — umbrales
 
@@ -494,16 +621,24 @@ anterior).
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **248 tests**:
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **290 tests**:
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
 el respaldo regional de TA/TL, el orden de posiciones ATC, la definición de "está en final"
 (`SelectApproachThreshold` + `IsWithinFinalCone` + `IsPlausibleDiversionDescent` +
-`IsPlausibleDiversionDistance`), el corredor de la llegada planificada (`RouteCorridor`) y el
+`IsPlausibleDiversionDistance`), el corredor de la llegada planificada (`RouteCorridor`), la
+comparación entre la aeronave del simulador y la del OFP (`AircraftTypeMatchTests`), la pintura del
+título (`AircraftLiveryTests`), la URL de teselas de CARTO con su clave (`CartoTileUrlTests`), el
+muestreo de la ruta para espacios aéreos (`AirspaceRouteSamplerTests`, con el SKCG→KBOS real), el
+crédito de las teselas por proveedor (`MapAttributionTests`), el punto de espera del rodaje
+(`HoldShortSelectorTests`, con los 26 puntos reales de SKBO y el inventario fijado), el reparto de
+espacio del popup de confirmación (`EcamDialogTests`, el único que mide un formulario WinForms: por
+eso el proyecto de tests referencia `System.Windows.Forms`) y el
 RAAS con la guía de rodaje (`RaasTests`: grafo, ruta editable y avisos; `RaasReplayTests`: el
 rodaje real del `MNjR664PBAr25RbD` entero contra el motor de avisos, volcado a
-`%TEMP%\raas_replay_MNjR664.txt`).
+`%TEMP%\raas_replay_MNjR664.txt`; `TaxiRouteCaseTests`: el caso G74 → A3 de la 14L con 237 segmentos
+reales de SKBO en `Fixtures/SKBO-taxi-2026-09-29.csv`).
 Los casos centrales usan **coordenadas, altitudes y navlogs de vuelos reales**, no geometría
 inventada: el falso SKTL, el SKCG legítimo, los tres falsos de KBOS y el rodaje completo del
 `MNjR664PBAr25RbD` (106 segmentos reales de SKBO y las posiciones del pushback y del rodaje).
@@ -533,22 +668,64 @@ detallado y los tramos de carta sin coordenadas. Cerrada en v0.9.9: la clase de 
 alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL en un SKRG→SKBQ y
 28M/1B9/KOWD en un SKCG→KBOS). Pendiente por decisión de diseño, no por falta de trabajo:
 
-- **El rumbo del avión no está en la misma referencia que los rumbos de NavData (sin arreglar,
-  evidencia recogida).** El cliente lee `0x0580` (`FsuipcService._headingOffset`) y
-  `NavDataService` compara ese valor contra `rwy.Heading`, que es **magnético** (verificado: para
-  KBOS 04R NavData declara 33.4 y el eje geográfico del umbral→fin es 19.67, o sea 13.7° de
-  variación; para SKCG 01, 10.8 contra 2.31). Pero **el valor que llega del simulador coincide
-  con el rumbo verdadero**, no con el magnético: en el despegue de SKCG el log registra rumbo 3°
-  (verdadero 2.31, magnético 10.8) y en la final de KBOS 19° (verdadero 19.67, magnético 33.4),
-  en ambos casos con la aeronave sobre el eje (CL 9 ft y 15 ft) y viento flojo, así que no es
-  crab. Consecuencia: la comparación tiene un sesgo sistemático igual a la variación local —
-  inofensivo en Colombia (8.4°) pero casi letal en Boston (13.7°), donde la tolerancia efectiva
-  de 15° queda en ~1.3° y el matcher puede no encontrar la final del destino. **No se ha tocado**
-  porque no se puede distinguir desde el cliente entre "el offset es verdadero" y "el simulador
-  tiene la variación a cero", y el arreglo difiere. Candidato seguro para ambos mundos: comparar
-  contra el rumbo magnético **y** contra el verdadero y aceptar si cualquiera de los dos pasa
-  (sólo puede ampliar la puerta, que ya no es la que discrimina). Confirmar antes si el simulador
-  tiene activada la variación magnética.
+- **Base de rutas de rodaje reales en NavData (respuesta recibida, base por implementar)** — caso de
+  validación: `TaxiRouteCaseTests`; el pedido está en **`Docs/PEDIDO-NAVDATA-RUTAS-TAXI.md`** y
+  nuestra respuesta a su respuesta en **`Docs/RESPUESTA-NAVDATA-RUTAS-TAXI-2026-09-29.md`**.
+  NavData **aceptó el diseño** (contrato, umbrales y moderación experta, abajo) y ha **desplegado los
+  dos campos aditivos y el arreglo de los puntos de espera**: el **nombre de la calle** (`taxiway` +
+  `taxiways`), el **`node_id`** en los extremos de `/taxiways/` (52 bits, `long`) y los puntos de
+  espera **desde los tipos de nodo del escenario** en vez de geometría. Pendiente suyo: **`crossings`**
+  (cruces de pista, con `has_hold_short`) y la fecha de la base. Nuestro siguiente paso es el grafo
+  exacto con `node_id`, que **borra el umbral de 45 m** (afectaba a **318 de los 569 segmentos de SKBO**,
+  el 56%). La
+  información **la mantiene NavData** y sirve a toda su comunidad: el cliente solo **envía
+  observaciones** (puesto, pista, secuencia de calles) y **lee** la ruta acostumbrada, con caché
+  local de la respuesta. **Nada de conocimiento local por piloto**: la fuente buena de la observación
+  es el **texto que el piloto escribe o edita en el popup** (la autorización de ATC tal como la
+  entiende, más limpio que la traza) y `source` distingue `typed` de `traced` (con **peso doble**
+  para `typed` en su agregación). Dos lecturas, no una: la ruta acostumbrada y las **estadísticas de
+  uso por calle** (`taxiway-stats`), que es lo que deja ponderar el grafo —una calle bien formada que
+  nunca es de paso, como `B5`, deja de ser candidata— y arregla también donde nadie ha rodado.
+  Umbrales acordados: `total ≥ 5` y `confidence ≥ 0.6` para publicar `customary`; ventana de 3 años
+  con semivida de 18 meses; `customary: null` (nunca 503) por debajo; validación de las calles contra
+  el dataset vigente en ingesta **y** en lectura; moderación experta (`source: "curated"`, que gana
+  sobre la votación sin ocultar el apoyo). Límites: 200 observaciones por POST, 64 KB, 60 POST/min,
+  5.000/día por clave, `observed_at` hasta 90 días atrás, un POST por rodaje de salida.
+
+- **Tile proxy en NavData (propuesta del mantenedor, sin empezar)**: que NavData sirva las teselas
+  de CARTO con **caché**, para que la clave no viaje a cada piloto y la cuota se divida por el
+  número de pilotos en vez de multiplicarse. Resuelve de verdad eso, el 403 por `Referer` y el
+  precalentado de los aeropuertos del OFP; **no** elimina el tráfico a CARTO (lo centraliza) y añade
+  un punto único de fallo, así que el cliente debe caer a CARTO directo si NavData no responde.
+  **Antes de diseñarlo hay que preguntar a CARTO si sus términos permiten cachear y reservir las
+  teselas** —si el proxy se considera un servicio de teselas para terceros puede exigir plan
+  comercial—. El pedido concreto para el equipo de NavData (endpoint, `style` en lista blanca para
+  no ser un proxy abierto, validación de `z/x/y`, TTL y LRU) está en `Docs/architecture.md`.
+
+- **SimConnect y datarefs de X-Plane: evaluado y DESCARTADO — se sigue con FSUIPC/XUIPC**
+  (v0.9.16). El mantenedor lo planteó para quitar a los pilotos de MSFS el requisito de instalar
+  FSUIPC7, se midió lo que se gana y lo que se pierde, y lo cerró él mismo: «mejor dejémoslo quieto,
+  seguimos con fsuipc». La balanza la decidió que el estado de sistemas de un avión complejo
+  (PMDG/Fenix) vive en **LVars** que SimConnect a secas no lee —lo hace FSUIPC7 con un WASM dentro
+  del simulador—. El análisis completo, con lo que se gana y lo que se pierde por simulador y los
+  **disparadores** que reabrirían la decisión, está en **`Docs/architecture.md` → "Capa de
+  telemetría"**. No proponer la migración otra vez sin uno de esos disparadores.
+
+- **El rumbo del avión y los rumbos de NavData están en referencias distintas (a medias).** El
+  cliente lee `0x0580` (`FsuipcService._headingOffset`) y **el simulador devuelve rumbo VERDADERO**
+  (evidencia: en el despegue de SKCG la aeronave sobre el eje marcó 3° con verdadero 2,31 y magnético
+  10,8; en la final de KBOS 19° contra 19,67 y 33,4), mientras que **todos** los rumbos de NavData
+  —pista, parkings, STAR— son **magnéticos**. **Cerrado el camino de desvíos** (29/09/2026): la
+  llamada a `/nearest/approach-airport/` lleva `heading_reference=true`, así que el servidor
+  convierte con el `mag_var` de cada candidato —medido en SKCG: `heading_diff_deg` de 7,8° a 0,7°—.
+  **Queda pendiente el ámbito local**: `SelectApproachThreshold` compara nuestro rumbo verdadero con
+  `rwy.Heading` magnético, así que arrastra un sesgo igual a la variación local —inofensivo en
+  Colombia (8,4°) pero de 13,7° en Boston, donde la tolerancia de 15° se queda en ~1,3° de margen—.
+  Se arregla convirtiendo antes de comparar, y para eso hace falta el `mag_var` del aeropuerto:
+  hoy **no** viene en `/airport/{icao}/` ni en `/runways/` (verificado), sí en la respuesta de
+  `approach-airport`. Alternativas: pedírselo a NavData (un campo) o leer la variación del simulador.
+  **No usar la puerta doble** (aceptar magnético *o* verdadero): el filtro que para el falso desvío
+  de KOWD es justamente el cono angular, y ensancharlo lo reabriría.
 
 - **Decisiones del mantenedor pendientes** (no son trabajo técnico, y hoy solo estaban en el
   hilo de conversación):

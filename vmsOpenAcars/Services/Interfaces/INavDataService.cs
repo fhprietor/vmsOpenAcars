@@ -18,7 +18,7 @@ namespace vmsOpenAcars.Services.Interfaces
         string                FindNearestTaxiway(string airport, double lat, double lon, double heading);
         double                FindTaxiwaySegmentBearing(string airport, string taxiwayName, double lat, double lon);
         string                FindNextIntersection(string airport, double lat, double lon, double heading);
-        HoldingPoint          FindHoldingPoint(string airport, double lat, double lon, double heading);
+        HoldingPoint          FindHoldingPoint(string airport, double lat, double lon, double heading, string runway = null);
         ParkingSpot           FindNearestParking(string airport, double lat, double lon);
         IlsData               GetIlsForRunway(string airport, string runwayName);
         ApproachInfo          GetApproachType(string airport, string runwayName);

@@ -55,6 +55,13 @@ namespace vmsOpenAcars.Helpers
             }
         }
 
+        // CARTO basemaps — teselas del mapa. La clave **no es un secreto** (es un token publicable y
+        // restringible por web), pero tampoco viaja en la plantilla de distribución: vive en
+        // App.config, que es local. Sin ella el mapa se ve con la marca de agua «API key required».
+        // Ojo: debe crearse **sin restricción de web** —una app de escritorio no envía `Referer` y
+        // CARTO responde 403 a una clave restringida—.
+        public static string CartoApiKey => ConfigurationManager.AppSettings["carto_api_key"] ?? "";
+
         // LittleNavMap database (deprecated — kept for settings migration)
         public static string LnmDbPath => ConfigurationManager.AppSettings["lnm_db_path"] ?? "";
 

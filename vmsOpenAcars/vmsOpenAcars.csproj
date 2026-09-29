@@ -171,8 +171,14 @@
     <Compile Include="Core\Flight\PirepBuilder.cs" />
     <Compile Include="Core\Helpers\AppInfo.cs" />
     <Compile Include="Helpers\AppConfig.cs" />
+    <Compile Include="Helpers\AircraftLivery.cs" />
+    <Compile Include="Helpers\AircraftTypeMatch.cs" />
+    <Compile Include="Helpers\AirspaceRouteSampler.cs" />
+    <Compile Include="Helpers\CartoTileUrl.cs" />
     <Compile Include="Helpers\AtcStationOrder.cs" />
     <Compile Include="Helpers\GeoMath.cs" />
+    <Compile Include="Helpers\HoldShortSelector.cs" />
+    <Compile Include="Helpers\MapAttribution.cs" />
     <Compile Include="Helpers\RouteCorridor.cs" />
     <Compile Include="Helpers\TaxiGraph.cs" />
     <Compile Include="Helpers\RaasAdvisor.cs" />

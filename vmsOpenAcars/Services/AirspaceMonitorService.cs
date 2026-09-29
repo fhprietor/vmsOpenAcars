@@ -71,24 +71,39 @@ namespace vmsOpenAcars.Services
 
                 double oLat = origInfo.Lat, oLon = origInfo.Lon;
                 double dLat = destInfo.Lat, dLon = destInfo.Lon;
-                double mLat = (oLat + dLat) / 2.0;
-                double mLon = (oLon + dLon) / 2.0;
-                double dist = DistanceNm(oLat, oLon, dLat, dLon);
 
-                var tasks = new List<Task<List<NavAirspace>>>
-                {
-                    NavDataClient.GetAirspacesAsync(oLat, oLon),
-                    NavDataClient.GetAirspacesAsync(dLat, dLon),
-                };
-                if (dist > 100)
-                    tasks.Add(NavDataClient.GetAirspacesAsync(mLat, mLon));
+                // La cobertura la declara el servidor —200 nm hasta el aviso de NavData del
+                // 29/09/2026, **54 nm** desde entonces—, así que se muestrea la ruta entera en vez
+                // de pedir sólo origen, destino y, a veces, el punto medio: en un SKBO→KBOS eso
+                // cubría 600 nm de 2.200 y el resto se pintaba como cielo vacío.
+                var samples = AirspaceRouteSampler.Sample(
+                    oLat, oLon, dLat, dLon, NavDataClient.LastAirspaceRadiusNm);
 
-                var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+                var results = await Task.WhenAll(
+                        samples.Select(p => NavDataClient.GetAirspacesAsync(p.Lat, p.Lon)))
+                    .ConfigureAwait(false);
+
+                bool anyFresh   = results.Any(r => !r.Unavailable);
+                bool anyPartial = results.Any(r => r.Partial);
+                bool anyCapped  = results.Any(r => r.Capped);
+
+                // Procedencia: si algún punto se resolvió por el respaldo (`openaip_api`) es que
+                // falta el export de un país en el índice, y eso se reporta. Los países se listan
+                // para poder señalar el corredor concreto.
+                string source = results.Any(r => r.Source == "openaip_api") ? "openaip_api"
+                              : results.Any(r => r.Source == "local")      ? "local"
+                              : "";
+                var countries = results
+                    .Where(r => r.Countries != null)
+                    .SelectMany(r => r.Countries)
+                    .Distinct()
+                    .OrderBy(c => c)
+                    .ToList();
 
                 var dict     = new Dictionary<string, NavAirspace>(StringComparer.Ordinal);
                 var relevant = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var list in results)
-                    foreach (var a in list)
+                foreach (var res in results)
+                    foreach (var a in res.Airspaces)
                     {
                         if (string.IsNullOrEmpty(a.Id)) continue;
                         if (!dict.ContainsKey(a.Id)) dict[a.Id] = a;
@@ -100,12 +115,33 @@ namespace vmsOpenAcars.Services
                 relevant.Add(originIcao);
                 relevant.Add(destIcao);
 
-                lock (_lock)
+                int knownCount;
+                if (!anyFresh && GetAirspaces().Count > 0)
                 {
-                    _airspaces     = dict.Values.ToList();
-                    _relevantIcaos = relevant;
-                    _insideIds     = new HashSet<string>();
+                    // Sin datos frescos NO se pisa lo que ya teníamos: una caída del upstream no
+                    // puede vaciar el cielo (era justo el síntoma que describen en su aviso).
+                    lock (_lock) { _relevantIcaos = relevant; }
+                    knownCount = GetAirspaces().Count;
                 }
+                else
+                {
+                    var fresh = dict.Values.ToList();
+                    lock (_lock)
+                    {
+                        _airspaces     = fresh;
+                        _relevantIcaos = relevant;
+                        _insideIds     = new HashSet<string>();
+                    }
+                    knownCount = fresh.Count;
+                }
+
+                LastAirspaceLoadUnavailable = !anyFresh;
+                LastAirspaceLoadPartial     = anyPartial;
+                LastAirspaceLoadSamples     = samples.Count;
+                LastAirspaceLoadCount       = knownCount;
+                LastAirspaceLoadSource      = source;
+                LastAirspaceLoadCapped      = anyCapped;
+                LastAirspaceLoadCountries   = countries;
 
                 // Start 3-min polling; fire immediately (dueTime = 0)
                 _pollTimer?.Dispose();
@@ -123,6 +159,28 @@ namespace vmsOpenAcars.Services
 
         public void TriggerIvaoRefresh()
             => Task.Run(async () => { try { await PollIvaoAsync(); } catch { } });
+
+        /// <summary>
+        /// Cómo fue la última carga de espacios aéreos. Existe porque «0 espacios» y «no pude
+        /// preguntar» no pueden contarse igual en el log: durante una caída del upstream el
+        /// cliente decía cero espacios aéreos, que es un dato falso, no una ausencia.
+        /// </summary>
+        public bool LastAirspaceLoadUnavailable { get; private set; }
+        public bool LastAirspaceLoadPartial     { get; private set; }
+        public int  LastAirspaceLoadSamples     { get; private set; }
+        public int  LastAirspaceLoadCount       { get; private set; }
+
+        /// <summary>`"local"` (índice por país) u `"openaip_api"` (respaldo: falta el export de un
+        /// país). Se reporta en el log porque un corredor servido por el respaldo es un hueco que
+        /// el equipo de NavData puede cerrar añadiendo ese país al índice.</summary>
+        public string LastAirspaceLoadSource { get; private set; } = "";
+
+        /// <summary>Algún punto vino recortado por número máximo de espacios (zona densa): la
+        /// cobertura real es menor que el radio nominal.</summary>
+        public bool LastAirspaceLoadCapped { get; private set; }
+
+        /// <summary>Países que aportaron espacios a la ruta.</summary>
+        public List<string> LastAirspaceLoadCountries { get; private set; } = new List<string>();
 
         /// <summary>
         /// Updates aircraft position and flight phase for ATC station filtering.

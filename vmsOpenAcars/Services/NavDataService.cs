@@ -318,43 +318,30 @@ namespace vmsOpenAcars.Services
             catch { return null; }
         }
 
-        /// <summary>El avión va hacia el punto de espera, no de través rodando en paralelo.</summary>
+        /// <summary>El avión va hacia el punto de espera, no de través rodando en paralelo.
+        /// <paramref name="runway"/> (la pista a la que se va, si se sabe) descarta los puntos de
+        /// espera de otras pistas: NavData publica para la 14L de SKBO 14 puntos, y 12 son nodos de
+        /// las paralelas `A`/`A1`/`A2`/`L` a 139–254 m del eje, que el avión roza al rodar. Sin el
+        /// filtro, rodando hacia la 14R se avisaba «espera antes de pista 14L».</summary>
         public HoldingPoint FindHoldingPoint(
-            string airport, double lat, double lon, double heading)
+            string airport, double lat, double lon, double heading, string runway = null)
         {
             try
             {
-                var holdShorts = NavDataClient.GetHoldShorts(airport);
-                HoldingPoint best = null;
+                var hs = HoldShortSelector.Select(NavDataClient.GetHoldShorts(airport),
+                                                  lat, lon, heading, runway);
+                if (hs == null) return null;
 
-                foreach (var hs in holdShorts)
+                return new HoldingPoint
                 {
-                    double d = DistM(lat, lon, hs.Lat, hs.Lon);
-                    if (d >= HoldingRadiusM) continue;
-                    if (best != null && d >= best.DistanceM) continue;
-
-                    // El `heading` de un hold-short es el EJE DE LA PISTA, no la dirección con la
-                    // que uno llega. El filtro de ±45° que había aquí comparaba ese eje con el
-                    // rumbo del avión, así que descartaba justo los hold-shorts que tenía delante:
-                    // en el rodaje real de SKBO (PIREP MNjR664PBAr25RbD) el avión pasó a 5–22 m
-                    // de los de la 14R rodando a 267–270° con eje 136° — 134° de diferencia — y no
-                    // se avisó nunca. Lo que discrimina es ir HACIA el punto: si el hold-short
-                    // queda de través (rodando en paralelo), no se avisa.
-                    bool toward = double.IsNaN(heading)
-                        || HeadingDelta(BearingDeg(lat, lon, hs.Lat, hs.Lon), heading) <= 90.0;
-                    if (!toward) continue;   // de través: se ignora aunque esté más cerca
-
-                    best = new HoldingPoint
-                    {
-                        RunwayName    = hs.RunwayName,
-                        DistanceM     = d,
-                        HeadingToward = true
-                    };
-                }
-
-                if (best == null) return null;
-                best.TaxiwayName = NearestTaxiway(NavDataClient.GetTaxiways(airport), lat, lon);
-                return best;
+                    RunwayName    = hs.RunwayName,
+                    DistanceM     = GeoMath.DistanceNm(lat, lon, hs.Lat, hs.Lon) * 1852.0,
+                    HeadingToward = true,
+                    // El nombre sale de las calles del propio nodo cuando NavData las publica; si
+                    // no vienen, se cae al muestreo geométrico de siempre.
+                    TaxiwayName   = HoldShortSelector.ForCallout(
+                                        NearestTaxiway(NavDataClient.GetTaxiways(airport), lat, lon), hs)
+                };
             }
             catch { return null; }
         }

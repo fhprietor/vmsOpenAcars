@@ -67,6 +67,15 @@ namespace vmsOpenAcars.Models.NavData
         [JsonProperty("start_lon")] public double StartLon  { get; set; }
         [JsonProperty("end_lat")]   public double EndLat    { get; set; }
         [JsonProperty("end_lon")]   public double EndLon    { get; set; }
+
+        /// <summary>Identificadores de nodo (29/09/2026). Dos extremos con el mismo id son **el
+        /// mismo nodo**, sin fusión por proximidad: es lo que permite borrar el umbral de 45 m de
+        /// `TaxiGraph`, que afectaba a **318 de los 569 segmentos de SKBO** (56%, mediana 39,8 m).
+        /// Son 52 bits a propósito, para que quepan en `long` y sean enteros seguros en JavaScript;
+        /// **cambiaron de 64 a 52 bits el 29/09/2026**, así que una caché vieja trae ids distintos.
+        /// Todavía no los usa el grafo: es el paso siguiente.</summary>
+        [JsonProperty("start_node_id")] public long? StartNodeId { get; set; }
+        [JsonProperty("end_node_id")]   public long? EndNodeId   { get; set; }
     }
 
     // ── Parking ───────────────────────────────────────────────────────────────────
@@ -92,6 +101,27 @@ namespace vmsOpenAcars.Models.NavData
         [JsonProperty("lat")]         public double Lat        { get; set; }
         [JsonProperty("lon")]         public double Lon        { get; set; }
         [JsonProperty("heading")]     public double Heading    { get; set; }
+
+        /// <summary>La **pareja física** de la pista (`["14L","32R"]`). Un punto de espera a mitad
+        /// de pista no es «de 14L» ni «de 32R»: es de la 14L/32R. NavData pide expresamente
+        /// (29/09/2026) que el filtro por pista de destino use **esta lista** y no `runway_name`,
+        /// que se mantiene como etiqueta del extremo más cercano.</summary>
+        [JsonProperty("runway_names")] public List<string> RunwayNames { get; set; } = new List<string>();
+
+        /// <summary>`hold_short` o `ils_hold_short` (el del área crítica de ILS: el más alejado del
+        /// eje, el que protege la señal). Desde el 29/09/2026 la respuesta sale de los **tipos de
+        /// nodo del escenario** (`HSND`/`IHSND`), no de una heurística geométrica.</summary>
+        [JsonProperty("type")]        public string Type       { get; set; }
+
+        /// <summary>Calle sugerida por NavData: la que entra más perpendicular a la pista. En un
+        /// cruce de cuatro calles puede no ser la que el piloto espera —en el nodo de A3 de SKBO
+        /// 14L sugieren `A1` y el piloto dice `A3`—, así que para los avisos se usa esa sugerencia
+        /// **solo como último recurso**: ver <see cref="Taxiways"/>.</summary>
+        [JsonProperty("taxiway")]     public string Taxiway    { get; set; }
+
+        /// <summary>Todas las calles que se tocan en ese nodo. Puede venir vacía. Es la lista que
+        /// permite decir el nombre correcto: la calle por la que llega el avión, si está aquí.</summary>
+        [JsonProperty("taxiways")]    public List<string> Taxiways { get; set; } = new List<string>();
     }
 
     // ── Approaches ────────────────────────────────────────────────────────────────
@@ -318,6 +348,34 @@ namespace vmsOpenAcars.Models.NavData
     {
         [JsonProperty("airspaces")]
         public List<NavAirspace> Airspaces { get; set; } = new List<NavAirspace>();
+
+        /// <summary>Radio REAL de la consulta. Era 200 nm hasta el aviso de NavData del
+        /// 29/09/2026; desde entonces son 54 nm. Lo usamos para saber cuántos puntos hay que
+        /// muestrear a lo largo de la ruta: asumir 200 nm dejaba la mitad sin mirar.</summary>
+        [JsonProperty("radius_nm")]
+        public double RadiusNm { get; set; }
+
+        /// <summary>La respuesta es válida pero está **truncada** (tope de páginas/deadline):
+        /// hay espacios aéreos que no llegaron. No es un error, pero no se puede presentar como
+        /// el mapa completo de la zona. Sólo aparece con el respaldo `openaip_api`.</summary>
+        [JsonProperty("partial")]
+        public bool Partial { get; set; }
+
+        /// <summary>`"local"` (índice propio por país, sin rate limit) u `"openaip_api"` (respaldo).
+        /// Que un corredor salga en `openaip_api` es la señal de que falta el export de un país.</summary>
+        [JsonProperty("source")]
+        public string Source { get; set; }
+
+        /// <summary>Se recortó por número máximo de espacios (zonas densas): `radius_nm` baja al
+        /// valor realmente garantizado — medido en Londres, 91 nm en vez de 200—, así que hace
+        /// falta muestrear más fino.</summary>
+        [JsonProperty("capped")]
+        public bool Capped { get; set; }
+
+        /// <summary>Países que aportan los espacios incluidos. Sólo aparecen los que OpenAIP
+        /// publica como export; un hueco aquí es un corredor que podemos reportarles.</summary>
+        [JsonProperty("countries")]
+        public List<string> Countries { get; set; }
     }
 
     internal class NavAirspace
@@ -379,6 +437,11 @@ namespace vmsOpenAcars.Models.NavData
         [JsonProperty("score")]                public double                    Score              { get; set; }
         [JsonProperty("cross_track_nm")]       public double?                   CrossTrackNm       { get; set; }
         [JsonProperty("dist_to_threshold_nm")] public double?                   DistToThresholdNm  { get; set; }
+
+        /// <summary>Variación magnética del aeropuerto elegido (grados, con signo). Vino con la
+        /// respuesta del 29/09/2026: es lo que permite convertir en el cliente un rumbo verdadero
+        /// —lo que da el simulador— al magnético con el que NavData publica sus rumbos.</summary>
+        [JsonProperty("mag_var")]              public double?                   MagVar             { get; set; }
     }
 
     internal class NavApproachAirportRunway

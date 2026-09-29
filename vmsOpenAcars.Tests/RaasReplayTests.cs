@@ -37,6 +37,17 @@ namespace vmsOpenAcars.Tests
         private sealed class Hs { public string Rwy; public double Lat, Lon; }
         private static Hs H(string rwy, double lat, double lon) => new Hs { Rwy = rwy, Lat = lat, Lon = lon };
 
+        /// <summary>Punto de espera tal como lo publica NavData desde el 29/09/2026: con
+        /// `runway_names` (la pareja física de la pista) y el tipo de nodo del escenario.</summary>
+        private static Models.NavData.NavHoldShort H2(string rwy, double lat, double lon,
+                                                      string type, string pares, string calle)
+            => new Models.NavData.NavHoldShort
+            {
+                RunwayName  = rwy, Lat = lat, Lon = lon, Type = type, Taxiway = calle,
+                RunwayNames = new List<string>(pares.Split(',')),
+                Taxiways    = new List<string> { calle },
+            };
+
         private sealed class Rwy { public string Name; public double TLat, TLon, ELat, ELon; }
         private static Rwy R(string n, double a, double b, double c, double d)
             => new Rwy { Name = n, TLat = a, TLon = b, ELat = c, ELon = d };
@@ -620,43 +631,38 @@ namespace vmsOpenAcars.Tests
             S("X", 4.702390, -74.147736, 4.702508, -74.147888),
         };
 
-        private static List<Hs> HoldShorts() => new List<Hs>
+        /// <summary>Los 26 puntos de espera reales de SKBO (29/09/2026), tal como los publica NavData:
+        /// salen de los **tipos de nodo del escenario** (`HSND`/`IHSND`), no de una heurística
+        /// geométrica. Antes eran 35 y de la 14L había 14 —12 de ellos nodos de las paralelas, que
+        /// provocaban el aviso falso—; ahora la 14L tiene 6 y la 14R 1.</summary>
+        private static List<Models.NavData.NavHoldShort> HoldShorts() => new List<Models.NavData.NavHoldShort>
         {
-            H("14L", 4.711809, -74.153023),
-            H("14L", 4.711987, -74.153442),
-            H("14L", 4.712014, -74.153625),
-            H("14L", 4.712027, -74.153023),
-            H("14L", 4.712049, -74.153908),
-            H("14L", 4.712069, -74.153748),
-            H("14L", 4.712198, -74.152977),
-            H("14L", 4.712396, -74.152824),
-            H("14L", 4.712398, -74.153687),
-            H("14L", 4.712597, -74.153511),
-            H("14L", 4.712732, -74.153328),
-            H("14L", 4.712734, -74.153137),
-            H("14L", 4.712803, -74.152382),
-            H("14L", 4.713013, -74.152153),
-            H("14R", 4.711710, -74.169029),
-            H("14R", 4.711996, -74.168938),
-            H("14R", 4.712306, -74.168022),
-            H("14R", 4.712327, -74.168686),
-            H("14R", 4.712507, -74.168327),
-            H("32L", 4.690444, -74.140785),
-            H("32L", 4.690516, -74.140640),
-            H("32L", 4.690710, -74.140472),
-            H("32L", 4.691005, -74.140244),
-            H("32L", 4.691197, -74.140030),
-            H("32L", 4.691331, -74.140129),
-            H("32L", 4.691479, -74.140327),
-            H("32L", 4.691530, -74.140396),
-            H("32R", 4.691461, -74.125832),
-            H("32R", 4.691521, -74.125542),
-            H("32R", 4.691653, -74.125404),
-            H("32R", 4.691962, -74.125259),
-            H("32R", 4.692452, -74.125259),
-            H("32R", 4.692601, -74.125076),
-            H("32R", 4.692825, -74.125038),
-            H("32R", 4.692936, -74.125069),
+            H2("14L", 4.701035, -74.154930, "hold_short", "14L,32R", "K4"),
+            H2("14L", 4.704394, -74.143143, "hold_short", "14L,32R", "D"),
+            H2("14L", 4.704467, -74.159454, "hold_short", "14L,32R", "K3"),
+            H2("14L", 4.704656, -74.143173, "hold_short", "14L,32R", "D"),
+            H2("14L", 4.705553, -74.143280, "hold_short", "14L,32R", "D"),
+            H2("14L", 4.712803, -74.152382, "hold_short", "14L,32R", "A1"),
+            H2("14R", 4.710662, -74.168892, "hold_short", "14R,32L", "K1"),
+            H2("32L", 4.690323, -74.141785, "ils_hold_short", "14R,32L", "N"),
+            H2("32L", 4.694209, -74.145836, "hold_short", "14R,32L", "P"),
+            H2("32L", 4.697199, -74.150101, "hold_short", "14R,32L", "D"),
+            H2("32L", 4.697251, -74.150536, "hold_short", "14R,32L", "D"),
+            H2("32L", 4.697334, -74.150963, "hold_short", "14R,32L", "D"),
+            H2("32L", 4.697445, -74.151398, "hold_short", "14R,32L", "D"),
+            H2("32L", 4.697612, -74.151894, "hold_short", "14R,32L", "D"),
+            H2("32L", 4.697736, -74.152168, "hold_short", "14R,32L", "D"),
+            H2("32L", 4.699103, -74.134926, "hold_short", "14R,32L", "A7"),
+            H2("32L", 4.700043, -74.136208, "hold_short", "14R,32L", "A6"),
+            H2("32L", 4.702490, -74.138924, "hold_short", "14R,32L", "C"),
+            H2("32R", 4.692601, -74.125076, "hold_short", "14L,32R", "A"),
+            H2("32R", 4.692825, -74.125038, "hold_short", "14L,32R", "A"),
+            H2("32R", 4.692936, -74.125069, "hold_short", "14L,32R", "A"),
+            H2("32R", 4.697793, -74.133110, "hold_short", "14L,32R", "A8"),
+            H2("32R", 4.698572, -74.133224, "hold_short", "14L,32R", "A8"),
+            H2("32R", 4.699077, -74.133430, "hold_short", "14L,32R", "A8"),
+            H2("32R", 4.699246, -74.133797, "hold_short", "14L,32R", "A7"),
+            H2("32R", 4.699413, -74.133667, "hold_short", "14L,32R", "A8"),
         };
 
         private static List<Rwy> Runways() => new List<Rwy>
@@ -870,24 +876,23 @@ namespace vmsOpenAcars.Tests
 
                 string active = TaxiGraph.NearestName(Seg(), p.Lat, p.Lon, p.Hdg);
 
-                Hs nearest = null; double nearestM = double.MaxValue; bool toward = false;
-                foreach (var x in HoldShorts())
-                {
-                    double dm = GeoMath.DistanceNm(p.Lat, p.Lon, x.Lat, x.Lon) * GeoMath.MetersPerNm;
-                    if (dm > 200.0 || dm >= nearestM) continue;
-                    if (GeoMath.BearingDiffDeg(GeoMath.BearingDeg(p.Lat, p.Lon, x.Lat, x.Lon), p.Hdg) > 90.0)
-                        continue;                                  // de través: no cuenta
-                    nearest = x; nearestM = dm; toward = true;
-                }
+                // El **mismo selector que usa la aplicación**, con la pista de destino declarada:
+                // es el banco de pruebas del rodaje real, así que tiene que ejercitar el código que
+                // se publica, no una copia de la regla (antes había aquí un bucle propio, sin filtro
+                // de pista, que no habría notado el aviso falso de la 14L).
+                var hsSel = HoldShortSelector.Select(HoldShorts(), p.Lat, p.Lon, p.Hdg, target.Name);
+                double hsM = hsSel != null
+                    ? GeoMath.DistanceNm(p.Lat, p.Lon, hsSel.Lat, hsSel.Lon) * GeoMath.MetersPerNm
+                    : double.NaN;
 
                 var guidance = RaasAdvisor.ResolveGuidance(Seg(), plan, p.Lat, p.Lon, active);
                 var callout  = advisor.Evaluate(new RaasAdvisor.Inputs
                 {
                     OnRunway               = onRunway,
                     GroundSpeedKt          = p.Gs,
-                    HoldShortRunway        = nearest?.Rwy,
-                    HoldShortDistanceM     = nearest != null ? nearestM : double.NaN,
-                    HeadingTowardHoldShort = toward,
+                    HoldShortRunway        = hsSel?.RunwayName,
+                    HoldShortDistanceM     = hsM,
+                    HeadingTowardHoldShort = hsSel != null,
                     ActiveTaxiway          = active,
                     Guidance               = guidance,
                     // Distancia recta al umbral de la 14R: es lo que distingue «voy por otra
@@ -914,13 +919,22 @@ namespace vmsOpenAcars.Tests
             Assert.IsTrue(lines.Count > 20, "la repetición debe producir una secuencia completa");
 
             // La secuencia completa de avisos del rodaje real, que es lo que este banco existe para
-            // vigilar: un giro, el hold-short (a 150 m y a 40 m), la insistencia al reanudar tras
-            // los 135 s de espera, y la entrada en pista. Ni uno más.
+            // vigilar: un giro (aviso a 250 m e insistencia a 60 m), el hold-short (a 150 m y a 40 m)
+            // y la entrada en pista. Ni uno más.
+            //
+            // **Cambió el 29/09/2026 al pasar NavData de puntos de espera geométricos a los tipos de
+            // nodo del escenario**, y las dos diferencias tienen la misma causa: la lista vieja
+            // sobre-generaba y metía nodos de las paralelas a 139–254 m del eje.
+            //   · Antes **no** salía `TurnNow`: a las 22:08:19 el avión estaba a menos de 200 m de uno
+            //     de esos nodos y yendo hacia él, así que el aviso de punto de espera ganaba al de
+            //     giro. Con el `HSND` real, que está más lejos, el giro se anuncia entero.
+            //   · Antes salían **dos** `HoldShortStop`: el aviso a 40 m y la insistencia al reanudar
+            //     tras los 135 s parado. Con un solo punto el episodio es uno.
             CollectionAssert.AreEqual(new[]
             {
                 RaasCalloutType.TurnAhead,
+                RaasCalloutType.TurnNow,
                 RaasCalloutType.HoldShortApproaching,
-                RaasCalloutType.HoldShortStop,
                 RaasCalloutType.HoldShortStop,
                 RaasCalloutType.RouteComplete
             }, callouts, "cinco avisos en todo el rodaje, en este orden y sin ruido");

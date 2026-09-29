@@ -10,6 +10,7 @@ using GMap.NET.MapProviders;
 using GMap.NET.Projections;
 using GMap.NET.WindowsForms;
 using GMap.NET.WindowsForms.Markers;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Models.NavData;
 using vmsOpenAcars.Services;
@@ -29,6 +30,7 @@ namespace vmsOpenAcars.UI.Forms
         private Point          _dragStart;
         private SpinnerOverlay _spinner;
         private ToolTip        _atcToolTip;
+        private Label          _lblAttribution;
 
         // ── Layer toggles ─────────────────────────────────────────────────────────
         private CheckBox     _chkLayerTiles;
@@ -263,6 +265,7 @@ namespace vmsOpenAcars.UI.Forms
                     _savedProvider   = _map.MapProvider;
                     _map.MapProvider = GMap.NET.MapProviders.EmptyProvider.Instance;
                 }
+                UpdateAttribution();
                 _map.Refresh();
             };
             _chkLayerRoute.CheckedChanged += (s, e) =>
@@ -380,6 +383,21 @@ namespace vmsOpenAcars.UI.Forms
 
             _map.OnMapZoomChanged += () => UpdateZoomInStatus();
 
+            // Crédito de las teselas: obligación de las fuentes (CARTO, OpenStreetMap, ESRI), no un
+            // adorno. Va sobre el propio control del mapa, en la esquina, y es transparente al ratón
+            // para que esa esquina siga sirviendo para arrastrar.
+            _lblAttribution = new AttributionLabel
+            {
+                AutoSize  = true,
+                Font      = new Font("Segoe UI", 7f),
+                ForeColor = Color.FromArgb(205, 214, 228),
+                BackColor = Color.FromArgb(15, 22, 35),
+                Padding   = new Padding(5, 1, 5, 1),
+            };
+            _map.Controls.Add(_lblAttribution);
+            _map.Resize += (s, e) => PositionAttribution();
+            UpdateAttribution();
+
             _atcToolTip = new ToolTip
             {
                 AutoPopDelay = 0,
@@ -415,6 +433,28 @@ namespace vmsOpenAcars.UI.Forms
         {
             _map.MapProvider = ProviderForIndex(_cmbProvider.SelectedIndex);
             SaveMapProviderPref(_cmbProvider.SelectedIndex);
+            UpdateAttribution();   // el satélite de ESRI y las basemaps de CARTO no acreditan lo mismo
+        }
+
+        /// <summary>
+        /// Pinta el crédito del proveedor activo. El texto lo publica cada proveedor en su campo
+        /// `Copyright` (el mecanismo de GMap.NET); `MapAttribution` decide qué enseñar si alguno no
+        /// lo trae, para que el rótulo no pueda quedarse vacío.
+        /// </summary>
+        private void UpdateAttribution()
+        {
+            if (_lblAttribution == null || _lblAttribution.IsDisposed) return;
+            _lblAttribution.Text = Helpers.MapAttribution.For(_map.MapProvider?.Copyright);
+            PositionAttribution();
+        }
+
+        private void PositionAttribution()
+        {
+            if (_lblAttribution == null || _lblAttribution.IsDisposed) return;
+            _lblAttribution.Location = new Point(
+                Math.Max(0, _map.ClientSize.Width  - _lblAttribution.Width  - 4),
+                Math.Max(0, _map.ClientSize.Height - _lblAttribution.Height - 4));
+            _lblAttribution.BringToFront();
         }
 
         private static int LoadMapProviderIndex()
@@ -607,16 +647,52 @@ namespace vmsOpenAcars.UI.Forms
     // ── Custom tile providers ─────────────────────────────────────────────────────
     //
     // GMap.NET 2.x built-in providers use deprecated tile URLs that are now blocked.
-    // These custom providers use current CDN URLs that work without API keys or Referer.
+    // These custom providers use current CDN URLs. CARTO ya exige su API key (?key=…): sin ella las
+    // teselas llegan con la marca de agua «API key required». Ver Helpers/CartoTileUrl.cs.
+
+    /// <summary>
+    /// Rótulo del crédito de las teselas. Devuelve `HTTRANSPARENT` al test de impacto del ratón, así
+    /// que los clics lo atraviesan y **la esquina inferior derecha sigue sirviendo para arrastrar el
+    /// mapa** — un `Label` normal se comería esos clics.
+    /// </summary>
+    internal sealed class AttributionLabel : Label
+    {
+        private const int WM_NCHITTEST  = 0x0084;
+        private const int HTTRANSPARENT = -1;
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_NCHITTEST)
+            {
+                m.Result = new IntPtr(HTTRANSPARENT);
+                return;
+            }
+            base.WndProc(ref m);
+        }
+    }
 
     internal sealed class CartoLightProvider : GMapProvider
     {
+        // El `Id` de un provider es la CLAVE DE CACHÉ de GMap.NET (la columna `Type` de
+        // `%LOCALAPPDATA%\GMap.NET\TileDBv5\Data.gmdb` es su hash). Como GMap **no vuelve a pedir
+        // una tesela que ya tiene en disco**, todo lo cacheado antes de existir la API key se
+        // quedaba con la marca de agua «API key required» y el proveedor parecía seguir roto:
+        // medido, había una tesela de `light_all` de exactamente 2049 B —el mismo tamaño que la
+        // marcada— cacheada en mayo, contra las de hoy que son mapa real. Cambiar el Guid estrena
+        // namespace de caché y **invalida lo viejo en todos los pilotos** sin pedirles que borren
+        // nada. Si algún día cambia el esquema de URL, este Guid se vuelve a cambiar.
         private static readonly Guid _id =
-            new Guid("dcb67184-fb8f-4403-afc3-c95fa03428bc");
+            new Guid("abcdbff6-6ac6-4e08-8356-1a8c201002eb");
 
         public static readonly CartoLightProvider Instance = new CartoLightProvider();
 
-        private CartoLightProvider() { }
+        private CartoLightProvider()
+        {
+            // Lo exigen las condiciones de CARTO: «CARTO and OpenStreetMap must be credited on every
+            // map». Se publica en el campo que GMap.NET define para el crédito del proveedor, y el
+            // rótulo de la esquina del mapa lo pinta (`MapAttribution`).
+            Copyright = Helpers.MapAttribution.CartoCredit;
+        }
 
         public override Guid Id         => _id;
         public override string Name     => "Carto Light";
@@ -624,18 +700,21 @@ namespace vmsOpenAcars.UI.Forms
         public override GMapProvider[] Overlays   => new GMapProvider[] { this };
 
         public override PureImage GetTileImage(GPoint pos, int zoom)
-            => GetTileImageUsingHttp(
-                $"https://a.basemaps.cartocdn.com/light_all/{zoom}/{pos.X}/{pos.Y}.png");
+            => GetTileImageUsingHttp(CartoTileUrl.WithKey(
+                   $"https://a.basemaps.cartocdn.com/light_all/{zoom}/{pos.X}/{pos.Y}.png",
+                   AppConfig.CartoApiKey));
     }
 
     internal sealed class CartoDarkProvider : GMapProvider
     {
+        // Ver la nota del Guid en `CartoLightProvider`: el `Id` es la clave de caché, y cambiarlo
+        // es lo que invalida las teselas guardadas antes de la API key.
         private static readonly Guid _id =
-            new Guid("a3c91e2f-7d45-4b38-8f2a-1e6b09d4c573");
+            new Guid("88f35ef5-d8f2-4b37-8669-4a4df5cab822");
 
         public static readonly CartoDarkProvider Instance = new CartoDarkProvider();
 
-        private CartoDarkProvider() { }
+        private CartoDarkProvider() { Copyright = Helpers.MapAttribution.CartoCredit; }
 
         public override Guid Id         => _id;
         public override string Name     => "Carto Dark";
@@ -644,7 +723,13 @@ namespace vmsOpenAcars.UI.Forms
 
         public override PureImage GetTileImage(GPoint pos, int zoom)
         {
-            try   { return GetTileImageUsingHttp($"https://a.basemaps.cartocdn.com/dark_all/{zoom}/{pos.X}/{pos.Y}.png"); }
+            try
+            {
+                string url = CartoTileUrl.WithKey(
+                    $"https://a.basemaps.cartocdn.com/dark_all/{zoom}/{pos.X}/{pos.Y}.png",
+                    AppConfig.CartoApiKey);
+                return GetTileImageUsingHttp(url);
+            }
             catch { return null; }
         }
     }
@@ -656,7 +741,12 @@ namespace vmsOpenAcars.UI.Forms
 
         public static readonly EsriSatelliteProvider Instance = new EsriSatelliteProvider();
 
-        private EsriSatelliteProvider() { }
+        private EsriSatelliteProvider()
+        {
+            // World Imagery de ESRI exige su propio crédito, y es distinto del de las basemaps de
+            // CARTO: el rótulo se repinta al cambiar de proveedor en el combo.
+            Copyright = Helpers.MapAttribution.EsriCredit;
+        }
 
         public override Guid Id         => _id;
         public override string Name     => "ESRI World Imagery";

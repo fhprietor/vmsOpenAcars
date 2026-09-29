@@ -234,7 +234,25 @@ La barra inferior del panel muestra el estado de las reversas post-aterrizaje:
 4. El sistema descarga y valida el plan (origen, destino, tipo, matrícula, antigüedad máx. 2 h).
 5. Si la validación pasa, haz clic en **ACCEPT** para cargar el plan.
 
-> **Validación de tipo de aeronave:** si el tipo ICAO del OFP (ej. `B737`) no coincide con el que reporta el simulador (ej. `B738`), aparecerá un log advisory en amarillo al cargar el plan. Al pulsar **START**, si el desacuerdo persiste, se mostrará un diálogo de confirmación: puedes continuar el vuelo de todas formas o cancelar para corregir el plan en SimBrief.
+> **Validación de tipo de aeronave (v0.9.16):** el simulador no siempre reporta el tipo ICAO de la
+> variante; a veces solo da el **modelo ATC** de la familia (`B777`, `B737`), mientras que SimBrief
+> pone en el OFP el tipo de la variante (`B77L`, `B738`). Cuando el programa **puede** identificar tu
+> versión exacta (por el nombre de la aeronave, p. ej. `777-200LR` → `B77L`), compara esa versión:
+> un plan de 777-300ER en un 777-200LR **sí** avisa, porque no son el mismo avión. Cuando solo tiene
+> el código de familia, se conforma con la familia y **no** avisa por una variante distinta. Lo que
+> siempre avisa —log advisory al cargar el plan y diálogo de confirmación al pulsar **START**— es un
+> avión de **otra familia**: un OFP de A320 con un 737 en el simulador, por ejemplo. En ese caso
+> puedes continuar el vuelo de todas formas o cancelar para corregir el plan en SimBrief.
+
+> En el log de la cabecera verás la aeronave en dos líneas: la que publica el simulador
+> (`✈️ Aeronave: 777-200LR`) y el tipo ya interpretado, `📋 ICAO: B77L  (modelo ATC: B777)`. La
+> segunda es la que el programa usa para comparar con el OFP. Si tu addon no publica el modelo
+> completo, esa línea se queda en el código de familia (`📋 ICAO: B777`), y entonces la comparación
+> es por familia.
+>
+> **La pintura** se intenta sacar del nombre del propio avión, y si ahí no viene, no se muestra: el
+> simulador no la publica por su interfaz de datos, y el programa **no recorre tus carpetas** para
+> averiguarla. Es un dato informativo: no afecta al vuelo ni a la puntuación.
 
 ### 4.4 Inicio del vuelo
 
@@ -548,8 +566,12 @@ El avión se dibuja con una **silueta diferente según la categoría**:
 
 | Opción | Descripción |
 |---|---|
-| **Street (Carto)** | Mapa de calles limpio y legible, ideal para aeropuertos y navegación en tierra. Sin API key. |
+| **Street (Carto)** | Mapa de calles limpio y legible, ideal para aeropuertos y navegación en tierra. CARTO exige su API key (gratuita); sin ella el mapa se ve con la marca de agua «API key required» |
 | **Satellite (ESRI)** | Imágenes satelitales de ESRI World Imagery. Útil para identificar pistas y terminales visualmente. Sin API key. |
+
+> En la **esquina inferior derecha** del mapa aparece el crédito de las fuentes de las teselas
+> (OpenStreetMap y CARTO para los mapas de calles, ESRI para el satélite). Es una obligación de
+> quien cede esas imágenes y cambia solo al cambiar de proveedor.
 
 ### Sidebar de procedimientos (v0.6.5)
 
@@ -682,4 +704,4 @@ Selecciona uno o varios vuelos y haz clic en **DELETE**. Se pedirá confirmació
 
 ---
 
-*vmsOpenAcars v0.9.15 — que tengas buen vuelo.*
+*vmsOpenAcars v0.9.16 — que tengas buen vuelo.*

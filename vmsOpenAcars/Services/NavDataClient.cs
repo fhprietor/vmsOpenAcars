@@ -331,10 +331,17 @@ namespace vmsOpenAcars.Services
             double lat, double lon, double heading, double radiusNm = 20, double headingTolDeg = 15)
         {
             var ci  = System.Globalization.CultureInfo.InvariantCulture;
+            // `heading_reference=true` (NavData, 29/09/2026): el servidor convierte nuestro rumbo
+            // —el simulador lo da VERDADERO, verificado en los logs de SKCG (3° contra verdadero
+            // 2,31 y magnético 10,8)— con el `mag_var` de cada aeropuerto candidato antes de
+            // compararlo con sus rumbos, que son magnéticos. Medido en SKCG: la diferencia baja de
+            // 7,8° a 0,7° y el score de 0,235 a 0,164. Sin el parámetro el servidor asume magnético,
+            // así que esto es lo que quita el sesgo del `score` que arrastrábamos.
             string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/nearest/approach-airport/" +
                          $"?lat={lat.ToString("F6", ci)}" +
                          $"&lon={lon.ToString("F6", ci)}" +
                          $"&heading={heading.ToString("F1", ci)}" +
+                         $"&heading_reference=true" +
                          $"&radius_nm={radiusNm.ToString("F0", ci)}" +
                          $"&heading_tol={headingTolDeg.ToString("F0", ci)}";
             return await FetchAsync<NavApproachAirportResponse>(url).ConfigureAwait(false);
@@ -481,44 +488,119 @@ namespace vmsOpenAcars.Services
 
         // ── Airspaces ─────────────────────────────────────────────────────────────
 
-        public static async Task<List<NavAirspace>> GetAirspacesAsync(double lat, double lon)
+        /// <summary>
+        /// Radio que declara el servidor en la última respuesta buena. Era 200 nm hasta el aviso
+        /// de NavData del 29/09/2026 y desde entonces son **54 nm**; lo lee el muestreo de ruta
+        /// (`AirspaceRouteSampler`) para saber cada cuánto pedir. Si todavía no hemos hablado con
+        /// el servidor se usa el valor por defecto.
+        /// </summary>
+        public static double LastAirspaceRadiusNm { get; private set; } = AirspaceRouteSampler.DefaultRadiusNm;
+
+        /// <summary>
+        /// Hasta cuándo no volver a pedir espacios aéreos **de cada punto**, según la cabecera
+        /// `Retry-After` del 503. Es por punto y no global a propósito: medido en vivo el
+        /// 29/09/2026, de 16 muestras de una ruta SKCG→KBOS **12 devolvían 503 y 4 respondían**
+        /// (las que el servidor tenía en caché) — con un bloqueo global, el primer 503 dejaría sin
+        /// pedir los otros 15 puntos de la ruta durante cinco minutos.
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, DateTime> _airspaceRetryAfterUtc
+            = new ConcurrentDictionary<string, DateTime>();
+
+        public static async Task<NavAirspacesResult> GetAirspacesAsync(double lat, double lon)
         {
             // Bucket to nearest integer degree to maximise cache hits across nearby calls
             string tileKey = $"{(int)Math.Round(lat)}:{(int)Math.Round(lon)}";
 
             // 1 — session in-memory
             if (_airspaceMemCache.TryGetValue(tileKey, out var memHit))
-                return memHit;
+                return new NavAirspacesResult { Airspaces = memHit, RadiusNm = LastAirspaceRadiusNm };
 
             // 2 — SQLite persistent (7-day TTL)
+            List<NavAirspace> fromDb = null;
             string cachedJson = NavDataCache.TryGetAirspace(tileKey);
             if (cachedJson != null)
             {
-                var fromDb = JsonConvert.DeserializeObject<List<NavAirspace>>(cachedJson);
+                fromDb = JsonConvert.DeserializeObject<List<NavAirspace>>(cachedJson);
                 if (fromDb != null)
                 {
                     _airspaceMemCache[tileKey] = fromDb;
-                    return fromDb;
+                    return new NavAirspacesResult { Airspaces = fromDb, RadiusNm = LastAirspaceRadiusNm };
                 }
             }
 
-            // 3 — HTTP fetch (server always returns 200 nm coverage, full pagination)
+            // 503 con Retry-After: el servidor ya nos ha dicho cuándo volver **para este punto**.
+            // Se devuelve lo que tuviéramos marcado como NO DISPONIBLE — nunca como "aquí no hay
+            // espacios aéreos", que es justo lo que dejó el cielo vacío durante 2,5 meses según su
+            // aviso. Los demás puntos de la ruta siguen su camino.
+            if (_airspaceRetryAfterUtc.TryGetValue(tileKey, out var until) && DateTime.UtcNow < until)
+                return Unavailable(fromDb);
+
+            // 3 — HTTP fetch. La cobertura la declara el servidor (`radius_nm`), no la suponemos.
             try
             {
                 string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/airspaces/" +
                              $"?lat={lat.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}" +
                              $"&lon={lon.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}";
-                var result = await FetchAsync<NavAirspacesResponse>(url).ConfigureAwait(false);
-                var list   = result?.Airspaces ?? new List<NavAirspace>();
-                if (list.Count > 0)
+                using (var resp = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
                 {
-                    _airspaceMemCache[tileKey] = list;
-                    NavDataCache.StoreAirspace(tileKey, JsonConvert.SerializeObject(list));
+                    if (resp.StatusCode == HttpStatusCode.ServiceUnavailable)
+                    {
+                        // La cabecera puede venir como Delta (segundos) o como Date (absoluta).
+                        var retry = resp.Headers.RetryAfter;
+                        TimeSpan wait = TimeSpan.Zero;
+                        if (retry?.Delta is TimeSpan delta)          wait = delta;
+                        else if (retry?.Date is DateTimeOffset when) wait = when - DateTimeOffset.UtcNow;
+
+                        if (wait <= TimeSpan.Zero)            wait = TimeSpan.FromMinutes(5);
+                        if (wait < TimeSpan.FromMinutes(1))   wait = TimeSpan.FromMinutes(1);
+                        if (wait > TimeSpan.FromHours(1))     wait = TimeSpan.FromHours(1);
+                        _airspaceRetryAfterUtc[tileKey] = DateTime.UtcNow + wait;
+                        return Unavailable(fromDb);
+                    }
+                    if (!resp.IsSuccessStatusCode)
+                        return Unavailable(fromDb);
+
+                    string json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    var parsed  = JsonConvert.DeserializeObject<NavAirspacesResponse>(json);
+                    if (parsed == null) return Unavailable(fromDb);
+
+                    if (parsed.RadiusNm > 0) LastAirspaceRadiusNm = parsed.RadiusNm;
+
+                    // Respondió: este punto deja de estar bloqueado.
+                    _airspaceRetryAfterUtc.TryRemove(tileKey, out _);
+
+                    var list = parsed.Airspaces ?? new List<NavAirspace>();
+                    if (list.Count > 0)
+                    {
+                        _airspaceMemCache[tileKey] = list;
+                        // A disco sólo lo COMPLETO: guardar 7 días una respuesta truncada
+                        // convertiría una truncadura puntual en una falta permanente.
+                        if (!parsed.Partial)
+                            NavDataCache.StoreAirspace(tileKey, JsonConvert.SerializeObject(list));
+                    }
+                    return new NavAirspacesResult
+                    {
+                        Airspaces  = list,
+                        RadiusNm   = LastAirspaceRadiusNm,
+                        Partial    = parsed.Partial,
+                        Source     = parsed.Source,
+                        Capped     = parsed.Capped,
+                        Countries  = parsed.Countries ?? new List<string>(),
+                    };
                 }
-                return list;
             }
-            catch { return new List<NavAirspace>(); }
+            catch { return Unavailable(fromDb); }
         }
+
+        /// <summary>Sin datos frescos: puede llevar encima lo último que supimos, pero el llamante
+        /// tiene que poder distinguirlo de «el servidor dice que aquí no hay nada».</summary>
+        private static NavAirspacesResult Unavailable(List<NavAirspace> known)
+            => new NavAirspacesResult
+            {
+                Airspaces   = known ?? new List<NavAirspace>(),
+                Unavailable = true,
+                RadiusNm    = LastAirspaceRadiusNm,
+            };
 
         // ── Cabin Announcements ───────────────────────────────────────────────────
 
@@ -556,5 +638,36 @@ namespace vmsOpenAcars.Services
             }
             catch { return null; }
         }
+    }
+
+    /// <summary>
+    /// Resultado de pedir espacios aéreos alrededor de un punto.
+    ///
+    /// Existe para que «no pude preguntar» y «aquí no hay nada» **no se confundan**: el cliente
+    /// recibía una lista vacía en los dos casos, y durante una caída del upstream eso se pintaba
+    /// como un cielo sin espacios aéreos. `Unavailable` significa que no hay datos frescos; puede
+    /// traer encima lo último conocido.
+    /// </summary>
+    internal sealed class NavAirspacesResult
+    {
+        public List<NavAirspace> Airspaces { get; set; } = new List<NavAirspace>();
+
+        /// <summary>Cobertura que declara el servidor para esta consulta (`radius_nm`).</summary>
+        public double RadiusNm { get; set; }
+
+        /// <summary>La respuesta llegó truncada (`partial`): es válida pero falta contenido.</summary>
+        public bool Partial { get; set; }
+
+        /// <summary>No hay datos frescos (503, error de red o `Retry-After` en curso).</summary>
+        public bool Unavailable { get; set; }
+
+        /// <summary>`"local"` (índice por país) u `"openaip_api"` (respaldo).</summary>
+        public string Source { get; set; }
+
+        /// <summary>Se recortó por número máximo de espacios; `RadiusNm` es el valor garantizado.</summary>
+        public bool Capped { get; set; }
+
+        /// <summary>Países que aportan espacios a esta respuesta.</summary>
+        public List<string> Countries { get; set; } = new List<string>();
     }
 }

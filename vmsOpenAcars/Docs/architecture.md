@@ -1,7 +1,7 @@
 # vmsOpenAcars — Documentación de Arquitectura
 
-> Versión del documento: 0.9.15  
-> Última actualización: 2026-09-24
+> Versión del documento: 0.9.16  
+> Última actualización: 2026-09-29
 
 ---
 
@@ -29,6 +29,187 @@ Cliente ACARS de escritorio para Windows que conecta un simulador de vuelo con u
 | Clima / QNH | METAR vía WeatherService |
 | Localización | JSON (en.json / es.json) |
 | Configuración | App.config + Settings.settings |
+
+---
+
+## Capa de telemetría: SimConnect y datarefs de X-Plane — evaluado y descartado (se sigue con FSUIPC)
+
+**Estado: evaluación cerrada, NO se migra.** Lo planteó el mantenedor (quitar a los pilotos de MSFS
+el requisito de instalar FSUIPC7) y lo cerró él mismo: **«mejor dejémoslo quieto, seguimos con
+FSUIPC»**. El análisis se queda aquí a propósito —es el motivo de la decisión y evita que alguien
+repita el estudio—, y al final están los **disparadores** que la reabrirían.
+
+### Por qué se planteó
+
+Hoy **todo** el acceso al simulador pasa por `Services/FsuipcService.cs` (FSUIPCClientDLL 3.3.16,
+offsets crudos; XUIPC para X-Plane). Eso obliga a que un piloto de **MSFS tenga FSUIPC7 instalado**
+para usar el cliente, y nos ata a que los offsets sigan significando lo mismo entre versiones del
+simulador —justo lo que falló en v0.9.16, cuando `0x3D00` dejó de devolver el *title* y pasó a
+devolver el modelo—.
+
+SimConnect es la API **nativa** de MSFS (FSUIPC7 va por encima de ella) y, para lo que hacemos,
+aporta:
+
+1. **Nada que instalar** en MSFS: el cliente SimConnect viene con el simulador. Es el argumento
+   fuerte de la migración.
+2. **Rumbo sin ambigüedad**: `PLANE HEADING DEGREES MAGNETIC` y `...TRUE` por separado, lo que
+   cierra el pendiente de "Próximas áreas" sobre en qué referencia llega el rumbo del avión.
+3. **Identidad del avión como variables** (`TITLE`, `ATC MODEL`, `ATC TYPE`, `ATC ID`) en vez de
+   offsets que cambian de significado entre versiones.
+4. **Unidades reales**: N1/N2 en porcentaje, aceite en °C, flaps y tren como ratios/posiciones. Se
+   simplifica el decodificado por familia (`DetectAircraftFamily`, `DecodeFlapsByFamily`).
+5. **Eventos del simulador** (`SimStart`, `Pause`, `AircraftLoaded`, `Crash`) y valores por cambio
+   en vez de deducir «freno puesto» comparando offsets.
+
+### Lo que cuesta (dicho sin adornos)
+
+- **X-Plane sigue en FSUIPC/XUIPC**: serían **dos fuentes para siempre**, y la costura tiene que
+  ser real, no decorativa.
+- El `Microsoft.FlightSimulator.SimConnect.dll` gestionado **no está en NuGet**: hay que traerlo del
+  SDK de MSFS, empaquetarlo, redistribuirlo (solo x64) y revisar los términos del SDK.
+- El patrón clásico necesita **bomba de mensajes** (ventana oculta + `WndProc` + `WM_USER`) y los
+  callbacks llegan en el hilo que abrió la conexión; hoy la telemetría es un timer.
+- Los dos orígenes deben producir **la misma semántica** (velocidad, `SIM ON GROUND`, flaps,
+  reversas…). Se valida reproduciendo una traza real, como con el RAAS.
+
+### Lo que hay que saber antes de tocar nada (medido el 2026-09-24)
+
+- **Plataforma**: `AnyCPU` con `Prefer32Bit=false` → la app corre **x64**, que es lo que exige el
+  SimConnect de MSFS. No hay bloqueo de arquitectura.
+- **El acoplamiento con FSUIPC ya está contenido**: `Offset<>` y `FSUIPCConnection` aparecen **solo**
+  en `Services/FsuipcService.cs`.
+- **Pero el tipo se filtra a diez archivos**: `FsuipcService.AircraftCategory` (un enum de dominio)
+  se usa en `MapForm`, `MapRouteController`, `EngineMonitorPanel`, `FlightManager` y compañía, y
+  `RawTelemetryData` (el snapshot crudo con sus eventos) vive **dentro del mismo archivo**. **No hay
+  interfaz**: `FsuipcService` se inyecta como tipo concreto en `MainViewModel`,
+  `TelemetryCoordinator`, `AcarsReporter` y `MainForm`.
+
+### Lo que se gana y lo que NO (para no vender humo)
+
+Lo que se gana sin discusión:
+
+- **Nada que instalar**: hoy un piloto de MSFS necesita FSUIPC7 (y de X-Plane, XUIPC). Es barrera de
+  adopción y, sobre todo, **fuente de soporte**: «no me conecta» casi siempre es eso.
+- **El rumbo, sin ambigüedad** (SimConnect da magnético y verdadero por separado): cierra el
+  pendiente de "Próximas áreas" que en Boston deja la tolerancia de 15° en ~1.3° de margen real.
+- **Modelo de datos documentado por el fabricante** en vez del mapa de offsets de un tercero; el
+  fallo de v0.9.16 (`0x3D00` devolviendo el modelo) es de esa clase.
+- **En X-Plane, además**: XUIPC es una *emulación* del mapa de FSUIPC sobre datarefs, así que ir
+  directo quita una capa de traducción; el espacio de datarefs es el modelo nativo de Laminar, y de
+  ahí sí salen identidad y pintura del avión (`acf_tailnum`, `acf_icao`, `acf_livery_*` — a
+  verificar por versión), que en MSFS no se publican.
+
+Lo que **no** se gana, y hay que decirlo antes de empezar:
+
+- **«Más completo» no es cierto para los aviones complejos.** Un PMDG o un Fenix llevan su estado
+  (autopiloto, mando de flaps, autobrake, luces que gestiona el addon) en **LVars**, y SimConnect a
+  secas **no lee LVars**: hace falta un módulo WASM dentro del simulador, que es justo lo que
+  FSUIPC7 incorpora. En esos datos, una migración ingenua puede dar **menos** que hoy. La dinámica de
+  vuelo (posición, velocidad, actitud, motores básicos) sí es del simulador y está en ambos mundos.
+- **El mapa de offsets es una abstracción gratis**: el mismo código lee FSX, P3D y MSFS. Con
+  SimConnect, la familia Microsoft se parte en dos caminos, y **FSX de 32 bits queda fuera del
+  alcance** de un proceso x64.
+- **Se pierde la calibración**: umbrales de fases, antirrebote de 2.5 s, `ParkingBrakeChanged`,
+  `FlapsChanged`… todo se afinó con datos de FSUIPC, y las trazas de replay que tenemos son de
+  FSUIPC.
+
+Conclusión operativa: **la paridad de datos no se decide por arquitectura, se mide por avión** (uno
+complejo y uno de stock). Por eso la fase 0 debería ser una **medición en paralelo** —leer el mismo
+vuelo con las dos fuentes y registrar la diferencia— y no solo una tabla.
+
+### En MSFS 2024, en concreto
+
+Es el simulador del mantenedor y donde está el PMDG 777 con el que se probó todo esto. **Hoy no
+está roto nada**: el cliente funciona vía FSUIPC7. Así que no es un arreglo, es cambiar una
+dependencia.
+
+Se gana: **nada que instalar ni licencia de terceros** (FSUIPC7 es una pieza aparte, con modo
+gratuito limitado y licencia de pago —términos a mirar si se decide—); **no depender de que el
+mantenedor de los offsets reaccione a cada parche** de un simulador que se actualiza mucho;
+**rumbo magnético y verdadero por separado**; **identidad del avión por variables documentadas**
+(la clase de fallo de v0.9.16 desaparece); **eventos** (`AircraftLoaded`, `FlightLoaded`, `SimStart`)
+en vez de deducir el cambio de avión diffeando el título; y ser la API por la que va todo lo nuevo
+del SDK.
+
+Se pierde: **las LVars** —el estado de sistemas de un PMDG vive ahí y SimConnect a secas no las lee
+(hace falta un WASM dentro del simulador, que es lo que FSUIPC7 lleva)—, así que una migración
+ingenua puede saber **menos** del 777 que ahora; **la calibración** ya hecha contra datos de FSUIPC
+(fases, antirrebote, eventos) y las trazas de replay, que son de FSUIPC; **la cobertura
+multiejercicio** de un mismo código (FSX 32-bit queda fuera de un proceso x64); y **el colchón del
+offset**, que hoy se come las rarezas de cada addon.
+
+Y lo que no se sabe: si el SDK de 2024 expone la **pintura** seleccionada, si su DLL gestionado es
+intercambiable con el de 2020, y **cuánto del 777 está en variables estándar y cuánto en LVars**.
+Eso último no se deduce: se mide. De ahí que la fase 0 sea una medición en paralelo y no un papel.
+
+### ¿Y X-Plane? También tiene acceso directo (datarefs por UDP)
+
+X-Plane **no necesita XUIPC**: expone su propio protocolo **UDP** para *datarefs*, que es el que usan
+las EFB y las apps de red. Se pide un dataref con **`RREF`** (índice propio + frecuencia N/s) y el
+simulador lo devuelve por UDP; **`DREF`** escribe. No hay plugin que instalar ni versiones de XUIPC
+que mantener. La alternativa nativa es un **plugin XPLM** en C/C++ (acceso completo a datarefs y
+comandos), pero eso es compilar y distribuir un `.xpl` y hablar con el C# por IPC: exactamente lo
+que ya hace XUIPC, sin ganancia para lo que necesitamos.
+
+Ventaja de encaje: el modelo es **pull** (pedimos a N Hz), así que respeta el timer de telemetría
+actual, al contrario que los callbacks de SimConnect.
+
+**A verificar antes de prometerlo** (no hay X-Plane en el equipo de desarrollo): nombres exactos de
+dataref y unidades según versión (11 vs 12) y, sobre todo, **la precisión de lat/lon** — un `RREF`
+de 4 bytes deja la posición en ~1-2 m, y hay que ver si la versión del piloto admite el de 8 bytes.
+
+### El reparto que sale de todo esto
+
+| Simulador | Vía | ¿El piloto instala algo? |
+|---|---|---|
+| MSFS / 2024 (x64) | SimConnect | **No** |
+| Prepar3D v4/v5 (x64) | SimConnect (DLL de P3D) | **No** |
+| FSX, FSX:SE, P3D ≤ v3 (**32-bit**) | FSUIPC | Sí |
+| X-Plane 11/12 | datarefs por UDP | **No** |
+
+SimConnect es la API nativa desde **FSX**, no solo de MSFS. Así que con dos fuentes nuevas
+**XUIPC desaparece** y **FSUIPC queda reducido a los simuladores de 32 bits** — límite que no se
+puede salvar: la app corre **x64** (`AnyCPU` con `Prefer32Bit=false`) y un proceso de 64 bits no
+carga el SimConnect de FSX, que es de 32. Si esos simuladores no son un caso real para la aerolínea,
+FSUIPC se retira del todo y el cliente no exige instalar nada.
+
+Consecuencia de diseño: la costura **no** puede llamarse `IFsuipcService`. Es una interfaz de
+**fuente de telemetría** con **N implementaciones desde el principio**
+(`SimConnectTelemetryService`, `XPlaneDatarefTelemetryService` y `FsuipcService` como respaldo
+heredado), y un `telemetry_source=auto` que decide por el proceso del simulador.
+
+### Plan por fases (solo si alguna vez se reabre)
+
+| Fase | Qué | Riesgo |
+|---|---|---|
+| 0 | Tabla dato a dato (offset actual → simvar de SimConnect / dataref de X-Plane + unidad), lo que ninguna fuente da, y el reparto por simulador | ninguno, es estudio |
+| 1 | **La costura**: sacar `RawTelemetryData` y `AircraftCategory` de `FsuipcService`, definir la interfaz de **fuente de telemetría** (snapshot + eventos + `Start`/`Stop`/`IsConnected`) y que `FsuipcService` la implemente. Sin cambio de comportamiento, suite verde | bajo, refactor puro |
+| 2 | Prueba de concepto con **una** fuente nueva (SimConnect primero, que es el caso de más pilotos), detrás de `telemetry_source=auto\|fsuipc\|simconnect\|xplane`, validada contra una traza real | medio |
+| 3 | La otra fuente, y `auto` repartiendo por proceso: MSFS/P3D → SimConnect · X-Plane → datarefs UDP · FSX 32-bit → FSUIPC | medio |
+
+La fase 1 tiene valor propio aunque la migración no siga: hoy un enum de la capa FSUIPC aparece en
+los formularios del mapa, y eso estorba a cualquier cambio de fuente.
+
+### Decisión del mantenedor y disparadores
+
+**Se sigue con FSUIPC y XUIPC. No se migra** (v0.9.16). Pesó más lo que se pierde que lo que se
+gana: el beneficio real es operativo —nada que instalar—, y el coste toca justo los aviones que
+vuela el mantenedor, porque el estado de sistemas de un PMDG o un Fenix vive en **LVars** que
+SimConnect a secas no lee.
+
+Se reabriría solo si pasa algo de esto, y con el dato delante:
+
+1. **Un parche del simulador rompe el mapeo de offsets y el tercero no reacciona.** Es el escenario
+   que ya nos mordió en pequeño con `0x3D00` en v0.9.16; si se repite en algo que no tiene rodeo, la
+   dependencia deja de ser cómoda y pasa a ser un riesgo.
+2. **La instalación de FSUIPC7 se vuelve fricción real de soporte** con los pilotos (no lo instalan,
+   no lo entienden, o la licencia les frena).
+3. **Una medición en paralelo demuestra paridad suficiente** en un avión complejo: leer el mismo
+   rodaje y despegue con las dos fuentes y ver que del 777 no se pierde nada que nos importe.
+
+Mientras no pase nada de eso, el contrato del cliente son **los offsets de FSUIPC**, y el pendiente
+del rumbo se cierra con la puerta doble que ya está anotada en "Próximas áreas": aceptar el valor si
+pasa el filtro **magnético** o el **verdadero**, que solo puede ampliar la puerta.
 
 ---
 
@@ -434,6 +615,29 @@ static void StoreAirspace(tileKey, json)
 ```
 
 `PurgeAirportData()` es el complemento de `ClearMemoryCache()` en NavDataClient: juntos garantizan que la siguiente llamada a `PrefetchAirport(icao)` descargue datos frescos tanto de la BD como del API, sin reiniciar la aplicación.
+
+**Cobertura, 503 y muestreo de espacios aéreos (v0.9.16, por el aviso de NavData del 29/09/2026).**
+El radio de `/airspaces/` lo declara el servidor en `radius_nm`; llegó a bajar a **54 nm** y volvió a
+**200 nm** el mismo día, cuando NavData sustituyó la API de OpenAIP por un **índice propio desde los
+bulk exports por país** (129 países, 31.930 espacios, sin rate limit). Medido antes del arreglo, en
+la ruta real **SKCG→KBOS** (1.931 nm): de 16 muestras **12 devolvían 503** y sólo 4 respondían —las
+que había en caché—; KBOS dio 503 en tres intentos seguidos. Medido después, con el muestreo actual:
+**24/24 consultas OK, `source=local` en toda la ruta y 613 espacios aéreos** en la unión (antes 11).
+
+De ahí tres reglas de cliente que siguen valiendo con cualquier radio: (1) `FetchAsync` devolvía
+`null` ante cualquier no-2xx y eso se convertía en lista vacía, **pisando** lo ya cargado →
+`NavAirspacesResult.Unavailable` distingue «no pude preguntar» de «aquí no hay nada» (un `200` con
+lista vacía —medido: dos puntos de la ruta sobre el Atlántico— sí es «no hay»); (2) el bloqueo por
+`Retry-After` es **por punto**, porque uno global habría dejado sin pedir los otros puntos de la
+ruta; (3) la cobertura deja de ser 3 puntos (origen, destino y a veces el medio) para **muestrear el
+arco** cada `0.75 × radio` con tope de **24** peticiones (`Helpers/AirspaceRouteSampler`,
+interpolación esférica) — el tope está puesto por las zonas densas, donde el servidor recorta a 500
+espacios y el radio garantizado baja (medido en Londres: **91 nm**, con `capped: true`); con 200 nm
+la misma ruta son 13 peticiones.
+
+La respuesta trae además `source` (`local`|`openaip_api`), `capped` y `countries`: los tres se pintan
+en el log de la ruta porque un corredor servido por el respaldo —o con un país que OpenAIP no publica
+como export— es un hueco que NavData puede cerrar, y lo ofrecieron.
 
 **DTOs en `Models/NavData.cs` relacionados:**
 
@@ -1147,14 +1351,82 @@ donde θ es el azimut desde el Norte (grados) y R es el radio en nm. Los 8 vért
 
 **Espacios aéreos — `SetAirspaces(IList<NavAirspace>)` (v0.6.7):** opacidades reducidas al 50 % respecto a v0.6.6. GeoJSON `[lon, lat]` → `PointLatLng(lat, lon)`. Fill α ∈ 5–20, stroke α ∈ 40–95.
 
-**Proveedores de mapa:**
-| Opción | Provider |
-|---|---|
-| Dark (Carto) | `GMapProviders.GoogleChinaSatelliteMap` remapeado a Carto Dark (defecto) |
-| Street (Carto) | `GMapProviders.OpenStreetMap` |
-| Satellite (ESRI) | `GMapProviders.ArcGIS_World_Imagery` |
+**Proveedores de mapa** (`MapForm.ProviderForIndex`, `map_provider_index` en `App.config`, defecto **1**):
 
-Preferencia persistida en `App.config` clave `map_provider_index`.
+| Índice | Opción | Provider | Teselas |
+|---|---|---|---|
+| 0 | Street (Carto) | `CartoLightProvider` (custom, en `MapForm.cs`) | `a.basemaps.cartocdn.com/light_all/…` |
+| 1 | Dark (Carto) | `CartoDarkProvider` (custom) | `a.basemaps.cartocdn.com/dark_all/…` |
+| 2 | Satellite (ESRI) | `EsriSatelliteProvider` (custom) | ESRI World Imagery |
+
+**La caché de teselas es por provider, y su clave es el `Guid` del provider.** El constructor de
+`GMapProvider` calcula `DbId = Abs(BitConverter.ToInt32(SHA1(Id.ToByteArray()), 0))` (verificado en
+el IL de `GMap.NET.Core.dll`) y `PureImageCache.GetImageFromCache`/`PutImageToCache` reciben ese `int`
+como `type`; en la base compartida `%LOCALAPPDATA%\GMap.NET\TileDBv5\en\Data.gmdb` es la columna
+`Type`. Consecuencia práctica: **GMap no vuelve a pedir una tesela que ya tiene en disco**, así que
+un cambio en la URL del provider (una clave nueva, un proxy, otro esquema) **no se ve** hasta que se
+cambia también el `Guid`: las teselas viejas se siguen sirviendo desde la caché. Pasó al añadir la
+API key de CARTO —el cubo de Street (`DbId 2108911682`) tenía teselas con la marca de agua de 2049 B
+de mayo, y las de hoy son mapa real— y se resolvió cambiando los dos `Guid` (`591066992` para Street
+y `333360744` para Dark, cubos nuevos), que invalida la caché de todos los pilotos sin pedirles nada.
+Comprobación útil: borrar `Data.gmdb` equivale a invalidar todo; cambiar el `Guid` invalida solo ese
+provider.
+
+Los dos de CARTO llevan la **API key** en la URL (`Helpers/CartoTileUrl.cs`, clave `carto_api_key` de
+`App.config`): desde que CARTO retiró el acceso sin clave, las teselas llegan marcadas con «API key
+required». El formato es el mismo endpoint con `?key=…`. **La clave debe crearse sin restricción de
+web**: una app de escritorio no envía `Referer` y CARTO responde 403 (mapa en blanco); si se quiere
+restringir, hay que fijar además `GMapProvider.RefererUrl` (existe en esta versión de GMap.NET) al
+dominio autorizado. Sin clave configurada el mapa sigue funcionando, con la marca de agua.
+
+**Crédito de las teselas (v0.9.16).** Hasta v0.9.16 el cliente **no mostraba ningún crédito**, y eso
+incumplía las condiciones de uso de CARTO («CARTO and OpenStreetMap must be credited on every map»).
+Ahora cada proveedor publica el suyo en el campo `Copyright` que **ya define GMap.NET** para esto
+(`Carto Credit` para los dos estilos de CARTO, `Esri Credit` para el satélite) y `MapForm` lo pinta en
+un rótulo en la **esquina inferior derecha** del mapa, que se repinta al cambiar de proveedor en el
+combo y al apagar/encender la capa de teselas. El rótulo es **transparente al ratón**
+(`AttributionLabel` responde `HTTRANSPARENT` a `WM_NCHITTEST`), para que esa esquina siga sirviendo
+para arrastrar el mapa. `MapAttribution.For` decide qué enseñar si un proveedor no publicase crédito
+—acredita a las tres fuentes: acreditar de más no incumple, de menos sí— y `MapAttributionTests`
+impide que eso llegue a pasar con los proveedores del combo.
+
+### Tile proxy en NavData — planteado, con un bloqueo por despejar
+
+El mantenedor propuso que **NavData sirva las teselas con caché**, para que la clave no viaje a cada
+piloto ni cada piloto gaste cuota propia. Lo que resuelve de verdad:
+
+- **La clave deja de distribuirse** (vive solo en el servidor) y **desaparece la trampa del
+  `Referer`/403**, porque el servidor sí es un cliente HTTP normal.
+- **La cuota se divide por el número de pilotos**: 20 pilotos mirando el mismo aeropuerto pasan de
+  20× las mismas teselas a **una** petición upstream por tesela y ventana.
+- **Cuando CARTO cambie otra vez, se arregla en el backend** en vez de publicar una versión nueva
+  del cliente, y el cliente deja de depender del esquema de URL de un tercero.
+- **Precalentado**: NavData ya sabe qué aeropuertos tiene el OFP del piloto (el cliente los pide por
+  ICAO), así que puede precalentar sus teselas y tener el mapa listo al abrirlo. Hoy es imposible.
+
+Lo que **no** resuelve: no elimina el tráfico a CARTO, lo **centraliza y amortigua** —el ahorro es un
+divisor, no un cero— y mete la infraestructura de la VA en medio de cada paneo y zoom, con lo que
+añade ancho de banda, disco y un **punto único de fallo** (hoy el mapa funciona con NavData caído).
+Mitigación barata: el cliente cae a CARTO directo si NavData falla, y por eso `carto_api_key` no
+desaparece del todo.
+
+**Bloqueo por despejar antes de diseñarlo:** si los términos de CARTO permiten **cachear y reservir**
+las teselas a los propios usuarios. El plan gratuito exige atribución y tiene topes, y si el proxy se
+considera un servicio de teselas para terceros puede requerir plan comercial. Hay que preguntarlo a
+`support-basemaps@carto.com`; sin esa respuesta no se invierte trabajo.
+
+Si sale adelante, lo que hay que pedirle al equipo de NavData:
+
+- `GET /api/v1/tiles/{style}/{z}/{x}/{y}.png` con la misma `X-API-Key` que ya usan.
+- **`style` con lista blanca cerrada** (`light_all`, `dark_all`…): aceptar cualquier valor lo
+  convertiría en un **proxy abierto (SSRF)**.
+- Validar `z` (2–19) y `x`/`y` contra el rango del zoom → 400/404, sin reenviar a upstream.
+- Caché en disco por `style/z/x/y`, TTL largo (las basemaps se actualizan cada semanas: 7–30 días),
+  tope con LRU y `ETag`/`Cache-Control` al cliente.
+- La clave **solo en el servidor**; contador de consumo por piloto.
+
+En el cliente el cambio es pequeño justo porque la URL se construye en un único sitio
+(`CartoTileUrl`): es cambiar la base y quitar el `?key=`. El proveedor de ESRI no se toca.
 
 **Panel ATC/ATIS detallado — `UI/Forms/AtcPanel.cs` (v0.9.8):**
 
@@ -1854,7 +2126,13 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 | `UI/Forms/TaxiRouteForm.cs` | Popup de rodaje: pista, ruta editable, RAAS/voz/volumen y prueba hablada. Si vuelve tras el pushback cambia su texto de ayuda y explica por qué (`Raas_RepromptHint`) (v0.9.14, v0.9.15) |
 | `ViewModels/TaxiRoutePrompt.cs` | Lo que el popup necesita para pintarse (pistas, pista por defecto, ruta sugerida, recalculador y si es el segundo aviso del vuelo) (v0.9.14, v0.9.15) |
 | `vmsOpenAcars.Tests/RaasTests.cs` | 16 tests con 106 segmentos reales de SKBO y el rodaje real del `MNjR664PBAr25RbD`: ruta por grafo, parseo de la ruta, guía, avisos, y las reglas de «fuera de ruta» y «ruta completa» de v0.9.15 (v0.9.14, v0.9.15) |
+| `vmsOpenAcars.Tests/TaxiRouteCaseTests.cs` | El caso **G74 → A3 de la 14L en SKBO** sobre 237 segmentos reales (`Fixtures/SKBO-taxi-2026-09-29.csv`): lo que propone el grafo y sus variantes sin `X`/sin `B5`, que **ninguna** da la ruta del piloto, y la coherencia del fixture (v0.9.16) |
 | `vmsOpenAcars.Tests/RaasReplayTests.cs` | Un test que **reproduce el rodaje completo** del `MNjR664PBAr25RbD` (569 segmentos, 35 hold-shorts, 4 pistas, las 72 líneas `SCH` del log real y las 42 posiciones entre el pushback y el takeoff roll) y escribe la secuencia de avisos a `%TEMP%\raas_replay_MNjR664.txt`. Exige los cinco avisos y su orden, no solo los vuelca: es el banco para juzgar el RAAS sobre una traza real sin volar (v0.9.14, v0.9.15) |
+| `Helpers/AircraftTypeMatch.cs` | ¿La aeronave del simulador es la del OFP? Compara exacto cuando resuelve la variante desde el modelo/título (`777-200LR` → `B77L`) y por **familia** (tres primeros caracteres) cuando el simulador solo publica el modelo ATC (`B777`) (v0.9.16) |
+| `UI/Forms/EcamDialog.cs` | Popup de confirmación de toda la app: mensaje en un panel con desplazamiento (`Dock.Fill`) y botones abajo (`Dock.Bottom`), con el alto ajustado al texto (`FitToMessage`) (v0.9.16) |
+| `Helpers/AircraftLivery.cs` | La pintura del avión a partir del título: aerolínea conocida o un código alfabético de 3–4 caracteres — **una pintura no lleva dígitos**, así que `777`/`200LR` nunca se confunden con ella; si el título solo dice el modelo, no hay pintura que enseñar (v0.9.16) |
+| `vmsOpenAcars.Tests/AircraftLiveryTests.cs` | 3 tests de la pintura: el título real del mantenedor (`777-200LR`) no produce pintura, los títulos con aerolínea sí, y un código alfabético se conserva (v0.9.16) |
+| `vmsOpenAcars.Tests/EcamDialogTests.cs` | 2 tests que miden el reparto de espacio del popup sin enseñarlo: el mensaje no invade los botones y el texto cabe (v0.9.16) |
 | `vmsOpenAcars.csproj` | `GenerateBindingRedirectsOutputType=true` — impide sobreescribir binding redirect manual de SQLite. Referencia `System.Speech` para el RAAS |
 
 ---
@@ -1918,6 +2196,46 @@ grabar ni distribuir una librería de frases; sus pegas quedan asumidas: depende
 voz del idioma y el timbre cambia entre equipos. La síntesis va en un hilo propio con cola FIFO, así
 que el hilo de telemetría nunca se bloquea; si no hay voces, se degrada en silencio y lo dice una vez
 en el log. El texto sale de las mismas claves i18n que el log y el OSD.
+
+**El caso G74 → A3 de la 14L (SKBO): el límite del grafo, medido** (v0.9.16). El mantenedor —que
+vuela ese aeropuerto— corrigió la ruta que propone el grafo, y el caso quedó montado como fixture
+(`vmsOpenAcars.Tests/TaxiRouteCaseTests.cs` + `Fixtures/SKBO-taxi-2026-09-29.csv`, 237 segmentos
+reales de las calles que intervienen, con **precisión completa a propósito**: este nudo del apron se
+decide al centímetro entre rutas casi empatadas, y redondear a 6 decimales cambia la ruta elegida).
+
+| Variante | Distancia | Ruta |
+|---|---|---|
+| El grafo, hoy | 1.869 m | `F E X A B5 A A3` |
+| Sin `X` | 1.930 m | `F E M A B5 A A3` |
+| Sin `B5` | 2.051 m | `F E M S A A3` |
+| Sin `X` ni `B5` | 2.051 m | `F E M S A A3` |
+| **Lo que se hace** (según el piloto) | — | **`F E M A A3`** |
+
+**Ninguna de las cuatro variantes produce la ruta del piloto**, así que esto no se arregla afinando el
+optimizador. Las dos reglas que faltan no están en ningún dataset público: `B5` es un desvío a la
+izquierda en el que **no se entra para continuar** —está bien formada, une dos puntos de `A` y ahorra
+metros, por eso el Dijkstra la usa— y `X` **no forma parte de la ruta** aunque sea un conector más
+corto que `M`. La topología tampoco ayuda: el hold-short «A3» resultó ser (NavData lo confirmó el
+29/09/2026) un **cruce de cuatro calles** —`taxiways: ["A1","A2","A3","E"]`—, así que los cuatro
+nombres son ciertos y su `taxiway` sugerida sale `A2` (la más perpendicular), no «A3»: el nombre del
+punto de espera se toma de la lista y cotejado con la calle por la que llega el avión
+(`Helpers/HoldShortSelector.cs`). Y apuntando al **umbral** en vez de al punto de espera la ruta añade
+una calle de más (`F E X A B5 A A3 E`), porque el grafo va al umbral y ATC dice «a A3».
+
+**El punto de espera que NavData publica: sobre-generación medida (29/09/2026).** Para la 14L de SKBO
+publica **14 puntos**; por distancia perpendicular al eje, solo **2** son accesos —`E` a 40 m y el
+cruce `A1/A2/A3/E` a 74 m— y los otros **12 son nodos de las paralelas `A`, `A1`, `A2` y `L`, a
+139–254 m del eje**. Como el avión rueda *sobre* esas calles, el radio de 200 m y el filtro de «no de
+través» no los descartan, y rodando hacia la 14R se avisaba «espera antes de pista **14L**». NavData
+lo reconoce y va a publicar **un punto por acceso**; mientras tanto `HoldShortSelector` filtra por la
+**pista de destino declarada** (sin pista declarada no filtra, para no silenciar un aviso legítimo).
+El caso de la *misma* pista solo lo arregla su lado. Y el mismo dato trae el otro arreglo pendiente de
+nuestro lado: **`node_id` en `/taxiways/`**, que borra el umbral de 45 m — medido, **318 de los 569
+segmentos de SKBO (56%) están por debajo** (mediana 39,8 m, mínimo 2,1 m), así que la fusión por
+proximidad afectaba a más de medio grafo.
+
+Consecuencia: la ruta acostumbrada es **conocimiento que solo tienen los pilotos**, y es el punto de
+partida de la base de rutas reales (ver "Próximas áreas" de `CLAUDE.md`).
 
 **Por qué 1 Hz sobre telemetría cruda y no sobre el envío de posiciones**: el intervalo de rodaje
 hacia phpVMS es de 30 s (`update_interval_taxi`); a 15 kt son ~230 m entre muestras, demasiado para
@@ -1995,6 +2313,73 @@ pista: el log marca `ENTRANDO PISTA 14R por CALLE V` a las 22:12:32 y en la app,
 Cautela al leer el volcado: la app evalúa a **1 Hz**, la traza solo tiene una posición cada 30 s (y
 ninguna durante el pushback, porque `EmitTaxiPosition` no se llama en esa fase). El orden de los
 avisos es el real; las horas son más gruesas que en vuelo.
+
+## Aeronave del simulador vs. la del OFP (v0.9.16)
+
+Aviso de discrepancia al arrancar el vuelo, y el popup que lo enseña.
+
+**Origen del dato.** El cliente lee tres cosas del simulador, de tres offsets distintos:
+
+| Dato | Offset | Propiedad | Ejemplo real (PMDG 777) |
+|---|---|---|---|
+| Nombre/título de la aeronave | `0x3D00` (256 B) | `AircraftTitle` | `777-200LR` |
+| Modelo ATC (`atc_model`) | `0x0618` (16 B) | `AircraftIcao` | `B777` |
+| Modelo | `0x0B26` (32 B) | `AircraftModel` | (complementario del título) |
+
+**La pintura no se busca en el disco.** Se evaluó (v0.9.16) resolver el nombre de la pintura
+—`Vholar (N673VH)`, que el simulador enseña pero **no publica por FSUIPC**— leyendo la matrícula
+(`0x3138`) y buscando su `livery.cfg`/`aircraft.cfg` en la carpeta de paquetes del simulador, y se
+**retiró por decisión del mantenedor**: «no quiero que escanee mi carpeta de community. Si no se
+puede por FSUIPC, prefiero no tener esa exactitud». El ACARS no recorre el disco del piloto para un
+dato cosmético. Consecuencia asumida: un avión cuyo título solo publica el modelo no muestra
+pintura.
+
+`AircraftIcao` es de **familia** (`B777`, `B737`, `B747`, `B787`) y `AircraftModel`/`AircraftTitle`
+traen la **variante** (`777-200LR`). SimBrief publica en `aircraft.icao_code` el **designador ICAO
+de tipo**, que también es de variante: `B77L`, `B77W`, `B738`, `B748`, `B789`. La comparación era
+`simType == planType`, así que el avión correcto salía como discrepancia y el popup bloqueaba el
+START. Reportado por el mantenedor con un PMDG 777-200LR en MSFS 2024:
+
+> «el acars lo detecta como B777 … me dice que el simulador reporta B777, y el OFP es un B77L»
+>
+> «observando el log, veo que efectivamente detecta el 777-200LR (¿en qué offset?), eso se podría
+> tomar como referencia y no hacer válido cualquier 777 para planes de diferentes versiones»
+
+**Regla** (`Helpers/AircraftTypeMatch.cs`), en dos niveles: usar el dato más preciso que haya y
+degradar solo cuando falte.
+
+1. **Variante exacta si se puede resolver.** `VariantFromText` busca el modelo en el texto
+   (tabla ordenada de **más específico a más genérico**, para que `777-200LR` gane a `777-200` y
+   `737-800` a `737-8`) y `ResolveVariant` mira modelo → título → modelo ATC (por si ya viniera como
+   `B77L`). Si el OFP trae un designador de variante, se comparan **exactos**: `B77W` contra `B77L`
+   **avisa**. Eso es lo que pidió el mantenedor: dos versiones del 777 no son el mismo avión.
+2. **Familia cuando falta la variante.** Si el addon solo publica `B777`, o su modelo no está en la
+   tabla, coinciden los **tres primeros caracteres**. La tabla incompleta nunca produce un aviso
+   equivocado: cae aquí. Un avión de otra familia (A320 contra B738) avisa en los dos niveles.
+
+**Dónde se aplica.** `MainViewModel.ValidateAircraftTypeAsync` (al pulsar START) y el advisory de
+`SetActivePlan` (al cargar el plan). **`FlightPlannerForm` no lo usa**: ahí la comparación es contra
+el **tipo del vuelo licitado** (`_selectedAircraft.Type`), no contra el simulador, y el plan tiene
+que ser exactamente el del avión asignado.
+
+## Popup de confirmación: mensaje y botones no comparten caja (v0.9.16)
+
+`EcamDialog` es el diálogo de confirmación de toda la aplicación (`OnShowConfirmation`, avisos de
+combustible, OFP, vuelos activos, reanudar vuelo…). Construía el mensaje con `Location` absoluta y
+`AutoSize` dentro del mismo panel que los botones —que van en un `FlowLayoutPanel` con
+`Dock.Bottom`—, y el `Label` se añadía **antes** que el panel de botones: con el orden de z-order de
+WinForms eso lo deja pintado **encima**. Como el `AutoSize` crece hacia abajo, en cuanto el texto
+pasaba de unas ocho líneas el mensaje tapaba los botones. El aviso de discrepancia de aeronave son
+~10 líneas, y el mantenedor lo reportó así: «el espacio para el mensaje queda encima de los botones.
+No es posible ver el botón de CANCEL».
+
+Arreglo estructural, no de medidas: el mensaje vive en un `Panel` con `AutoScroll` y `Dock.Fill`, y
+los botones en `Dock.Bottom`; así el docking reparte el alto y **no pueden solaparse** crezca lo que
+crezca el texto. Encima de eso, `FitToMessage()` ajusta el alto de la ventana a lo que ocupan el
+título, el mensaje ya envuelto al ancho disponible y la fila de botones (con tope en el área de
+trabajo de la pantalla); el ancho del texto se calcula por aritmética y no leyendo el `ClientSize`
+de los paneles, porque al construir el layout todavía no ha corrido. `EcamDialogTests` mide las dos
+invariantes sin enseñar la ventana.
 
 ## API phpVMS — endpoints verificados
 
@@ -2088,10 +2473,10 @@ El redirect manual en `App.config` es:
 
 Cubre cualquier versión anterior de SQLite que pueda estar registrada en el GAC del usuario (p. ej. 1.0.115.5 instalada por Visual Studio o SQL Server Tools) y la redirige a la 1.0.119.0 que se distribuye con vmsOpenAcars.
 
-### Tests (v0.9.15)
+### Tests (v0.9.16)
 
 `vmsOpenAcars.Tests/` — proyecto MSTest hermano de `vmsOpenAcars`, incluido en
-`vmsOpenAcars.sln`. **248 tests** en ocho suites:
+`vmsOpenAcars.sln`. **261 tests** en once suites:
 
 | Suite | Cubre |
 |---|---|
@@ -2103,6 +2488,9 @@ Cubre cualquier versión anterior de SQLite que pueda estar registrada en el GAC
 | `RouteCorridorTests` | El corredor de la llegada planificada sobre el navlog real de SimBrief de un SKRG→SKBQ, incluido que la llegada son los últimos tramos **por distancia** y no los marcados `is_sid_star` (v0.9.9) |
 | `RaasTests` | RAAS y guía de rodaje sobre **106 segmentos reales de SKBO** y el rodaje del `MNjR664PBAr25RbD`: ruta por grafo hasta la 14R, parseo de la ruta editable, próximo giro y su lado, los cinco puntos reales frente al hold-short, y las reglas de «fuera de ruta» (insistencia + acercarse a la pista) y «ruta completa» (solo dentro de la pista, una vez) de v0.9.15 |
 | `RaasReplayTests` | **Reproducción completa del rodaje real** del `MNjR664PBAr25RbD` (SKBO, 14R): 569 segmentos, 35 hold-shorts, 4 pistas, el log `SCH` completo y las 42 posiciones muestreadas del pushback al takeoff roll, alimentadas al mismo `Evaluate` que usa la app a 1 Hz. Vuelca la **secuencia de avisos** a `%TEMP%\raas_replay_MNjR664.txt` y exige que sean los cinco correctos. Además fija la ruta que propone el grafo desde el puesto, el fin del pushback, el arranque del rodaje y el primer `TXI`, que es lo que decide si el popup vuelve a salir (v0.9.14, v0.9.15) |
+| `AircraftTypeMatchTests` | La comparación entre la aeronave del simulador y la del OFP, en sus dos niveles: variante resuelta desde `AircraftModel`/`AircraftTitle` (`777-200LR` → `B77L`, `737 MAX 8` → `B38M`, `A320neo` → `A20N`) comparada **exacta** —un plan de B77W en un B77L sí avisa—, y **familia** cuando el simulador solo da el modelo ATC (`B777` contra `B77L`, sin falso positivo). Y que **sí** sigue avisando con otro avión (A320/B738, B77L/A333, B738/AT76, B772/B38M) y que sin dato no bloquea (v0.9.16) |
+| `AircraftLiveryTests` | La pintura por título: el del mantenedor (`777-200LR`) **no** produce pintura —antes imprimía «Pintura: 777»—, los títulos con aerolínea sí (`PMDG 777-200LR British Airways` → `British`) y un código alfabético se conserva (`B738 AAL` → `AAL`), mientras dos modelos juntos no son pintura (v0.9.16) |
+| `EcamDialogTests` | El reparto de espacio del popup de confirmación, medido sin enseñar la ventana: con el mensaje real de discrepancia de aeronave el panel del mensaje no invade el de botones, los botones caben y el texto entra sin desplazarse; un aviso de una línea no agranda la ventana. Es el único test del proyecto que toca WinForms (v0.9.16) |
 
 `InternalsVisibleTo("vmsOpenAcars.Tests")` en `Properties/AssemblyInfo.cs` da acceso a los
 tipos `internal` (los helpers) sin tener que hacerlos públicos solo para probarlos.

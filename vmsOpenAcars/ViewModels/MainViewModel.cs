@@ -244,8 +244,25 @@ namespace vmsOpenAcars.ViewModels
                 var spaces = _airspaceMonitor.GetAirspaces();
                 if (spaces.Count > 0)
                 {
-                    OnLog?.Invoke($"🗺️ {spaces.Count} airspaces loaded for route", Theme.SecondaryText);
+                    // El número no es adorno: son los espacios que hay DENTRO de la cobertura
+                    // muestreada de la ruta, no los que hay en el mundo. La procedencia y los países
+                    // se pintan porque un corredor servido por el respaldo (`openaip_api`) o con un
+                    // país ausente es un hueco de cobertura que NavData puede cerrar.
+                    var extra = new System.Text.StringBuilder();
+                    if (_airspaceMonitor.LastAirspaceLoadPartial) extra.Append(" · partial");
+                    if (_airspaceMonitor.LastAirspaceLoadCapped)  extra.Append(" · capped (denso)");
+                    if (_airspaceMonitor.LastAirspaceLoadSource.Length > 0)
+                        extra.Append(" · source=").Append(_airspaceMonitor.LastAirspaceLoadSource);
+                    var paises = _airspaceMonitor.LastAirspaceLoadCountries;
+                    if (paises.Count > 0) extra.Append(" · ").Append(string.Join(",", paises));
+                    OnLog?.Invoke($"🗺️ {spaces.Count} airspaces — {_airspaceMonitor.LastAirspaceLoadSamples} route samples{extra}", Theme.SecondaryText);
                     OnAirspacesReady?.Invoke(spaces);
+                }
+                else if (_airspaceMonitor.LastAirspaceLoadUnavailable)
+                {
+                    // Ni un espacio y sin datos frescos: NO es «no hay espacios aéreos», es que no
+                    // se pudo preguntar. Decirlo así evita el falso «cielo vacío».
+                    OnLog?.Invoke("🗺️ Airspace data unavailable (NavData 503) — retrying later", Theme.Warning);
                 }
             });
         }
@@ -503,15 +520,28 @@ namespace vmsOpenAcars.ViewModels
             // Advisory: advertir si el avión del OFP no coincide con el del simulador
             if (_fsuipc.IsConnected)
             {
-                string simType  = _fsuipc.AircraftIcao ?? "";
-                string planType = plan.AircraftIcao    ?? "";
-                if (!string.IsNullOrEmpty(simType)  && simType  != "????" &&
-                    !string.IsNullOrEmpty(planType) && planType != "????" &&
-                    !string.Equals(simType, planType, StringComparison.OrdinalIgnoreCase))
+                string simType  = _fsuipc.AircraftIcao  ?? "";
+                string simModel = _fsuipc.AircraftModel ?? "";
+                string simTitle = _fsuipc.AircraftTitle ?? "";
+                string planType = plan.AircraftIcao     ?? "";
+                if (AircraftTypeMatch.IsKnown(simType) && AircraftTypeMatch.IsKnown(planType)
+                    && !string.Equals(simType, planType, StringComparison.OrdinalIgnoreCase))
                 {
-                    OnLog?.Invoke(
-                        $"⚠️ Aircraft mismatch — Simulator: {simType} / OFP: {planType}",
-                        Theme.Warning);
+                    string simVariant = AircraftTypeMatch.ResolveVariant(simModel, simTitle, simType);
+                    if (AircraftTypeMatch.IsSameAircraft(simType, simModel, simTitle, planType))
+                    {
+                        // Aceptado por familia porque falta la variante: se dice en gris, sin rojo.
+                        if (simVariant.Length == 0)
+                            OnLog?.Invoke(_("Log_AircraftVariant", simType, planType), Theme.SecondaryText);
+                    }
+                    else
+                    {
+                        string simShown = simVariant.Length > 0
+                            ? simVariant + " (" + simType + ")" : simType;
+                        OnLog?.Invoke(
+                            $"⚠️ Aircraft mismatch — Simulator: {simShown} / OFP: {planType}",
+                            Theme.Warning);
+                    }
                 }
             }
 
@@ -585,15 +615,37 @@ namespace vmsOpenAcars.ViewModels
 
         private async Task<bool> ValidateAircraftTypeAsync(SimbriefPlan plan)
         {
-            string simType  = _fsuipc.AircraftIcao ?? "";
-            string planType = plan.AircraftIcao    ?? "";
-            bool canCheck   = !string.IsNullOrEmpty(simType)  && simType  != "????" &&
-                              !string.IsNullOrEmpty(planType) && planType != "????";
-            if (!canCheck || string.Equals(simType, planType, StringComparison.OrdinalIgnoreCase))
+            string simType  = _fsuipc.AircraftIcao  ?? "";
+            string simModel = _fsuipc.AircraftModel ?? "";
+            string simTitle = _fsuipc.AircraftTitle ?? "";
+            string planType = plan.AircraftIcao     ?? "";
+            if (!AircraftTypeMatch.IsKnown(simType) || !AircraftTypeMatch.IsKnown(planType))
+                return true;
+            if (string.Equals(simType, planType, StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            string warnMsg = $"⚠️ AIRCRAFT MISMATCH\n\nSimulator: {simType}\nOFP (SimBrief): {planType}\n\nThe OFP was generated for a different aircraft type. Fuel and performance data may not be accurate.\n\nDo you want to start the flight anyway?";
-            OnLog?.Invoke($"⚠️ Aircraft mismatch — Sim: {simType} / OFP: {planType}", Theme.Warning);
+            // El modelo ATC es de familia («B777» en un PMDG 777-200LR) y SimBrief da el tipo ICAO
+            // de variante («B77L»): con igualdad exacta el avión correcto salía como discrepancia.
+            // El modelo/título completo del simulador («✈️ Aeronave: 777-200LR») sí trae la
+            // variante, así que cuando se puede resolver se compara exacto —un plan de 777-300ER
+            // en un 777-200LR es otra versión del mismo avión y SÍ se avisa— y solo se cae a la
+            // familia cuando el dato no permite más precisión.
+            string simVariant = AircraftTypeMatch.ResolveVariant(simModel, simTitle, simType);
+            if (AircraftTypeMatch.IsSameAircraft(simType, simModel, simTitle, planType))
+            {
+                // Aceptado por familia porque falta la variante en algún lado: que quede en el log.
+                if (simVariant.Length == 0)
+                    OnLog?.Invoke(_("Log_AircraftVariant", simType, planType), Theme.SecondaryText);
+                return true;
+            }
+
+            string simShown = simVariant.Length > 0 ? simVariant + " (" + simType + ")" : simType;
+            bool sameFamily = AircraftTypeMatch.IsSameFamily(simType, planType);
+            string detail = sameFamily
+                ? "The OFP was generated for a different version of the same aircraft family. Fuel and performance data may not be accurate."
+                : "The OFP was generated for a different aircraft type. Fuel and performance data may not be accurate.";
+            string warnMsg = $"⚠️ AIRCRAFT MISMATCH\n\nSimulator: {simShown}\nOFP (SimBrief): {planType}\n\n{detail}\n\nDo you want to start the flight anyway?";
+            OnLog?.Invoke($"⚠️ Aircraft mismatch — Sim: {simShown} / OFP: {planType}", Theme.Warning);
             if (OnShowConfirmation != null && await OnShowConfirmation(warnMsg, "AIRCRAFT MISMATCH", EcamDialogButtons.YesNo) != DialogResult.Yes)
                 return false;
             return true;
