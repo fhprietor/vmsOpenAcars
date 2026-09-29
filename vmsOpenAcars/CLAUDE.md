@@ -491,6 +491,17 @@ Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el
   **inventa** hoy. Es decir: **pasar a `node_id` cambia el grafo mucho más que quitar un umbral** —
   medir el caso `G74 → A3` y el rodaje real **antes y después**, no darlo por hecho. NavData ofrece
   publicar esos empalmes como **conocimiento curado**.
+- **Cómo leer los datos de phpVMS (aclarado por su equipo, 29/09/2026).** En `acars`, **la fase va en
+  `status`** (códigos `INI`/`BST`/`PBT`/`TXI`/`TOF`/`ICL`/`ENR`/`APR`/`FIN`/`LDG`/`ARR`/`CHK`) y
+  **`phase` está vacía en el 100% de las filas** — leer `phase` hace creer que un vuelo no tiene
+  rodaje cuando sí lo tiene. En `pireps`, **`state` es la moderación** (`0 IN_PROGRESS`, `1 PENDING`,
+  `2 ACCEPTED`, `3 CANCELLED`, `4 DELETED`, `5 DRAFT`, `6 REJECTED`, `7 PAUSED`) y el estado de vuelo
+  es `status`/`status_text`. `TXI` **agrupa rodaje de salida y de llegada** (se distingue por la
+  posición en el vuelo: antes del `TOF` o después del `LDG`). Auth: **`X-API-KEY`** (`Bearer` da 401).
+  Corpus real disponible: **39 PIREPs con rodaje, 18 aeropuertos, 8 pilotos**, recuperables con
+  `?source_name=vmsOpenACars` + `?id=<piloto>` + `limit` (sin tope) — la receta está en
+  `Docs/RESPUESTA-PHPVMS-PRUEBAS-2026-09-29.md`. Y el desglose del score que enviamos en las `CHK`
+  (`SC:ov=…`) **también queda en el servidor**: la puntuación de un vuelo es auditable desde el PIREP.
 - **Dos fuentes de coordenadas, y las cruzamos (v0.9.16).** `/runways/`, `/ils/`, `/approaches/`,
   `/sids/`, `/stars/` son de **Navigraph**; `/taxiways/`, `/holdshort/`, `/parkings/` son del
   **escenario de MSFS**; **los umbrales no coinciden** (mediana 33 m en SKBO, 59 m en LEMD con máximo
@@ -691,6 +702,23 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   el dataset vigente en ingesta **y** en lectura; moderación experta (`source: "curated"`, que gana
   sobre la votación sin ocultar el apoyo). Límites: 200 observaciones por POST, 64 KB, 60 POST/min,
   5.000/día por clave, `observed_at` hasta 90 días atrás, un POST por rodaje de salida.
+
+- **Tres tareas nuestras con phpVMS (acordadas el 29/09/2026, sin empezar)** — los campos ya existen en
+  su instalación (`pirep_fields`), así que **no hay nada que esperar**:
+  1. **Enviar `Departure Runway`, `Arrival Runway` y `Taxi Route`** en `prefile`/`update`.
+     **Ojo: en `fields` va el NOMBRE, no el slug** —`"Departure Runway": "14R"`—; si se manda el slug
+     casa igual pero el nombre pintado será el slug. Y **esos tres campos salen ahora vacíos en todo
+     PIREP ACARS**: es normal (se declaran y se rellenan con `""`), **no es un error**.
+  2. **Enviar `fuel` por posición**: lo activaron en `$fillable` (`App\Models\Acars`) y hoy la columna
+     está a 0 filas porque no lo mandamos. En la respuesta llega como objeto con unidades
+     (`{localUnit, internalUnit, responseUnits}`), no como número.
+  3. **Enviar los avisos del RAAS por `acars/logs`**, con un prefijo propio para distinguirlos de las
+     `CHK` (que ya llevan el desglose del score). Nos piden que les avisemos cuando empiecen a llegar.
+  De su lado queda **`crossings`** de NavData y nada más de phpVMS: el endpoint global, el
+  `activity_log` y un `TXI_OUT`/`TXI_IN` quedaron **descartados de mutuo acuerdo**.
+  **Receta del corpus, verificada:** `?id=<piloto>&source_name=vmsOpenACars&limit=1000` funciona (0,4 s);
+  **`?limit=100` o más SIN filtro devuelve 503** — el filtro es lo que reduce el conjunto, así que
+  **siempre con `source_name`**. Auth: **`X-API-KEY`**.
 
 - **Tile proxy en NavData (propuesta del mantenedor, sin empezar)**: que NavData sirva las teselas
   de CARTO con **caché**, para que la clave no viaje a cada piloto y la cuota se divida por el

@@ -6,6 +6,33 @@
 
 ### Fixed
 
+- **Los datos de prueba de phpVMS quedan acordados, con tres tareas nuestras y una receta verificada.**
+  Su cierre (29/09/2026) confirma: los campos `Departure Runway`, `Arrival Runway` y `Taxi Route` **ya
+  existen** en `pirep_fields` y salen vacíos en todo PIREP ACARS hasta que los enviemos (es normal, no
+  un error); **`fuel` por posición activado** en `$fillable` (0 filas hoy porque no lo mandamos); y el
+  **backfill de `source_name` aplicado** — 5.718 `CrewSystem/import`, 227 `manual`, **0 vacíos**—, así
+  que ya se excluye con `?source_name=vmsOpenACars` y sin inferir nada. Verificado desde nuestro lado,
+  incluido que en `fields` hay que mandar el **nombre** y no el slug, y que la receta del corpus
+  (`?id=<piloto>&source_name=vmsOpenACars&limit=1000`) responde en 0,4 s mientras que **un `limit`
+  grande sin filtro devuelve 503** — el filtro es lo que reduce el conjunto. Queda pendiente nuestro:
+  enviar los tres campos, el `fuel` y los avisos del RAAS por `acars/logs` con prefijo propio.
+
+- **La fase de una posición ACARS va en `status`, no en `phase` — y `state` es la moderación, no el
+  estado del vuelo.** Lo aclaró el equipo de phpVMS (29/09/2026) al revisar nuestro pedido de datos de
+  prueba, y las dos cosas nos habían hecho medir mal: **`acars.phase` está vacía en el 100% de las
+  21.494 filas** del servidor (la fase llega en `status`, códigos `INI`/`BST`/`PBT`/`TXI`/`TOF`/…), y
+  **`pireps.state` es el estado de moderación** (`0 IN_PROGRESS … 2 ACCEPTED … 6 REJECTED`), no
+  «llegado». Consecuencia de nuestro error: dimos por hecho que **solo un vuelo** tenía posiciones de
+  rodaje, cuando hay **39 PIREPs con rodaje en 18 aeropuertos y 8 pilotos** desde la 0.8.10. El
+  cliente ya leía el campo correcto (`AcarsPosition.status`, verificado: no hay bug), pero **la
+  medición era nuestra y estaba mal**; la receta para reconstruir el corpus (filtro por productor,
+  `?id=` por piloto, `limit` sin tope) va en `Docs/RESPUESTA-PHPVMS-PRUEBAS-2026-09-29.md`.
+
+- **El `score` que faltaba en 13 de 20 PIREPs no era un fallo del cliente**: son los que no produce
+  vmsOpenACars (`source_name` vacío; el marcador fiable de telemetría es `acars.source = vmsOp`). Se
+  retira la pregunta y se pide en su lugar que los históricos se etiqueten (`CrewSystem/import`,
+  `manual`).
+
 - **El grafo apunta a una coordenada de una fuente y la red de rodadura es de otra: medido, y explica
   la calle de más del final de la ruta.** NavData documentó (29/09/2026) que **no mezclan fuentes**:
   `/runways/`, `/ils/`, `/approaches/`, `/sids/`, `/stars/` salen de **Navigraph** (AIRAC) y
