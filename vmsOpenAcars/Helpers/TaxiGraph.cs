@@ -356,6 +356,12 @@ namespace vmsOpenAcars.Helpers
         /// </summary>
         internal const double TaxiwayRadiusM = 300.0;
 
+        // Radio de PAVIMENTO: hasta aqui el avion esta *sobre* una calle. Un puesto no lo esta
+        // (en LMML la muestra del puesto de V15MObj3MxOdAZab esta a 64,2 m de F y a 262 m de T, su
+        // primera calle), y con el radio de 300 m el resolutor devolvia F: una calle por la que el
+        // avion no rodaba, leida como «fuera de ruta» quince veces. Mismo orden que SnapM.
+        internal const double OnTaxiwayM = 45.0;
+
         /// <summary>
         /// Calle más cercana, con el criterio que ya usaba `NavDataService.NearestTaxiway`: si se
         /// pasa un rumbo, un segmento que va claramente en contra (más de 50° del rumbo o de su
@@ -364,7 +370,8 @@ namespace vmsOpenAcars.Helpers
         /// en los tests use **esta misma** regla y no una copia.
         /// </summary>
         internal static string NearestName(
-            IEnumerable<Segment> segments, double lat, double lon, double heading = double.NaN)
+            IEnumerable<Segment> segments, double lat, double lon, double heading = double.NaN,
+            double maxM = TaxiwayRadiusM)
         {
             if (segments == null) return null;
             string bestName  = null;
@@ -377,7 +384,7 @@ namespace vmsOpenAcars.Helpers
 
                 double d = GeoMath.DistanceToSegmentNm(lat, lon, s.Lat1, s.Lon1, s.Lat2, s.Lon2)
                            * GeoMath.MetersPerNm;
-                if (d >= TaxiwayRadiusM) continue;
+                if (d >= maxM) continue;
 
                 double score = d;
                 if (useHdg && d > 1.0)

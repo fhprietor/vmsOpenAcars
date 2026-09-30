@@ -350,6 +350,26 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
+        public void NearestName_AtAStandSixtyFourMetresFromThePavement_NamesNoTaxiway()
+        {
+            // Distancias REALES del caso: la muestra del puesto de LMML (35.85055,14.48869) esta a
+            // 64,2 m de F y a 262 m de T. Con el radio de 300 m se nombraba F —una calle por la que
+            // el avion no rodaba—; con el radio de pavimento, la respuesta es «ninguna calle».
+            var seg = new List<TaxiGraph.Segment>
+            {
+                new TaxiGraph.Segment { Name = "F", Lat1 = 35.851125, Lon1 = 14.48869,
+                                              Lat2 = 35.851125, Lon2 = 14.48960 }
+            };
+
+            Assert.AreEqual("F", TaxiGraph.NearestName(seg, 35.85055, 14.48869, 180.0),
+                            "con el radio de 300 m la calle a 64 m se nombra: es el fallo");
+            Assert.IsNull(TaxiGraph.NearestName(seg, 35.85055, 14.48869, 180.0, TaxiGraph.OnTaxiwayM),
+                          "a 64 m del pavimento no se pisa ninguna calle");
+            Assert.AreEqual("F", TaxiGraph.NearestName(seg, 35.851125, 14.48885, 90.0, TaxiGraph.OnTaxiwayM),
+                            "sobre el pavimento si se nombra");
+        }
+
+        [TestMethod]
         public void Advisor_OffRoute_BeforeJoiningTheRoute_StaysSilent()
         {
             // El arranque de un rodaje real: el avión sale del puesto, que no está sobre la red de

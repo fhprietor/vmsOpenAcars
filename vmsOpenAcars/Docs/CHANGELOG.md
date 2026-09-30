@@ -2,6 +2,32 @@
 
 ---
 
+## [0.9.20] — 30/09/2026
+
+### Fixed
+
+- **La calle que el avión «pisa» se resuelve con el radio de pavimento, no con 300 m.** El resolutor de
+  calle activa (`TaxiGraph.NearestName` vía `NavDataService.NearestTaxiway`) aceptaba cualquier segmento
+  a menos de **300 m** y sólo después castigaba el rumbo, así que en el rodaje de LMML
+  (`V15MObj3MxOdAZab`) el puesto —**64,2 m** de `F` y **262 m** de `T`, su primera calle— devolvía `F`:
+  una calle por la que el avión **no** rodaba (64 × 2,5 = 160 < 262, gana con cualquier rumbo). La guía lo
+  leía como «fuera de su ruta» y el piloto oyó **15 avisos** pidiéndole volver a calles del apron,
+  mientras seguía la autorización de ATC que él mismo había escrito.
+  Nuevo `TaxiGraph.OnTaxiwayM = 45` (mismo orden que `SnapM`): por encima de eso la respuesta es
+  **«ninguna calle»**, que es la verdad —un puesto no está sobre la red de rodaje—. El advisor necesita
+  una calle activa para decir `FUERA DE RUTA`, así que calla **por la razón correcta**, y un desvío real
+  **sobre el pavimento** sigue avisando. Es el arreglo de la **causa**; la zona muerta de v0.9.19 queda
+  como segunda red.
+- `NearestName` gana un parámetro opcional `maxM` —por defecto el radio de 300 m—, así que ningún otro
+  llamador cambia de comportamiento; el resolutor privado es el que pide el de pavimento. Dos tests
+  nuevos con las distancias **reales** del caso: a 64 m devuelve `null` con el radio de pavimento y `F`
+  con el de 300.
+
+### Note
+
+- **Sin verificar**: `FindNextIntersection` usa el mismo resolutor, así que fuera del pavimento ahora
+  devuelve `null` donde antes devolvía una calle de hasta 300 m. Su semántica es la misma («¿en qué calle
+  estás?»), pero no se ha revisado qué «próximo cruce» propone en ese caso.
 ## [0.9.19] — 30/09/2026
 
 ### Fixed

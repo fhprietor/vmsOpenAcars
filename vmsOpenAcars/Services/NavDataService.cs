@@ -668,7 +668,8 @@ namespace vmsOpenAcars.Services
         }
 
         private static string NearestTaxiway(
-            List<NavTaxiway> taxiways, double lat, double lon, double heading = double.NaN)
+            List<NavTaxiway> taxiways, double lat, double lon, double heading = double.NaN,
+            double maxM = TaxiGraph.OnTaxiwayM)
         {
             // La regla pura (radio, penalización ×2.5 de los segmentos >50° del rumbo) vive en
             // TaxiGraph desde v0.9.14, para que la repetición de una traza real en los tests use
@@ -683,7 +684,7 @@ namespace vmsOpenAcars.Services
                     Lat2 = t.EndLat, Lon2 = t.EndLon
                 });
             }
-            return TaxiGraph.NearestName(segments, lat, lon, heading);
+            return TaxiGraph.NearestName(segments, lat, lon, heading, maxM);
         }
 
         private static string NextIntersection(
