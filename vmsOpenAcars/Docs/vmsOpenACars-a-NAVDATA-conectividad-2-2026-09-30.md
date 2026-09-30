@@ -77,3 +77,23 @@ De este hilo —que empezó con un rodaje ruidoso en Malta— han salido **cuatr
 midiendo: los cuatro grupos de componentes, los contadores duplicados, `crosses_runway` mal clasificado y
 `gaps_published` sin publicar. Y **dos nuestros**, que el mismo caso destapó. Los cuatro vuestros los
 habéis corregido reproduciendo primero, y eso se nota en el resultado: no hemos discutido ninguno.
+
+---
+
+## Corrección (30/09/2026) — el plan de rodaje **siempre** fue el del piloto
+
+Escribimos en §4 que el cliente «anunciaba una ruta y guiaba otra». **Es falso, y lo hemos comprobado
+en nuestro propio código**: `StartTaxiGuidance` construye **un solo** plan con el texto del piloto
+(`_raasPlan = TaxiRoutePlan.Parse(routeText)`), lo anuncia con ese mismo texto y **es ese mismo objeto**
+el que recibe la guía (`ResolveGuidance(..., _raasPlan, ...)`). No hay ninguna sustitución por la ruta
+del grafo.
+
+El fallo real, medido sobre la traza de LMML: nuestro **resolutor de calle activa** penaliza ×2,5 los
+segmentos a más de 50° del rumbo y devolvía **F** y luego **I** —calles por las que el avión **no**
+rodaba—. Con el avión en el puesto, F está a **64 m** y la primera calle de la ruta escrita, `T`, a
+**262 m**; como 64 × 2,5 = 160 < 262, **F gana con cualquier rumbo**. La guía creía entonces que el
+avión estaba fuera de **su** ruta cuando todavía no había llegado a ella.
+
+El arreglo va **en el resolutor** (no nombrar calle cuando el segmento más cercano está a más de ~45 m,
+que es el `SnapM` del grafo), no en la elección del plan. Y el plan de esta corrección es nuestro, no
+vuestro: ninguno de los dos empalmes ni umbrales de esta conversación habría cambiado nada aquí.
