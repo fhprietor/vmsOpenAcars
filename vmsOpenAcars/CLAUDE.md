@@ -734,13 +734,13 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   **`?limit=100` o más SIN filtro devuelve 503** — el filtro es lo que reduce el conjunto, así que
   **siempre con `source_name`**. Auth: **`X-API-KEY`**.
 
-- **El grafo y el `node_id`: hecho, medido y con el interruptor apagado (v0.9.16).** La identidad por **Ya se puede encender (30/09/2026)**: NavData cerró la conectividad —**7 de 7 con `components_after_joins: 1`**— y desaparece la razón de tenerlo apagado; nuestra medición dice que gana en precisión.
+- **El grafo y el `node_id`: hecho, medido y con el interruptor apagado (v0.9.16).** La identidad por
   id está implementada (por defecto `Suggest(..., useNodeIds = false)`), los **empalmes calculados** de
   NavData entran como aristas, el **umbral de confianza** va en dos niveles (0,5) y el grafo enruta al
   **borde de plataforma** si el destino cae en otro componente. Medido sobre 37 PIREPs: **31/31 de
   cobertura con las dos políticas**, 14 idénticas, 17 distintas y **+329 m (+15%)** con ids → sigue
   **apagado**. Las tres mediciones del día, con sus correcciones, en **`Docs/architecture.md` →
-  "El grafo de rodaje"**.
+  "El grafo de rodaje"**. **Ya se puede encender (30/09/2026)**: NavData cerró la conectividad —**7 de 7 con `components_after_joins: 1`**— y desaparece la razón de tenerlo apagado; nuestra medición dice que gana en precisión..
 - **Tile proxy en NavData (propuesta del mantenedor, sin empezar)**: que NavData sirva las teselas
   de CARTO con **caché**, para que la clave no viaje a cada piloto y la cuota se divida por el
   número de pilotos en vez de multiplicarse. Resuelve de verdad eso, el 403 por `Referer` y el
