@@ -25,9 +25,13 @@
 
 ### Note
 
-- **Sin verificar**: `FindNextIntersection` usa el mismo resolutor, así que fuera del pavimento ahora
-  devuelve `null` donde antes devolvía una calle de hasta 300 m. Su semántica es la misma («¿en qué calle
-  estás?»), pero no se ha revisado qué «próximo cruce» propone en ese caso.
+- **Revisado el efecto en `FindNextIntersection`**, que usa el mismo resolutor: **no necesita cambios**.
+  Ya tenía la guarda (`string.IsNullOrEmpty(current) ? null : …`), así que fuera del pavimento devuelve
+  `null` —su único llamador se queda sin dato y calla— en vez de calcular el «próximo cruce» desde una
+  calle a 300 m por la que el avión no va, que era el comportamiento anterior. Es decir, el radio de
+  pavimento **mejora** también esa ruta. Y en `FindHoldingPoint`, el nombre de la calle del punto de
+  espera cae al sugerido cuando no hay calle activa; en el punto de espera el avión está sobre el
+  pavimento, así que no cambia nada.
 ## [0.9.19] — 30/09/2026
 
 ### Fixed
