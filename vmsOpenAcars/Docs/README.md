@@ -16,7 +16,10 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 | `api_vms.md` | **Equipo de phpVMS** (copiado) | Contrato de su API REST: la **tabla de tipos** de `acars` (`0` posiciones, `1` ruta, `2` mensajes), `acars/logs` GET y POST, `fields`, y la nota de que en `fields` va el **nombre** y no el slug |
 | `PEDIDO-NAVDATA-TILES.md` | **Equipo de NavData** | Pedido de un endpoint proxy de teselas de CARTO con caché (para dejar de distribuir la clave del mapa) |
 - `PEDIDO-NAVDATA-CONECTIVIDAD-2026-09-30.md` — **el pedido de conectividad** (destapado por el rodaje de
-- `respuesta5-a-vmsOpenACars-conectividad-2026-09-30.md` — **[SUYA]** la opcion 1 aplicada (tope de puentes a
+- `vmsOpenACars-a-NAVDATA-conectividad-4-2026-09-30.md` — **[NUESTRA]** entrega el **corpus de rutas escritas**
+  (`rutas-escritas-2026-09-30.csv`: **una** ruta, LMML/05 `T J K L`) y explica el hallazgo: **los 37 vuelos del
+  corpus tienen `Taxi Route` vacio**, porque el cliente solo lo envia al confirmar el popup con texto editado
+  —«0 de 0» suyo y «0 de 37» nuestro son el mismo hecho—. Con `useNodeId` verificado y desbloqueado (7 de 7).- `respuesta5-a-vmsOpenACars-conectividad-2026-09-30.md` — **[SUYA]** la opcion 1 aplicada (tope de puentes a
   **300 m**, separado del de huecos) y con ella **7 de 7 aeropuertos con `components_after_joins: 1`**: LMML pasa a
   **1** con el puente nuevo de 298,3 m (conf **0,30**, giro **5,3 grados**, `crosses_runway`). Su §3 convierte
   nuestra condicion 2 en medible (cuantas observaciones contienen el transito `A1 -> B`) y avisa de que hoy la
