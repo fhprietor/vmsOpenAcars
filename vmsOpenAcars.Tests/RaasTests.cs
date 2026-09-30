@@ -350,6 +350,63 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
+        public void Advisor_OffRoute_BeforeJoiningTheRoute_StaysSilent()
+        {
+            // El arranque de un rodaje real: el avión sale del puesto, que no está sobre la red de
+            // calles, y su calle todavía no es la primera de su ruta. En LMML (`V15MObj3MxOdAZab`)
+            // eso produjo 15 avisos en cinco minutos pidiéndole volver a calles del apron que no
+            // tenía que usar. Hasta haber estado una vez en su ruta, no hay nada que avisar.
+            var advisor = new RaasAdvisor();
+            var t = new DateTime(2026, 9, 30, 0, 9, 0, DateTimeKind.Utc);
+            Func<DateTime, RaasCallout> eval = when => advisor.Evaluate(new RaasAdvisor.Inputs
+            {
+                GroundSpeedKt = 10,
+                ActiveTaxiway = "F",
+                DistanceToRunwayM = 900,          // constante: no se acerca, pero tampoco se pierde
+                Guidance = new RouteGuidance { HasRoute = true, OnRoute = false, NextTaxiway = "T" }
+            }, when);
+
+            Assert.AreEqual(RaasCalloutType.None, eval(t).Type, "recién salido del puesto");
+            Assert.AreEqual(RaasCalloutType.None, eval(t.AddSeconds(20)).Type, "a los 20 s");
+            Assert.AreEqual(RaasCalloutType.None, eval(t.AddSeconds(60)).Type, "y a los 60 s");
+        }
+
+        [TestMethod]
+        public void Advisor_OffRoute_NamesTheTaxiwayToReturnTo_NotTheOneUnderTheAircraft()
+        {
+            // El aviso manda volver a la primera calle del plan, no a la que el avión tiene debajo:
+            // «VUELVE A CALLE F» nombrando la calle por la que se va es una orden incoherente, y es
+            // lo que se oyó en LMML (F e I, las de debajo, mientras el plan era `T J K L`).
+            var advisor = new RaasAdvisor();
+            var t = new DateTime(2026, 9, 30, 0, 9, 0, DateTimeKind.Utc);
+
+            // Ya estuvo en su ruta: sale de la zona muerta del principio.
+            advisor.Evaluate(new RaasAdvisor.Inputs
+            {
+                GroundSpeedKt = 10,
+                ActiveTaxiway = "T",
+                Guidance = new RouteGuidance { HasRoute = true, OnRoute = true, NextTaxiway = "J" }
+            }, t);
+
+            Func<DateTime, RaasCallout> evalOff = when => advisor.Evaluate(new RaasAdvisor.Inputs
+            {
+                GroundSpeedKt = 10,
+                ActiveTaxiway = "F",              // lo que tiene debajo
+                DistanceToRunwayM = 900,
+                Guidance = new RouteGuidance { HasRoute = true, OnRoute = false, NextTaxiway = "T" }
+            }, when);
+
+            // La regla de insistencia sigue en pie: el primer sondeo abre el episodio, no avisa.
+            Assert.AreEqual(RaasCalloutType.None, evalOff(t.AddSeconds(20)).Type,
+                            "el desvío no se dice en el primer sondeo");
+
+            var off = evalOff(t.AddSeconds(40));
+            Assert.AreEqual(RaasCalloutType.OffRoute, off.Type);
+            Assert.AreEqual("T", off.Taxiway, "se nombra la calle a la que hay que volver");
+            Assert.AreNotEqual("F", off.Taxiway, "no la que el avión tiene debajo");
+        }
+
+        [TestMethod]
         public void Advisor_OffRoute_PersistsBeforeSayingSo()
         {
             // Sin dato de distancia a la pista el aviso se decide por insistencia: una calle que
@@ -362,6 +419,15 @@ namespace vmsOpenAcars.Tests
                 ActiveTaxiway = "D",
                 Guidance = new RouteGuidance { HasRoute = true, OnRoute = false, NextTaxiway = "B" }
             }, when);
+
+            // El avión ya estuvo en su ruta: sale del puesto, toma su calle y sólo después se sale.
+            // La zona muerta del principio la fija `Advisor_OffRoute_BeforeJoiningTheRoute_StaysSilent`.
+            advisor.Evaluate(new RaasAdvisor.Inputs
+            {
+                GroundSpeedKt = 10,
+                ActiveTaxiway = "B",
+                Guidance = new RouteGuidance { HasRoute = true, OnRoute = true, NextTaxiway = "M" }
+            }, t.AddSeconds(-1));
 
             Assert.AreEqual(RaasCalloutType.None, eval(t).Type, "ni en el primer sondeo…");
             Assert.AreEqual(RaasCalloutType.None, eval(t.AddSeconds(10)).Type, "…ni a los 10 s");
@@ -405,6 +471,14 @@ namespace vmsOpenAcars.Tests
                 DistanceToRunwayM = 3000,      // siempre igual: no se acerca
                 Guidance = new RouteGuidance { HasRoute = true, OnRoute = false, NextTaxiway = "B" }
             }, when);
+
+            // Ya en su ruta una vez (sale del puesto antes de desviarse), como en un rodaje real.
+            advisor.Evaluate(new RaasAdvisor.Inputs
+            {
+                GroundSpeedKt = 15,
+                ActiveTaxiway = "B",
+                Guidance = new RouteGuidance { HasRoute = true, OnRoute = true, NextTaxiway = "M" }
+            }, t.AddSeconds(-1));
 
             eval(t);
             Assert.AreEqual(RaasCalloutType.OffRoute, eval(t.AddSeconds(20)).Type);

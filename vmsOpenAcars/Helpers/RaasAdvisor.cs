@@ -125,6 +125,16 @@ namespace vmsOpenAcars.Helpers
         private double    _offRouteBestM = double.NaN;
         private bool      _routeCompleteAnnounced;
 
+        /// <summary>
+        /// El avión ya estuvo alguna vez dentro de su ruta planificada. Mientras no lo esté no se
+        /// puede estar «fuera de ruta»: un puesto no está sobre la red de calles. En el rodaje real
+        /// de LMML (`V15MObj3MxOdAZab`) el avión arrancó a **64 m** de la calle más cercana —y a
+        /// 262 m de la primera calle de su ruta—, así que el aviso disparó en el primer sondeo y se
+        /// re-armó cada 20 s durante cinco minutos: **15 avisos** pidiéndole volver a calles del
+        /// apron que no tenía que usar, mientras seguía la autorización de ATC.
+        /// </summary>
+        private bool      _wasOnRoute;
+
         public sealed class Inputs
         {
             public bool       OnRunway;
@@ -152,6 +162,10 @@ namespace vmsOpenAcars.Helpers
         /// </summary>
         internal RaasCallout Evaluate(Inputs i, DateTime utcNow)
         {
+            // La guía dice si el avión está dentro de su ruta; en cuanto lo está una vez, ya se le
+            // puede avisar de que se ha salido (ver `_wasOnRoute`).
+            if (i.Guidance != null && i.Guidance.OnRoute) _wasOnRoute = true;
+
             var candidate = Decide(i);
             var none      = new RaasCallout { Type = RaasCalloutType.None };
 
@@ -168,6 +182,11 @@ namespace vmsOpenAcars.Helpers
 
             if (candidate.Type == RaasCalloutType.OffRoute)
             {
+                // Zona muerta del principio: hasta haber estado una vez dentro de la ruta no se
+                // avisa de que se está fuera. Es lo que convierte el arranque de un rodaje real
+                // —puesto, apron, calle de salida— en silencio en vez de en quince avisos.
+                if (!_wasOnRoute) return none;
+
                 TrackOffRoute(i, utcNow);
                 if (!OffRouteConfirmed(utcNow)) return none;   // todavía puede estar acercándose
             }
@@ -200,6 +219,7 @@ namespace vmsOpenAcars.Helpers
             _offRouteSince          = null;
             _offRouteBestM          = double.NaN;
             _routeCompleteAnnounced = false;
+            _wasOnRoute             = false;
         }
 
         /// <summary>
@@ -271,10 +291,16 @@ namespace vmsOpenAcars.Helpers
             var g = i.Guidance;
             if (g == null || !g.HasRoute) return none;
 
+            // «Fuera de ruta» nombra **la calle a la que hay que volver** (la primera del plan), no
+            // la que el avión tiene debajo: hasta v0.9.18 se ponía `i.ActiveTaxiway`, así que el
+            // mensaje «VUELVE A CALLE F» nombraba justo la calle por la que el avión iba. En LMML
+            // los 15 avisos nombraron F e I —lo que tenía debajo— mientras el plan era `T J K L`,
+            // que es incoherente para el piloto: se le manda volver a donde ya está. La `Key` sigue
+            // siendo la calle activa, porque es lo que distingue una situación de otra.
             if (!g.OnRoute && !string.IsNullOrEmpty(i.ActiveTaxiway))
                 return new RaasCallout
                 {
-                    Type = RaasCalloutType.OffRoute, Taxiway = i.ActiveTaxiway,
+                    Type = RaasCalloutType.OffRoute, Taxiway = g.NextTaxiway,
                     Key = "off-route:" + i.ActiveTaxiway
                 };
 

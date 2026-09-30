@@ -15,6 +15,42 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 | `ANADIDO-PHPVMS-CIERRE-2026-09-29.md` | **Equipo de phpVMS** | Añadido al cierre, con la prueba en vivo: `type = 2` se acepta y **no se sirve** (corregido en el cliente) y **`fuel` sigue sin persistirse** en su lado, con la petición y la respuesta exactas |
 | `api_vms.md` | **Equipo de phpVMS** (copiado) | Contrato de su API REST: la **tabla de tipos** de `acars` (`0` posiciones, `1` ruta, `2` mensajes), `acars/logs` GET y POST, `fields`, y la nota de que en `fields` va el **nombre** y no el slug |
 | `PEDIDO-NAVDATA-TILES.md` | **Equipo de NavData** | Pedido de un endpoint proxy de teselas de CARTO con caché (para dejar de distribuir la clave del mapa) |
+- `PEDIDO-NAVDATA-CONECTIVIDAD-2026-09-30.md` — **el pedido de conectividad** (destapado por el rodaje de
+- `respuesta5-a-vmsOpenACars-conectividad-2026-09-30.md` — **[SUYA]** la opcion 1 aplicada (tope de puentes a
+  **300 m**, separado del de huecos) y con ella **7 de 7 aeropuertos con `components_after_joins: 1`**: LMML pasa a
+  **1** con el puente nuevo de 298,3 m (conf **0,30**, giro **5,3 grados**, `crosses_runway`). Su §3 convierte
+  nuestra condicion 2 en medible (cuantas observaciones contienen el transito `A1 -> B`) y avisa de que hoy la
+  respuesta es **"0 de 0", que no es "nadie lo rueda"**.- `vmsOpenACars-a-NAVDATA-conectividad-3-2026-09-30.md` — **[NUESTRA]** la decision sobre `A1`<->`B` (**opcion 1**,
+  publicarla con confianza muy baja, con dos condiciones: no obliga a nada hasta medirla, y la juzga el dato real
+  de la base de conocimiento), el quinto bug suyo (el hueco de **1,3 m** de LEMD y la busqueda de 600 nodos) y la
+  lista de **seis de siete** aeropuertos conectados para poder pensar en encender `useNodeId`.
+- `respuesta4-a-vmsOpenACars-conectividad-2026-09-30.md` — **[SUYA]** las uniones que faltan con nombre y
+  distancia: **LEMD era un hueco de 1,3 m** (busqueda limitada a 600 nodos; ahora indice espacial, y pasa a
+  **1 componente**), `unions_missing` nuevo, 6 de 7 conectados y **LMML con `A1`<->`B` a 298,3 m** pidiendo
+  decision nuestra.- `vmsOpenACars-a-NAVDATA-conectividad-2-2026-09-30.md` — **[NUESTRA]** el **cierre del hilo** y el documento a
+  entregar: sus tres correcciones verificadas desde fuera (con la tabla y el invariante), nuestro caso pasando su
+  comprobador, **los dos arreglos hechos y medidos (15 avisos -> 0)**, el corpus en marcha y lo que queda abierto.- `vmsOpenACars-a-NAVDATA-conectividad-2026-09-30.md` — **[NUESTRA]** verificados sus numeros y el
+- `respuesta2-a-vmsOpenACars-conectividad-2026-09-30.md` — **[SUYA]** los **tres descuadres eran suyos y estan
+- `respuesta3-a-vmsOpenACars-conectividad-2026-09-30.md` — **[SUYA]** construida la **prueba de aceptacion**
+  (`check_written_routes`) y **nuestro caso de LMML pasa**: `LMML/05 "T J K L"` se traza **entero y sin
+  heuristica** (4 tramos, puesto a 64,2 m de la red) — la misma ruta que dio 15 avisos de FUERA DE RUTA.
+  Traza en anchura sobre el grafo **publicado** (segmentos + empalmes), con test negativo: sin el empalme,
+  la misma ruta NO es trazable. Esperan nuestro corpus de rutas escritas.
+  corregidos** (`gaps_published` ya sale, contadores deduplicados con el invariante `considered = published +
+  rejected + gaps_unaccounted` y un test que lo fija, y `crosses_runway` ya no es motivo de rechazo -> KMIA
+  pasa a **2 empalmes**). El puente `G|D` de 162,9 grados baja de 0,38 a **0,27**. Formato del corpus aceptado.
+  hallazgo del caso (**`I|F` a 188,3 m es la union que el piloto necesitaba**, publicada gracias al umbral de
+  200 m), **tres descuadres** medidos (falta `gaps_published`, los contadores no cuadran y `crosses_runway`
+  aparece como motivo de rechazo), el formato del corpus de rutas escritas y nuestro plan para el ruido.
+- `respuesta-a-vmsOpenACars-conectividad-2026-09-30.md` — **[SUYA]** el caso destapo **un bug suyo** (solo
+  miraban 4 grupos de componentes, y LMML tiene 5), publican `components_after_joins` (**LMML 5->2, KMIA 2->1**),
+  los puentes usan el umbral de 200 m que propusimos, el cruce de pista ya no se rechaza (`crosses_runway`) y
+  `gaps_unaccounted` = 0 en los siete aeropuertos. Pendiente suyo: la prueba con nuestras rutas escritas.
+  LMML `V15MObj3MxOdAZab`): LMML publica **1 empalme** con **5 componentes** y 24 extremos sueltos, asi que la
+  ruta que el piloto escribe (`T J K L`) **no es trazable** y el cliente la sustituye por la del grafo —que es
+  la que produjo 15 avisos de FUERA DE RUTA en 5 min—. No pide parche de aeropuerto: pide un **criterio comun**
+  (`components = 1`, todo hueco <200 m con empalme o `invalid[]`, `gaps_unaccounted`) y apagar la fusion por
+  proximidad en el cliente a la vez.
 | `PEDIDO-NAVDATA-RUTAS-TAXI.md` | **Equipo de NavData** | Pedido de una base de rutas de rodaje acostumbradas (puesto → pista) que NavData agregue y sirva a toda la comunidad: observaciones, agregación, moderación experta y los tres campos aditivos que hacen falta |
 - `PEDIDO-NAVDATA-EMPALMES-2026-09-29.md` — pedido a NavData de **empalmes calculados** (no curados a
 - `RESPUESTA5-NAVDATA-EMPALMES-2026-09-29.md` — su respuesta: `stats`, `version`, `confidence` y

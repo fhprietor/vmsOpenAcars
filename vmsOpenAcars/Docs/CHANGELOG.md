@@ -2,6 +2,33 @@
 
 ---
 
+## [0.9.19] — 30/09/2026
+
+### Fixed
+
+- **`FUERA DE RUTA` ya no dispara al salir del puesto.** Un puesto no está sobre la red de calles: en el
+  rodaje real de LMML (`V15MObj3MxOdAZab`, ruta escrita a mano `T J K L`) el avión arrancó a **64 m** de
+  la calle más cercana y a **262 m** de la primera calle de su ruta, así que el aviso saltó en el primer
+  sondeo y se re-armó cada 20 s: **15 avisos en cinco minutos** pidiéndole volver a calles del apron
+  que no tenía que usar. Ahora no se avisa hasta que el avión ha estado **una vez dentro de su ruta**
+  (`_wasOnRoute`), que es cuando «estar fuera» significa algo.
+- **El aviso nombra la calle a la que hay que volver**, no la que el avión tiene debajo. Hasta esta
+  versión el campo era `i.ActiveTaxiway`, así que «VUELVE A CALLE F» nombraba **la calle por la que iba
+  el avión** — una orden incoherente — mientras el plan en vigor era otro. Ahora nombra la primera calle
+  del plan; la `Key` sigue siendo la activa, que es lo que distingue una situación de otra.
+- Los dos tests que fijaban el comportamiento anterior se han adaptado: arrancaban fuera de ruta sin
+  haber estado nunca dentro, que no ocurre en un rodaje real. Con dos tests nuevos para las reglas de
+  arriba. **Efecto medido en el vuelo que originó el cambio: 15 avisos → 0.**
+
+### Documented
+
+- **El hilo de conectividad con NavData, cerrado** (11 documentos en `Docs/`, indexados). De un rodaje
+  ruidoso en LMML salieron **cinco bugs suyos** —los cuatro grupos de componentes, los contadores
+  duplicados, `crosses_runway` mal clasificado, `gaps_published` sin publicar y la búsqueda limitada a
+  600 nodos que ocultaba un hueco de **1,3 m** en LEMD— y **dos nuestros**, los de arriba. Verificado
+  desde fuera: **7 de 7 aeropuertos con `components_after_joins: 1`** y uniones que faltan a 0.
+- Queda apuntado, con el dato delante, que **`useNodeId` ya se puede encender**: su bloqueo («sin
+  empalmes publicados deja aeropuertos sin ruta») ha desaparecido.
 ## [0.9.18] — 30/09/2026
 
 ### Changed
