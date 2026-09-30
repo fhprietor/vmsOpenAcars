@@ -3,9 +3,9 @@
 #
 # OJO AL LEERLO: hoy hay UNA sola ruta. Consultados los 37 vuelos del corpus de rodaje
 # (Fixtures/taxi-corpus-2026-09-29.csv, del 29/09), TODOS tienen el campo `Taxi Route` vacio.
-# No es que los pilotos no rueden con ruta: es que el campo solo se envia cuando el popup
-# se confirma con el texto editado, y en esos 37 vuelos el popup no llego a confirmarse asi
-# (o no se abrio, por el filtro de `SameRoute`). La base de conocimiento solo crecera si
-# enviamos tambien la ruta que el piloto ACEPTA, no solo la que teclea.
+# No es que los pilotos no rueden con ruta: el campo solo se guarda desde la version en la que se
+# arreglo el envio. Comprobado: el vuelo de KMIA del 29/09 SI confirmo el popup (su log tiene
+# GUIA DE RODAJE via 28 calles) y su Taxi Route esta vacio, con 0.9.16; el de LMML, con 0.9.18,
+# lo tiene. La base empezara a llenarse sola con clientes 0.9.18 o posteriores.
 icao,runway,ruta_escrita,lat,lon
 LMML,05,"T J K L",35.85055,14.48869

@@ -16,10 +16,18 @@ Es el vuelo que abrió todo este hilo. **No hay más, y no es un error de format
 los **37 vuelos** de nuestro corpus de rodaje (el del 29/09) uno a uno contra `/api/pireps/{id}` y
 **todos tienen el campo `Taxi Route` vacío**, con la versión 0.9.16 ya en vuelo.
 
-La causa es nuestra: **sólo enviamos ese campo cuando el popup de rodaje se confirma con el texto
-editado** por el piloto, así que en los casos en que el popup no se abre —el filtro de `SameRoute`
-evita abrirlo cuando la propuesta no cambia— o se acepta la sugerencia sin tocarla, **no se envía
-nada**. El único vuelo que lo tiene es el que él escribió a mano.
+**La causa no es la falta de uso del popup, y por eso conviene leerlo despacio**: lo comprobamos
+mirando el log de esos vuelos. El del 29/09 en KMIA (`Z8pORZd86Zr68OL1`) **sí confirmó el popup** —
+su log tiene `🎙️ GUÍA DE RODAJE: PISTA 08R VÍA 26 24 Q Q8 T 20 T P S P 16 13 Y1 W Y1 HH JJ M Z M3 M M2 N P Q Q1 M1`
+— y sin embargo su `Taxi Route` está vacío. Ese vuelo se hizo con **0.9.16**; el de LMML, que sí lo
+tiene, con **0.9.18**. Es decir: **el campo sólo se guarda desde la versión en la que se arregló el
+envío**, y los 37 vuelos del corpus de rodaje son anteriores.
+
+Así que no hay nada que arreglar: **la base empezará a llenarse sola** en cuanto los pilotos vuelen con
+0.9.18 o posterior. Lo que sí hace falta es que **usen el popup** —y ahí entra lo nuestro: la ruta que
+el grafo sugiere en ese vuelo de KMIA eran **28 calles** contra las 6 que resultan con identidad por
+nodo, así que una propuesta así no ayuda a que nadie la acepte—.
+El único vuelo que lo tiene es el que él escribió a mano.
 
 Y encaja con lo que nos contasteis vosotros: **«0 de 0» no es «nadie lo rueda»**, y «0 de 37» tampoco.
 Es el mismo hecho medido desde los dos extremos: la base no puede crecer con lo que enviamos hoy.
