@@ -425,7 +425,7 @@ namespace vmsOpenAcars.Services
 
         /// <summary>
         /// Cadencia de reporte de posición según la fase. En rodaje la decide
-        /// <see cref="UpdateIntervalPolicy.TaxiSeconds"/>: **1 s con la guía de rodaje activa** (es lo
+        /// <see cref="UpdateIntervalPolicy.TaxiSeconds"/>: **5 s con la guía de rodaje activa** (es lo
         /// que hace medible la cobertura de la traza para NavData: con 30 s y 9–34 puntos por rodaje
         /// su métrica da mediana 65,0 % y mínima 22,2 %) y **el valor configurado sin ella**, para no
         /// multiplicar por 30 el tráfico del piloto que no usa la guía. La regla vive en el helper

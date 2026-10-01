@@ -445,8 +445,15 @@ Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el
   bloquea—, volumen propio, y **degrada en silencio** si el equipo no tiene voces (lo dice una vez
   en el log). Usa `System.Speech`, que va con .NET Framework: nada que distribuir.
 - **Los avisos se evalúan a 1 Hz sobre la telemetría cruda**, no sobre el envío de posiciones a
-  phpVMS: ese va cada 30 s en rodaje y a 15 kt son ~230 m entre muestras, demasiado para avisar a
-  150 m de un hold-short.
+  phpVMS: ese iba cada 30 s en rodaje y a 15 kt son ~230 m entre muestras, demasiado para avisar a
+  150 m de un hold-short. **Con la guía activa baja a 5 s desde 0.9.23** (`UpdateIntervalPolicy`,
+  que decide las **tres** puertas que lo frenaban: el intervalo, el suelo de envío y el umbral de
+  deduplicación de `HasSignificantChange`); **sin guía no cambia nada**. Y desde 0.9.23 el cliente
+  **publica su ruta propuesta** por `POST /taxi-routes/observations` (`planned` con `text`, `runway`,
+  `polyline` y `dataset_version`), una vez por vuelo, para que la regla «no empeora» de NavData sea
+  calculable: la **polilínea antes no existía** (`RouteSuggestion.Polyline`, recortada a 500 puntos
+  por `PolylineResampler`). Lo que el piloto **escribe** sigue yendo al campo `Taxi Route` del PIREP,
+  que no es lo mismo.
 - **`FUERA DE RUTA` y `RUTA COMPLETA` (v0.9.15)**: el primero exige **15 s** fuera de ruta
   **sin acercarse** a la pista (≥50 m respecto al punto más cercano del episodio) — la ruta del
   grafo y la de ATC llegan al mismo sitio por calles distintas, y en el rodaje real eso produjo 8
