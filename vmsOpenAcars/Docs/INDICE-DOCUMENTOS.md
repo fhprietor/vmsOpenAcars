@@ -1,7 +1,7 @@
 > **Convención de nombres (2026-10-01, sustituye a VMSOPENACARS/NAVDATA):** el nombre dice **quién escribe y a quién**, no de quién es el fichero:
 > `AAAA-MM-DD_<DE>_<PARA>_<hilo>_<n>_<asunto>.md` — p. ej. `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_03_carta-...md` es **de NavData, para nosotros**, del 01/10, hilo *generador-rutas*, mensaje **nº 3**. La **fecha delante** hace que el orden alfabético sea el cronológico.
 > Los ficheros **históricos no se renombran** (los referencia `CLAUDE.md`): la regla aplica de aquí en adelante. Los de hoy sí se han renombrado.
-> **Generador de rutas, estado:** nuestros #1 (`..._01_cinco-condiciones`) → su #2 (`respuesta-a-vmsOpenACars-generador-rutas-2026-10-01.md`, llegó ~17 min antes y **no está en Docs: queda SUPERADO**) → su #3, en tres ficheros (carta + anexo1 + anexo2) → nuestro #4 (`..._04_tanda-1.json` + `..._04_portada-tanda-1.md`) → nuestro #5 (`..._05_errata-propuesta.md`) → **su #6, que es lo último** del hilo (`..._06_medicion-tanda-1.md` + `..._06_metricas-tanda-1.csv`).
+> **Generador de rutas, estado:** nuestros #1 (`..._01_cinco-condiciones`) → su #2 (`respuesta-a-vmsOpenACars-generador-rutas-2026-10-01.md`, llegó ~17 min antes y **no está en Docs: queda SUPERADO**) → su #3, en tres ficheros (carta + anexo1 + anexo2) → nuestro #4 (`..._04_tanda-1.json` + `..._04_portada-tanda-1.md`) → nuestro #5 (`..._05_errata-propuesta.md`) → **su #6** (`..._06_medicion-tanda-1.md` + `..._06_metricas-tanda-1.csv`, la tanda 1 medida con dos lecturas de la métrica 4: 0 o 22) → **nuestro #7** (`..._07_decisiones-medicion.md`, cerramos la métrica 4 **con nuestra regla**, pedimos los dos empalmes de LMML y la tabla de coste) → **su #8** (`..._08_metrica-4-cerrada.md` + `..._08_metricas-su-regla.csv`: con nuestra definición la métrica 4 daba **9 eventos en 33 rutas** y **no pasaba**) → **nuestro #9** (`..._09_regla-metrica-4-y-baseline.md`, la regla de verdad —el progreso es la **distancia recta al umbral**—, sí a la traza a 1 Hz y baseline (ii)) → **su #10** (`..._10_metrica-4-no-aplica-y-erratas.md`: la métrica 4 **no aplica** con el corpus actual, dos erratas de forma y la forma de la polilínea aprobada) → **nuestro #11, que es lo último** (`..._11_forma-baseline-y-cruce-de-pista.md`: aceptamos que la métrica 4 no aplica, confirmamos la forma y el transporte, y pedimos por escrito el cruce de pista en `crossings`).
 # ÍNDICE DE DOCUMENTOS — `Docs/`
 
 > **Para qué sirve:** saber de un vistazo **de qué hilo es cada documento** y, sobre todo,
@@ -111,14 +111,37 @@ renombrarlos rompería enlaces. La regla aplica **solo a lo que se cree desde 20
 | 6 | `2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_04_tanda-1.json` | 2026-10-01 | [VMSOPENACARS] | **Nuestro #4:** la tanda 1 entregada (38 rodajes) en el JSON del anexo 2, para arrancar la fase 2. |
 | 7 | `2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_04_portada-tanda-1.md` | 2026-10-01 | [VMSOPENACARS] | **Nuestro #4, portada:** qué contiene la tanda y las decisiones de entrega (nulos declarados, no inferidos). |
 | 8 | `2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_05_errata-propuesta.md` | 2026-10-01 | [VMSOPENACARS] | **Nuestro #5:** errata de su propuesta (el «más barata» sin coste publicado, la frase «ninguno por encima de 10°» y la aritmética de LMML). |
-| 9 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_06_medicion-tanda-1.md` | 2026-10-01 | [NAVDATA] | **Su #6 (lo último):** la tanda 1 medida — 3 de 6 umbrales, cobertura 65 %, lateral 6,7 m y la métrica 4 con **dos lecturas (0 o 22)** según la definición. |
+| 9 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_06_medicion-tanda-1.md` | 2026-10-01 | [NAVDATA] | **Su #6:** la tanda 1 medida — 3 de 6 umbrales, cobertura 65 %, lateral 6,7 m y la métrica 4 con **dos lecturas (0 o 22)** según la definición. |
 | 10 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_06_metricas-tanda-1.csv` | 2026-10-01 | [NAVDATA] | **Su #6, adjunto:** el detalle por ruta de la medición, 38 filas. |
+| 11 | `2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_07_decisiones-medicion.md` | 2026-10-01 | [VMSOPENACARS] | **Nuestro #7:** aceptamos la tanda 1 y cerramos la métrica 4 con **nuestra** definición (15 s fuera de ruta sin progresar → 0 eventos), aceptamos la enmienda de cobertura, excluimos la métrica 3 y pedimos los dos empalmes de LMML y la tabla de coste. Preferimos la salida (ii) para la baseline. |
+| 12 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_08_metrica-4-cerrada.md` | 2026-10-01 | [NAVDATA] | **Su #8:** con **nuestra** definición la métrica 4 da **9 eventos en 33 rutas** (8 rutas con al menos un aviso) y **no pasa** el umbral 0; cierra las cuatro decisiones y explica las dos discrepancias de forma. |
+| 13 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_08_metricas-su-regla.csv` | 2026-10-01 | [NAVDATA] | **Su #8, adjunto:** el CSV de #6 con **una sola columna re-medida** (`false_offroute_events`: 0 → 9); las otras 23 columnas son idénticas. |
+| 14 | `2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_09_regla-metrica-4-y-baseline.md` | 2026-10-01 | [VMSOPENACARS] | **Nuestro #9:** la **regla de verdad** de la métrica 4 en el código (el disparador es comparar **nombres**, y el progreso es la **distancia recta al umbral**), la traza a 1 Hz y la **baseline (ii)** confirmada. |
+| 15 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_10_metrica-4-no-aplica-y-erratas.md` | 2026-10-01 | [NAVDATA] | **Su #10:** la **métrica 4 no aplica** con el corpus actual (37/38 sin ruta escrita: sin plan el motor no emite `FUERA DE RUTA`; en LMML, **0**), las **dos erratas de forma** (mediana **67,95 m**, `SKRG/01` vs `SKRG/19`), la **forma de la polilínea** aprobada —transporte por su endpoint de observaciones con un campo `planned`, 500 puntos y cuerpo a 256 KB— y los **siete valores por defecto cerrados**. |
+| 16 | `2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_11_forma-baseline-y-cruce-de-pista.md` | 2026-10-01 | [VMSOPENACARS] | **Nuestro #11:** aceptamos que la métrica 4 **no aplica** (el 0 de 37/38 es **estructural**, no medido), confirmamos la **forma y el transporte** de la polilínea, decimos sí a la **traza a 1 Hz**, pedimos **tres reglas metodológicas**, señalamos **dos incoherencias de forma** de #10 y pedimos por escrito el tratamiento del **cruce de pista** (`crossings`). |
 
-> **ÚLTIMO DE ESTE HILO: `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_06_medicion-tanda-1.md`** [NAVDATA],
-> con su adjunto `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_06_metricas-tanda-1.csv`.
-> Responde a nuestros **#4** (`…_04_tanda-1.json` + `…_04_portada-tanda-1.md`) y **#5**
-> (`…_05_errata-propuesta.md`): la medición rebate la cobertura, confirma lateral y empalmes, y deja
-> la métrica 4 y la de ruta escrita pendientes de una definición nuestra.
+> **ÚLTIMO DE ESTE HILO: `2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_11_forma-baseline-y-cruce-de-pista.md`** [VMSOPENACARS] (fila 16).
+> Responde a **su #10** (`2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_10_metrica-4-no-aplica-y-erratas.md`, fila 15):
+> **nuestro #11** acepta que la métrica 4 **no aplica** en esta tanda —el 0 de 37/38 es
+> **estructural**, no medido—, confirma la **forma y el transporte** de la polilínea (con el tope a
+> **500 puntos** y cuerpo a **256 KB**), dice sí a la **traza a 1 Hz**, pide **tres reglas metodológicas**,
+> señala **dos incoherencias de forma** de #10 y pide por escrito el tratamiento del **cruce de pista**
+> (`crossings`).
+> **Su #10** respondía a **nuestro #9** (`2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_09_regla-metrica-4-y-baseline.md`,
+> fila 14): declara la métrica 4 **no aplicable** en esa tanda —su número queda como cota/inferencia y no
+> como dato—, acepta las **dos erratas de forma**, aprueba la **forma de la polilínea** con su transporte
+> y su tope, y cierra los **siete valores por defecto**. Queda como
+> **anterior**: su #8 (`2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_08_metrica-4-cerrada.md` +
+> `…_08_metricas-su-regla.csv`, filas 12–13), que respondía a **nuestro #7** (fila 11) y cerraba las
+> **cuatro decisiones** de #6: métrica 4 con nuestra regla (**9**, cota inferior: la traza va
+> a 30 s por punto), enmienda de cobertura aceptada (65,0 % y 73,3 %), métrica 3 excluida **sin** mínimo
+> de muestra, y baseline por la **salida (ii)** —persistir la polilínea y el texto que propone el
+> cliente—, cuya versión de entrada **nos piden**. Da ya los **dos empalmes** de LMML (`J` 23,2 m e
+> `I|F` 188,3 m → **211,5 m**, el 5,4 % de 3.914 m) y la tabla de coste con `k = 0,5`.
+> **La medición anterior (#9–#10)**, su #6, respondía a nuestros **#4** (`…_04_tanda-1.json` +
+> `…_04_portada-tanda-1.md`) y **#5** (`…_05_errata-propuesta.md`): rebatía la cobertura, confirmaba
+> lateral y empalmes, y dejaba la métrica 4 y la de ruta escrita pendientes de una definición nuestra
+> —que es justo lo que cerró **#8**—.
 > Los tres ficheros de arriba (#3–#5) llegaron el **2026-10-01** como **un solo mensaje** —su carta es
 > #3 y #4–#5 son sus anexos 1 y 2, en ese orden de lectura—, así que **su mensaje #3 es la carta**, la del
 > `_03_` `cinco-condiciones-aceptadas`: era la que llevaba el criterio de la fase 3 pre-registrado y la
