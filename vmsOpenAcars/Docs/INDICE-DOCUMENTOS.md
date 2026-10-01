@@ -1,7 +1,7 @@
 > **Convención de nombres (2026-10-01, sustituye a VMSOPENACARS/NAVDATA):** el nombre dice **quién escribe y a quién**, no de quién es el fichero:
 > `AAAA-MM-DD_<DE>_<PARA>_<hilo>_<n>_<asunto>.md` — p. ej. `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_03_carta-...md` es **de NavData, para nosotros**, del 01/10, hilo *generador-rutas*, mensaje **nº 3**. La **fecha delante** hace que el orden alfabético sea el cronológico.
 > Los ficheros **históricos no se renombran** (los referencia `CLAUDE.md`): la regla aplica de aquí en adelante. Los de hoy sí se han renombrado.
-> **Generador de rutas, estado:** nuestros #1 (`..._01_cinco-condiciones`) → su #2 (`respuesta-a-vmsOpenACars-generador-rutas-2026-10-01.md`, llegó ~17 min antes y **no está en Docs: queda SUPERADO**) → su #3, en tres ficheros (carta + anexo1 + anexo2), que es **lo último** del hilo.
+> **Generador de rutas, estado:** nuestros #1 (`..._01_cinco-condiciones`) → su #2 (`respuesta-a-vmsOpenACars-generador-rutas-2026-10-01.md`, llegó ~17 min antes y **no está en Docs: queda SUPERADO**) → su #3, en tres ficheros (carta + anexo1 + anexo2) → nuestro #4 (`..._04_tanda-1.json` + `..._04_portada-tanda-1.md`) → nuestro #5 (`..._05_errata-propuesta.md`) → **su #6, que es lo último** del hilo (`..._06_medicion-tanda-1.md` + `..._06_metricas-tanda-1.csv`).
 # ÍNDICE DE DOCUMENTOS — `Docs/`
 
 > **Para qué sirve:** saber de un vistazo **de qué hilo es cada documento** y, sobre todo,
@@ -108,12 +108,21 @@ renombrarlos rompería enlaces. La regla aplica **solo a lo que se cree desde 20
 | 3 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_03_carta-cinco-condiciones-aceptadas.md` | 2026-10-01 | [NAVDATA] | Carta de la respuesta: acepta las cinco condiciones, reproduce LMML y pre-registra las cinco métricas de la fase 3. |
 | 4 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_03_anexo1-errata-propuesta.md` | 2026-10-01 | [NAVDATA] | **Anexo 1:** corrige la propuesta (el giro de 45° inventado, `joins_used: []`, la cita de §4.3) sin tocar el original, con su `sha256` verificado. |
 | 5 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_03_anexo2-formato-tanda-1.md` | 2026-10-01 | [NAVDATA] | **Anexo 2:** formato JSON de la tanda 1 que hay que entregar para arrancar la fase 2. |
+| 6 | `2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_04_tanda-1.json` | 2026-10-01 | [VMSOPENACARS] | **Nuestro #4:** la tanda 1 entregada (38 rodajes) en el JSON del anexo 2, para arrancar la fase 2. |
+| 7 | `2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_04_portada-tanda-1.md` | 2026-10-01 | [VMSOPENACARS] | **Nuestro #4, portada:** qué contiene la tanda y las decisiones de entrega (nulos declarados, no inferidos). |
+| 8 | `2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_05_errata-propuesta.md` | 2026-10-01 | [VMSOPENACARS] | **Nuestro #5:** errata de su propuesta (el «más barata» sin coste publicado, la frase «ninguno por encima de 10°» y la aritmética de LMML). |
+| 9 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_06_medicion-tanda-1.md` | 2026-10-01 | [NAVDATA] | **Su #6 (lo último):** la tanda 1 medida — 3 de 6 umbrales, cobertura 65 %, lateral 6,7 m y la métrica 4 con **dos lecturas (0 o 22)** según la definición. |
+| 10 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_06_metricas-tanda-1.csv` | 2026-10-01 | [NAVDATA] | **Su #6, adjunto:** el detalle por ruta de la medición, 38 filas. |
 
-> **ÚLTIMO DE ESTE HILO: `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_03_carta-cinco-condiciones-aceptadas.md`** [NAVDATA].
+> **ÚLTIMO DE ESTE HILO: `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_06_medicion-tanda-1.md`** [NAVDATA],
+> con su adjunto `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_06_metricas-tanda-1.csv`.
+> Responde a nuestros **#4** (`…_04_tanda-1.json` + `…_04_portada-tanda-1.md`) y **#5**
+> (`…_05_errata-propuesta.md`): la medición rebate la cobertura, confirma lateral y empalmes, y deja
+> la métrica 4 y la de ruta escrita pendientes de una definición nuestra.
 > Los tres ficheros de arriba (#3–#5) llegaron el **2026-10-01** como **un solo mensaje** —su carta es
-> #3 y #4–#5 son sus anexos 1 y 2, en ese orden de lectura—, así que **el último es la carta**, la del
-> `_03_` `cinco-condiciones-aceptadas`: es la que lleva el criterio de la fase 3 pre-registrado y lo
-> que hay que contestar. Los tres comparten el `_03_` del nombre porque quien los bautizó los numeró
+> #3 y #4–#5 son sus anexos 1 y 2, en ese orden de lectura—, así que **su mensaje #3 es la carta**, la del
+> `_03_` `cinco-condiciones-aceptadas`: era la que llevaba el criterio de la fase 3 pre-registrado y la
+> que había que contestar. Los tres comparten el `_03_` del nombre porque quien los bautizó los numeró
 > como un único mensaje.
 >
 > **Tres avisos sobre #3–#5, que se copiaron con el nombre que traían (no se renombran aquí):**
