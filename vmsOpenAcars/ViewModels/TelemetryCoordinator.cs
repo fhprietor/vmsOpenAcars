@@ -1311,11 +1311,31 @@ namespace vmsOpenAcars.ViewModels
         /// `null` —no se fabrica—. Los `node_ids` no se mandan: el grafo todavía funde nodos por
         /// proximidad (`useNodeIds = false`), así que no podemos afirmar una identidad de nodo que no
         /// estamos usando para enrutar.
+        ///
+        /// **Apagado por defecto** (`taxi_planned_observation_enabled`): su validador de ingesta
+        /// rechaza hoy este cuerpo (`missing_stand`, `route_too_short`), así que no se publica
+        /// hasta que exista su almacén `TaxiRoutePlanned`. Ver
+        /// <see cref="TaxiPlannedObservationPolicy"/>.
         /// </summary>
         private void PublishPlannedRoute(string airport, string runway,
                                          TaxiGraph.RouteSuggestion proposal)
         {
-            if (proposal == null || !proposal.Found || proposal.Polyline.Count < 2) return;
+            // ── POR QUÉ ESTO PUEDE QUEDARSE EN NADA ───────────────────────────────────────────
+            // NavData (01/10/2026) nos dijo que su validador de ingesta **rechaza hoy** este
+            // cuerpo por dos motivos exactos: **`missing_stand`** —el `planned` no lleva
+            // `stand`— y **`route_too_short`** —`route` es obligatorio con **≥2 calles**, y la
+            // propuesta **no** puede ir en `route`, va en `planned`—. Hasta que publiquen su
+            // almacén propio (`TaxiRoutePlanned`, con su migración de MariaDB) y nos digan la
+            // forma exacta, cada vuelo guiado mandaba una petición condenada: no rompía nada
+            // (va en segundo plano y se registra una vez), pero era ruido en su log y en el
+            // nuestro. `taxi_planned_observation_enabled` (apagado por defecto) la enciende
+            // **sin recompilar** el día que el almacén exista. La salida es **antes** de
+            // construir el cuerpo y de tocar `NavDataClient`: apagado, no se sale a la red.
+            if (!TaxiPlannedObservationPolicy.ShouldPublish(
+                    AppConfig.TaxiPlannedObservationEnabled,
+                    proposal?.Found == true,
+                    proposal?.Polyline?.Count ?? 0))
+                return;
 
             string body;
             try

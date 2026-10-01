@@ -2,6 +2,22 @@
 
 ---
 
+## [0.9.24] — 01/10/2026
+
+### Changed
+
+- **El envío de la ruta propuesta queda APAGADO por defecto**, tras la opción
+  `taxi_planned_observation_enabled` (`AppConfig.TaxiPlannedObservationEnabled`, `false` si falta o
+  está mal escrita). **El motivo es suyo, no nuestro**: el validador de la ingesta de NavData
+  **rechaza** el cuerpo que enviamos —falta **`stand`** (`missing_stand`) y **`route` es obligatorio
+  con ≥2 calles** (`route_too_short`), y la propuesta **no** puede ir en `route`— y van a montar un
+  almacén propio (`TaxiRoutePlanned`) con migración, avisándonos con la forma exacta. Hasta entonces
+  cada vuelo guiado mandaba una petición condenada: no rompía nada, pero era ruido en su log y en el
+  nuestro. Con el interruptor apagado **no se construye el cuerpo ni se llama al cliente HTTP** —no se
+  sale a la red—, y el día que publiquen el almacén se enciende **sin recompilar**.
+  La política es pura y con test (`TaxiPlannedObservationPolicy`): apagado no publica ni con una ruta
+  perfecta, y encendido sigue exigiendo ruta encontrada y **≥2 puntos** de polilínea. **350/350**.
+
 ## [0.9.23] — 01/10/2026
 
 ### Added

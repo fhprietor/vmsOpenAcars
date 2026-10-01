@@ -184,6 +184,7 @@
     <Compile Include="Helpers\RouteCorridor.cs" />
     <Compile Include="Helpers\TaxiGraph.cs" />
     <Compile Include="Helpers\TaxiRouteObservation.cs" />
+    <Compile Include="Helpers\TaxiPlannedObservationPolicy.cs" />
     <Compile Include="Helpers\RaasAdvisor.cs" />
     <Compile Include="Helpers\FireAndForget.cs" />
     <Compile Include="Helpers\SystemInfoHelper.cs" />

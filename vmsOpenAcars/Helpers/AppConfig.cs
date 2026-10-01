@@ -157,6 +157,17 @@ namespace vmsOpenAcars.Helpers
             set => _raasVolume = value;
         }
 
+        // ── Observación de la ruta de rodaje PROPUESTA (`planned`) ────────────────
+        // Nace **apagado** y sin campo en Settings: no es una preferencia del piloto, es un
+        // interruptor de distribución que se enciende **sin recompilar** el día que NavData
+        // publique su almacén `TaxiRoutePlanned`. Su validador de ingesta **rechaza hoy** el
+        // cuerpo por `missing_stand` y `route_too_short` (ver
+        // `Helpers/TaxiPlannedObservationPolicy.cs`), así que cada vuelo guiado mandaba una
+        // petición condenada. Si la clave falta o está mal escrita, `GetBool` cae al `false`:
+        // degradar sin datos es la regla del repo.
+        public static bool TaxiPlannedObservationEnabled
+            => GetBool("taxi_planned_observation_enabled", false);
+
         /// <summary>Idioma de la interfaz ("es"/"en"): lo usa la voz del RAAS para elegir timbre.</summary>
         public static string Language => ConfigurationManager.AppSettings["language"] ?? "es";
 

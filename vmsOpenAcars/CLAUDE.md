@@ -422,7 +422,7 @@ Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el
 - **Cuándo (v0.9.17)**: el popup sale **después del pushback**, nunca durante. Las tres salidas para
   abrirlo son el fin del empuje (freno puesto), la luz de taxi ya con el avión libre y `TaxiOut`
   para un puesto remoto; además, **«Cambiar ruta de rodaje (ATC)»** en el menú de la bandeja se
-  salta el «una vez por vuelo» y el filtro de «la ruta no cambió», y recalcula desde la posición
+  salta el «una vez por vuelo (**apagado por defecto desde 0.9.24** hasta que NavData publique su almacén: `taxi_planned_observation_enabled`; con el interruptor apagado no se construye el cuerpo ni se sale a la red)» y el filtro de «la ruta no cambió», y recalcula desde la posición
   actual. El popup trae la lista de pistas (por defecto la del OFP, `SimbriefPlan.OriginRunway`), la
   ruta editable que sugiere el grafo y los ajustes de RAAS.
 - **Avisos** (`Helpers/RaasAdvisor.cs`, puro y con estado): `APROXIMANDO PISTA` y `ESPERA ANTES DE
@@ -438,7 +438,7 @@ Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el
   hasta el umbral de la pista → secuencia de calles; resuelve también el cruce y el lado del giro.
   El `node_id` está implementado y **apagado**. Desde 0.9.23 el cliente **publica su ruta propuesta**
   (`planned` con `text`, `runway`, `polyline` y `dataset_version`) por
-  `POST /taxi-routes/observations`, una vez por vuelo.
+  `POST /taxi-routes/observations`, una vez por vuelo (**apagado por defecto desde 0.9.24** hasta que NavData publique su almacén: `taxi_planned_observation_enabled`; con el interruptor apagado no se construye el cuerpo ni se sale a la red).
 - **Voz SAPI** (`Services/RaasVoice.cs`): cola FIFO en hilo propio —el hilo de telemetría nunca se
   bloquea—, volumen propio, y **degrada en silencio** si el equipo no tiene voces (lo dice una vez
   en el log). Usa `System.Speech`, que va con .NET Framework: nada que distribuir.
@@ -553,7 +553,7 @@ anterior).
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **343 tests**:
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **350 tests**:
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
@@ -690,7 +690,7 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   Se arregla convirtiendo antes de comparar, y **el dato ya está** (30/09/2026): `mag_var` se publica
   en `/airport/{icao}/` y en `/runways/` (medido: **-8,58** en SKBO, **-13,73** en KBOS, +0,68 en LEMD). La
   evidencia del KBOS fija el signo: 19° verdadero contra 33,4 magnético con `mag_var` -13,73 →
-  **`magnético = verdadero − mag_var`**, dentro de 0,7°. **HECHA (0.9.21, 01/10/2026): la conversion esta en `MagVar` y en las tres comparaciones** en `Models/NavData.cs` (campo `MagVar`, 0 por defecto = degrada sin datos) y `Services/NavDataService.cs` (tres sitios que comparan el rumbo de la pista con el del avion: `rwy.Heading + rwy.MagVar`). Compila y **343/343**. Comprobado con el dato real de KBOS: 33,4 magnetico con mag_var -13,73 da **19,67 verdadero**, que es el rumbo del eje que marcaba el avion. **Cerrado en 0.9.21** con el test sobre el fixture real `KbosRwy04R()` (**343/343**): a 2 grados del eje verdadero la pista se reconoce con la variacion, y **sin** ella el aviso queda fuera de los 15 por el sesgo de 13,73, o sea el fallo queda fijado. Los tres sitios son `SelectApproachThreshold` (L77) y **dos dentro de `ProjectOnRunway`** (L540 y L560), que es la que decide en que pista esta el avion: el sesgo tambien ensuciaba eso. Simplificacion futura anotada, no bloqueo: comparar contra el rumbo verdadero geometrico (`TrueRunwayBearing`) en vez de depender de `mag_var`.
+  **`magnético = verdadero − mag_var`**, dentro de 0,7°. **HECHA (0.9.21, 01/10/2026): la conversion esta en `MagVar` y en las tres comparaciones** en `Models/NavData.cs` (campo `MagVar`, 0 por defecto = degrada sin datos) y `Services/NavDataService.cs` (tres sitios que comparan el rumbo de la pista con el del avion: `rwy.Heading + rwy.MagVar`). Compila y **350/350**. Comprobado con el dato real de KBOS: 33,4 magnetico con mag_var -13,73 da **19,67 verdadero**, que es el rumbo del eje que marcaba el avion. **Cerrado en 0.9.21** con el test sobre el fixture real `KbosRwy04R()` (**350/350**): a 2 grados del eje verdadero la pista se reconoce con la variacion, y **sin** ella el aviso queda fuera de los 15 por el sesgo de 13,73, o sea el fallo queda fijado. Los tres sitios son `SelectApproachThreshold` (L77) y **dos dentro de `ProjectOnRunway`** (L540 y L560), que es la que decide en que pista esta el avion: el sesgo tambien ensuciaba eso. Simplificacion futura anotada, no bloqueo: comparar contra el rumbo verdadero geometrico (`TrueRunwayBearing`) en vez de depender de `mag_var`.
   **No usar la puerta doble** (aceptar magnético *o* verdadero): el filtro que para el falso desvío
   de KOWD es justamente el cono angular, y ensancharlo lo reabriría.
 

@@ -80,6 +80,7 @@
     <Compile Include="TaxiSuggestionKmIaTests.cs" />
     <Compile Include="TaxiPolylineTests.cs" />
     <Compile Include="TaxiRouteObservationTests.cs" />
+    <Compile Include="TaxiPlannedObservationPolicyTests.cs" />
     <Compile Include="UpdateIntervalPolicyTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
