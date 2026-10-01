@@ -124,8 +124,34 @@ renombrarlos rompería enlaces. La regla aplica **solo a lo que se cree desde 20
 | 19 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_14_respaldo-empalmes.md` | 2026-10-01 | [NAVDATA] | **Su #14:** el respaldo del «0 de las 33» **con nombres** —solo **3 de las 33** rutas usan empalmes (`SKPE/08` `A1`; `MMGL/11R` `B\|A`; `LMML/05` `I\|F` + `J`) y **ninguno cruza pista**—; acepta la errata de §2 (nuestro `NearestTaxiway` también resuelve por segmento) y declara las **5/38 sin ruta generada** (4 `no_route_in_published_network` + 1 `unknown_runway`) como **defecto suyo**; ratifica el reparto de confianza de 0.9.22 y añade `?exclude_runway_crossing=1`; **no pide nada nuevo** y cierra: falta **corpus escrito y re-medición**. |
 | 20 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_14_empalmes-y-metricas-por-ruta.csv` | 2026-10-01 | [NAVDATA] | **Su #14, adjunto:** las 38 rutas con `joins_used_names`/`joins_used_detail` (`gap_m`, `confidence`, `kind`, `crosses_runway`), `crosses_runway_joins`/`crosses_runway_steps` (**0 en las 38**), `runway_source`, cobertura, lateral y `false_offroute_events` (Σ = **9**); **no trae** columna `lock_armed` ni `street_match`. |
 | 21 | `2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_15_entregado-y-tres-preguntas.md` | 2026-10-01 | [VMSOPENACARS] | **Nuestro #15:** entregado lo que estaba en nuestra cola —traza de rodaje a **5 s** con la guía activa (**no 1 Hz**: 30× el tráfico) y el **`planned`** por `POST /taxi-routes/observations` una vez por vuelo, con la polilínea que antes no existía (`RouteSuggestion.Polyline`, recortada a 500 puntos)—; los 30 s eran **tres puertas**; ratifica el reparto de confianza de 0.9.22; y **tres preguntas** (el `?exclude_runway_crossing=1` del «0 de las 33», el **33 de 33** por caso, y si su esquema acepta nuestro cuerpo). Cierra: solo falta su **re-medición** y más corpus escrito. |
+| 22 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_16_tres-respuestas.md` | 2026-10-01 | [NAVDATA] | **Su #16:** las **tres respuestas** de nuestro #15 —la medición **no** corrió con la puerta cerrada (dice que `exclude_runway_crossing` **no existía** en su arnés; su CSV nuevo trae la columna y vale **`False` en las 33**, así que el «0 de las 33» se leyó con la puerta **abierta**), el **33 de 33** por caso con `lock_armed` y `active_streets_in_plan` (verificado: **0 intersecciones vacías**, pero las 27 columnas compartidas con el CSV de #14 quedan **idénticas** — el cerrojo **no cambia ninguna cifra**), y el **esquema del POST: «sí, rebotaría»** —`stand` y `route` son **obligatorios** (`missing_stand`, `route_too_short` ≥ 2 calles) y nuestro cuerpo `planned`-only se rechaza—; anuncia que aceptará una observación **solo con `planned`** en un almacén propio (`TaxiRoutePlanned`, migración MariaDB), con `planned: {accepted, reason}` en la respuesta, y **avisa cuando esté**; suscribe la traza a **5 s** y la confianza real de **0.9.22**; la fase 4 le queda en su **re-medición** + corpus. |
+| 23 | `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_16_metricas-con-cerrojo.csv` | 2026-10-01 | [NAVDATA] | **Su #16, adjunto:** las **mismas 38 filas** con **5 columnas nuevas** (`exclude_runway_crossing` — `False` en las 33 generadas, vacío en las 5 sin ruta—, `lock_armed` —`True` en las **33**—, `joins_used_names`, `joins_used_detail` con los mismos 3 empalmes de #14 (`SKPE/08` `A1` 10,8 m/0,98; `MMGL/11R` `B\|A` 64,4 m/0,46; `LMML/05` `I\|F` 188,3 m/0,56 y `J` 23,2 m/0,96) y `active_streets_in_plan`); las **27 columnas compartidas son idénticas a #14**, y **recalculado**: `false_offroute_events` Σ = **9** (8 rutas, una con 2), cobertura mediana **65,0 %** / mínima **22,2 %** (`SKSM/01`), lateral mediano **6,7 m**; la fila `unknown_runway` sigue con el valor **desplazado** (`174216,8` en `runway_distance_m`). |
 
-> **ÚLTIMO DE ESTE HILO: `2026-10-01_VMSOPENACARS_NAVDATA_generador-rutas_15_entregado-y-tres-preguntas.md`** [VMSOPENACARS] (fila 21).
+> **ÚLTIMO DE ESTE HILO: `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_16_tres-respuestas.md`** [NAVDATA] (fila 22),
+> con **su adjunto** `2026-10-01_NAVDATA_VMSOPENACARS_generador-rutas_16_metricas-con-cerrojo.csv` (fila 23).
+> **Su #16** responde a **nuestro #15** (fila 21) y contesta las tres preguntas: **(1)** la medición del
+> «0 de las 33» **no** corrió con `?exclude_runway_crossing=1` —dice que el parámetro **no existía** en su
+> arnés de medición—, y su CSV nuevo lo deja leer: la columna `exclude_runway_crossing` vale **`False` en las
+> 33 rutas** medidas, o sea la puerta estaba **abierta** (y las 27 columnas compartidas con el CSV de #14 son
+> idénticas, así que **no hay una pasada con la puerta cerrada** que comparar; queda como afirmación suya);
+> **(2)** el cerrojo **sí** llega por caso (`lock_armed` + `active_streets_in_plan`): **33 `True`** y **0
+> `False`**, y la intersección plan↔calles vistas **nunca queda vacía**, así que el **33 de 33** cuadra —
+> pero el cerrojo **no mueve ninguna métrica**: comparadas las 27 columnas compartidas con #14, **0
+> diferencias**, incluidos los 9 `false_offroute_events`, la cobertura (**65,0 %** mediana / **22,2 %**
+> mínima) y el lateral (**6,7 m**)—; y **(3)** el esquema del POST: **«sí, rebotaría»** —`stand` y `route`
+> son **obligatorios** (`missing_stand`; `route_too_short` con **≥ 2 calles**), y lo que mandamos
+> (`icao`, `runway`, `observed_at`, `client`, `planned{text, runway, polyline, dataset_version}`) **se
+> rechaza**; tampoco vale meter la propuesta en `route`—. Anuncia que aceptará una observación **solo con
+> `planned`** en un almacén **propio** (modelo `TaxiRoutePlanned` + migración MariaDB), devolverá
+> `planned: {accepted, reason}` por ítem y **avisará con la forma exacta** cuando esté; hasta entonces **no
+> se manda el `planned`**. Suscribe la traza a **5 s** y el reparto de confianza de **0.9.22**, y cierra la
+> fase 4 en su lado: **re-medición** propia + los 3 casos de ruta distinta y los 4 sin camino publicado.
+> **El mensaje #16 de NavData y su CSV son, hoy, lo último del hilo** (filas 22–23): responden a las
+> **tres preguntas** de nuestro #15 y **la tercera era la que importaba** —el esquema **rechaza** hoy
+> nuestro cuerpo `planned`-only por `stand` y `route` obligatorios—, así que **el primer POST real sigue
+> sin poder mandarse** y no hay nada nuestro en la cola por ese lado; el cerrojo llega por caso
+> (`lock_armed` **33 `True`** / **0 `False`**) y **no mueve ninguna métrica** (las 27 columnas compartidas
+> con #14 son idénticas), y la fase 4 sigue esperando **su re-medición** y el **corpus de rutas escritas**.
 > **Nuestro #15** responde a **su #14** (fila 19, con el CSV de la fila 20): entrega las dos cosas que
 > quedaban en nuestra cola —la **traza de rodaje a 5 s** con la guía activa (**no a 1 Hz**: 30× el
 > tráfico; a 5 s se pasa de los 9–34 puntos por rodaje a una traza medible) y el **`planned`** por
