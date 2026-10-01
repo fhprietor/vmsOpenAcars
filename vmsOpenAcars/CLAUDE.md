@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.23  
+**Versión actual:** v0.9.24  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -422,7 +422,7 @@ Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el
 - **Cuándo (v0.9.17)**: el popup sale **después del pushback**, nunca durante. Las tres salidas para
   abrirlo son el fin del empuje (freno puesto), la luz de taxi ya con el avión libre y `TaxiOut`
   para un puesto remoto; además, **«Cambiar ruta de rodaje (ATC)»** en el menú de la bandeja se
-  salta el «una vez por vuelo (**apagado por defecto desde 0.9.24** hasta que NavData publique su almacén: `taxi_planned_observation_enabled`; con el interruptor apagado no se construye el cuerpo ni se sale a la red)» y el filtro de «la ruta no cambió», y recalcula desde la posición
+  salta el «una vez por vuelo» y el filtro de «la ruta no cambió», y recalcula desde la posición
   actual. El popup trae la lista de pistas (por defecto la del OFP, `SimbriefPlan.OriginRunway`), la
   ruta editable que sugiere el grafo y los ajustes de RAAS.
 - **Avisos** (`Helpers/RaasAdvisor.cs`, puro y con estado): `APROXIMANDO PISTA` y `ESPERA ANTES DE
