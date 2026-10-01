@@ -2570,3 +2570,101 @@ Al añadir un criterio a `ScoringService` hay que tocar cuatro sitios: el cálcu
   solo si sin ellos no hay ruta, con todos (`UsedLowConfidence`) — descartarlos sin más partiría CYUL, cuyo
   único empalme tiene 0,14.
 
+
+### La base de rutas de rodaje de NavData (v0.9.16)
+
+- **La base de rutas de rodaje está en producción y vacía (v0.9.16).** Al leerla encontramos **dos
+  incoherencias entre endpoints** —la consulta por par devolvía `total: 0` mientras la lista publicaba
+  3 observaciones de `F E M A A3`—; NavData las arregló: eran **sus filas de prueba** y la **caché de
+  24 h no se invalidaba con un borrado por `shell`**. Ahora cualquier escritura la invalida.
+  **Ojo con la lectura fácil**: esas 3 filas **no** eran «el caso ya en la base»; la primera
+  observación real será la del mantenedor. Sin datos: `200` + `customary: null`, nunca 503.
+  **No enviar observaciones sintéticas** para cruzar el umbral. Y **`K1`/`V` es el único punto de
+  espera de la 14R**, a 58 m del umbral: los puntos que daba la geometría no eran nodos del escenario,
+  lo que explica que en el rodaje real la parada de 135 s fuese 65–170 m antes del `HSND`.
+- **Umbrales acordados de la base**: `total ≥ 5` y `confidence ≥ 0.6` para publicar `customary`;
+  ventana de 3 años con semivida de 18 meses; `customary: null` (nunca 503) por debajo; validación de
+  las calles contra el dataset vigente en ingesta **y** en lectura; moderación experta
+  (`source: "curated"`, que gana sobre la votación sin ocultar el apoyo). Límites: 200 observaciones
+  por POST, 64 KB, 60 POST/min, 5.000/día por clave, `observed_at` hasta 90 días atrás, un POST por
+  rodaje de salida. La fuente buena de la observación es el **texto que el piloto escribe o edita en
+  el popup** (la autorización de ATC tal como la entiende, más limpio que la traza), con `source`
+  distinguiendo `typed` de `traced` (**peso doble** para `typed` en la agregación de NavData).
+- **Cómo leer los datos de phpVMS (aclarado por su equipo, 29/09/2026).** En `acars`, **la fase va en
+  `status`** (códigos `INI`/`BST`/`PBT`/`TXI`/`TOF`/`ICL`/`ENR`/`APR`/`FIN`/`LDG`/`ARR`/`CHK`) y
+  **`phase` está vacía en el 100% de las filas** — leer `phase` hace creer que un vuelo no tiene
+  rodaje cuando sí lo tiene. En `pireps`, **`state` es la moderación** (`0 IN_PROGRESS`, `1 PENDING`,
+  `2 ACCEPTED`, `3 CANCELLED`, `4 DELETED`, `5 DRAFT`, `6 REJECTED`, `7 PAUSED`) y el estado de vuelo
+  es `status`/`status_text`. `TXI` **agrupa rodaje de salida y de llegada** (se distingue por la
+  posición en el vuelo: antes del `TOF` o después del `LDG`). Auth: **`X-API-KEY`** (`Bearer` da 401).
+  Corpus real disponible: **39 PIREPs con rodaje, 18 aeropuertos, 8 pilotos**, recuperables con
+  `?source_name=vmsOpenACars` + `?id=<piloto>` + `limit` (sin tope) — la receta está en
+  `Docs/RESPUESTA-PHPVMS-PRUEBAS-2026-09-29.md`. Y el desglose del score que enviamos en las `CHK`
+  (`SC:ov=…`) **también queda en el servidor**: la puntuación de un vuelo es auditable desde el PIREP.
+
+### El punto de espera: geometría vs los tipos de nodo del escenario (v0.9.16)
+
+- **El punto de espera: del dato del escenario, filtrado por pista (v0.9.16).** Hasta el 29/09/2026
+  NavData publicaba los puntos **por geometría** y sobre-generaba: **14 para la 14L de SKBO**, de los
+  que solo **2** eran accesos (a 40 y 74 m del eje) y **12 eran nodos de las paralelas**, a **139–254 m
+  del eje** — el avión rueda *sobre* ellas, así que el radio de 200 m y el filtro de «no de través» no
+  los descartaban y el piloto oía «espera antes de pista **14L**» yendo a la 14R. **Ya está arreglado en
+  su lado**: los puntos salen de los **tipos de nodo del escenario** (`HSND`/`IHSND`) y SKBO pasa a
+  **26 puntos, 6 de la 14L y 1 de la 14R** (25 `hold_short` + 1 `ils_hold_short`), fijado en un test de
+  inventario. `Helpers/HoldShortSelector.cs` (puro) sigue siendo la red de seguridad y decide: filtra
+  por la **pista de destino declarada** —**preguntando a `runway_names`, la pareja física**, no a
+  `runway_name`: un punto etiquetado `32L` sirve para la 14R porque su pareja es `14R/32L`— y nombra el
+  punto con **la calle por la que llega el avión si está en `taxiways`** —en el cruce los cuatro nombres
+  son ciertos: NavData sugiere `A1` y el piloto dice `A3`—, con la sugerida como respaldo y el muestreo
+  geométrico como último recurso. Sin pista declarada **no se filtra**.
+- **El banco de pruebas del rodaje real cambió de secuencia con el dato del escenario, y a mejor**: el
+  aviso de punto de espera prematuro **se comía el aviso de giro** (a las 22:08:19 el avión estaba a
+  <200 m de un nodo de la paralela y yendo hacia él), y el episodio del hold-short salía dos veces. Con
+  los puntos nuevos: `TurnAhead · TurnNow · HoldShortApproaching · HoldShortStop · RouteComplete` —
+  cinco avisos, sin ruido—. **El banco usa `HoldShortSelector`, no una copia de la regla**: si vuelve a
+  divergir, el test lo dice.
+- **La calle `V` de la 14R ya no se publica: era un muñón de entrada** (29/09/2026). Es **un segmento
+  de 54 m** del eje de la pista al punto de espera, un nombre que las cartas no rotulan (misma clase:
+  `B13`, `B8`, `H4`, `J1`). El punto de la 14R pasa a `taxiways: ["K1"]`; los recuentos no cambian.
+  **Y el dataset del escenario está incompleto**: `K2` es perpendicular y desemboca en `K1` en la
+  carta, pero **el escenario no las une** (76 m entre nodos, sin segmento de ningún tipo). Medido en
+  SKBO: **515 nodos, 100 extremos sueltos, mediana 35,3 m al más cercano, 36 huecos de 45–200 m**…
+  y **567 pares de nodos distintos a menos de 45 m**, que es lo que la fusión por proximidad
+  **inventa** hoy. Es decir: **pasar a `node_id` cambia el grafo mucho más que quitar un umbral** —
+  medir el caso `G74 → A3` y el rodaje real **antes y después**, no darlo por hecho. NavData ofrece
+  publicar esos empalmes como **conocimiento curado**.
+
+### Dos fuentes de coordenadas, y las cruzamos (v0.9.16)
+
+- **Dos fuentes de coordenadas, y las cruzamos (v0.9.16).** `/runways/`, `/ils/`, `/approaches/`,
+  `/sids/`, `/stars/` son de **Navigraph**; `/taxiways/`, `/holdshort/`, `/parkings/` son del
+  **escenario de MSFS**; **los umbrales no coinciden** (mediana 33 m en SKBO, 59 m en LEMD con máximo
+  **163 m**). `TaxiGraph` enrutaba al **umbral de `/runways/`** (Navigraph) sobre una red MSFS: en
+  SKBO 14L ese umbral está a **75 m** del punto de espera y **los nodos MSFS más cercanos a él son de
+  la calle `E`** — de ahí la `E` de más de `F E X A B5 A A3 E`, que no es una calle que ATC diga.
+  **Al rehacer el grafo: enrutar al punto de espera de la pista de destino** (misma fuente que la red,
+  lo que dice ATC y el `entry_taxiway` de la base), no al umbral.
+
+### Empalmes curados y `node_id` de 52 bits (29/09/2026)
+
+- **Empalmes curados: `GET /airport/{icao}/taxiway-joins/`** (29/09/2026), con `node_a`/`node_b`,
+  `taxiway`, `gap_m`, `source: "curated"` e `invalid[]`. Publicado el `K2`→`K1` de SKBO (76,0 m). Es lo
+  que puentea los huecos que el escenario no modela **sin volver a una heurística de proximidad**, y lo
+  que hace que la base de conocimiento (secuencias de calles, no caminos de nodos) no dependa del grafo.
+- **`node_id` en `/taxiways/` (52 bits, `long?`)**: mapeado, **todavía sin usar**. Es lo que permite
+  borrar el umbral de 45 m del grafo, que afectaba a **318 de los 569 segmentos de SKBO** (56%).
+  NavData lo corrigió de 64 a 52 bits para que quepa en `long` y sea entero seguro en JavaScript.
+
+### El caso G74 → A3 de la 14L y el `FindHoldingPoint` que filtraba por el eje de la pista
+
+- **El caso G74 → A3 de la 14L (SKBO) está montado como fixture**: `TaxiRouteCaseTests` +
+  `Fixtures/SKBO-taxi-2026-09-29.csv` (237 segmentos reales, precisión completa). El grafo propone
+  `F E X A B5 A A3` y el mantenedor dice que la ruta normal es **`F E M A A3`**, con dos reglas que no
+  están en ningún dataset: **a `B5` no se entra para continuar** y **`X` no forma parte de la ruta**.
+  Medido: **ninguna de las cuatro variantes** (con todo, sin `X`, sin `B5`, sin las dos) produce la
+  ruta del piloto, así que no se arregla afinando el optimizador. Es el punto de partida de la base de
+  rutas reales (en "Próximas áreas" de `CLAUDE.md`). La tabla de las cuatro variantes con sus
+  distancias (1.869 / 1.930 / 2.051 / 2.051 m) está arriba, en «RAAS y guía de rodaje».
+- **Bug corregido de paso**: `FindHoldingPoint` filtraba por el `heading` del hold-short, que es el
+  **eje de la pista**. Con el avión rodando perpendicular —267–270° reales contra 136° del eje en
+  SKBO— descartaba justo los hold-shorts que tenía delante; ahora exige ir **hacia** el punto.
