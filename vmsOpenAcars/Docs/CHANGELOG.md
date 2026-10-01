@@ -2,6 +2,25 @@
 
 ---
 
+## [0.9.22] — 01/10/2026
+
+### Fixed
+
+- **La confianza del empalme llegaba al grafo como 1,0, así que el umbral de dos niveles estaba inerte.**
+  `TelemetryCoordinator.TaxiSegments` armaba las aristas de los empalmes publicados **sin copiar**
+  `j.Confidence`, y el valor por defecto de `TaxiGraph.Segment.Confidence` es **1,0**. Con eso,
+  `ConfidenceFloor = 0.5` no filtraba nada: aristas tan flojas como `A1|B` (**0,30**) y `G|D`
+  (**0,27**) — las dos que **cruzan pista** — entraban en la primera pasada como si fueran firmes.
+  El mapeo pasa a ser la ayuda pura `TelemetryCoordinator.JoinToSegment`, que sí la copia, y
+  `TaxiSegments` la usa: **una sola definición, no dos**.
+- **Y el test que faltaba.** `TaxiConfidenceTests` ya probaba la regla construyendo **su propia** lista
+  de segmentos con la confianza a mano, así que pasaba en verde mientras la ruta de producción estaba
+  rota — el mismo patrón contra el que avisa la guía («el banco usa la regla, no una copia»).
+  `JoinToSegment_CarriesTheJoinConfidence_SoTheTwoTierThresholdWorks` fija ahora que el empalme llega
+  al grafo con **su** confianza: **0,30** cae al segundo nivel y **0,96** se queda en el primero.
+  Lo señalaron los dos equipos a la vez: NavData lo llamó «el agujero más serio del hilo» y nuestro
+  propio código lo confirmó. **318/318**.
+
 ## [0.9.21] — 01/10/2026
 
 ### Fixed

@@ -636,7 +636,7 @@ anterior).
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **317 tests**:
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **318 tests**:
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
@@ -736,7 +736,7 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
 
 - **El grafo y el `node_id`: hecho, medido y con el interruptor apagado (v0.9.16).** La identidad por
   id está implementada (por defecto `Suggest(..., useNodeIds = false)`), los **empalmes calculados** de
-  NavData entran como aristas, el **umbral de confianza** va en dos niveles (0,5) y el grafo enruta al
+  NavData entran como aristas, el **umbral de confianza** va en dos niveles (0,5), y desde 0.9.22 el empalme llega al grafo con **su** confianza (`TelemetryCoordinator.JoinToSegment`): hasta entonces entraban todas con 1,0 y el umbral estaba **inerte** y el grafo enruta al
   **borde de plataforma** si el destino cae en otro componente. Medido sobre 37 PIREPs: **31/31 de
   cobertura con las dos políticas**, 14 idénticas, 17 distintas y **+329 m (+15%)** con ids → sigue
   **apagado**. Las tres mediciones del día, con sus correcciones, en **`Docs/architecture.md` →
@@ -773,7 +773,7 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   Se arregla convirtiendo antes de comparar, y **el dato ya está** (30/09/2026): `mag_var` se publica
   en `/airport/{icao}/` y en `/runways/` (medido: **-8,58** en SKBO, **-13,73** en KBOS, +0,68 en LEMD). La
   evidencia del KBOS fija el signo: 19° verdadero contra 33,4 magnético con `mag_var` -13,73 →
-  **`magnético = verdadero − mag_var`**, dentro de 0,7°. **HECHA (0.9.21, 01/10/2026): la conversion esta en `MagVar` y en las tres comparaciones** en `Models/NavData.cs` (campo `MagVar`, 0 por defecto = degrada sin datos) y `Services/NavDataService.cs` (tres sitios que comparan el rumbo de la pista con el del avion: `rwy.Heading + rwy.MagVar`). Compila y **317/317**. Comprobado con el dato real de KBOS: 33,4 magnetico con mag_var -13,73 da **19,67 verdadero**, que es el rumbo del eje que marcaba el avion. **Cerrado en 0.9.21** con el test sobre el fixture real `KbosRwy04R()` (**317/317**): a 2 grados del eje verdadero la pista se reconoce con la variacion, y **sin** ella el aviso queda fuera de los 15 por el sesgo de 13,73, o sea el fallo queda fijado. Los tres sitios son `SelectApproachThreshold` (L77) y **dos dentro de `ProjectOnRunway`** (L540 y L560), que es la que decide en que pista esta el avion: el sesgo tambien ensuciaba eso. Simplificacion futura anotada, no bloqueo: comparar contra el rumbo verdadero geometrico (`TrueRunwayBearing`) en vez de depender de `mag_var`.
+  **`magnético = verdadero − mag_var`**, dentro de 0,7°. **HECHA (0.9.21, 01/10/2026): la conversion esta en `MagVar` y en las tres comparaciones** en `Models/NavData.cs` (campo `MagVar`, 0 por defecto = degrada sin datos) y `Services/NavDataService.cs` (tres sitios que comparan el rumbo de la pista con el del avion: `rwy.Heading + rwy.MagVar`). Compila y **318/318**. Comprobado con el dato real de KBOS: 33,4 magnetico con mag_var -13,73 da **19,67 verdadero**, que es el rumbo del eje que marcaba el avion. **Cerrado en 0.9.21** con el test sobre el fixture real `KbosRwy04R()` (**318/318**): a 2 grados del eje verdadero la pista se reconoce con la variacion, y **sin** ella el aviso queda fuera de los 15 por el sesgo de 13,73, o sea el fallo queda fijado. Los tres sitios son `SelectApproachThreshold` (L77) y **dos dentro de `ProjectOnRunway`** (L540 y L560), que es la que decide en que pista esta el avion: el sesgo tambien ensuciaba eso. Simplificacion futura anotada, no bloqueo: comparar contra el rumbo verdadero geometrico (`TrueRunwayBearing`) en vez de depender de `mag_var`.
   **No usar la puerta doble** (aceptar magnético *o* verdadero): el filtro que para el falso desvío
   de KOWD es justamente el cono angular, y ensancharlo lo reabriría.
 

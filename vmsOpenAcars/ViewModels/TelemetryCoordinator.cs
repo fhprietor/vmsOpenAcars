@@ -1263,6 +1263,23 @@ namespace vmsOpenAcars.ViewModels
         /// porque `TaxiGraph` es `internal` y `INavDataService` es público: exponer el tipo en la
         /// interfaz obligaría a hacerlo público solo por eso.
         /// </summary>
+        /// <summary>
+        /// El empalme publicado como arista del grafo, **con su confianza**. Sin copiarla quedaba en el
+        /// valor por defecto (1,0) y el umbral de dos niveles (`TaxiGraph.ConfidenceFloor`) quedaba
+        /// inerte: `A1|B` (0,30) y `G|D` (0,27) —los dos que **cruzan pista**— entraban como aristas
+        /// firmes de la primera pasada. Es puro, para poder probarlo sin red: `TaxiConfidenceTests`.
+        /// </summary>
+        internal static TaxiGraph.Segment JoinToSegment(string taxiway, double confidence,
+            double latA, double lonA, double latB, double lonB,
+            long? nodeA = null, long? nodeB = null) => new TaxiGraph.Segment
+        {
+            Confidence = confidence,
+            Name       = taxiway.Trim(),
+            Lat1 = latA, Lon1 = lonA,
+            Lat2 = latB, Lon2 = lonB,
+            NodeA = nodeA, NodeB = nodeB,
+        };
+
         private static List<TaxiGraph.Segment> TaxiSegments(string airport)
         {
             var result = new List<TaxiGraph.Segment>();
@@ -1288,13 +1305,7 @@ namespace vmsOpenAcars.ViewModels
                 {
                     if (j == null || string.IsNullOrWhiteSpace(j.Taxiway)) continue;
                     if (j.NodeA == 0L || j.NodeB == 0L) continue;
-                    result.Add(new TaxiGraph.Segment
-                    {
-                        Name = j.Taxiway.Trim(),
-                        Lat1 = j.LatA, Lon1 = j.LonA,
-                        Lat2 = j.LatB, Lon2 = j.LonB,
-                        NodeA = j.NodeA, NodeB = j.NodeB
-                    });
+                    result.Add(JoinToSegment(j.Taxiway, j.Confidence, j.LatA, j.LonA, j.LatB, j.LonB, j.NodeA, j.NodeB));
                 }
             }
             catch { }

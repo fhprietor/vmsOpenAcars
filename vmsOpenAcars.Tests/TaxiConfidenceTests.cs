@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using vmsOpenAcars.Helpers;
+using vmsOpenAcars.ViewModels;
 
 namespace vmsOpenACars.Tests
 {
@@ -108,5 +109,27 @@ namespace vmsOpenACars.Tests
             Assert.IsTrue(withBridge.UsedLowConfidence,
                           "y tiene que decir que la encontró en el segundo nivel");
         }
+        /// <summary>
+        /// **El constructor real, no una copia de la regla.** El umbral de dos niveles ya tenía test
+        /// (`Suggest` con una lista hecha a mano), y por eso el agujero sobrevivió: la ruta de
+        /// producción —`TelemetryCoordinator.JoinToSegment`, la que arma el grafo con los empalmes
+        /// publicados— **no copiaba la confianza** y todas las aristas entraban con 1,0. Aquí se fija
+        /// que el empalme llega al grafo con **su** confianza, con los dos valores reales de LMML.
+        /// </summary>
+        [TestMethod]
+        public void JoinToSegment_CarriesTheJoinConfidence_SoTheTwoTierThresholdWorks()
+        {
+            var debil = TelemetryCoordinator.JoinToSegment("A1|B", 0.30, 35.8574, 14.4775, 35.8571, 14.4770);
+            var firme = TelemetryCoordinator.JoinToSegment("J",    0.96, 35.8506, 14.4887, 35.8509, 14.4891);
+
+            Assert.AreEqual(0.30, debil.Confidence, 1e-9,
+                "la confianza del empalme tiene que llegar al grafo: sin ella quedaba en 1,0");
+            Assert.IsTrue(debil.Confidence < TaxiGraph.ConfidenceFloor,
+                "A1|B (0,30) —el que cruza pista— cae al segundo nivel, no a la primera pasada");
+            Assert.IsTrue(firme.Confidence >= TaxiGraph.ConfidenceFloor,
+                "J (0,96) se queda en la primera pasada");
+            Assert.AreEqual("A1|B", debil.Name);
+        }
+
     }
 }
