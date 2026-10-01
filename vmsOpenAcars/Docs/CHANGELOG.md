@@ -2,6 +2,27 @@
 
 ---
 
+## [0.9.21] — 01/10/2026
+
+### Fixed
+
+- **El rumbo de la pista se convierte a verdadero antes de compararlo con el del avión.** `rwy.Heading`
+  es **magnético** y el rumbo que leemos de FSUIPC (`0x0580`) es **verdadero**, así que la comparación
+  de 15° de `SelectApproachThreshold` —y las dos de dentro de `ProjectOnRunway`, que es la que decide
+  **en qué pista está el avión**— arrastraba un sesgo igual a la variación local: inofensivo en
+  Colombia (8,4°), pero **13,7° en Boston**, donde dejaba 1,3° de margen de los 15. El comentario del
+  propio método afirmaba lo contrario («magnetic vs magnetic: la variación se cancela»).
+  Nuevo campo `NavRunway.MagVar` (el `mag_var` de `/runways/`, publicado el 30/09/2026) y las tres
+  comparaciones usan `rwy.Heading + rwy.MagVar`. **Sin dato (`MagVar = 0`) el comportamiento es el
+  anterior**: degrada sin datos. La aritmética cierra con el vuelo real SKCG→KBOS: 33,4° magnético con
+  `mag_var` −13,73 → **19,67° verdadero**, que es el rumbo del eje que marcaba el avión.
+
+### Tests
+
+- `ApproachThreshold_Kbos04R_WithItsMagVar_RecognisesTheFinalTwoDegreesOffAxis`, sobre el fixture real
+  `KbosRwy04R()` que ya usaban los casos de Boston: a **2° del eje verdadero** la pista se reconoce
+  **con** la variación, y **sin** ella el avión queda fuera de los 15° por el sesgo de 13,73°. **317/317**.
+
 ## [0.9.20] — 30/09/2026
 
 ### Fixed

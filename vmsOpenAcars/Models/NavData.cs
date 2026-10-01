@@ -39,6 +39,13 @@ namespace vmsOpenAcars.Models.NavData
 
     internal class NavRunway
     {
+        /// <summary>
+        /// Variacion magnetica del aeropuerto, en grados y con el este positivo (SKBO -8,58;
+        /// KBOS -13,73; LEMD +0,68). NavData la publica desde el 30/09/2026. **Sin dato vale 0**, y
+        /// entonces la conversion de abajo no cambia nada: degradar sin datos, nunca bloquear.
+        /// </summary>
+        [JsonProperty("mag_var")]
+        public double MagVar { get; set; }
         [JsonProperty("name")]                  public string  Name                { get; set; }
         [JsonProperty("heading")]               public double  Heading             { get; set; }
         [JsonProperty("threshold_lat")]         public double  ThresholdLat        { get; set; }

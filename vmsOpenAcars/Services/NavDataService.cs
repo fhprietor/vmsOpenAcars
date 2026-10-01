@@ -44,8 +44,10 @@ namespace vmsOpenAcars.Services
         /// definition of being established on an approach, and the discriminator between a
         /// genuine diversion and merely flying past an aligned airfield:
         /// <list type="bullet">
-        /// <item>runway heading within 15° of the aircraft's heading (magnetic vs magnetic —
-        /// both values come from magnetic references, so the local variation cancels),</item>
+    /// <item>runway heading within 15° of the aircraft heading, con la pista convertida a
+    /// VERDADERO con su mag_var porque el rumbo del avion lo es (FSUIPC 0x0580): antes se
+    /// comparaban directamente y el sesgo era la variacion local entera — 13,7 de los 15 grados
+    /// de tolerancia en Boston, 1,3 de margen —. Sin dato (mag_var = 0) no cambia nada.</item>
         /// <item>at most ~2 NM off the extended centerline,</item>
         /// <item><b>before</b> the threshold — <c>along &lt;= 0</c>. An aircraft north of
         /// SKTL's rwy 35 threshold, for instance, is past the runway it appears aligned
@@ -67,7 +69,14 @@ namespace vmsOpenAcars.Services
 
             foreach (var rwy in runways)
             {
-                double d = HeadingDelta(rwy.Heading, heading);
+                // 
+                // rwy.Heading es MAGNETICO y el rumbo del avion es VERDADERO (FSUIPC 0x0580), asi que
+                // la pista se convierte a verdadero con su variacion: verdadero = magnetico + mag_var.
+                // Medido en KBOS: 33,4 magnetico con mag_var -13,73 da 19,67 verdadero, el rumbo real
+                // del eje que marcaba el avion. Sin convertir, el sesgo era la variacion local: 13,7 de
+                // los 15 grados de tolerancia, dejando 1,3 de margen — y ese cono angular es justo el
+                // filtro que para el falso desvio de KOWD.
+                double d = HeadingDelta(rwy.Heading + rwy.MagVar, heading);
                 if (d > HEADING_TOL_DEG) continue;
 
                 // The projection axis must be the TRUE geographic bearing, not rwy.Heading.
@@ -523,7 +532,14 @@ namespace vmsOpenAcars.Services
 
                 foreach (var rwy in runways)
                 {
-                    double d = HeadingDelta(rwy.Heading, heading);
+                    // 
+                // rwy.Heading es MAGNETICO y el rumbo del avion es VERDADERO (FSUIPC 0x0580), asi que
+                // la pista se convierte a verdadero con su variacion: verdadero = magnetico + mag_var.
+                // Medido en KBOS: 33,4 magnetico con mag_var -13,73 da 19,67 verdadero, el rumbo real
+                // del eje que marcaba el avion. Sin convertir, el sesgo era la variacion local: 13,7 de
+                // los 15 grados de tolerancia, dejando 1,3 de margen — y ese cono angular es justo el
+                // filtro que para el falso desvio de KOWD.
+                double d = HeadingDelta(rwy.Heading + rwy.MagVar, heading);
                     if (d < 45.0 && d < bestDelta) { bestDelta = d; best = rwy; }
                 }
 
@@ -536,7 +552,14 @@ namespace vmsOpenAcars.Services
                     double    altDelta = double.MaxValue;
                     foreach (var rwy in runways)
                     {
-                        double d = HeadingDelta(rwy.Heading, heading);
+                        // 
+                // rwy.Heading es MAGNETICO y el rumbo del avion es VERDADERO (FSUIPC 0x0580), asi que
+                // la pista se convierte a verdadero con su variacion: verdadero = magnetico + mag_var.
+                // Medido en KBOS: 33,4 magnetico con mag_var -13,73 da 19,67 verdadero, el rumbo real
+                // del eje que marcaba el avion. Sin convertir, el sesgo era la variacion local: 13,7 de
+                // los 15 grados de tolerancia, dejando 1,3 de margen — y ese cono angular es justo el
+                // filtro que para el falso desvio de KOWD.
+                double d = HeadingDelta(rwy.Heading + rwy.MagVar, heading);
                         if (d < 45.0 && d < altDelta && WithinFootprint(lat, lon, rwy))
                         { altDelta = d; alt = rwy; }
                     }

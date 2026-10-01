@@ -317,6 +317,31 @@ namespace vmsOpenAcars.Tests
             Assert.AreEqual("17", r.RunwayName);
         }
 
+        /// <summary>
+        /// Pista 04R de KBOS con su variacion magnetica real (-13,73): el eje marca 33,4 MAGNETICO y
+        /// 19,67 VERDADERO, que es lo que marcaba el avion en la final del vuelo SKCG-KBOS. A 2 grados
+        /// del eje verdadero la pista se reconoce; sin convertir, esos 2 grados se suman a los 13,73 de
+        /// la variacion y el avion queda fuera de la tolerancia de 15. Fija el signo:
+        /// verdadero = magnetico + mag_var.
+        /// </summary>
+        [TestMethod]
+        public void ApproachThreshold_Kbos04R_WithItsMagVar_RecognisesTheFinalTwoDegreesOffAxis()
+        {
+            var rwy = KbosRwy04R();
+            rwy[0].MagVar = -13.73;
+
+            // 0,6 NM antes del umbral y sobre el eje (el desplazamiento es paralelo al eje real).
+            double lat = rwy[0].ThresholdLat - 0.010;
+            double lon = rwy[0].ThresholdLon - 0.0049;
+
+            Assert.IsNotNull(NavDataService.SelectApproachThreshold(rwy, lat, lon, 17.67),
+                "con la variacion aplicada, 2 grados fuera del eje verdadero siguen siendo final");
+
+            rwy[0].MagVar = 0.0;      // como estaba antes de la conversion
+            Assert.IsNull(NavDataService.SelectApproachThreshold(rwy, lat, lon, 17.67),
+                "sin convertir, el sesgo de 13,73 grados deja al avion fuera: es el fallo");
+        }
+
         /// <summary>Pista 04R de KBOS, la que el endpoint eligió en el vuelo real.</summary>
         private static List<NavRunway> KbosRwy04R() => new List<NavRunway>
         {
