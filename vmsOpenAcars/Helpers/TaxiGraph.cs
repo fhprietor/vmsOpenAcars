@@ -73,6 +73,16 @@ namespace vmsOpenAcars.Helpers
 
             /// <summary>Ruta tal como se escribe y se edita: nombres separados por espacios.</summary>
             public string Text => string.Join(" ", Names);
+
+            /// <summary>
+            /// **Vértices del camino encontrado**, en orden de marcha y **sin repetir el punto de
+            /// unión**: cada nodo por el que pasa la ruta aparece una sola vez. Es la geometría que
+            /// NavData necesita para su `planned` —la línea base de la regla «no empeora»— y que
+            /// hasta ahora se perdía: la sugerencia solo exponía <see cref="Text"/> y
+            /// <see cref="DistanceM"/>, así que en cuanto se pintaba el popup ya no había forma de
+            /// reconstruir por dónde iba la propuesta. Vacía si no hay ruta.
+            /// </summary>
+            public List<(double Lat, double Lon)> Polyline = new List<(double Lat, double Lon)>();
         }
 
         // Los extremos que distan menos que esto se consideran el mismo nodo. 45 m es del orden
@@ -269,10 +279,12 @@ namespace vmsOpenAcars.Helpers
 
             // ── Reconstrucción, colapsando tramos consecutivos de la misma calle ──
             var names = new List<string>();
+            var edgePath = new List<int>();       // aristas recorridas, de goal hacia start
             int cursor = goal;
             while (cursor != start && previous[cursor] >= 0)
             {
                 int e = previous[cursor];
+                edgePath.Add(e);
                 string name = segs[e].Name.Trim();
                 if (names.Count == 0
                     || !string.Equals(names[0], name, StringComparison.OrdinalIgnoreCase))
@@ -283,6 +295,50 @@ namespace vmsOpenAcars.Helpers
             result.Found     = names.Count > 0;
             result.Names     = names;
             result.DistanceM = dist[goal];
+
+            // ── La polilínea, en orden de marcha ──────────────────────────────────
+            // Se añaden los dos extremos de cada arista recorrida, en el sentido del recorrido, y se
+            // omite un vértice solo si **ya es** el anterior: eso es «sin repetir el punto de unión».
+            // Las coordenadas son las del **propio segmento**, no las del nodo fusionado —la fusión
+            // por proximidad guarda la primera coordenada que vio, y dos extremos a menos de `SnapM`
+            // (45 m) son el mismo nodo sin ser el mismo punto—: con la del nodo, la geometría se
+            // desviaba hasta 45 m por vértice. Con la del segmento, la polilínea es la unión exacta
+            // de los tramos recorridos: su longitud es `DistanceM` **más los saltos de unión**, que
+            // son los huecos que el grafo no cobra porque la fusión los hace gratis (medido en el
+            // caso real G74 → A3 de SKBO: 2 126 m de polilínea contra 1 869 m de `DistanceM`, o sea
+            // 257 m repartidos entre 19 uniones).
+            //
+            // Si la cadena no fuera contigua no se publica nada: una polilínea a medias no cuadra con
+            // `text` y NavData la auditaría como si fuera el camino entero.
+            if (result.Found)
+            {
+                void AddVertex(double lat, double lon)
+                {
+                    if (result.Polyline.Count > 0)
+                    {
+                        var prev = result.Polyline[result.Polyline.Count - 1];
+                        if (Math.Abs(prev.Lat - lat) < 1e-9 && Math.Abs(prev.Lon - lon) < 1e-9)
+                            return;
+                    }
+                    result.Polyline.Add((lat, lon));
+                }
+
+                edgePath.Reverse();
+                int node = start;
+                foreach (int e in edgePath)
+                {
+                    int a = edgeA[e], b = edgeB[e];
+                    int entry = a == node ? a : (b == node ? b : -1);
+                    if (entry < 0) { result.Polyline.Clear(); break; }
+                    bool fromA = entry == a;
+
+                    AddVertex(fromA ? segs[e].Lat1 : segs[e].Lat2,
+                              fromA ? segs[e].Lon1 : segs[e].Lon2);
+                    AddVertex(fromA ? segs[e].Lat2 : segs[e].Lat1,
+                              fromA ? segs[e].Lon2 : segs[e].Lon1);
+                    node = fromA ? b : a;
+                }
+            }
             return result;
         }
 

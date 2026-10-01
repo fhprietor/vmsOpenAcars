@@ -2,6 +2,44 @@
 
 ---
 
+## [0.9.23] — 01/10/2026
+
+### Added
+
+- **El cliente publica su ruta PROPUESTA** (`POST /taxi-routes/observations`, con `planned: { text,
+  runway, polyline[], dataset_version }`), **una vez por vuelo**, al abrir el popup y en segundo plano:
+  es la línea base que NavData necesita para poder calcular su regla «no empeora», que hoy no es
+  calculable porque el cliente no guardaba la propuesta. **La polilínea no existía**: `RouteSuggestion`
+  sólo exponía texto y distancia, así que ahora construye los vértices del camino (`RouteSuggestion.Polyline`,
+  sin cambiar ninguna firma) y `PolylineResampler` los reduce a **500 puntos** conservando primero y
+  último si hiciera falta. Van como **`planned`**, nunca como `typed`/`traced`, que son las categorías
+  del uso real: la ruta que el piloto escribe sigue yendo al campo `Taxi Route` del PIREP.
+  **Un fallo del envío no puede tumbar el vuelo** (segundo plano, aviso en el log una sola vez).
+
+### Changed
+
+- **La traza de rodaje se manda cada 5 s cuando la guía está activa** (antes: el valor configurado,
+  30 s). Es lo que hace medible la cobertura que NavData pre-registró: con 30 s salían 9–34 puntos
+  por rodaje y la mediana se quedaba en **65,0 %** (mínima 22,2 %). **Con la guía apagada no cambia
+  nada** — el valor configurado sigue mandando, para no multiplicar el tráfico de quien no la usa.
+  **No era una puerta, eran tres**: además del intervalo, `PositionUpdateInterval` (fijo en 5 s) y el
+  umbral de `HasSignificantChange` (0,0003° ≈ **33 m**, o sea 4–6 s a 15 kt) frenaban el envío; los
+  tres los decide ahora `UpdateIntervalPolicy` (puro, con test), y cada uno es **una línea** de
+  volver atrás. Se eligió **5 s y no 1 s** por el coste en phpVMS: a 1 Hz sería 30× el tráfico actual
+  durante los vuelos guiados, y a 5 s ya se pasa de 9–34 puntos a una traza medible.
+  **Sin verificar en vuelo real**: el endpoint de observaciones **no se ha llamado nunca** (crear una
+  observación sintética está prohibido en este proyecto), así que si su esquema exige algún campo que
+  no mandamos, se sabrá con el primer vuelo.
+
+### Tests
+
+- `PolylineResamplerTests`, `TaxiRouteObservationTests`, `TaxiPolylineTests` y `UpdateIntervalPolicyTests`
+  (10): extremos intactos al recortar, cuerpo del POST, vértices del camino y los dos lados del intervalo
+  (con guía 5 s; sin guía, el configurado — 15, 30 y 60 —, y sin dato el de siempre). **343/343**.
+  Dato medido que queda fijado: en SKBO G74→A3 la polilínea da **2.126 m** contra los **1.869 m** de
+  `DistanceM`, porque la fusión por proximidad de 45 m **no cobra los saltos de unión** — otro argumento
+  para el `node_id`.
+
 ## [0.9.22] — 01/10/2026
 
 ### Fixed

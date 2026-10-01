@@ -40,6 +40,11 @@
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <!-- TaxiRouteObservationTests lee el cuerpo del POST con JObject: el JSON del `planned` se fija
+         como forma, no como cadena literal. -->
+    <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+      <HintPath>..\packages\Newtonsoft.Json.13.0.4\lib\net45\Newtonsoft.Json.dll</HintPath>
+    </Reference>
     <!-- MapAttributionTests comprueba que cada proveedor del mapa publica su crédito. -->
     <Reference Include="GMap.NET.Core">
       <HintPath>..\packages\GMap.NET.Core.2.1.7\lib\net48\GMap.NET.Core.dll</HintPath>
@@ -61,6 +66,7 @@
     <Compile Include="GeoMathTests.cs" />
     <Compile Include="HoldShortSelectorTests.cs" />
     <Compile Include="PirepFieldsTests.cs" />
+    <Compile Include="PolylineResamplerTests.cs" />
     <Compile Include="MapAttributionTests.cs" />
     <Compile Include="RouteCorridorTests.cs" />
     <Compile Include="RaasTests.cs" />
@@ -72,6 +78,9 @@
     <Compile Include="TaxiRouteQualityTests.cs" />
     <Compile Include="TaxiConfidenceTests.cs" />
     <Compile Include="TaxiSuggestionKmIaTests.cs" />
+    <Compile Include="TaxiPolylineTests.cs" />
+    <Compile Include="TaxiRouteObservationTests.cs" />
+    <Compile Include="UpdateIntervalPolicyTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

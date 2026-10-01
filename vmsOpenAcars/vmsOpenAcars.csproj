@@ -180,12 +180,15 @@
     <Compile Include="Helpers\HoldShortSelector.cs" />
     <Compile Include="Helpers\PirepFields.cs" />
     <Compile Include="Helpers\MapAttribution.cs" />
+    <Compile Include="Helpers\PolylineResampler.cs" />
     <Compile Include="Helpers\RouteCorridor.cs" />
     <Compile Include="Helpers\TaxiGraph.cs" />
+    <Compile Include="Helpers\TaxiRouteObservation.cs" />
     <Compile Include="Helpers\RaasAdvisor.cs" />
     <Compile Include="Helpers\FireAndForget.cs" />
     <Compile Include="Helpers\SystemInfoHelper.cs" />
     <Compile Include="Helpers\TransitionDefaults.cs" />
+    <Compile Include="Helpers\UpdateIntervalPolicy.cs" />
     <Compile Include="Helpers\Constants.cs" />
     <Compile Include="Helpers\FlightPhaseHelper.cs" />
     <Compile Include="Helpers\L.cs" />

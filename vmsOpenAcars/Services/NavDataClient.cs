@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -125,6 +126,45 @@ namespace vmsOpenAcars.Services
         public static List<NavHoldShort> GetHoldShorts(string icao) => GetCache(icao)?.HoldShorts ?? new List<NavHoldShort>();
         public static List<NavApproach>  GetApproaches(string icao) => GetCache(icao)?.Approaches ?? new List<NavApproach>();
         public static NavAirportInfo     GetAirportInfo(string icao) => GetCache(icao)?.Info;
+
+        // ── Rutas de rodaje: enviar la propuesta ──────────────────────────────────
+
+        /// <summary>
+        /// Manda a NavData una observación de ruta de rodaje con su objeto `planned` —la ruta que el
+        /// cliente **propuso**, con la geometría completa—. El cuerpo lo arma la función pura
+        /// <see cref="Helpers.TaxiRouteObservation.Build"/>, que es la que tiene test: aquí solo se
+        /// transporta.
+        ///
+        /// Va con la autenticación que ya usa todo el servicio —`X-API-Key` y `X-Origin-Domain`, que
+        /// `HttpClientProvider.NavData` lleva como cabeceras por defecto—, y **nunca lanza**: el
+        /// llamante decide qué hacer con el `false`. Quien invoca esto lo hace en segundo plano: un
+        /// fallo al enviar una observación no puede tumbar un vuelo que está rodando.
+        ///
+        /// No se llama desde ningún test. Cada POST crea una observación real en su base de
+        /// conocimiento y el proyecto tiene prohibido enviar observaciones sintéticas para cruzar el
+        /// umbral de la agregación; el endpoint solo se ejercita en vuelo real.
+        /// </summary>
+        public static async Task<bool> PostTaxiRouteObservationAsync(string jsonBody)
+        {
+            if (string.IsNullOrWhiteSpace(jsonBody)) return false;
+
+            // Red de seguridad: el tope del cuerpo son 256 KB y prefiero no gastar la petición en
+            // algo que el servidor va a rechazar. Con 500 puntos el caso normal ronda los 20 KB.
+            if (Encoding.UTF8.GetByteCount(jsonBody) > TaxiRouteObservation.MaxBodyBytes)
+                return false;
+
+            try
+            {
+                string url = AppConfig.NavDataApiUrl.TrimEnd('/') + "/taxi-routes/observations";
+                using (var req = new HttpRequestMessage(HttpMethod.Post, url))
+                {
+                    req.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                    using (var resp = await HttpClientProvider.NavData.SendAsync(req).ConfigureAwait(false))
+                        return resp.IsSuccessStatusCode;
+                }
+            }
+            catch { return false; }
+        }
 
         // ── Navaids ───────────────────────────────────────────────────────────────
 

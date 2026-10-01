@@ -423,13 +423,25 @@ namespace vmsOpenAcars.Services
         #region Intervalo Adaptativo
         // =====================================================================
 
-        public void SetUpdateIntervalForPhase(FlightPhase phase)
+        /// <summary>
+        /// Cadencia de reporte de posición según la fase. En rodaje la decide
+        /// <see cref="UpdateIntervalPolicy.TaxiSeconds"/>: **1 s con la guía de rodaje activa** (es lo
+        /// que hace medible la cobertura de la traza para NavData: con 30 s y 9–34 puntos por rodaje
+        /// su métrica da mediana 65,0 % y mínima 22,2 %) y **el valor configurado sin ella**, para no
+        /// multiplicar por 30 el tráfico del piloto que no usa la guía. La regla vive en el helper
+        /// puro, no aquí. Ojo: esta es **la primera de tres puertas** — el suelo del envío y el
+        /// deduplicador de posiciones de `TelemetryCoordinator` también capan la cadencia, y los tres
+        /// los decide el mismo helper.
+        /// </summary>
+        public void SetUpdateIntervalForPhase(FlightPhase phase, bool taxiGuidanceActive)
         {
             switch (phase)
             {
                 case FlightPhase.TaxiOut:
                 case FlightPhase.TaxiIn:
-                    _currentPhaseInterval = AppConfig.UpdateIntervalTaxi; break;
+                    _currentPhaseInterval =
+                        UpdateIntervalPolicy.TaxiSeconds(taxiGuidanceActive, AppConfig.UpdateIntervalTaxi);
+                    break;
                 case FlightPhase.TakeoffRoll:
                 case FlightPhase.Takeoff:
                     _currentPhaseInterval = AppConfig.UpdateIntervalTakeoff; break;

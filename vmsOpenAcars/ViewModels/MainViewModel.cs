@@ -83,7 +83,16 @@ namespace vmsOpenAcars.ViewModels
         /// <summary>Arranca la guía de rodaje con lo que eligió el piloto en el popup.</summary>
         internal void StartTaxiGuidance(string airport, string runway, string route,
                                         bool raasEnabled, bool voiceEnabled, int volume)
-            => _tc?.StartTaxiGuidance(airport, runway, route, raasEnabled, voiceEnabled, volume);
+        {
+            _tc?.StartTaxiGuidance(airport, runway, route, raasEnabled, voiceEnabled, volume);
+            // La cadencia de rodaje se decide al **cambiar de fase**, pero el popup se confirma a
+            // veces con el avión ya en `TaxiOut` (puesto remoto, sin pushback, donde el popup lo abre
+            // la propia entrada en la fase) y sin otra transición a la vista. Se vuelve a decidir
+            // aquí, con el estado real de la guía, para que el 1 Hz no dependa del orden de los
+            // eventos. La regla sigue siendo la del helper: no se repite aquí.
+            _fsuipc?.SetUpdateIntervalForPhase(_flightManager?.CurrentPhase ?? FlightPhase.Idle,
+                                               _tc != null && _tc.IsTaxiGuidanceActive);
+        }
 
         /// <summary>
         /// El piloto pide **cambiar la ruta de rodaje** —lo normal es que ATC se la acabe de dar por
@@ -326,10 +335,11 @@ namespace vmsOpenAcars.ViewModels
         private async void OnFlightPhaseChanged(FlightPhase phase)
         {
             // Cadencia de reporte de posición a phpVMS según la fase (5 s en despegue y
-            // aproximación, 30 s en crucero). Sin esta llamada el intervalo se quedaba
-            // fijo en su valor inicial (30 s) y toda la tabla de update_interval_* de
+            // aproximación, 30 s en crucero; **1 s en rodaje mientras la guía está activa**, que es
+            // lo que hace medible la cobertura de la traza de NavData). Sin esta llamada el intervalo
+            // se quedaba fijo en su valor inicial (30 s) y toda la tabla de update_interval_* de
             // App.config era código muerto.
-            _fsuipc?.SetUpdateIntervalForPhase(phase);
+            _fsuipc?.SetUpdateIntervalForPhase(phase, _tc != null && _tc.IsTaxiGuidanceActive);
 
             if (phase == FlightPhase.TaxiOut) await CheckIvaoAtBlocksOffAsync();
 

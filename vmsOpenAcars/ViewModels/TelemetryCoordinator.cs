@@ -54,6 +54,12 @@ namespace vmsOpenAcars.ViewModels
         // de un puesto remoto), y lo que el grafo propuso la primera vez para poder comparar.
         private bool                   _raasRepromptShown;
         private string                 _raasSuggestedText;
+        // La observación de la ruta PROPUESTA (`planned`) se manda **una sola vez por vuelo**: el
+        // límite acordado con NavData es «un POST por rodaje de salida» y el segundo popup solo
+        // recalcula desde el punto de inicio, así que un segundo envío contaría dos veces la misma
+        // maniobra. El flag también es lo que garantiza que un fallo de red se registre **una vez**
+        // y no en cada reintento.
+        private bool                   _plannedRouteSent;
         // Umbral de la pista elegida, resuelto una vez al empezar la guía: el motor de avisos
         // necesita saber si el avión se ACERCA a ella, y eso se pregunta 1 vez por segundo.
         private double                 _raasThresholdLat = double.NaN;
@@ -146,7 +152,14 @@ namespace vmsOpenAcars.ViewModels
         private AcarsPosition _lastSentPosition;
         internal AcarsPositionUpdate LastTelemetry      { get; set; }
         internal DateTime            LastPositionUpdate { get; set; } = DateTime.MinValue;
-        internal TimeSpan            PositionUpdateInterval { get; }  = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// Suelo del envío de posiciones: 5 s de siempre, **1 s con la guía de rodaje activa**. Sin
+        /// bajarlo, este suelo se come el 1 Hz que sí permite el intervalo adaptativo de
+        /// `FsuipcService`: la traza se quedaría en 5 s. Ver <see cref="UpdateIntervalPolicy"/>.
+        /// </summary>
+        internal TimeSpan PositionUpdateInterval =>
+            TimeSpan.FromSeconds(UpdateIntervalPolicy.SendFloorSeconds(_raasGuidanceActive, 5));
 
         // ── Aircraft info guard ───────────────────────────────────────────────────
         private bool _aircraftInfoShown;
@@ -236,6 +249,7 @@ namespace vmsOpenAcars.ViewModels
             _raasPromptShown    = false;
             _raasRepromptShown  = false;
             _raasSuggestedText  = null;
+            _plannedRouteSent    = false;
             _raasThresholdLat   = double.NaN;
             _raasThresholdLon   = double.NaN;
             _raas.ResetRouteState();
@@ -833,7 +847,12 @@ namespace vmsOpenAcars.ViewModels
         private bool HasSignificantChange(AcarsPosition newPos)
         {
             if (_lastSentPosition == null) return true;
-            const double posThreshold = 0.0003;
+
+            // El umbral de posición es el que decide la densidad **real** de la traza: 0,0003° son
+            // ~33 m, o sea una muestra cada 4–6 s a velocidad de rodaje, y con la guía activa eso
+            // volvería a capar el 1 Hz que sí permite el intervalo adaptativo. Con guía se baja al
+            // paso de ~1 s de rodaje lento; sin ella no cambia nada. Ver UpdateIntervalPolicy.
+            double posThreshold = UpdateIntervalPolicy.TaxiTracePosThresholdDeg(_raasGuidanceActive);
             const int    hdgThreshold = 5;
             const int    altThreshold = 30;
             const int    spdThreshold = 5;
@@ -1208,6 +1227,14 @@ namespace vmsOpenAcars.ViewModels
         }
 
         /// <summary>
+        /// ¿Hay guía de rodaje activa? Es el dato que decide la **cadencia de envío de posiciones en
+        /// rodaje**: con guía, 1 s; sin ella, el valor configurado (ver
+        /// <see cref="Helpers.UpdateIntervalPolicy"/>). Se lee en el momento de decidir, no se copia:
+        /// así el reset de vuelo o un popup cancelado no dejan encendido un 1 Hz que ya no toca.
+        /// </summary>
+        internal bool IsTaxiGuidanceActive => _raasGuidanceActive;
+
+        /// <summary>
         /// Umbral de la pista elegida, para poder medir si el avión se acerca a ella. Sin dato
         /// (pista que no está en el dataset) se devuelve NaN y el motor decide por insistencia.
         /// </summary>
@@ -1235,13 +1262,23 @@ namespace vmsOpenAcars.ViewModels
 
         /// <summary>Ruta sugerida por el grafo para una pista, desde un punto concreto.</summary>
         internal string SuggestTaxiRoute(string airport, string runway, double lat, double lon)
+            => SuggestTaxiRoutePlan(airport, runway, lat, lon).Text;
+
+        /// <summary>
+        /// La sugerencia **entera**, no solo su texto: además de la secuencia de calles trae la
+        /// **polilínea ordenada** del camino, que es lo que hay que conservar para poder publicar la
+        /// propuesta a NavData (su `planned`). El popup sigue usando el texto; el transporte usa la
+        /// geometría.
+        /// </summary>
+        internal TaxiGraph.RouteSuggestion SuggestTaxiRoutePlan(
+            string airport, string runway, double lat, double lon)
         {
             try
             {
                 var rwy = NavDataClient.GetRunways(airport)
                     .FirstOrDefault(r => string.Equals(r.Name, runway,
                                                        StringComparison.OrdinalIgnoreCase));
-                if (rwy == null) return "";
+                if (rwy == null) return new TaxiGraph.RouteSuggestion();
                 // El destino es el **punto de espera** de esa pista, no su umbral: el umbral de
                 // `/runways/` es de Navigraph y la red de calles del escenario de MSFS, y mezclarlos
                 // metía 75 m de error en SKBO 14L (la ruta acababa en la calle `E`, que no existe en
@@ -1251,11 +1288,61 @@ namespace vmsOpenAcars.ViewModels
                                                               runway, rwy.ThresholdLat, rwy.ThresholdLon);
                 double toLat = access?.Lat ?? rwy.ThresholdLat;
                 double toLon = access?.Lon ?? rwy.ThresholdLon;
-                var suggestion = TaxiGraph.Suggest(TaxiSegments(airport),
-                                                   lat, lon, toLat, toLon);
-                return suggestion.Found ? suggestion.Text : "";
+                return TaxiGraph.Suggest(TaxiSegments(airport),
+                                         lat, lon, toLat, toLon);
             }
-            catch { return ""; }
+            catch { return new TaxiGraph.RouteSuggestion(); }
+        }
+
+        /// <summary>
+        /// Publica en NavData la ruta **PROPUESTA** por el grafo como observación `planned`: es la
+        /// **línea base** contra la que ellos quieren medir que su ruta propuesta «no empeora».
+        ///
+        /// **No es lo que el piloto escribe.** La ruta que el piloto teclea o edita en el popup sigue
+        /// enviándose como hasta ahora al campo `Taxi Route` del PIREP
+        /// (<see cref="FlightManager.SendTaxiRouteFields"/>, `source: typed` en su flujo); esto de
+        /// aquí es lo que el cliente **ofreció**, con su geometría. Tampoco es la traza rodada, ni
+        /// una observación de uso real: por eso el cuerpo **no lleva `source`** —ni `typed` ni
+        /// `traced`—, solo el objeto `planned`.
+        ///
+        /// Va en segundo plano y **no puede tumbar el vuelo**: si falla, queda una línea en el log y
+        /// no se reintenta (el envío es uno por vuelo). El `dataset_version` es el `version` (hash de
+        /// nodos) que NavData publica en `/taxiway-joins/`; si la caché no lo tiene todavía viaja
+        /// `null` —no se fabrica—. Los `node_ids` no se mandan: el grafo todavía funde nodos por
+        /// proximidad (`useNodeIds = false`), así que no podemos afirmar una identidad de nodo que no
+        /// estamos usando para enrutar.
+        /// </summary>
+        private void PublishPlannedRoute(string airport, string runway,
+                                         TaxiGraph.RouteSuggestion proposal)
+        {
+            if (proposal == null || !proposal.Found || proposal.Polyline.Count < 2) return;
+
+            string body;
+            try
+            {
+                body = TaxiRouteObservation.Build(
+                    airport,
+                    runway,
+                    proposal.Text,
+                    proposal.Polyline,
+                    NavDataClient.GetTaxiwayJoinsVersion(airport),
+                    null,
+                    DateTime.UtcNow);
+            }
+            catch { return; }
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    bool ok = await NavDataClient.PostTaxiRouteObservationAsync(body);
+                    _cb.Log?.Invoke(ok
+                            ? $"📡 RUTA PROPUESTA ENVIADA A NavData: {airport} {runway}"
+                            : $"⚠️ No se pudo enviar la ruta propuesta a NavData ({airport} {runway})",
+                        ok ? Theme.Taxi : Theme.Warning);
+                }
+                catch { /* una observación no puede tumbar un vuelo que ya está rodando */ }
+            });
         }
 
         /// <summary>
@@ -1363,7 +1450,11 @@ namespace vmsOpenAcars.ViewModels
                                           .ToList();
                 if (runways.Count == 0) return;
 
-                string suggested = SuggestTaxiRoute(airport, defaultRunway, lat, lon);
+                // La propuesta se calcula para la pista que el popup va a enseñar seleccionada, que
+                // no siempre es la del OFP: si esa pista no está en el aeropuerto, cae a la primera.
+                string shownRunway = runways.Contains(defaultRunway) ? defaultRunway : runways[0];
+                var proposal = SuggestTaxiRoutePlan(airport, shownRunway, lat, lon);
+                string suggested = proposal.Text;
 
                 // Un segundo aviso que propone exactamente lo mismo es ruido: si el grafo no
                 // cambia de idea con el punto de inicio nuevo, no hay nada que contar. Medido:
@@ -1377,7 +1468,7 @@ namespace vmsOpenAcars.ViewModels
                 var prompt = new TaxiRoutePrompt
                 {
                     Icao          = airport,
-                    DefaultRunway = runways.Contains(defaultRunway) ? defaultRunway : runways[0],
+                    DefaultRunway = shownRunway,
                     Reason        = reason,
                     Recalculated  = !first,
                     SuggestedRoute = suggested,
@@ -1386,6 +1477,19 @@ namespace vmsOpenAcars.ViewModels
                     SuggestRoute   = rwy => SuggestTaxiRoute(airport, rwy)
                 };
                 prompt.Runways.AddRange(runways);
+
+                // La ruta PROPUESTA se persiste **aquí**, al mostrarse el popup, y no cuando el
+                // piloto confirma: lo que NavData quiere medir es su línea base —lo que el cliente
+                // ofreció— contra la ruta buena, no lo que el piloto acabó tecleando. Si cambia de
+                // pista dentro del popup, la propuesta publicada sigue siendo la que se le enseñó al
+                // abrirlo. Una sola observación por vuelo: la primera propuesta que llega a
+                // enseñarse (el flag también cubre que el primer intento se quedara sin pistas).
+                if (!_plannedRouteSent)
+                {
+                    _plannedRouteSent = true;
+                    PublishPlannedRoute(airport, shownRunway, proposal);
+                }
+
                 OnTaxiRoutePromptRequested?.Invoke(prompt);
             });
         }
