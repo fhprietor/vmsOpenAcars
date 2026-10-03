@@ -2,6 +2,44 @@
 
 ---
 
+## [0.9.25] — 02/10/2026
+
+### Changed
+
+- **La clave de NavData ya no viaja en el `.config`: la entrega phpVMS en un sobre cifrado.**
+  La causa raíz, con su cifra: la `navdata_api_key` **estaba publicada** en el `.config` que los
+  pilotos descargan del gestor de ficheros, así que cualquiera que se bajara el paquete la tenía
+  —una **clave de 20 caracteres** con prefijo `vhr-`, sin fecha de caducidad—. Ahora el `.config`
+  publicado la deja **vacía** y el cliente la pide a phpVMS (`GET {vms_api_url}/api/navdata` con
+  **`X-API-KEY`** —el `Bearer` **no** vale: comprobado en vivo, 401—) en un sobre
+  **HKDF-SHA256 + AES-256-CBC + HMAC-SHA256** (decisión: **CBC+HMAC** y **BCL pura**, sin
+  BouncyCastle; GCM exigiría una dependencia nueva en un cliente que se distribuye a pilotos y no
+  compensa). El sobre se abre **en memoria**, **una vez por sesión** —el límite de phpVMS es
+  **30/min por piloto**—, se cachea hasta `expires_at` (entrega real medida: vigencia de **6 h**) y
+  **nunca se escribe** en el `.config`, en los logs ni en la telemetría. Por orden del contrato, el
+  **MAC se comprueba antes de descifrar** y con comparación en tiempo constante, así que un
+  criptograma que no autentica **no llega a AES**. `503 navdata-not-configured`, `401` (clave
+  inválida o piloto no `ACTIVE`) y `400 unsupported-cipher` son deterministas: dejan la sesión **sin
+  NavData** —el vuelo sigue, sin scoring NavData, como hoy sin clave— y **no se reintentan en
+  bucle**. Si cambia el `key_id` (rotación dentro del mismo AIRAC) se **purga la caché de NavData**
+  antes de usarla; el `key_id` es lo único que se registra, porque identifica la clave sin revelarla.
+- **La `url` del sobre se usa TAL CUAL**, como manda el contrato (phpVMS entrega la base
+  **completa**, no el host); solo si el sobre no trae `url` (o viene vacía) se cae a la
+  `navdata_api_url` del `.config`. Y **un aviso para phpVMS**: la entrega real devolvió
+  `https://navdata.vholar.co` **sin `/api/v1`** —su setting está mal configurado—, así que el
+  cliente, que no normaliza ni parchea por su cuenta, la usa verbatim y las llamadas fallarían;
+  se les comunica para que lo ajusten.
+
+### Tests
+
+- **382/382**. Los tests que fijan este cambio: los **vectores oficiales del RFC 5869** (HKDF-SHA256
+  Test Case 1 con salt e info, y Test Case 3 **sin salt ni info**, que es el que se rompe cuando
+  alguien «simplifica» con `salt = new byte[0]`), el **round-trip** del sobre contra el contrato
+  firmado, y el **rechazo**: un byte manipulado del **criptograma**, del **MAC** o del **IV** —el IV
+  también está autenticado, `AAD || iv || ct`— falla **en el MAC**, antes de descifrar; una
+  **`vms_api_key` ajena** no abre nada; y el ciclo de vida de la credencial (una petición por
+  sesión, sin reintentos, con purga de caché por cambio de `key_id`).
+
 ## [0.9.24] — 01/10/2026
 
 ### Changed

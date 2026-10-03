@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.24  
+**Versión actual:** v0.9.25  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -182,7 +182,20 @@ static Task<NavWeather>          GetWeatherAsync(icao)        // TTL 5 min en me
 
 Caché por capas: (1) `ConcurrentDictionary` en sesión por ICAO → (2) `NavDataCache` SQLite por AIRAC → para airspaces: (3) `_airspaceMemCache` en sesión + (4) `airspace_entries` SQLite TTL 7 días.
 
-Auth: `X-API-Key` + `X-Origin-Domain` de `App.config` (`navdata_api_key`, `navdata_api_domain`).
+Auth: `X-API-Key` + `X-Origin-Domain` (`navdata_api_key`, `navdata_api_domain`).
+
+**La clave ya no viaja en el `.config` (v0.9.25).** La `navdata_api_key` **estaba publicada** en el
+`.config` que se descarga del gestor de ficheros —**hay que rotarla**, el cambio solo evita que viaje
+de aquí en adelante—, así que el `.config` publicado la deja **vacía** y se pide a phpVMS
+(`GET {vms_api_url}/api/navdata` con **`X-API-KEY`**; `Authorization: Bearer` **no** vale, 401) en un
+sobre **HKDF-SHA256 + AES-256-CBC + HMAC-SHA256** con **BCL pura** (GCM exigiría BouncyCastle):
+salt/AAD `vmsopenacars/navdata/v1`, info `navdata-api-key-cbc`, 64 B de material (32 enc + 32 mac),
+IKM = la `vms_api_key` del piloto, **MAC antes de descifrar** y en tiempo constante. Se abre **una vez
+por sesión** (límite del servidor: **30/min por piloto**), vive **solo en memoria** hasta `expires_at`
+y **nunca** se escribe en config, logs ni telemetría; `503`/`401`/`400` dejan la sesión sin NavData y
+**el vuelo sigue**. La `url` del sobre (**base completa**) se usa **tal cual**, y solo si no viene se
+cae a `navdata_api_url`. Código: `Helpers/NavDataCipher.cs`, `Helpers/NavDataKeyState.cs`,
+`Helpers/NavDataKeyPolicy.cs`, `Services/NavDataKeyProvider.cs`, `Services/Http/NavDataRequest.cs`.
 
 **Aviso de NavData del 29/09/2026** (respuesta y confirmación en `Docs/`): de sus seis cambios,
 **cinco no nos tocaban** —no leemos `parkings[].heading`, ni `ils_freq_mhz` sin comprobar `null`, ni
@@ -553,7 +566,7 @@ anterior).
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **350 tests**:
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **382 tests**:
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y

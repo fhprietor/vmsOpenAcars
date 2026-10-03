@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using vmsOpenAcars.Helpers;
+using vmsOpenAcars.Core.Helpers;
 
 namespace vmsOpenAcars.Services.Http
 {
@@ -46,9 +47,14 @@ namespace vmsOpenAcars.Services.Http
             NavData = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
             NavData.DefaultRequestHeaders.Accept.Add(
                 new MediaTypeWithQualityHeaderValue("application/json"));
-            string navKey    = AppConfig.NavDataApiKey;
+            // `User-Agent` con la versión real: es lo que phpVMS pide para poder auditar quién consume
+            // NavData (`vmsOpenACars/<versión>`, y no el `1.0` fijo de los otros clientes).
+            NavData.DefaultRequestHeaders.Add("User-Agent", "vmsOpenACars/" + AppInfo.Version);
+            // `X-API-Key` NO va como cabecera por defecto: desde el cambio de phpVMS la clave de NavData
+            // ya no está en el `.config`, llega **después del arranque** en el sobre cifrado, y
+            // `DefaultRequestHeaders` no se puede tocar una vez enviada la primera petición (lanza
+            // `InvalidOperationException`). La pone por petición `NavDataRequest.ApplyAuth`.
             string navDomain = AppConfig.NavDataApiDomain;
-            if (!string.IsNullOrEmpty(navKey))    NavData.DefaultRequestHeaders.Add("X-API-Key", navKey);
             if (!string.IsNullOrEmpty(navDomain)) NavData.DefaultRequestHeaders.Add("X-Origin-Domain", navDomain);
 
             General = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };

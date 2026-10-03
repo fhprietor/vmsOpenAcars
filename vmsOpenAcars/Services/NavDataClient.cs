@@ -136,8 +136,8 @@ namespace vmsOpenAcars.Services
         /// transporta.
         ///
         /// Va con la autenticación que ya usa todo el servicio —`X-API-Key` y `X-Origin-Domain`, que
-        /// `HttpClientProvider.NavData` lleva como cabeceras por defecto—, y **nunca lanza**: el
-        /// llamante decide qué hacer con el `false`. Quien invoca esto lo hace en segundo plano: un
+        /// `NavDataRequest` pone **en cada petición** porque la clave puede llegar después del arranque
+        /// (sobre cifrado de phpVMS)—, y **nunca lanza**: el llamante decide qué hacer con el `false`.Quien invoca esto lo hace en segundo plano: un
         /// fallo al enviar una observación no puede tumbar un vuelo que está rodando.
         ///
         /// No se llama desde ningún test. Cada POST crea una observación real en su base de
@@ -155,11 +155,11 @@ namespace vmsOpenAcars.Services
 
             try
             {
-                string url = AppConfig.NavDataApiUrl.TrimEnd('/') + "/taxi-routes/observations";
+                string url = AppConfig.NavDataApiUrlEffective.TrimEnd('/') + "/taxi-routes/observations";
                 using (var req = new HttpRequestMessage(HttpMethod.Post, url))
                 {
                     req.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
-                    using (var resp = await HttpClientProvider.NavData.SendAsync(req).ConfigureAwait(false))
+                    using (var resp = await NavDataRequest.SendAsync(req).ConfigureAwait(false))
                         return resp.IsSuccessStatusCode;
                 }
             }
@@ -194,13 +194,13 @@ namespace vmsOpenAcars.Services
                 if (hit != null) return hit;
             }
 
-            string baseUrl  = AppConfig.NavDataApiUrl.TrimEnd('/');
+            string baseUrl  = AppConfig.NavDataApiUrlEffective.TrimEnd('/');
             string endpoint = type == "ndb" ? "ndb" : "vor";   // dme usa /vor/
             string url      = $"{baseUrl}/{endpoint}/{Uri.EscapeDataString(ident)}/";
 
             try
             {
-                using (var resp = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
+                using (var resp = await NavDataRequest.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!resp.IsSuccessStatusCode) return null;
                     string json  = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -257,10 +257,10 @@ namespace vmsOpenAcars.Services
                 if (hit != null) return hit;
             }
 
-            string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/airport/{icao}/{type}/";
+            string url = $"{AppConfig.NavDataApiUrlEffective.TrimEnd('/')}/airport/{icao}/{type}/";
             try
             {
-                using (var resp = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
+                using (var resp = await NavDataRequest.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!resp.IsSuccessStatusCode) return null;
                     string json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -296,7 +296,7 @@ namespace vmsOpenAcars.Services
                 if (hit != null) return hit;
             }
 
-            string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/airport/{icao}/waypoints/?radius_nm={radiusNm}";
+            string url = $"{AppConfig.NavDataApiUrlEffective.TrimEnd('/')}/airport/{icao}/waypoints/?radius_nm={radiusNm}";
             var result = await FetchAsync<NavAirportWaypointsResponse>(url).ConfigureAwait(false);
             var list   = result?.Waypoints;
             if (list != null)
@@ -323,10 +323,10 @@ namespace vmsOpenAcars.Services
                 if (hit != null) return hit;
             }
 
-            string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/airport/{icao}/ils/";
+            string url = $"{AppConfig.NavDataApiUrlEffective.TrimEnd('/')}/airport/{icao}/ils/";
             try
             {
-                using (var resp = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
+                using (var resp = await NavDataRequest.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!resp.IsSuccessStatusCode) return null;
                     string json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -356,10 +356,10 @@ namespace vmsOpenAcars.Services
                 && DateTime.UtcNow - cached.FetchedAt < _weatherTtl)
                 return cached.Data;
 
-            string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/weather/{key}/";
+            string url = $"{AppConfig.NavDataApiUrlEffective.TrimEnd('/')}/weather/{key}/";
             try
             {
-                using (var resp = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
+                using (var resp = await NavDataRequest.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!resp.IsSuccessStatusCode)
                         return _weatherCache.TryGetValue(key, out var stale1) ? stale1.Data : null;
@@ -395,7 +395,7 @@ namespace vmsOpenAcars.Services
             // compararlo con sus rumbos, que son magnéticos. Medido en SKCG: la diferencia baja de
             // 7,8° a 0,7° y el score de 0,235 a 0,164. Sin el parámetro el servidor asume magnético,
             // así que esto es lo que quita el sesgo del `score` que arrastrábamos.
-            string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/nearest/approach-airport/" +
+            string url = $"{AppConfig.NavDataApiUrlEffective.TrimEnd('/')}/nearest/approach-airport/" +
                          $"?lat={lat.ToString("F6", ci)}" +
                          $"&lon={lon.ToString("F6", ci)}" +
                          $"&heading={heading.ToString("F1", ci)}" +
@@ -418,9 +418,9 @@ namespace vmsOpenAcars.Services
             string apiKeyOverride = null, string urlOverride = null)
         {
             bool updateFlags = (apiKeyOverride == null);
-            string key     = apiKeyOverride ?? AppConfig.NavDataApiKey;
+            string key     = apiKeyOverride ?? AppConfig.NavDataApiKeyEffective;
             string baseUrl = (string.IsNullOrWhiteSpace(urlOverride)
-                              ? AppConfig.NavDataApiUrl
+                              ? AppConfig.NavDataApiUrlEffective
                               : urlOverride).TrimEnd('/');
             string domain  = AppConfig.NavDataApiDomain;
 
@@ -499,7 +499,7 @@ namespace vmsOpenAcars.Services
             }
 
             // ── API ───────────────────────────────────────────────────────────────
-            string baseUrl = AppConfig.NavDataApiUrl.TrimEnd('/');
+            string baseUrl = AppConfig.NavDataApiUrlEffective.TrimEnd('/');
 
             var tRunways    = FetchAsync<NavRunwaysResponse>   ($"{baseUrl}/airport/{icao}/runways/");
             var tTaxiways   = FetchAsync<NavTaxiwaysResponse>  ($"{baseUrl}/airport/{icao}/taxiways/");
@@ -538,7 +538,7 @@ namespace vmsOpenAcars.Services
         {
             try
             {
-                using (var resp = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
+                using (var resp = await NavDataRequest.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!resp.IsSuccessStatusCode) return null;
                     string json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -600,10 +600,10 @@ namespace vmsOpenAcars.Services
             // 3 — HTTP fetch. La cobertura la declara el servidor (`radius_nm`), no la suponemos.
             try
             {
-                string url = $"{AppConfig.NavDataApiUrl.TrimEnd('/')}/airspaces/" +
+                string url = $"{AppConfig.NavDataApiUrlEffective.TrimEnd('/')}/airspaces/" +
                              $"?lat={lat.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}" +
                              $"&lon={lon.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}";
-                using (var resp = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
+                using (var resp = await NavDataRequest.GetAsync(url).ConfigureAwait(false))
                 {
                     if (resp.StatusCode == HttpStatusCode.ServiceUnavailable)
                     {
@@ -670,8 +670,8 @@ namespace vmsOpenAcars.Services
         {
             try
             {
-                string url = AppConfig.NavDataApiUrl.TrimEnd('/') + "/" + path.TrimStart('/');
-                using (var response = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
+                string url = AppConfig.NavDataApiUrlEffective.TrimEnd('/') + "/" + path.TrimStart('/');
+                using (var response = await NavDataRequest.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!response.IsSuccessStatusCode) return null;
                     return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
@@ -684,9 +684,9 @@ namespace vmsOpenAcars.Services
         {
             try
             {
-                string url = AppConfig.NavDataApiUrl.TrimEnd('/')
+                string url = AppConfig.NavDataApiUrlEffective.TrimEnd('/')
                     + "/briefing/check/?phase=" + phase + "&lang=" + lang;
-                using (var response = await HttpClientProvider.NavData.GetAsync(url).ConfigureAwait(false))
+                using (var response = await NavDataRequest.GetAsync(url).ConfigureAwait(false))
                 {
                     if (!response.IsSuccessStatusCode) return null;
                     string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);

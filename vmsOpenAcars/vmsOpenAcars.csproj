@@ -177,6 +177,12 @@
     <Compile Include="Helpers\CartoTileUrl.cs" />
     <Compile Include="Helpers\AtcStationOrder.cs" />
     <Compile Include="Helpers\GeoMath.cs" />
+    <Compile Include="Helpers\HkdfSha256.cs" />
+    <Compile Include="Helpers\FixedTimeEquals.cs" />
+    <Compile Include="Helpers\NavDataCipher.cs" />
+    <Compile Include="Helpers\NavDataEnvelope.cs" />
+    <Compile Include="Helpers\NavDataKeyPolicy.cs" />
+    <Compile Include="Helpers\NavDataKeyState.cs" />
     <Compile Include="Helpers\HoldShortSelector.cs" />
     <Compile Include="Helpers\PirepFields.cs" />
     <Compile Include="Helpers\MapAttribution.cs" />
@@ -230,6 +236,8 @@
     <Compile Include="Services\SimbriefEnhancedService.cs" />
     <Compile Include="Services\AppLogger.cs" />
     <Compile Include="Services\Http\HttpClientProvider.cs" />
+    <Compile Include="Services\Http\NavDataRequest.cs" />
+    <Compile Include="Services\NavDataKeyProvider.cs" />
     <Compile Include="Services\IAppLogger.cs" />
     <Compile Include="Services\IvaoService.cs" />
     <Compile Include="Services\MetarService.cs" />

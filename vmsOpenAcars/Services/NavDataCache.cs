@@ -112,6 +112,35 @@ namespace vmsOpenAcars.Services
             }
         }
 
+        /// <summary>
+        /// `key_id` de la última credencial de NavData entregada por phpVMS, o `null` si nunca hubo una.
+        ///
+        /// Se guarda porque la clave puede **rotar entre sesiones**: comparar el `key_id` de hoy con el
+        /// de ayer es lo que dice si la caché del AIRAC en curso se sirvió con la credencial anterior y
+        /// hay que purgarla (`NavDataKeyProvider`). No es la clave: es solo su identificador.
+        /// </summary>
+        public static string LastNavDataKeyId
+        {
+            get { return _dbPath == null ? null : ReadMeta("navdata_key_id"); }
+        }
+
+        /// <summary>Recuerda el `key_id` de la credencial en uso. El `key_id` no es secreto.</summary>
+        public static void StoreNavDataKeyId(string keyId)
+        {
+            if (_dbPath == null || string.IsNullOrEmpty(keyId)) return;
+            lock (_lock)
+            {
+                try
+                {
+                    using (var conn = Open())
+                        Run(conn, null,
+                            "INSERT OR REPLACE INTO meta (key,value) VALUES ('navdata_key_id',@v)",
+                            "@v", keyId);
+                }
+                catch { }
+            }
+        }
+
         // ── Datos de aeropuerto ───────────────────────────────────────────────────
 
         /// <summary>

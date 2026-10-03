@@ -64,6 +64,9 @@
     <Compile Include="CartoTileUrlTests.cs" />
     <Compile Include="EcamDialogTests.cs" />
     <Compile Include="GeoMathTests.cs" />
+    <Compile Include="HkdfSha256Tests.cs" />
+    <Compile Include="NavDataCipherTests.cs" />
+    <Compile Include="NavDataKeyPolicyTests.cs" />
     <Compile Include="HoldShortSelectorTests.cs" />
     <Compile Include="PirepFieldsTests.cs" />
     <Compile Include="PolylineResamplerTests.cs" />

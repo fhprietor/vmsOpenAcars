@@ -705,8 +705,8 @@ namespace vmsOpenAcars.UI.Forms
         public override PureImage GetTileImage(GPoint pos, int zoom)
         {
             string proxy = CartoTileUrl.ProxyTile(
-                CartoTileUrl.ProxyBase(AppConfig.NavDataApiUrl, AppConfig.TileProxyUrl),
-                Style, zoom, pos.X, pos.Y, AppConfig.NavDataApiKey, AppConfig.NavDataApiDomain);
+                CartoTileUrl.ProxyBase(AppConfig.NavDataApiUrlEffective, AppConfig.TileProxyUrl),
+                Style, zoom, pos.X, pos.Y, AppConfig.NavDataApiKeyEffective, AppConfig.NavDataApiDomain);
 
             if (proxy.Length > 0)
             {

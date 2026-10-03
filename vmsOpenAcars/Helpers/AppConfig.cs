@@ -31,11 +31,50 @@ namespace vmsOpenAcars.Helpers
         // phpVMS API
         public static string VmsApiUrl => ConfigurationManager.AppSettings["vms_api_url"] ?? "";
 
+        /// <summary>
+        /// Clave del piloto en phpVMS. Es el IKM del que se deriva la clave del sobre de NavData, así
+        /// que solo se pasa a la derivación: **no se registra ni se escribe en ningún sitio**.
+        /// </summary>
+        public static string VmsApiKey => ConfigurationManager.AppSettings["vms_api_key"] ?? "";
+
         // NavData API — sin valores por defecto: los proporciona la aerolínea virtual
         // y el piloto los introduce en Settings. Cualquier credencial embebida aquí
         // acabaría comiteada al repositorio.
         public static string NavDataApiUrl => ConfigurationManager.AppSettings["navdata_api_url"] ?? "";
+
+        /// <summary>
+        /// Base de NavData **efectiva**: la `url` que entrega el sobre de phpVMS **tal cual** —el
+        /// contrato dice que es la base completa, no el host— y, solo si el sobre no trae `url` (o
+        /// viene vacía), la `navdata_api_url` del `.config`. Los llamantes deben usar esta, no la cruda.
+        /// </summary>
+        public static string NavDataApiUrlEffective
+        {
+            get { return NavDataKeyPolicy.ResolveUrl(NavDataKeyState.Url, NavDataApiUrl); }
+        }
+
+        /// <summary>
+        /// `navdata_api_key` **tal cual viene del `.config`**. Desde el cambio de phpVMS es lo normal
+        /// que venga **vacía**: la clave ya no se publica, se pide cifrada (ver
+        /// <see cref="NavDataKeyProvider"/>) y se guarda solo en memoria.
+        /// </summary>
         public static string NavDataApiKey => ConfigurationManager.AppSettings["navdata_api_key"] ?? "";
+
+        /// <summary>Igual que <see cref="NavDataApiKey"/> pero explícito sobre de dónde sale.</summary>
+        public static string NavDataApiKeyConfigured => NavDataApiKey;
+
+        /// <summary>
+        /// Clave de NavData **efectiva**: la del `.config` si la trae —comportamiento de siempre, para
+        /// quien la tenga configurada a mano— y, si está vacía, la que phpVMS entregó cifrada y vive en
+        /// memoria (<see cref="NavDataKeyState"/>). Los llamantes deben usar esta, no la cruda.
+        /// </summary>
+        public static string NavDataApiKeyEffective
+        {
+            get
+            {
+                string configured = NavDataApiKey;
+                return !string.IsNullOrWhiteSpace(configured) ? configured : NavDataKeyState.Key;
+            }
+        }
 
         /// <summary>
         /// Base del proxy de teselas de NavData. **Vacío por defecto**: se deriva de `navdata_api_url`
