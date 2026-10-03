@@ -405,6 +405,13 @@ namespace vmsOpenAcars.ViewModels
                 // `navdata-not-configured`, 401 o el sobre no abre— el vuelo sigue igual, sin NavData.
                 await NavDataKeyProvider.EnsureAsync().ConfigureAwait(false);
 
+                // `UnsupportedCipher` es el caso del que avisó phpVMS el 03/10/2026: su defecto sigue
+                // siendo `aes-256-gcm` y solo la cabecera `X-NavData-Cipher` hace que nos manden CBC.
+                // Si se cayera, el sobre llegaría en GCM y no lo podemos abrir: el aviso tiene que ser
+                // explícito y **el vuelo sigue** sin NavData (una petición por sesión, sin reintentos).
+                if (NavDataKeyProvider.LastOutcome == NavDataKeyOutcome.UnsupportedCipher)
+                    OnLog?.Invoke(_("Log_NavDataCipherUnsupported"), Theme.Warning);
+
                 var result = await NavDataClient.TestApiAsync().ConfigureAwait(false);
                 if (!result.Reachable)
                     OnLog?.Invoke(_("Log_NavDataApiDown", AppConfig.NavDataApiUrl), Theme.Warning);

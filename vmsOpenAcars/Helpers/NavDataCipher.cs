@@ -37,6 +37,26 @@ namespace vmsOpenAcars.Helpers
         /// <summary>Nombre del cifrado que anuncia la cabecera `X-NavData-Cipher`.</summary>
         internal const string CipherName = "aes-256-cbc-hmac-sha256";
 
+        /// <summary>
+        /// ¿El `cipher` que anuncia el sobre es el que sabemos abrir?
+        ///
+        /// El porqué: el **defecto del servidor sigue siendo `aes-256-gcm`** —confirmado por phpVMS el
+        /// 03/10/2026—, así que lo que decide qué sobre nos llega es la cabecera
+        /// `X-NavData-Cipher: aes-256-cbc-hmac-sha256`. Si esa cabecera se cayera, el sobre llegaría en
+        /// GCM y este cliente **no lo puede abrir**: GCM exigiría BouncyCastle en un binario que se
+        /// distribuye a los pilotos. Se dice que no **antes** de intentarlo, para no quedarnos con la
+        /// sesión creyendo que hay credencial cuando lo que hay es un criptograma ilegible.
+        ///
+        /// Sin campo `cipher` se acepta: el contrato puede omitirlo y entonces la autoridad es el MAC
+        /// (degradar sin datos, nunca rechazar por un campo que no vino). Cualquier otro nombre
+        /// —`aes-256-gcm` incluido— se rechaza. Helper puro, con test.
+        /// </summary>
+        internal static bool IsSupportedCipher(string cipher)
+        {
+            return string.IsNullOrEmpty(cipher)
+                || string.Equals(cipher, CipherName, StringComparison.OrdinalIgnoreCase);
+        }
+
         /// <summary>Salt de la HKDF. Es parte del contrato con phpVMS, no una elección local.</summary>
         internal const string SaltText = "vmsopenacars/navdata/v1";
 

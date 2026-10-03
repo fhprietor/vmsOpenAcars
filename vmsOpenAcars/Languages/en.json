@@ -346,6 +346,7 @@
   "Log_NavDataPrefetchOk":    "🗺️ NavData {0}: {1} rwys, {2} twys, {3} gates, {4} approaches",
   "Log_NavDataPrefetchEmpty": "⚠️ NavData {0}: no data — airport not available",
   "Log_NavDataAiracExpired":  "⚠️ NavData AIRAC {0} expired on {1} — update the cycle in NavData settings",
+  "Log_NavDataCipherUnsupported": "⚠️ NavData: the envelope arrived in a cipher we cannot open (GCM) — this session flies without NavData",
   "Log_ProcFixApproaching":   "→ Fix approaching: {0}  {1}",
   "Osd_ProcNextFix":          "NEXT",
 

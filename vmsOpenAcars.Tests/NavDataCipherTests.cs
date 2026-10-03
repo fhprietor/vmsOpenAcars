@@ -143,6 +143,40 @@ namespace vmsOpenACars.Tests
             StringAssert.Contains(error, "vms_api_key");
         }
 
+        // ── El cifrado que anuncia el sobre: solo sabemos abrir CBC+HMAC ──────────
+        //
+        // El porqué de esta puerta: el **defecto de phpVMS sigue siendo `aes-256-gcm`**
+        // (confirmado el 03/10/2026), así que lo que decide qué sobre nos llega es la cabecera
+        // `X-NavData-Cipher: aes-256-cbc-hmac-sha256` que manda `NavDataKeyProvider`. Si esa
+        // cabecera se cayera, el sobre llegaría en GCM y **no lo podemos abrir** —GCM exigiría
+        // BouncyCastle en un binario que se distribuye a pilotos—. Rechazarlo ANTES de intentarlo
+        // es lo que deja la sesión sin NavData **sin fingir que hay credencial**, y el vuelo sigue.
+
+        [TestMethod]
+        public void CifradoCbcHmac_EsElQueSabemosAbrir()
+        {
+            Assert.IsTrue(NavDataCipher.IsSupportedCipher(NavDataCipher.CipherName));
+            // El nombre lo publica el servidor: la caja no puede decidir si es el mismo cifrado.
+            Assert.IsTrue(NavDataCipher.IsSupportedCipher("AES-256-CBC-HMAC-SHA256"));
+        }
+
+        [TestMethod]
+        public void SobreGcm_SeRechazaYLaSesionSigueSinNavData()
+        {
+            Assert.IsFalse(NavDataCipher.IsSupportedCipher("aes-256-gcm"));
+            Assert.IsFalse(NavDataCipher.IsSupportedCipher("aes-128-gcm"));
+            Assert.IsFalse(NavDataCipher.IsSupportedCipher("chacha20-poly1305"));
+        }
+
+        [TestMethod]
+        public void SinCampoDeCifrado_NoSeRechazaPorSospecha()
+        {
+            // El contrato puede omitir `cipher`: entonces la única autoridad es el MAC. Rechazar por
+            // un campo que no vino dejaría al piloto sin NavData sin motivo (degradar sin datos).
+            Assert.IsTrue(NavDataCipher.IsSupportedCipher(null));
+            Assert.IsTrue(NavDataCipher.IsSupportedCipher(""));
+        }
+
         // ── Utilidades del test: el cifrador — SOLO del test ──────────────────────
 
         private static void AssertRejectedPorMac(string payload)

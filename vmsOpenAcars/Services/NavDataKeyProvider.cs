@@ -20,7 +20,10 @@ namespace vmsOpenAcars.Services
         /// <summary>Sobre pedido, abierto y guardado en memoria.</summary>
         Delivered,
 
-        /// <summary>`400 navdata-unsupported-cipher`: el servidor no habla el cifrado pedido.</summary>
+        /// <summary>
+        /// El servidor no habla el cifrado pedido: o contestó `400 navdata-unsupported-cipher`, o el
+        /// sobre vino con otro `cipher` —su defecto sigue siendo `aes-256-gcm`—, que no sabemos abrir.
+        /// </summary>
         UnsupportedCipher,
 
         /// <summary>`401`: clave ausente/inválida o piloto no `ACTIVE`. No se reintenta.</summary>
@@ -205,11 +208,16 @@ namespace vmsOpenAcars.Services
             }
 
             string cipher = data["cipher"]?.ToString();
-            if (!string.IsNullOrEmpty(cipher) &&
-                !string.Equals(cipher, NavDataCipher.CipherName, StringComparison.OrdinalIgnoreCase))
+            if (!NavDataCipher.IsSupportedCipher(cipher))
             {
-                // El servidor contesta con un cifrado que no sabemos abrir: mejor no usar nada que
-                // fingir que hay credencial.
+                // El servidor contesta con un cifrado que no sabemos abrir —su defecto sigue siendo
+                // `aes-256-gcm` (03/10/2026), y sin la cabecera `X-NavData-Cipher` el sobre llega
+                // así—: mejor no usar nada que fingir que hay credencial. El aviso es explícito, la
+                // sesión se queda **sin NavData** y **el vuelo sigue**: `_attempted` ya está marcado,
+                // así que no hay reintento.
+                Debug.WriteLine(
+                    "NavData: el sobre llegó en '" + cipher + "' y este cliente solo abre '" +
+                    NavDataCipher.CipherName + "'; esta sesión vuela sin NavData");
                 _unavailable = true;
                 LastOutcome  = NavDataKeyOutcome.UnsupportedCipher;
                 return false;

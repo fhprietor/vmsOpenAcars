@@ -344,6 +344,7 @@
   "Log_NavDataPrefetchOk":    "🗺️ NavData {0}: {1} pistas, {2} calles, {3} gates, {4} aprox",
   "Log_NavDataPrefetchEmpty": "⚠️ NavData {0}: sin datos — aeropuerto no disponible en la API",
   "Log_NavDataAiracExpired":  "⚠️ NavData AIRAC {0} expirado el {1} — actualiza el ciclo en los ajustes de NavData",
+  "Log_NavDataCipherUnsupported": "⚠️ NavData: el sobre llegó en un cifrado que no podemos abrir (GCM) — esta sesión vuela sin NavData",
   "Log_ProcFixApproaching":   "→ Fix próximo: {0}  {1}",
   "Osd_ProcNextFix":          "PRÓXIMO",
 

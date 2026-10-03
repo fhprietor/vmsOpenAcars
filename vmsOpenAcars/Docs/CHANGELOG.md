@@ -4,6 +4,8 @@
 
 ## [0.9.25] — 02/10/2026
 
+**Endurecido en la misma versión (respuesta de phpVMS del 03/10).** El defecto del servidor sigue siendo **GCM**, así que el cliente **manda siempre X-NavData-Cipher: aes-256-cbc-hmac-sha256** (ya lo hacía: NavDataKeyProvider), y si algún día llegara un sobre **GCM** se **rechaza con un aviso claro** antes de intentar abrirlo (NavDataCipher.IsSupportedCipher): la sesión queda sin NavData, **sin reintentos** y **el vuelo sigue** —con una línea visible en el log, clave nueva Log_NavDataCipherUnsupported en los dos idiomas—. **385/385**.
+
 ### Changed
 
 - **La clave de NavData ya no viaja en el `.config`: la entrega phpVMS en un sobre cifrado.**
