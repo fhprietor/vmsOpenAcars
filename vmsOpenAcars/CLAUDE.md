@@ -228,8 +228,8 @@ celda por celda, no solo que compile.
 
 **Reparto de espacio en `SettingsForm` (v0.9.12).** El alto útil de contenido es `alto de ventana
 − 99` px: barra de título 35 + panel de botones 44 + `Padding` 4 y 16. La columna izquierda son
-filas de 35 px, así que **cada fila nueva hay que pagarla**: 14 filas = 490 px y de ahí la ventana
-en 920×600 (`MinimumSize` al mismo alto, para no poder encogerla hasta cortar la rejilla). Un
+filas de 35 px, así que **cada fila nueva hay que pagarla**: 12 filas = 420 px y de ahí la ventana
+en 920×530 (`MinimumSize` al mismo alto, para no poder encogerla hasta cortar la rejilla). Un
 resultado de texto largo no debe compartir celda con botones ni resolverse con aritmética de
 `Resize`: eso es lo que recortaba el mensaje de estado de NavData hasta v0.9.12. Se usan filas
 separadas y `FlowLayoutPanel` para los grupos de botones.
