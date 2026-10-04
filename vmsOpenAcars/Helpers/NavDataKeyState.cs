@@ -12,7 +12,8 @@ namespace vmsOpenAcars.Helpers
     /// `.config` del piloto se copia a otro equipo, no viaja ninguna credencial.
     ///
     /// Es un contenedor puro, sin red ni WinForms. Lo llena `NavDataKeyProvider` y lo consultan
-    /// `AppConfig` (clave efectiva) y el proxy de teselas del mapa.
+    /// `AppConfig` (clave efectiva: **la única** fuente de la clave) y el proxy de teselas del mapa.
+    /// Si no hay sobre, no hay clave: no existe respaldo del `.config`.
     /// </summary>
     internal static class NavDataKeyState
     {

@@ -2,12 +2,40 @@ using System;
 
 namespace vmsOpenAcars.Helpers
 {
+    /// <summary>
+    /// Cómo acabó —o va— el ciclo de la credencial de NavData. Cada valor lleva su clave de idioma
+    /// (`NavDataKeyPolicy.ReasonKey`), porque «no hay clave» sin decir **por qué** no deja arreglar nada.
+    /// </summary>
+    internal enum NavDataKeyOutcome
+    {
+        /// <summary>Todavía no se ha pedido nada (ni hacía falta).</summary>
+        Idle,
+
+        /// <summary>Sobre pedido, abierto y guardado en memoria.</summary>
+        Delivered,
+
+        /// <summary>Faltan `vms_api_url` o `vms_api_key`: sin ellos no hay a quién pedir el sobre.</summary>
+        MissingConfiguration,
+
+        /// <summary>
+        /// El servidor no habla el cifrado pedido: o contestó `400 navdata-unsupported-cipher`, o el
+        /// sobre vino con otro `cipher` —su defecto sigue siendo `aes-256-gcm`—, que no sabemos abrir.
+        /// </summary>
+        UnsupportedCipher,
+
+        /// <summary>`401`: clave ausente/inválida o piloto no `ACTIVE`. No se reintenta.</summary>
+        Unauthorized,
+
+        /// <summary>`503 navdata-not-configured`: el staff no la ha configurado. El vuelo sigue sin NavData.</summary>
+        NotConfigured,
+
+        /// <summary>Fallo de red, respuesta ilegible o sobre que no abre. Se degrada sin NavData.</summary>
+        Failed,
+    }
+
     /// <summary>Qué toca hacer con la credencial de NavData según el estado de la sesión.</summary>
     internal enum NavDataKeyAction
     {
-        /// <summary>El `.config` ya trae clave: se usa y **no se pregunta** a phpVMS.</summary>
-        UseConfiguredKey,
-
         /// <summary>Hay sobre en memoria y no ha vencido: se sigue usando.</summary>
         UseCachedEnvelope,
 
@@ -20,37 +48,71 @@ namespace vmsOpenAcars.Helpers
 
     /// <summary>
     /// Decisión del ciclo de vida de la credencial de NavData (§6 del documento de phpVMS): cuándo se
-    /// usa lo que hay en el `.config`, cuándo se pide el sobre y cuándo se deja de intentarlo.
+    /// usa el sobre en memoria, cuándo se pide y cuándo se deja de intentarlo.
     ///
-    /// Las tres reglas duras, y el porqué de cada una:
+    /// **La clave, SÓLO del sobre** (decisión del mantenedor). Hasta ahora `Decide` empezaba con «si el
+    /// `.config` trae `navdata_api_key`, se usa y no se pregunta a phpVMS». Ese respaldo se quitó por dos
+    /// motivos, y los dos son la causa raíz de este cambio:
+    /// - **La clave del `.config` es exactamente la que se filtró**: viajaba en el `.config` que se
+    ///   descarga del gestor de ficheros. Mientras exista el respaldo, un sobre roto no se nota —
+    ///   el cliente sigue volando con la clave vieja **y nadie se entera** de que el mecanismo nuevo
+    ///   dejó de funcionar.
+    /// - **Enmascara el fallo**: el respaldo convierte un error del servidor en un vuelo aparentemente
+    ///   normal. Sin él, «no hay sobre» se ve en el log y se arregla.
+    ///
+    /// Las tres reglas duras que quedan, y el porqué de cada una:
     /// - **Una petición por sesión** (límite de phpVMS: **30/min por piloto**). El cliente pide el
     ///   sobre **una vez** y lo guarda **en memoria** hasta `expires_at`.
     /// - **No reintentar en bucle** un `401` (clave ausente/inválida o piloto no `ACTIVE`) ni un `400`
     ///   (`navdata-unsupported-cipher`): son fallos deterministas, reintentar solo gasta cuota.
     /// - **`503 navdata-not-configured`** tampoco se reintenta: el staff de la aerolínea no la ha
-    ///   configurado todavía, y el vuelo **sigue sin scoring NavData**, exactamente como hoy sin clave.
+    ///   configurado todavía, y el vuelo **sigue sin scoring NavData**, exactamente como sin clave.
     ///
     /// Helper puro, con test: la red y el estado en memoria viven en `NavDataKeyProvider`.
     /// </summary>
     internal static class NavDataKeyPolicy
     {
         /// <summary>
-        /// Decide qué hacer. <paramref name="alreadyAttempted"/> es «ya se pidió el sobre en esta
-        /// sesión»; <paramref name="expiresAtUtc"/> nulo significa «no sé cuándo vence» y se trata como
-        /// vigente: quedarse sin NavData por un formato de fecha raro sería peor que reutilizar el sobre.
+        /// Decide qué hacer con el **sobre en memoria**. `configuredKey` es la `navdata_api_key` cruda
+        /// del `.config` (**queda documental, se ignora a propósito**: sirve para que el test fije la
+        /// regla y para que nadie vuelva a colarla en la decisión). <paramref name="alreadyAttempted"/>
+        /// es «ya se pidió el sobre en esta sesión»; <paramref name="expiresAtUtc"/> nulo significa
+        /// «no sé cuándo vence» y se trata como vigente: quedarse sin NavData por un formato de fecha
+        /// raro sería peor que reutilizar el sobre.
         /// </summary>
         internal static NavDataKeyAction Decide(
             string configuredKey, bool haveEnvelope, DateTime? expiresAtUtc,
             bool alreadyAttempted, DateTime nowUtc)
         {
-            if (!string.IsNullOrEmpty(configuredKey)) return NavDataKeyAction.UseConfiguredKey;
-
+            // Sin mirar `configuredKey`: una clave escrita en el `.config` se ignora (ver el
+            // resumen de la clase). La resolución de la clave efectiva es
+            // `AppConfig.NavDataApiKeyEffective`, que solo lee `NavDataKeyState`.
             if (haveEnvelope && (expiresAtUtc == null || expiresAtUtc.Value > nowUtc))
                 return NavDataKeyAction.UseCachedEnvelope;
 
             if (alreadyAttempted) return NavDataKeyAction.GiveUp;
 
             return NavDataKeyAction.RequestEnvelope;
+        }
+
+        /// <summary>
+        /// Clave de idioma del motivo por el que la sesión se quedó sin credencial. Va aquí —y no en el
+        /// proveedor— porque es una decisión pura sobre el resultado, y así se puede fijar con un test:
+        /// «no hay clave» sin motivo no se puede diagnosticar.
+        ///
+        /// `Delivered`/`Idle` (y cualquier valor futuro) devuelven cadena vacía: no hay nada que contar.
+        /// </summary>
+        internal static string ReasonKey(NavDataKeyOutcome outcome)
+        {
+            switch (outcome)
+            {
+                case NavDataKeyOutcome.MissingConfiguration: return "NavDataReason_MissingConfig";
+                case NavDataKeyOutcome.Unauthorized:         return "NavDataReason_Unauthorized";
+                case NavDataKeyOutcome.NotConfigured:        return "NavDataReason_NotConfigured";
+                case NavDataKeyOutcome.UnsupportedCipher:    return "NavDataReason_UnsupportedCipher";
+                case NavDataKeyOutcome.Failed:               return "NavDataReason_Failed";
+                default:                                     return "";
+            }
         }
 
         /// <summary>

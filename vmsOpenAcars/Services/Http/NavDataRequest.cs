@@ -14,8 +14,9 @@ namespace vmsOpenAcars.Services.Http
     /// después** de la primera petición: lanza `InvalidOperationException`. Así que la única forma de
     /// que el vuelo use la clave entregada es ponerla en cada petición.
     ///
-    /// No hay dos claves: <see cref="AppConfig.NavDataApiKeyEffective"/> es la del `.config` si viene
-    /// —comportamiento de siempre, para quien la tenga— y, si no, la del sobre en memoria.
+    /// Hay **una sola** clave: <see cref="AppConfig.NavDataApiKeyEffective"/>, que es la del sobre en
+    /// memoria. Sin sobre **no hay clave** (una escrita en el `.config` se ignora) y la petición sale
+    /// sin `X-API-Key`, que es lo honesto: el servidor contestará 401 y el log dirá por qué.
     /// </summary>
     internal static class NavDataRequest
     {

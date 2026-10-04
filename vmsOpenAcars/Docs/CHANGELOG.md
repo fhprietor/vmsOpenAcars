@@ -2,6 +2,28 @@
 
 ---
 
+## [0.9.26] — 03/10/2026
+
+### Changed
+
+- **La clave de NavData ya NO tiene respaldo en el `.config`: o viene en el sobre cifrado, o no hay clave.** El
+  respaldo que dejamos en 0.9.25 era peligroso por dos motivos, y el segundo es el que decide: la clave del
+  fichero es **la misma que se filtró** —así que el respaldo mantenía viva justo la que queremos enterrar— y,
+  además, **enmascaraba el fallo**: si el sobre dejaba de llegar, el cliente seguía volando en silencio con la
+  clave vieja y nadie se enteraba. Ahora `AppConfig.NavDataApiKeyEffective` sale **sólo** del estado del sobre
+  (`NavDataKeyState.Key`) y la clave del `.config`, **si alguien la escribe, se ignora** (con test que lo fija).
+  `navdata_api_key` **desaparece de `App.config` y de `App.Release.config`**; `navdata_api_url` se queda, y
+  `vms_api_key` también, que es la que autentica la petición del sobre.
+- **Si no hay clave, se dice.** Una sola línea en el log del vuelo: «⚠️ NavData: sin clave ({motivo}) — esta
+  sesión vuela sin NavData», con el motivo separado (`Log_NavDataNoKey` + `ReasonKey`): falta de configuración,
+  `401`, `503`, cifrado no soportado (GCM) o fallo de red. El vuelo sigue, sin los cuatro criterios de NavData,
+  como cuando no había clave.
+- **El campo de la clave en Settings pasa a ser de sólo lectura** y muestra el `key_id` del sobre (que no es
+  secreto) o «(llega en el sobre cifrado de phpVMS)»: ya no se guarda ni cuenta como cambio. La URL sigue
+  editable.
+- **Verificado**: ninguna aparición del patrón de la clave en el árbol. Idiomas simétricos (**425 claves** cada
+  uno). **388/388**.
+
 ## [0.9.25] — 02/10/2026
 
 **Endurecido en la misma versión (respuesta de phpVMS del 03/10).** El defecto del servidor sigue siendo **GCM**, así que el cliente **manda siempre X-NavData-Cipher: aes-256-cbc-hmac-sha256** (ya lo hacía: NavDataKeyProvider), y si algún día llegara un sobre **GCM** se **rechaza con un aviso claro** antes de intentar abrirlo (NavDataCipher.IsSupportedCipher): la sesión queda sin NavData, **sin reintentos** y **el vuelo sigue** —con una línea visible en el log, clave nueva Log_NavDataCipherUnsupported en los dos idiomas—. **385/385**.

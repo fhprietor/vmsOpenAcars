@@ -8,49 +8,26 @@ using vmsOpenAcars.Helpers;
 
 namespace vmsOpenAcars.Services
 {
-    /// <summary>Cómo acabó el ciclo de la credencial de NavData en esta sesión.</summary>
-    internal enum NavDataKeyOutcome
-    {
-        /// <summary>Todavía no se ha pedido nada (ni hacía falta).</summary>
-        Idle,
-
-        /// <summary>El `.config` ya traía `navdata_api_key`: no se pregunta a phpVMS.</summary>
-        Configured,
-
-        /// <summary>Sobre pedido, abierto y guardado en memoria.</summary>
-        Delivered,
-
-        /// <summary>
-        /// El servidor no habla el cifrado pedido: o contestó `400 navdata-unsupported-cipher`, o el
-        /// sobre vino con otro `cipher` —su defecto sigue siendo `aes-256-gcm`—, que no sabemos abrir.
-        /// </summary>
-        UnsupportedCipher,
-
-        /// <summary>`401`: clave ausente/inválida o piloto no `ACTIVE`. No se reintenta.</summary>
-        Unauthorized,
-
-        /// <summary>`503 navdata-not-configured`: el staff no la ha configurado. El vuelo sigue sin NavData.</summary>
-        NotConfigured,
-
-        /// <summary>Fallo de red, respuesta ilegible o sobre que no abre. Se degrada sin NavData.</summary>
-        Failed,
-    }
-
     /// <summary>
     /// Pide a phpVMS la credencial de NavData **una vez por sesión** y la deja en memoria.
     ///
     /// El porqué de que esto exista: la `navdata_api_key` **estaba publicada** en el `.config` que se
-    /// descarga del gestor de ficheros. Ahora ese `.config` la deja vacía y phpVMS la entrega en un
+    /// descarga del gestor de ficheros. El `.config` ya **no lleva la clave** (ni siquiera el de
+    /// desarrollo: así no podemos volver a engañarnos) y phpVMS la entrega en un
     /// sobre cifrado (`GET {vms_api_url}/api/navdata` con `X-API-KEY` — **no** `Authorization: Bearer`,
     /// que no funciona) derivando la clave de cifrado de la `vms_api_key` del piloto, el único secreto
     /// ya compartido. phpVMS **no hace de proxy**: entrega `{url, key}` y a partir de ahí se habla
     /// directo con NavData.
     ///
+    /// **No hay respaldo**: si el sobre no llega, la sesión se queda **sin clave** y se dice por qué
+    /// (`LastReasonKey`). El respaldo del `.config` se quitó porque **era la clave filtrada** y porque
+    /// enmascaraba justo el fallo que hay que ver.
+    ///
     /// Reglas de convivencia con el servicio (contrato de phpVMS, §6):
     /// - **30/min por piloto** → **una petición por sesión**; el resto se sirve de memoria.
     /// - **`401`** (clave inválida o piloto no `ACTIVE`) y **`400`** (`unsupported-cipher`) son
     ///   deterministas: **no se reintentan en bucle**, se marca la sesión sin credencial.
-    /// - **`503 navdata-not-configured`** → el vuelo sigue **sin scoring NavData**, como hoy sin clave.
+    /// - **`503 navdata-not-configured`** → el vuelo sigue **sin scoring NavData**, como sin clave.
     /// - **La clave no se registra jamás**: ni en el log del ACARS, ni en telemetría, ni en el `.config`.
     ///   Lo único que se puede registrar es el `key_id`, que no es secreto.
     /// </summary>
@@ -70,8 +47,17 @@ namespace vmsOpenAcars.Services
         /// <summary>`true` si la `url` del sobre coincide con `navdata_api_url` del `.config`.</summary>
         internal static bool UrlMatchesConfigured { get; private set; }
 
-        /// <summary>Credencial en uso: la del `.config` o, si no hay, la del sobre en memoria.</summary>
+        /// <summary>
+        /// Credencial en uso: **solo** la del sobre en memoria. Una `navdata_api_key` escrita en el
+        /// `.config` se ignora (ver <see cref="AppConfig.NavDataApiKeyEffective"/>).
+        /// </summary>
         internal static string ApiKey => AppConfig.NavDataApiKeyEffective;
+
+        /// <summary>
+        /// Clave de idioma del motivo por el que la sesión va sin NavData, o cadena vacía si hay clave.
+        /// La usa la UI para decir **por qué**, no solo que no hay.
+        /// </summary>
+        internal static string LastReasonKey => NavDataKeyPolicy.ReasonKey(LastOutcome);
 
         /// <summary>
         /// Asegura que hay credencial utilizable. Se llama **al arrancar la sesión**, antes del primer
@@ -82,8 +68,10 @@ namespace vmsOpenAcars.Services
         {
             NavDataEnvelope current = NavDataKeyState.Current;
 
+            // Se le pasa la clave cruda del `.config` solo para que quede explícito que se ignora:
+            // la decisión no la mira (ver `NavDataKeyPolicy`).
             NavDataKeyAction action = NavDataKeyPolicy.Decide(
-                AppConfig.NavDataApiKeyConfigured,
+                AppConfig.NavDataApiKey,
                 current != null,
                 current?.ExpiresAtUtc,
                 _attempted,
@@ -91,10 +79,6 @@ namespace vmsOpenAcars.Services
 
             switch (action)
             {
-                case NavDataKeyAction.UseConfiguredKey:
-                    LastOutcome = NavDataKeyOutcome.Configured;
-                    return Task.FromResult(true);
-
                 case NavDataKeyAction.UseCachedEnvelope:
                     return Task.FromResult(true);
 
@@ -131,8 +115,11 @@ namespace vmsOpenAcars.Services
 
                 if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrEmpty(ikm))
                 {
+                    // Sin `vms_api_url` o sin `vms_api_key` no hay a quién pedir el sobre. Antes esto
+                    // quedaba tapado por el respaldo del `.config`; ahora es un motivo de primer orden
+                    // y tiene su propio aviso.
                     _unavailable = true;
-                    LastOutcome  = NavDataKeyOutcome.Failed;
+                    LastOutcome  = NavDataKeyOutcome.MissingConfiguration;
                     return false;
                 }
 

@@ -40,6 +40,9 @@
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <!-- NavDataKeyPolicyTests fija que una `navdata_api_key` escrita en el `.config` se ignora:
+         `AppConfig` la lee por `ConfigurationManager`, así que el ensamblado tiene que resolverse. -->
+    <Reference Include="System.Configuration" />
     <!-- TaxiRouteObservationTests lee el cuerpo del POST con JObject: el JSON del `planned` se fija
          como forma, no como cadena literal. -->
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">

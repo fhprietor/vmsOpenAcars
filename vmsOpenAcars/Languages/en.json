@@ -78,6 +78,7 @@
   "Stg_ErrorTitle": "ERROR",
   "Stg_ConnFailed": "Connection failed",
   "Stg_NavDataKeyInvalid": "Invalid API key",
+  "Stg_NavDataKeyFromEnvelope": "(delivered in phpVMS's encrypted envelope)",
 
   "NavDataKey": "API Key",
   "NavData URL": "NavData URL",
@@ -346,7 +347,12 @@
   "Log_NavDataPrefetchOk":    "🗺️ NavData {0}: {1} rwys, {2} twys, {3} gates, {4} approaches",
   "Log_NavDataPrefetchEmpty": "⚠️ NavData {0}: no data — airport not available",
   "Log_NavDataAiracExpired":  "⚠️ NavData AIRAC {0} expired on {1} — update the cycle in NavData settings",
-  "Log_NavDataCipherUnsupported": "⚠️ NavData: the envelope arrived in a cipher we cannot open (GCM) — this session flies without NavData",
+  "Log_NavDataNoKey": "⚠️ NavData: no key ({0}) — this session flies without NavData",
+  "NavDataReason_MissingConfig": "vms_api_url or vms_api_key missing from the configuration",
+  "NavDataReason_Unauthorized": "phpVMS rejected the request (401: invalid key or pilot not ACTIVE)",
+  "NavDataReason_NotConfigured": "the airline has not configured NavData in phpVMS (503)",
+  "NavDataReason_UnsupportedCipher": "the envelope arrived in a cipher we cannot open (GCM)",
+  "NavDataReason_Failed": "the envelope could not be requested (network or unreadable response)",
   "Log_ProcFixApproaching":   "→ Fix approaching: {0}  {1}",
   "Osd_ProcNextFix":          "NEXT",
 

@@ -512,7 +512,7 @@ Complementado por dos fixes fuera del state machine (mismo incidente real,
 
 ### NavDataService — `Services/NavDataService.cs`
 
-Reemplaza a `RunwayService`. Misma interfaz pública; datos vía `NavDataClient` en lugar de SQLite. Configurado en `App.config` con claves `navdata_api_url`, `navdata_api_key`, `navdata_api_domain`.
+Reemplaza a `RunwayService`. Misma interfaz pública; datos vía `NavDataClient` en lugar de SQLite. Configurado en `App.config` con claves `navdata_api_url`, `navdata_api_domain` (`navdata_api_key` se retiró: la clave llega en el sobre cifrado de phpVMS y una escrita en el `.config` se ignora).
 
 **API pública:**
 
@@ -2061,7 +2061,7 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 | `simbrief_civalue` | 30 | Cost Index para SimBrief |
 | `simbrief_units` | lbs | Unidades combustible SimBrief |
 | `navdata_api_url` | _(vacío)_ | URL base del servicio NavData API. Editable en Settings → NavData API desde v0.9.11; antes solo se cambiaba a mano en el `.config` |
-| `navdata_api_key` | _(vacío)_ | API key del servicio NavData |
+| `navdata_api_key` | _(vacío)_ | **Obsoleta: se ignora.** La clave llega en el sobre cifrado de phpVMS (`GET {vms_api_url}/api/navdata`) y vive en memoria. Se eliminó de `App.config` y `App.Release.config`: la del fichero era la clave que se filtró y su respaldo enmascaraba que el sobre se rompiera |
 | `navdata_api_domain` | _(vacío)_ | Dominio de la aerolínea (cabecera `X-Origin-Domain`) |
 | `landing_log_path` | _(vacío)_ | Ruta al archivo `landing_log.sqlite` |
 | `osd_enabled` | true | Activa el overlay OSD |

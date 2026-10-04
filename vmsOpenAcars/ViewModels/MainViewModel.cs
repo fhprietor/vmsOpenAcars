@@ -399,18 +399,23 @@ namespace vmsOpenAcars.ViewModels
         {
             Task navCheck = Task.Run(async () =>
             {
-                // La credencial de NavData se pide UNA vez por sesión, antes del primer uso: desde el
-                // cambio de phpVMS el `.config` deja `navdata_api_key` vacía y la clave llega en un sobre
-                // cifrado (límite del servidor: 30/min por piloto). Si no hay credencial —503
-                // `navdata-not-configured`, 401 o el sobre no abre— el vuelo sigue igual, sin NavData.
+                // La credencial de NavData se pide UNA vez por sesión, antes del primer uso: el `.config`
+                // ya no lleva `navdata_api_key` **en ningún entorno** —la del fichero era la clave que se
+                // filtró, y su respaldo enmascaraba que el sobre nuevo se rompiera—, así que la clave
+                // llega solo en el sobre cifrado (límite del servidor: 30/min por piloto). Si no hay
+                // credencial —falta `vms_api_url`/`vms_api_key`, 503 `navdata-not-configured`, 401, un
+                // GCM que no sabemos abrir o la red caída— el vuelo sigue igual, sin NavData, pero se
+                // dice **una vez** y **con el motivo**: sin el respaldo, «no hay clave» es un hecho que
+                // hay que poder diagnosticar.
                 await NavDataKeyProvider.EnsureAsync().ConfigureAwait(false);
 
-                // `UnsupportedCipher` es el caso del que avisó phpVMS el 03/10/2026: su defecto sigue
-                // siendo `aes-256-gcm` y solo la cabecera `X-NavData-Cipher` hace que nos manden CBC.
-                // Si se cayera, el sobre llegaría en GCM y no lo podemos abrir: el aviso tiene que ser
-                // explícito y **el vuelo sigue** sin NavData (una petición por sesión, sin reintentos).
-                if (NavDataKeyProvider.LastOutcome == NavDataKeyOutcome.UnsupportedCipher)
-                    OnLog?.Invoke(_("Log_NavDataCipherUnsupported"), Theme.Warning);
+                if (string.IsNullOrEmpty(AppConfig.NavDataApiKeyEffective))
+                {
+                    string reasonKey = NavDataKeyProvider.LastReasonKey;
+                    OnLog?.Invoke(_("Log_NavDataNoKey",
+                                    string.IsNullOrEmpty(reasonKey) ? "—" : _(reasonKey)),
+                                  Theme.Warning);
+                }
 
                 var result = await NavDataClient.TestApiAsync().ConfigureAwait(false);
                 if (!result.Reachable)

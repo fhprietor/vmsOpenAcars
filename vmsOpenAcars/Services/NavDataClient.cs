@@ -409,7 +409,9 @@ namespace vmsOpenAcars.Services
 
         /// <summary>
         /// Tests both service reachability and API key validity.
-        /// When apiKeyOverride is null the result updates IsReachable/IsKeyValid flags.
+        /// La clave sale de <see cref="AppConfig.NavDataApiKeyEffective"/> (el sobre de phpVMS): sin
+        /// sobre no hay clave y la prueba autenticada falla, que es lo que hay que ver. Cuando
+        /// <paramref name="apiKeyOverride"/> es null el resultado actualiza IsReachable/IsKeyValid flags.
         /// <paramref name="urlOverride"/> permite probar la URL que el piloto acaba de escribir
         /// en Settings sin guardar ni reiniciar: sin él, el TEST validaría contra la URL ya
         /// configurada y daría por bueno un valor que todavía no se ha guardado.

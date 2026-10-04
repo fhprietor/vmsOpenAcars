@@ -296,10 +296,18 @@ namespace vmsOpenAcars.UI.Forms
             txtNavDataApiUrl = CreateTextBox();
             left.Controls.Add(txtNavDataApiUrl, 1, 10);
 
-            // row 11 — NavData API Key
+            // row 11 — NavData Key: DIAGNÓSTICO, de solo lectura.
+            // El campo ya no sirve para escribir nada: la clave llega **solo** en el sobre cifrado de
+            // phpVMS y vive en memoria, así que una clave tecleada aquí se ignoraría —el respaldo del
+            // `.config` se eliminó porque era la clave filtrada y escondía que el sobre se rompiera—.
+            // Se deja la fila, de solo lectura, en vez de borrarla: quitarla obliga a renumerar las
+            // 14 filas de la rejilla (y sus claves de idioma) y aquí lo que se gana es poder VER, sin
+            // abrir el exe.config, si el sobre llegó: el `key_id` (que no es secreto) o el motivo.
             left.Controls.Add(CreateLabel("NavDataKey"), 0, 11);
             txtNavDataApiKey = CreateTextBox();
-            txtNavDataApiKey.UseSystemPasswordChar = true;
+            txtNavDataApiKey.ReadOnly = true;
+            txtNavDataApiKey.TabStop  = false;
+            txtNavDataApiKey.ForeColor = Color.FromArgb(160, 160, 170);
             left.Controls.Add(txtNavDataApiKey, 1, 11);
 
             // row 12 — NavData status (solo el resultado del test)
@@ -343,9 +351,10 @@ namespace vmsOpenAcars.UI.Forms
                 lblNavDataStatus.Text      = "Connecting...";
                 lblNavDataStatus.ForeColor = Color.FromArgb(200, 200, 100);
                 // El TEST usa la URL escrita y no la guardada: así valida lo que el piloto acaba
-                // de teclear, sin obligarle a guardar (y reiniciar) para comprobarlo.
+                // de teclear, sin obligarle a guardar (y reiniciar) para comprobarlo. La clave no se
+                // pasa: la resuelve el cliente —la del sobre—, porque ya no hay campo que la escriba.
                 var result = await NavDataClient.TestApiAsync(
-                                       txtNavDataApiKey.Text.Trim(),
+                                       null,
                                        txtNavDataApiUrl.Text.Trim())
                                                .ConfigureAwait(true);
                 if (!result.Reachable)
@@ -760,7 +769,10 @@ namespace vmsOpenAcars.UI.Forms
             txtSimbriefCi.Text       = ConfigurationManager.AppSettings["simbrief_civalue"]  ?? "30";
             txtSimbriefExtraRmk.Text = ConfigurationManager.AppSettings["simbrief_extrarmk"] ?? "";
             txtNavDataApiUrl.Text    = ConfigurationManager.AppSettings["navdata_api_url"]    ?? "";
-            txtNavDataApiKey.Text    = ConfigurationManager.AppSettings["navdata_api_key"]    ?? "";
+            // El campo de la clave es de DIAGNÓSTICO y no se llena desde el `.config`: esa clave, si
+            // estuviera escrita, se ignora. Lo que se enseña es lo que de verdad se usa —el sobre ya
+            // abierto, por su `key_id`, que no es secreto— o que todavía no hay clave.
+            txtNavDataApiKey.Text    = NavDataKeyDetail();
             lblNavDataStatus.Text    = AppConfig.NavDataApiUrl;
             txtLandingLogPath.Text   = ConfigurationManager.AppSettings["landing_log_path"]   ?? "";
 
@@ -803,6 +815,19 @@ namespace vmsOpenAcars.UI.Forms
             lblCabinVolVal.Text   = cabinVol + "%";
         }
 
+        /// <summary>
+        /// Texto del campo de diagnóstico de la clave de NavData. Nunca la clave: **el `key_id`** (que
+        /// identifica, no revela) si el sobre ya llegó a esta sesión, o que no hay clave todavía —la
+        /// entrega solo el sobre cifrado de phpVMS, no se escribe a mano—. Es de solo lectura a propósito.
+        /// </summary>
+        private string NavDataKeyDetail()
+        {
+            string keyId = NavDataKeyState.KeyId;
+            if (!string.IsNullOrEmpty(keyId))
+                return "key_id " + keyId;
+            return _("Stg_NavDataKeyFromEnvelope");
+        }
+
         private void LoadLanguages()
         {
             string langPath = Path.Combine(Application.StartupPath, "Languages");
@@ -833,8 +858,8 @@ namespace vmsOpenAcars.UI.Forms
                 txtSimbriefCi.Text.Trim()                          != Cfg("simbrief_civalue", "30")          ||
                 txtSimbriefExtraRmk.Text.Trim()                    != Cfg("simbrief_extrarmk")               ||
                 txtNavDataApiUrl.Text.Trim()                       != Cfg("navdata_api_url")                 ||
-                txtNavDataApiKey.Text.Trim()                       != Cfg("navdata_api_key")                 ||
                 txtLandingLogPath.Text.Trim()                      != Cfg("landing_log_path");
+                // txtNavDataApiKey NO entra: es un campo de diagnóstico de solo lectura (no se guarda).
                 // osd_* and cabin_announcements_* are auto-saved on change — excluded from HasChanges
         }
 
@@ -933,7 +958,9 @@ namespace vmsOpenAcars.UI.Forms
                 SetValue(config, "simbrief_civalue",  txtSimbriefCi.Text.Trim());
                 SetValue(config, "simbrief_extrarmk", txtSimbriefExtraRmk.Text.Trim());
                 SetValue(config, "navdata_api_url",   txtNavDataApiUrl.Text.Trim());
-                SetValue(config, "navdata_api_key",   txtNavDataApiKey.Text.Trim());
+                // `navdata_api_key` no se guarda: la clave llega en el sobre cifrado de phpVMS y una
+                // clave escrita en el `.config` se ignora, así que persistir el diagnóstico (o un
+                // residuo antiguo del campo) solo serviría para volver a creer que ahí hay algo.
                 SetValue(config, "landing_log_path",  txtLandingLogPath.Text.Trim());
 
                 // osd_* and cabin_announcements_* are auto-saved on change — not saved here

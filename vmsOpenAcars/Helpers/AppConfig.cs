@@ -53,28 +53,24 @@ namespace vmsOpenAcars.Helpers
         }
 
         /// <summary>
-        /// `navdata_api_key` **tal cual viene del `.config`**. Desde el cambio de phpVMS es lo normal
-        /// que venga **vacía**: la clave ya no se publica, se pide cifrada (ver
-        /// <see cref="NavDataKeyProvider"/>) y se guarda solo en memoria.
+        /// `navdata_api_key` **cruda del `.config`**. Es solo diagnóstico: **no se usa para volar**.
+        /// Una clave escrita aquí se ignora (ver <see cref="NavDataApiKeyEffective"/>).
         /// </summary>
         public static string NavDataApiKey => ConfigurationManager.AppSettings["navdata_api_key"] ?? "";
 
-        /// <summary>Igual que <see cref="NavDataApiKey"/> pero explícito sobre de dónde sale.</summary>
-        public static string NavDataApiKeyConfigured => NavDataApiKey;
-
         /// <summary>
-        /// Clave de NavData **efectiva**: la del `.config` si la trae —comportamiento de siempre, para
-        /// quien la tenga configurada a mano— y, si está vacía, la que phpVMS entregó cifrada y vive en
-        /// memoria (<see cref="NavDataKeyState"/>). Los llamantes deben usar esta, no la cruda.
+        /// Clave de NavData **efectiva**: **solo** la que phpVMS entregó en el sobre cifrado y vive en
+        /// memoria (<see cref="NavDataKeyState"/>). Si no hay sobre, **no hay clave** y punto.
+        ///
+        /// El porqué de que el respaldo se quitara (decisión del mantenedor): la `navdata_api_key` del
+        /// `.config` **es la misma clave que se filtró** —viajaba en el `.config` que se descarga del
+        /// gestor de ficheros—, así que mientras existiera el respaldo el cliente seguiría volando en
+        /// silencio con la clave comprometida y **enmascararía** que el sobre nuevo se ha roto.
+        /// No hay fallback: se informa del motivo y se vuela sin NavData.
+        ///
+        /// No reintroducir aquí una lectura de `navdata_api_key` ni como último recurso.
         /// </summary>
-        public static string NavDataApiKeyEffective
-        {
-            get
-            {
-                string configured = NavDataApiKey;
-                return !string.IsNullOrWhiteSpace(configured) ? configured : NavDataKeyState.Key;
-            }
-        }
+        public static string NavDataApiKeyEffective => NavDataKeyState.Key;
 
         /// <summary>
         /// Base del proxy de teselas de NavData. **Vacío por defecto**: se deriva de `navdata_api_url`

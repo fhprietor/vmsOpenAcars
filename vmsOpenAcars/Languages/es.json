@@ -78,6 +78,7 @@
   "Stg_ErrorTitle": "ERROR",
   "Stg_ConnFailed": "Error de conexión",
   "Stg_NavDataKeyInvalid": "API key inválida",
+  "Stg_NavDataKeyFromEnvelope": "(llega en el sobre cifrado de phpVMS)",
 
   "NavDataKey": "API Key",
   "NavData URL": "URL NavData",
@@ -344,7 +345,12 @@
   "Log_NavDataPrefetchOk":    "🗺️ NavData {0}: {1} pistas, {2} calles, {3} gates, {4} aprox",
   "Log_NavDataPrefetchEmpty": "⚠️ NavData {0}: sin datos — aeropuerto no disponible en la API",
   "Log_NavDataAiracExpired":  "⚠️ NavData AIRAC {0} expirado el {1} — actualiza el ciclo en los ajustes de NavData",
-  "Log_NavDataCipherUnsupported": "⚠️ NavData: el sobre llegó en un cifrado que no podemos abrir (GCM) — esta sesión vuela sin NavData",
+  "Log_NavDataNoKey": "⚠️ NavData: sin clave ({0}) — esta sesión vuela sin NavData",
+  "NavDataReason_MissingConfig": "faltan vms_api_url o vms_api_key en la configuración",
+  "NavDataReason_Unauthorized": "phpVMS rechazó la petición (401: clave inválida o piloto no ACTIVE)",
+  "NavDataReason_NotConfigured": "la aerolínea no ha configurado NavData en phpVMS (503)",
+  "NavDataReason_UnsupportedCipher": "el sobre llegó en un cifrado que no podemos abrir (GCM)",
+  "NavDataReason_Failed": "no se pudo pedir el sobre (red o respuesta ilegible)",
   "Log_ProcFixApproaching":   "→ Fix próximo: {0}  {1}",
   "Osd_ProcNextFix":          "PRÓXIMO",
 
