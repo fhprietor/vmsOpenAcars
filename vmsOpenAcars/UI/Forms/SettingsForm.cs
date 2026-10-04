@@ -31,9 +31,8 @@ namespace vmsOpenAcars.UI.Forms
         private TextBox txtSimbriefCi;
         private TextBox txtSimbriefExtraRmk;
 
-        // NavData API
-        private TextBox txtNavDataApiUrl;
-        private TextBox txtNavDataApiKey;
+        // NavData API: solo el resultado del test. Ni la URL ni la clave tienen campo —la clave
+        // llega en el sobre cifrado de phpVMS y la URL es respaldo del `.config` (v0.9.26)—.
         private Label   lblNavDataStatus;
 
         // Landing log database
@@ -76,13 +75,14 @@ namespace vmsOpenAcars.UI.Forms
         private void InitializeForm()
         {
             // Landscape: wider form, roughly half the original height.
-            // Alto a 600 desde v0.9.12: la columna izquierda tiene 14 filas de 35 px (490 px) y el
-            // área de contenido útil son (alto − 99) px —barra de título 35, botones 44, padding 4
-            // y 16—, así que con 560 el área eran 461 px y la última fila se recortaba. El mínimo
-            // se fija al mismo alto por el mismo motivo: no tiene sentido poder encoger la ventana
-            // hasta dejar la rejilla cortada.
-            this.Size        = new Size(920, 600);
-            this.MinimumSize = new Size(760, 600);
+            // Alto a 530 desde v0.9.26: al quitar los campos de URL y clave de NavData la columna
+            // izquierda pasa de 14 filas a 12 (420 px), así que se devuelven las 2 filas que ya no
+            // se pagan. El área de contenido útil son (alto − 99) px —barra de título 35, botones
+            // 44, padding 4 y 16—: 530 − 99 = 431 px, los mismos ~11 px de holgura que con 600 y
+            // 490 px. El mínimo se fija al mismo alto por el mismo motivo que en v0.9.12: no tiene
+            // sentido poder encoger la ventana hasta dejar la rejilla cortada.
+            this.Size        = new Size(920, 530);
+            this.MinimumSize = new Size(760, 530);
             this.StartPosition    = FormStartPosition.CenterParent;
             this.FormBorderStyle  = FormBorderStyle.None;
             this.BackColor        = Color.FromArgb(20, 30, 40);
@@ -209,17 +209,17 @@ namespace vmsOpenAcars.UI.Forms
                 BackColor = Color.FromArgb(40, 80, 120)
             };
 
-            // ── Left table: Connection / SimBrief / NavData (14 rows × 35 px) ─
+            // ── Left table: Connection / SimBrief / NavData (12 rows × 35 px) ─
             var left = new TableLayoutPanel
             {
                 Dock        = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount    = 14,
+                RowCount    = 12,
                 BackColor   = Color.Transparent
             };
             left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35F));
             left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65F));
-            for (int i = 0; i < 14; i++)
+            for (int i = 0; i < 12; i++)
                 left.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
 
             // row 0 — API URL
@@ -288,37 +288,15 @@ namespace vmsOpenAcars.UI.Forms
             left.SetColumnSpan(sepNavData, 2);
             left.Controls.Add(sepNavData, 0, 9);
 
-            // row 10 — NavData API URL
-            // La clave existía en App.config y se usaba en todas las llamadas, pero no se podía
-            // editar desde la app: había que tocar el .exe.config a mano. El BRIEFING ya la
-            // documentaba como campo de esta pantalla, así que prometía algo que no existía.
-            left.Controls.Add(CreateLabel("NavData URL"), 0, 10);
-            txtNavDataApiUrl = CreateTextBox();
-            left.Controls.Add(txtNavDataApiUrl, 1, 10);
-
-            // row 11 — NavData Key: DIAGNÓSTICO, de solo lectura.
-            // El campo ya no sirve para escribir nada: la clave llega **solo** en el sobre cifrado de
-            // phpVMS y vive en memoria, así que una clave tecleada aquí se ignoraría —el respaldo del
-            // `.config` se eliminó porque era la clave filtrada y escondía que el sobre se rompiera—.
-            // Se deja la fila, de solo lectura, en vez de borrarla: quitarla obliga a renumerar las
-            // 14 filas de la rejilla (y sus claves de idioma) y aquí lo que se gana es poder VER, sin
-            // abrir el exe.config, si el sobre llegó: el `key_id` (que no es secreto) o el motivo.
-            left.Controls.Add(CreateLabel("NavDataKey"), 0, 11);
-            txtNavDataApiKey = CreateTextBox();
-            txtNavDataApiKey.ReadOnly = true;
-            txtNavDataApiKey.TabStop  = false;
-            txtNavDataApiKey.ForeColor = Color.FromArgb(160, 160, 170);
-            left.Controls.Add(txtNavDataApiKey, 1, 11);
-
-            // row 12 — NavData status (solo el resultado del test)
-            // El rótulo va en la columna 0 de ESTA fila: si se deja en la 11 se apila con el de la
-            // API Key (misma celda), la tapa, y la Key se queda sin su propia línea.
-            left.Controls.Add(CreateLabel("NavData"), 0, 12);
+            // row 10 — NavData status (solo el resultado del test)
+            // El rótulo va en la columna 0 de ESTA fila, no en la del separador (que ocupa las dos
+            // columnas de la fila 9): dos controles en la misma celda no dan error, el último se
+            // pinta encima, y el síntoma es un rótulo tapado.
+            left.Controls.Add(CreateLabel("NavData"), 0, 10);
             lblNavDataStatus = new Label
             {
-                // Ya no repite la URL —tiene su propio campo arriba—: muestra el ciclo AIRAC si
-                // esta sesión ya lo conoce (lo llena TestApiAsync), y en blanco hasta que se pulse
-                // TEST. Antes el rótulo de estado era la única forma de ver la URL configurada.
+                // La URL configurada la pinta `LoadSettings` —es lo único que la enseña desde que
+                // no hay campo—, y el TEST lo sustituye por el ciclo AIRAC. En blanco hasta entonces.
                 Text      = string.IsNullOrEmpty(NavDataClient.AiracCycle)
                             ? string.Empty
                             : $"AIRAC {NavDataClient.AiracCycle}  until {NavDataClient.AiracValidUntil}",
@@ -327,9 +305,9 @@ namespace vmsOpenAcars.UI.Forms
                 Dock      = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft
             };
-            left.Controls.Add(lblNavDataStatus, 1, 12);
+            left.Controls.Add(lblNavDataStatus, 1, 10);
 
-            // row 13 — botones de NavData, en su propia fila
+            // row 11 — botones de NavData, en su propia fila
             // Antes compartían celda con el resultado del test y se repartían el ancho a mano en un
             // Resize handler: el texto de estado quedaba recortado al ancho sobrante y los botones
             // se comían el sitio del mensaje.
@@ -350,13 +328,11 @@ namespace vmsOpenAcars.UI.Forms
                 btnTestApi.Enabled  = false;
                 lblNavDataStatus.Text      = "Connecting...";
                 lblNavDataStatus.ForeColor = Color.FromArgb(200, 200, 100);
-                // El TEST usa la URL escrita y no la guardada: así valida lo que el piloto acaba
-                // de teclear, sin obligarle a guardar (y reiniciar) para comprobarlo. La clave no se
-                // pasa: la resuelve el cliente —la del sobre—, porque ya no hay campo que la escriba.
-                var result = await NavDataClient.TestApiAsync(
-                                       null,
-                                       txtNavDataApiUrl.Text.Trim())
-                                               .ConfigureAwait(true);
+                // Ya no hay campo donde teclear la URL: el TEST prueba la base que de verdad se usa
+                // —la del sobre cifrado y, si el sobre no la trae, el respaldo `navdata_api_url` del
+                // `.config`—. La clave tampoco se pasa: la resuelve el cliente, y sin sobre el test
+                // autenticado falla, que es justo lo que hay que ver.
+                var result = await NavDataClient.TestApiAsync().ConfigureAwait(true);
                 if (!result.Reachable)
                 {
                     lblNavDataStatus.Text      = _("Stg_ConnFailed");
@@ -416,7 +392,7 @@ namespace vmsOpenAcars.UI.Forms
             };
             navDataButtons.Controls.Add(btnTestApi);
             navDataButtons.Controls.Add(btnRefreshCache);
-            left.Controls.Add(navDataButtons, 1, 13);
+            left.Controls.Add(navDataButtons, 1, 11);
 
             // ── Right table: Landing Log / OSD / Cabin (11 rows × 35 px + 1 status) ──
             var right = new TableLayoutPanel
@@ -768,11 +744,8 @@ namespace vmsOpenAcars.UI.Forms
 
             txtSimbriefCi.Text       = ConfigurationManager.AppSettings["simbrief_civalue"]  ?? "30";
             txtSimbriefExtraRmk.Text = ConfigurationManager.AppSettings["simbrief_extrarmk"] ?? "";
-            txtNavDataApiUrl.Text    = ConfigurationManager.AppSettings["navdata_api_url"]    ?? "";
-            // El campo de la clave es de DIAGNÓSTICO y no se llena desde el `.config`: esa clave, si
-            // estuviera escrita, se ignora. Lo que se enseña es lo que de verdad se usa —el sobre ya
-            // abierto, por su `key_id`, que no es secreto— o que todavía no hay clave.
-            txtNavDataApiKey.Text    = NavDataKeyDetail();
+            // La URL de NavData ya no tiene campo: se enseña aquí, en la fila del test, porque el
+            // único sitio donde vive es el `.config` (respaldo de la `url` del sobre de phpVMS).
             lblNavDataStatus.Text    = AppConfig.NavDataApiUrl;
             txtLandingLogPath.Text   = ConfigurationManager.AppSettings["landing_log_path"]   ?? "";
 
@@ -815,19 +788,6 @@ namespace vmsOpenAcars.UI.Forms
             lblCabinVolVal.Text   = cabinVol + "%";
         }
 
-        /// <summary>
-        /// Texto del campo de diagnóstico de la clave de NavData. Nunca la clave: **el `key_id`** (que
-        /// identifica, no revela) si el sobre ya llegó a esta sesión, o que no hay clave todavía —la
-        /// entrega solo el sobre cifrado de phpVMS, no se escribe a mano—. Es de solo lectura a propósito.
-        /// </summary>
-        private string NavDataKeyDetail()
-        {
-            string keyId = NavDataKeyState.KeyId;
-            if (!string.IsNullOrEmpty(keyId))
-                return "key_id " + keyId;
-            return _("Stg_NavDataKeyFromEnvelope");
-        }
-
         private void LoadLanguages()
         {
             string langPath = Path.Combine(Application.StartupPath, "Languages");
@@ -857,9 +817,9 @@ namespace vmsOpenAcars.UI.Forms
                 (cmbSimbriefUnits.SelectedItem?.ToString() ?? "")  != Cfg("simbrief_units", "lbs")           ||
                 txtSimbriefCi.Text.Trim()                          != Cfg("simbrief_civalue", "30")          ||
                 txtSimbriefExtraRmk.Text.Trim()                    != Cfg("simbrief_extrarmk")               ||
-                txtNavDataApiUrl.Text.Trim()                       != Cfg("navdata_api_url")                 ||
                 txtLandingLogPath.Text.Trim()                      != Cfg("landing_log_path");
-                // txtNavDataApiKey NO entra: es un campo de diagnóstico de solo lectura (no se guarda).
+                // `navdata_api_url` ya no entra: no hay campo que lo edite, así que la única forma de
+                // cambiarlo vuelve a ser el `.exe.config` a mano (como antes de v0.9.11).
                 // osd_* and cabin_announcements_* are auto-saved on change — excluded from HasChanges
         }
 
@@ -957,10 +917,11 @@ namespace vmsOpenAcars.UI.Forms
                     SetValue(config, "simbrief_units", cmbSimbriefUnits.SelectedItem.ToString());
                 SetValue(config, "simbrief_civalue",  txtSimbriefCi.Text.Trim());
                 SetValue(config, "simbrief_extrarmk", txtSimbriefExtraRmk.Text.Trim());
-                SetValue(config, "navdata_api_url",   txtNavDataApiUrl.Text.Trim());
-                // `navdata_api_key` no se guarda: la clave llega en el sobre cifrado de phpVMS y una
-                // clave escrita en el `.config` se ignora, así que persistir el diagnóstico (o un
-                // residuo antiguo del campo) solo serviría para volver a creer que ahí hay algo.
+                // Ni `navdata_api_url` ni `navdata_api_key` se tocan al guardar: no hay campos que los
+                // lean. La URL sigue en el `.config` como respaldo de la del sobre (y destino del TEST),
+                // pero se edita a mano; la clave solo llega en el sobre cifrado de phpVMS y una escrita
+                // en el `.config` se ignora, así que persistirla solo serviría para volver a creer que
+                // ahí hay algo.
                 SetValue(config, "landing_log_path",  txtLandingLogPath.Text.Trim());
 
                 // osd_* and cabin_announcements_* are auto-saved on change — not saved here

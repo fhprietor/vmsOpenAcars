@@ -412,18 +412,16 @@ namespace vmsOpenAcars.Services
         /// La clave sale de <see cref="AppConfig.NavDataApiKeyEffective"/> (el sobre de phpVMS): sin
         /// sobre no hay clave y la prueba autenticada falla, que es lo que hay que ver. Cuando
         /// <paramref name="apiKeyOverride"/> es null el resultado actualiza IsReachable/IsKeyValid flags.
-        /// <paramref name="urlOverride"/> permite probar la URL que el piloto acaba de escribir
-        /// en Settings sin guardar ni reiniciar: sin él, el TEST validaría contra la URL ya
-        /// configurada y daría por bueno un valor que todavía no se ha guardado.
+        /// La base sale de <see cref="AppConfig.NavDataApiUrlEffective"/> —la `url` del sobre y, si no
+        /// viene, el respaldo `navdata_api_url` del `.config`—: el parámetro `urlOverride` se retiró en
+        /// v0.9.26 con el campo de Settings que lo alimentaba.
         /// </summary>
         public static async Task<NavApiTestResult> TestApiAsync(
-            string apiKeyOverride = null, string urlOverride = null)
+            string apiKeyOverride = null)
         {
             bool updateFlags = (apiKeyOverride == null);
             string key     = apiKeyOverride ?? AppConfig.NavDataApiKeyEffective;
-            string baseUrl = (string.IsNullOrWhiteSpace(urlOverride)
-                              ? AppConfig.NavDataApiUrlEffective
-                              : urlOverride).TrimEnd('/');
+            string baseUrl = AppConfig.NavDataApiUrlEffective.TrimEnd('/');
             string domain  = AppConfig.NavDataApiDomain;
 
             try

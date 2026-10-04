@@ -2,6 +2,26 @@
 
 ---
 
+## [0.9.27] — 03/10/2026
+
+### Changed
+
+- **La sección *NavData API* de Settings desaparece: fuera el campo de la URL y el de la clave.** Con la clave
+  llegando en el sobre cifrado de phpVMS (0.9.25–0.9.26) los dos campos sobraban, y el de la clave era
+  además una invitación a volver a poner ahí la clave vieja. La columna izquierda pasa de **14 a 12 filas**
+  (ApiUrl · ApiKey · SimbriefUser · Airline · Language · *— SimBrief Dispatch —* · SimbriefUnits · SimbriefCI ·
+  SimbriefRmk · *— NavData API —* · **NavData (resultado del test)** · `[REFRESH][TEST]`), rejilla
+  **renumerada y comprobada celda por celda** instanciando el formulario real —que es como se detecta un
+  rótulo tapado, no compilando— y **la ventana baja a 920×530** (`MinimumSize` 760×530): dos filas menos son
+  70 px que ya no hay que pagar. El bloque del test se queda: el botón prueba la API **con la clave del sobre**.
+- **Fuera el código que quedaba sin uso**: los dos `TextBox`, su carga y guardado, `NavDataKeyDetail()`, el
+  `KeyId` del estado de la clave y el parámetro `urlOverride` de `TestApiAsync` (solo lo alimentaba el campo
+  borrado). `AppConfig.NavDataApiUrl` se conserva: es el respaldo de la `url` del sobre y el destino del TEST.
+- **Consecuencia asumida**: cambiar `navdata_api_url` vuelve a exigir editar el `.exe.config` a mano, como
+  antes de v0.9.11. La URL vigente sigue viéndose, de sólo lectura, en la fila del test.
+- Idiomas simétricos: **423 claves** cada uno (se quitan `NavData URL`, `NavDataKey` y
+  `Stg_NavDataKeyFromEnvelope`). **388/388**.
+
 ## [0.9.26] — 03/10/2026
 
 ### Changed

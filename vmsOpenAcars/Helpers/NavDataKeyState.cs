@@ -43,8 +43,5 @@ namespace vmsOpenAcars.Helpers
 
         /// <summary>URL base entregada por phpVMS, o cadena vacía.</summary>
         internal static string Url => Current?.Url ?? "";
-
-        /// <summary>`key_id` entregado, o cadena vacía.</summary>
-        internal static string KeyId => Current?.KeyId ?? "";
     }
 }

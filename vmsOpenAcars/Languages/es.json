@@ -78,10 +78,7 @@
   "Stg_ErrorTitle": "ERROR",
   "Stg_ConnFailed": "Error de conexión",
   "Stg_NavDataKeyInvalid": "API key inválida",
-  "Stg_NavDataKeyFromEnvelope": "(llega en el sobre cifrado de phpVMS)",
 
-  "NavDataKey": "API Key",
-  "NavData URL": "URL NavData",
   "NavData": "NavData API",
   "Landing DB": "BD Landing",
   "OSD": "OSD",

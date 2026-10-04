@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.26  
+**Versión actual:** v0.9.27  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -211,7 +211,7 @@ las comparaciones **locales** de pista (`SelectApproachThreshold`) siguen siendo
 magnético; se arreglaría con el `mag_var` del aeropuerto, **ya publicado** (30/09/2026) en `/airport/{icao}/` y `/runways/` o
 leyendo la variación del simulador.
 
-**Editable desde Settings (v0.9.11):** la sección *NavData API* del formulario tiene ahora campo
+**La sección *NavData API* del formulario se retiró en v0.9.27** (la clave llega en el sobre y la URL ya no se edita: cambiarla exige el `.exe.config`, como antes de v0.9.11). **Histórico (v0.9.11):** la sección *NavData API* del formulario tiene ahora campo
 para `navdata_api_url` (fila *NavData URL* → *URL NavData*), encima de la API Key. Hasta v0.9.11
 la URL solo se podía cambiar editando `vmsOpenAcars.exe.config` a mano, aunque el `BRIEFING` ya
 la documentaba como campo de esa pantalla. Guardarla reinicia la app (`HasChanges()` lo detecta);
@@ -236,7 +236,7 @@ separadas y `FlowLayoutPanel` para los grupos de botones.
 
 Rótulos y campos de la columna izquierda, en orden: ApiUrl, ApiKey, SimbriefUser, Airline,
 Language · *── SimBrief Dispatch ──* · SimbriefUnits, SimbriefCI, SimbriefRmk · *── NavData API ──* ·
-NavData URL, NavDataKey, NavData (resultado del test), y una fila sin rótulo para `[REFRESH] [TEST]`.
+NavData (resultado del test), y una fila sin rótulo para `[REFRESH] [TEST]`. **Los campos de la URL y de la clave se retiraron en v0.9.27.**
 
 ### NavDataCache — `Services/NavDataCache.cs`
 
