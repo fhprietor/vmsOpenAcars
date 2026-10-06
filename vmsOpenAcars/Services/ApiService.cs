@@ -759,6 +759,24 @@ namespace vmsOpenAcars.Services
         }
 
         /// <summary>
+        /// GET autenticado que conserva el **código HTTP** (y el cuerpo, también en error).
+        /// `GetAsync` convierte todo no-2xx en null, así que no distingue el 404 de una ruta
+        /// inexistente del `404 flight_not_found` de una ruta que sí existe; el despacho de
+        /// SimBrief necesita esa diferencia. `StatusCode = 0` = sin respuesta (red/timeout):
+        /// el llamante tiene que degradar, no fallar.
+        /// </summary>
+        public async Task<(int StatusCode, string Body)> GetWithStatusAsync(string path)
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_baseUrl}{path.TrimStart('/')}");
+                string body = await response.Content.ReadAsStringAsync();
+                return ((int)response.StatusCode, body);
+            }
+            catch { return (0, null); }
+        }
+
+        /// <summary>
         /// POST con cuerpo JSON contra phpVMS. Devuelve el código de éxito y el cuerpo
         /// de la respuesta (también en error, para poder reportar el mensaje del
         /// servidor). Body es null si la petición no llegó a completarse.

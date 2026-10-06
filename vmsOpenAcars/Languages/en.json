@@ -132,6 +132,11 @@
   "Fp_OfpDownloadFailed": "Could not download the OFP.",
   "Fp_OfpDownloadError": "Error downloading the OFP:\n{0}",
 
+  "Fp_DispatchInvalidKey": "❌ Invalid API key. Check your phpVMS configuration.",
+  "Fp_DispatchFlightNotFound": "❌ The flight no longer exists on the server. Refresh the flight list.",
+  "Fp_DispatchAircraftNotFound": "❌ The selected aircraft no longer exists. Choose another aircraft.",
+  "Fp_DispatchAircraftNotAllowed": "❌ That aircraft does not belong to a subfleet allowed to fly this flight. Choose another aircraft.",
+
   "Fs_Title": "SELECT FLIGHT",
   "Fs_AvailableFlights": "AVAILABLE FLIGHTS",
 

@@ -20,10 +20,26 @@ namespace vmsOpenAcars.Services
         }
 
         /// <summary>
-        /// Genera URL para pre-cargar datos en SimBrief
-        /// </summary>
+        /// Genera URL para pre-cargar datos en SimBrief.
         ///
+        /// **Es el RESPALDO**, no el camino principal: desde que phpVMS desplegó
+        /// `GET /api/flights/{id}/dispatch?aircraft_id={id}`, la URL la monta el servidor y el
+        /// cliente la abre tal cual (ver `SimbriefDispatchPolicy`). Esto solo se usa cuando esa
+        /// llamada no da respuesta: servidor viejo (404 de ruta), 5xx, timeout o red. Aquí **sí**
+        /// se manda `extrarmk` (el Item 18 del ajuste del piloto) porque un phpVMS viejo no lo
+        /// inyecta; en el camino principal no se añade nada, precisamente para no duplicarlo.
+        /// </summary>
         public string GenerateDispatchUrl(Flight flight, Pilot pilot, Aircraft aircraft)
+            => GenerateDispatchUrl(flight, pilot, aircraft,
+                   ConfigurationManager.AppSettings["simbrief_extrarmk"] ?? "");
+
+        /// <summary>
+        /// El constructor de la URL, con el `extrarmk` **inyectado** para poder fijarlo en un test
+        /// sin depender del `.config` del equipo (el proyecto de tests no tiene `app.config`, así
+        /// que `ConfigurationManager` ahí está vacío). Es `internal` a propósito: no es API pública,
+        /// es la parte comprobable del respaldo.
+        /// </summary>
+        internal string GenerateDispatchUrl(Flight flight, Pilot pilot, Aircraft aircraft, string extraRmk)
         {
             // Calcular hora de salida: UTC actual + 30 minutos
             DateTime depTime = DateTime.UtcNow.AddMinutes(30);
@@ -58,14 +74,21 @@ namespace vmsOpenAcars.Services
                 ["pax"] = "",
                 ["cargo"] = "",
 
-                // Parámetros adicionales
-                ["maps"] = "detailed",
-                ["static_url"] = "1",
+                // Parámetros adicionales.
+                // `maps` es `detail`, no `detailed`: `detailed` no es un valor de SimBrief y el
+                // plan salía con los mapas por defecto (lo que escribe el servidor hoy es
+                // exactamente `maps=detail`). Y `static_url` **no existe** en la API de SimBrief —
+                // estaba de más—, así que se retira.
+                ["maps"] = "detail",
 
+                // NO se añade `fl`: SimBrief lo documenta en PIES (34000 o FL340). El cliente no
+                // manda altitud de crucero aquí, así que el plan la toma del perfil; inventarla en
+                // centenas de pie (330 para 33.000 ft) sería justo el error que se auditó. Si algún
+                // día se añade, va en pies.
                 // Hora de salida (formato HH y MM)
                 ["deph"] = depTime.ToString("HH"),
                 ["depm"] = depTime.ToString("mm"),
-                ["extrarmk"] = ConfigurationManager.AppSettings["simbrief_extrarmk"] ?? "",
+                ["extrarmk"] = extraRmk ?? "",
                 ["flightrules"] = "",
                 ["flighttype"] = simbriefFlightType
             };

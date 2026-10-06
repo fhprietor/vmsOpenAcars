@@ -186,6 +186,7 @@
     <Compile Include="Helpers\HoldShortSelector.cs" />
     <Compile Include="Helpers\PirepFields.cs" />
     <Compile Include="Helpers\PirepMassUnits.cs" />
+    <Compile Include="Helpers\SimbriefDispatchPolicy.cs" />
     <Compile Include="Helpers\MapAttribution.cs" />
     <Compile Include="Helpers\PolylineResampler.cs" />
     <Compile Include="Helpers\RouteCorridor.cs" />
@@ -213,6 +214,7 @@
     <Compile Include="Models\Pirep.cs" />
     <Compile Include="Models\MetarData.cs" />
     <Compile Include="Models\SimbriefPlan.cs" />
+    <Compile Include="Models\SimbriefDispatch.cs" />
     <Compile Include="Models\FixRestriction.cs" />
     <Compile Include="Models\SimbriefWaypoint.cs" />
     <Compile Include="Models\TakeoffData.cs" />
@@ -235,6 +237,7 @@
     <Compile Include="Services\PositionValidator.cs" />
     <Compile Include="Services\ScoringService.cs" />
     <Compile Include="Services\SimbriefEnhancedService.cs" />
+    <Compile Include="Services\SimbriefDispatchService.cs" />
     <Compile Include="Services\AppLogger.cs" />
     <Compile Include="Services\Http\HttpClientProvider.cs" />
     <Compile Include="Services\Http\NavDataRequest.cs" />

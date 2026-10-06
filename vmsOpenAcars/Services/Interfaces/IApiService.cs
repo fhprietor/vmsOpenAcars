@@ -37,5 +37,12 @@ namespace vmsOpenAcars.Services.Interfaces
         // (bool Success, string Body): Body incluye el mensaje del servidor también en
         // error, para poder reportarlo; Success refleja el código de estado HTTP.
         Task<(bool Success, string Body)> PostJsonAsync(string path, object payload);
+
+        // GET que devuelve TAMBIÉN el código HTTP. `GetAsync` colapsa cualquier no-2xx a null,
+        // y con eso no se puede decidir lo que necesita el despacho de SimBrief: un 404 de
+        // ruta (= el endpoint no está desplegado → respaldo local) se ve igual que un 404
+        // `flight_not_found` (= el vuelo ya no existe → decírselo al piloto). StatusCode 0
+        // significa «no hubo respuesta» (timeout, DNS, red): degradar, nunca lanzar.
+        Task<(int StatusCode, string Body)> GetWithStatusAsync(string path);
     }
 }

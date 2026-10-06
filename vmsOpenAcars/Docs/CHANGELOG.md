@@ -2,6 +2,31 @@
 
 ---
 
+## [0.9.29] — 06/10/2026
+
+### Changed
+
+- **El despacho de SimBrief lo monta el servidor: el cliente sólo abre su URL.** Hasta ahora el cliente construía
+  la URL de SimBrief por su cuenta, con el problema de tener **dos copias** de los parámetros canónicos —de ahí
+  salieron bugs como `fl` en centenas y `maps=detailed`—. Desde 0.9.29 el botón **PLAN IN SIMBRIEF** pide el
+  despacho a phpVMS (`GET /api/flights/{id}/dispatch?aircraft_id=…`) y **abre `simbrief.url` tal cual**, sin
+  añadir ni quitar un parámetro. La decisión está en `Helpers/SimbriefDispatchPolicy.cs` (puro, con **22 tests**):
+  si el endpoint contesta, se usa **su** URL aunque el constructor local funcione.
+- **El constructor local queda SÓLO como respaldo** (`SimbriefEnhancedService`), para servidores viejos o caídas:
+  `404` **sin** `flight_not_found` (ruta no desplegada), `5xx`, timeout o red. Los **errores de negocio no caen al
+  respaldo**, cada uno con su aviso en los dos idiomas (`401` clave, `404` el vuelo ya no existe, `422` falta el
+  avión, `403` subflota no permitida).
+- **Auditoría de lo que pedían**: `maps` era **`detailed`** y es **`detail`** — corregido; **`static_url` no existe**
+  en SimBrief — eliminado; **`fl` no estaba mal** en nuestro constructor (los `/100` del repo son de presentación
+  «FL330» para 33.000 ft, correctos) y ahora un test **prohíbe** un `fl` mal escalado; el **`extrarmk` propio ya
+  no se envía** en el camino principal —el Item 18 lo pone el servidor, y sumar el nuestro daría dos— pero el
+  **respaldo lo conserva**, porque contra un phpVMS viejo nadie más lo pone y el plan se quedaría sin Item 18.
+- **Los `notes[]` y el `suggestion` del servidor se muestran tal cual**, con su color por `level` y su texto sin
+  reescribir. Con `applicable: false` (charter/ferry) hay URL sin `pax`/`cargo`: no se pinta como error.
+- **Verificado en vivo** contra el endpoint desplegado (vuelo real SKBG→SKCG): `fl=33000` **en pies**, `maps=detail`,
+  Item 18 presente (`CS/VHOLAR IVAOVA/VHR OPR/VHR`), sugerido `pax=166`/`cargo=7991` y margen `+20,0 %`, y los
+  cuatro errores ejercitados (`401`, `404`, `422`, `403`). **416/416**.
+
 ## [0.9.28] — 05/10/2026
 
 ### Fixed

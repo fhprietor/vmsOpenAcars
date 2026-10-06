@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.Services.Interfaces;
@@ -76,6 +77,10 @@ namespace vmsOpenAcars.UI
         private readonly IApiService _apiService;
         private readonly PhpVmsFlightService _flightService;
         private readonly SimbriefEnhancedService _simbriefService;
+        // Despacho de SimBrief servido por phpVMS. Se construye aquí a partir del cliente
+        // autenticado ya inyectado: es una capa fina (GET + parseo) y así no hay que tocar el
+        // cableado de MainViewModel/MainForm solo para pasarla.
+        private readonly SimbriefDispatchService _dispatchService;
         private readonly FlightManager _flightManager;
         private readonly Pilot _currentPilot;
         private readonly string _currentAirport;
@@ -99,6 +104,7 @@ namespace vmsOpenAcars.UI
             _apiService = apiService;
             _flightService = flightService;
             _simbriefService = simbriefService;
+            _dispatchService = new SimbriefDispatchService(apiService);
             _flightManager = flightManager;
             _currentPilot = currentPilot;
             _currentAirport = currentAirport;
@@ -687,9 +693,7 @@ namespace vmsOpenAcars.UI
                     lblStatus.Text = "✅ Using existing bid. Opening SimBrief...";
                     AppendLog($"📋 Using existing bid ID: {_selectedFlight.BidId}");
 
-                    string url = _simbriefService.GenerateDispatchUrl(_selectedFlight, _currentPilot, _selectedAircraft);
-                    System.Diagnostics.Process.Start(url);
-                    lblStatus.Text = "✈️ Plan in SimBrief, then click 'FETCH OFP'";
+                    await OpenDispatchAsync();
                 }
                 else
                 {
@@ -708,9 +712,7 @@ namespace vmsOpenAcars.UI
                         }
 
                         lblStatus.Text = "✅ Flight assigned. Opening SimBrief...";
-                        string url = _simbriefService.GenerateDispatchUrl(_selectedFlight, _currentPilot, _selectedAircraft);
-                        System.Diagnostics.Process.Start(url);
-                        lblStatus.Text = "✈️ Plan in SimBrief, then click 'FETCH OFP'";
+                        await OpenDispatchAsync();
                     }
                     else
                     {
@@ -746,6 +748,89 @@ namespace vmsOpenAcars.UI
             }
         }
 
+
+        /// <summary>
+        /// Pide el despacho a phpVMS **al pulsar el botón** y abre la URL que devuelva el servidor,
+        /// tal cual. Se llama aquí y no al seleccionar el avión porque el despacho lleva la hora de
+        /// salida por defecto («ahora + 40 min» en el servidor): pedirlo antes hace que envejezca
+        /// mientras el piloto termina de elegir.
+        ///
+        /// El cliente no reconstruye ni añade/quita parámetros. Si el endpoint contesta, manda su
+        /// URL; el constructor local solo entra cuando no hay respuesta (servidor viejo, 5xx,
+        /// timeout, red). La decisión —y su porqué— está en <see cref="SimbriefDispatchPolicy"/>.
+        /// </summary>
+        private async Task OpenDispatchAsync()
+        {
+            var dispatch = await _dispatchService.FetchAsync(_selectedFlight.Id, _selectedAircraft?.Id);
+            var decision = SimbriefDispatchPolicy.Decide(dispatch);
+
+            switch (decision.Source)
+            {
+                case SimbriefDispatchSource.ServerUrl:
+                    AppendLog($"📋 Dispatch from server ({decision.Reason})");
+                    ShowDispatchBriefing(dispatch);
+                    System.Diagnostics.Process.Start(dispatch.Url);
+                    lblStatus.Text = "✈️ Plan in SimBrief, then click 'FETCH OFP'";
+                    break;
+
+                case SimbriefDispatchSource.LocalFallback:
+                    AppendLog($"ℹ️ Dispatch endpoint unavailable ({decision.Reason}) — falling back to the local URL builder.",
+                        Color.Yellow);
+                    string localUrl = _simbriefService.GenerateDispatchUrl(_selectedFlight, _currentPilot, _selectedAircraft);
+                    System.Diagnostics.Process.Start(localUrl);
+                    lblStatus.Text = "✈️ Plan in SimBrief, then click 'FETCH OFP'";
+                    break;
+
+                case SimbriefDispatchSource.Rejected:
+                    string message = L._(decision.ErrorKey);
+                    AppendLog($"❌ Dispatch rejected ({decision.Reason}): {message}", Color.Red);
+                    lblStatus.Text = message;
+                    EcamDialog.Show(this, message, "SIMBRIEF DISPATCH", EcamDialogButtons.OK);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Pinta lo que el servidor ya trae redactado: sus avisos (`notes[]`, cada uno con su
+        /// `level`) y su sugerido de pasaje/carga. Se muestran **tal cual** — el cliente no los
+        /// reescribe ni recalcula el reparto.
+        ///
+        /// En charter/ferry (`applicable = false`) hay URL pero **sin `pax`/`cargo`**: ahí no se
+        /// pinta nada como si faltara un dato, porque es lo esperado y no un error.
+        /// </summary>
+        private void ShowDispatchBriefing(SimbriefDispatch dispatch)
+        {
+            if (!string.IsNullOrWhiteSpace(dispatch.Reason) &&
+                !string.Equals(dispatch.Reason, "ok", StringComparison.OrdinalIgnoreCase))
+                AppendLog($"   dispatch: {dispatch.Reason} (applicable={dispatch.Applicable})");
+
+            foreach (var note in dispatch.Notes)
+                AppendLog($"   [{note.Level}] {note.Text}", DispatchLevelColor(note.Level));
+
+            var s = dispatch.Suggestion;
+            if (s != null && (s.Pax.HasValue || s.Cargo.HasValue))
+            {
+                var line = new StringBuilder("   SUGGESTED  ");
+                if (s.Pax.HasValue)          line.Append($"PAX {s.Pax.Value}  ");
+                if (s.Cargo.HasValue)        line.Append($"CARGO {s.Cargo.Value:0}  ");
+                if (s.MarginPct.HasValue)    line.Append($"MARGIN {s.MarginPct.Value:0.0}%  ");
+                if (s.TargetReached.HasValue)
+                    line.Append(s.TargetReached.Value ? "TARGET REACHED" : "TARGET NOT REACHED");
+                AppendLog(line.ToString(), Color.LightGreen);
+            }
+        }
+
+        /// <summary>Color del aviso según el `level` que ya trae el servidor (no se reinterpreta).</summary>
+        private static Color DispatchLevelColor(string level)
+        {
+            switch ((level ?? string.Empty).ToLowerInvariant())
+            {
+                case "danger": return Color.FromArgb(235, 90, 90);
+                case "warn":   return Color.FromArgb(235, 190, 80);
+                case "ok":     return Color.FromArgb(120, 220, 130);
+                default:       return Theme.SecondaryText;
+            }
+        }
 
         private void AppendLog(string message, Color? color = null)
         {
