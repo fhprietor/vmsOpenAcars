@@ -185,6 +185,7 @@
     <Compile Include="Helpers\NavDataKeyState.cs" />
     <Compile Include="Helpers\HoldShortSelector.cs" />
     <Compile Include="Helpers\PirepFields.cs" />
+    <Compile Include="Helpers\PirepMassUnits.cs" />
     <Compile Include="Helpers\MapAttribution.cs" />
     <Compile Include="Helpers\PolylineResampler.cs" />
     <Compile Include="Helpers\RouteCorridor.cs" />

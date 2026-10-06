@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.27  
+**Versión actual:** v0.9.28  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -566,7 +566,7 @@ anterior).
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **388 tests**:
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **394 tests**:
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
@@ -650,7 +650,7 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
      `TelemetryCoordinator.PrepareTelemetry` (`fuel = Math.Round(e.FuelLbs, 1)`, en **libras**, que es
      su unidad interna). Sus 0 filas eran su `$fillable`, no nuestro silencio, y su arreglo activa
      datos que ya viajaban; lo que faltaba al final era su **serialización** (corregido en `AcarsRoute`):
-     el valor estaba en su base y el resource no lo exponía. Seguimos enviando **libras**. Antes de decir
+     el valor estaba en su base y el resource no lo exponía. Seguimos enviando **libras**. **`block_fuel` y `fuel_used` van en libras desde 0.9.28**: se enviaban en **kg** a una API que interpreta el numero como libras, asi que el consumo quedaba **2,20462 veces por debajo** (lo destapo la aerolinea con 8 PIREPs y lo confirma su propia respuesta: `internalUnit: "lbs"`); el **log sigue en kg** —es lo que entiende el piloto— y la conversion vive en `Helpers/PirepMassUnits.cs`, solo en el payload. `zfw` queda **sin unidad declarada** (phpVMS lo declara `float` sin cast): pendiente de que la aerolinea diga en cual lo espera. Antes de decir
      «no enviamos X», buscarlo en **todo** el proyecto.
   3. **Avisos del RAAS al PIREP: hechos**, con el prefijo **`RAAS:`** (`FlightManager.LogRaasCallout`
      desde `TelemetryCoordinator`, con la posición y en segundo plano). **Va por `POST /acars/logs`**,
@@ -703,7 +703,7 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   Se arregla convirtiendo antes de comparar, y **el dato ya está** (30/09/2026): `mag_var` se publica
   en `/airport/{icao}/` y en `/runways/` (medido: **-8,58** en SKBO, **-13,73** en KBOS, +0,68 en LEMD). La
   evidencia del KBOS fija el signo: 19° verdadero contra 33,4 magnético con `mag_var` -13,73 →
-  **`magnético = verdadero − mag_var`**, dentro de 0,7°. **HECHA (0.9.21, 01/10/2026): la conversion esta en `MagVar` y en las tres comparaciones** en `Models/NavData.cs` (campo `MagVar`, 0 por defecto = degrada sin datos) y `Services/NavDataService.cs` (tres sitios que comparan el rumbo de la pista con el del avion: `rwy.Heading + rwy.MagVar`). Compila y **388/388**. Comprobado con el dato real de KBOS: 33,4 magnetico con mag_var -13,73 da **19,67 verdadero**, que es el rumbo del eje que marcaba el avion. **Cerrado en 0.9.21** con el test sobre el fixture real `KbosRwy04R()` (**388/388**): a 2 grados del eje verdadero la pista se reconoce con la variacion, y **sin** ella el aviso queda fuera de los 15 por el sesgo de 13,73, o sea el fallo queda fijado. Los tres sitios son `SelectApproachThreshold` (L77) y **dos dentro de `ProjectOnRunway`** (L540 y L560), que es la que decide en que pista esta el avion: el sesgo tambien ensuciaba eso. Simplificacion futura anotada, no bloqueo: comparar contra el rumbo verdadero geometrico (`TrueRunwayBearing`) en vez de depender de `mag_var`.
+  **`magnético = verdadero − mag_var`**, dentro de 0,7°. **HECHA (0.9.21, 01/10/2026): la conversion esta en `MagVar` y en las tres comparaciones** en `Models/NavData.cs` (campo `MagVar`, 0 por defecto = degrada sin datos) y `Services/NavDataService.cs` (tres sitios que comparan el rumbo de la pista con el del avion: `rwy.Heading + rwy.MagVar`). Compila y **394/394**. Comprobado con el dato real de KBOS: 33,4 magnetico con mag_var -13,73 da **19,67 verdadero**, que es el rumbo del eje que marcaba el avion. **Cerrado en 0.9.21** con el test sobre el fixture real `KbosRwy04R()` (**394/394**): a 2 grados del eje verdadero la pista se reconoce con la variacion, y **sin** ella el aviso queda fuera de los 15 por el sesgo de 13,73, o sea el fallo queda fijado. Los tres sitios son `SelectApproachThreshold` (L77) y **dos dentro de `ProjectOnRunway`** (L540 y L560), que es la que decide en que pista esta el avion: el sesgo tambien ensuciaba eso. Simplificacion futura anotada, no bloqueo: comparar contra el rumbo verdadero geometrico (`TrueRunwayBearing`) en vez de depender de `mag_var`.
   **No usar la puerta doble** (aceptar magnético *o* verdadero): el filtro que para el falso desvío
   de KOWD es justamente el cono angular, y ensancharlo lo reabriría.
 

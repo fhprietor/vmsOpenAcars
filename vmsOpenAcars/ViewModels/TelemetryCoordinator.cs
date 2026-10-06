@@ -830,6 +830,10 @@ namespace vmsOpenAcars.ViewModels
                 ias          = (int)Math.Round(e.IndicatedAirspeedKt, 0),
                 transponder  = e.Transponder,
                 autopilot    = e.AutopilotEngaged,
+                // En LIBRAS a propósito, sin convertir: es el valor crudo del offset 0x126C y
+                // phpVMS también espera libras en la masa (`internal_units.fuel = 'lbs'`). El
+                // PIREP sí convierte de kg a lbs (Helpers/PirepMassUnits.cs): no tocar esta línea
+                // «para igualarla» con el payload.
                 fuel         = Math.Round(e.FuelLbs, 1),
                 pitch        = e.PitchDeg,
                 bank         = e.BankDeg,

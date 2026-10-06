@@ -4,6 +4,7 @@ using System.Drawing;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.UI;
+using vmsOpenAcars.Helpers;
 using static vmsOpenAcars.Helpers.L;
 
 namespace vmsOpenAcars.Core.Flight
@@ -64,8 +65,14 @@ namespace vmsOpenAcars.Core.Flight
                 ["planned_distance"] = Math.Round(a.PlannedDistanceNm, 2),
                 ["flight_time"] = a.ActualFlightTimeMinutes,
                 ["planned_flight_time"] = a.PlannedFlightTimeMinutes,
-                ["block_fuel"] = Math.Round(a.BlockFuel, 0),
-                ["fuel_used"] = Math.Round(a.FuelUsed, 0),
+                // Masa en LIBRAS: phpVMS guarda el combustible en libras (`internal_units.fuel = 'lbs'`)
+                // y no convierte un número suelto, así que los kg que calcula el cliente (el
+                // simulador se lee en libras por el offset 0x126C y aquí se trabaja en kg) hay que
+                // pasarlos a lbs o el consumo queda registrado 2,20462 veces por debajo — ver
+                // Helpers/PirepMassUnits.cs. La conversión va AQUÍ, en el payload, y no en el log:
+                // el log sigue en kg, que es lo que entiende el piloto.
+                ["block_fuel"] = PirepMassUnits.PayloadLbs(a.BlockFuel),
+                ["fuel_used"] = PirepMassUnits.PayloadLbs(a.FuelUsed),
                 // phpVMS needs a number; the internal NoLandingData sentinel (-1) must
                 // never reach the server, so an uncaptured touchdown is reported as 0.
                 ["landing_rate"] = a.LandingRateFpm.HasValue &&
@@ -88,7 +95,9 @@ namespace vmsOpenAcars.Core.Flight
         internal int      PlannedFlightTimeMinutes;
         internal double   TotalDistanceNm;
         internal double   PlannedDistanceNm;
+        /// <summary>Combustible de rampa en KILOGRAMOS, como lo calcula el cliente; el paso a libras lo hace <see cref="PirepBuilder.BuildPayload"/>.</summary>
         internal double   BlockFuel;
+        /// <summary>Combustible consumido en KILOGRAMOS, como lo calcula el cliente; el paso a libras lo hace <see cref="PirepBuilder.BuildPayload"/>.</summary>
         internal double   FuelUsed;
         internal int?     LandingRateFpm;
         internal int      Score;

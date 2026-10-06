@@ -2,6 +2,32 @@
 
 ---
 
+## [0.9.28] — 05/10/2026
+
+### Fixed
+
+- **`block_fuel` y `fuel_used` se enviaban en KILOGRAMOS y phpVMS los guarda en LIBRAS: el consumo quedaba
+  2,20462 veces por debajo.** Lo destapó la aerolínea (Vholar) con 8 PIREPs: el valor de `pireps.fuel_used`
+  **coincidía exactamente** con el total que **nuestro propio log** escribe como `Combustible: … kg`. La
+  causa es nuestra y fue **por omisión**: del simulador (`0x126C`, `CurrentFuelLbs`) el cliente **convierte a
+  kg para el piloto** —el log dice kg y son kg de verdad— y **enviaba ese mismo número**, sin declarar
+  unidad, a una API cuya masa interna son libras.
+- **Lo que lo cierra no es la etiqueta, es su contrato**: la respuesta de su propia API declara
+  `"block_fuel":{"localUnit":"kg","internalUnit":"lbs"}`, su `config` fija `internal_units.fuel = 'lbs'` y
+  `FuelCast::set()` **devuelve el número plano sin convertir** (su test lo fija: *«no conversion with plain
+  numbers»*). Y el cruce interno lo confirma: **4444 kg × 2,20462 = 9797 lbs**, exactamente el `fuel` que
+  enviábamos en las **posiciones** —que sí iba en libras—. Ese cruce es lo que convierte una coincidencia en
+  una unidad demostrada.
+- **Corregido** con la opción A: `block_fuel` (prefile y file) y `fuel_used` (file) salen **en libras**
+  (`Helpers/PirepMassUnits.cs`, puro y con test, incluidos el caso real 4444→9797 y el contrafactual 4444 sin
+  convertir = 2015,76). El **`fuel` de las posiciones no se toca** (ya iba en libras) y el **log sigue en kg**
+  a propósito: es la cifra que entiende el piloto.
+- **Pendiente, y es de su lado**: `zfw` no tiene unidad declarada —phpVMS lo declara `float` **sin cast**— y
+  hoy enviamos el valor del OFP en kg. Hasta que la aerolínea diga en qué unidad lo espera, **no se toca**.
+- **Aviso para su contabilidad**: los PIREPs ya registrados están 2,20462 por debajo; el arreglo aplica **de
+  aquí en adelante**. La corrección del histórico es decisión suya. El precio del combustible **no** se toca.
+- **394/394** (388 + 6).
+
 ## [0.9.27] — 03/10/2026
 
 ### Changed

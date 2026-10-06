@@ -334,8 +334,16 @@ namespace vmsOpenAcars.Services
                 level = plan.PlannedAltitude,
                 planned_distance = Math.Round(plan.Distance, 2),
                 planned_flight_time = plan.EstTimeEnroute / 60,
+                // `zfw` NO se convierte: phpVMS lo declara como `float` sin cast de unidad
+                // (`App\Models\Pirep::casts()`), así que no lo interpreta ni lo convierte —se guarda
+                // tal cual— y no hay contrato de unidad que cumplir. Se manda en las unidades del OFP
+                // (kg con `simbrief_units=kgs`), que es el número que el piloto reconoce.
                 zfw = Math.Round(plan.ZeroFuelWeight, 0),
-                block_fuel = Math.Round(plan.BlockFuel, 0),
+                // Masa en LIBRAS, igual que el payload de /file: phpVMS guarda el combustible en
+                // libras (`internal_units.fuel = 'lbs'`) y no convierte un número suelto. El plan ya
+                // trae aquí el combustible real del simulador en kg (StartFlight sobrescribe
+                // plan.BlockFuel). Ver Helpers/PirepMassUnits.cs.
+                block_fuel = PirepMassUnits.PayloadLbs(plan.BlockFuel),
                 distance = 0,
                 flight_time = 0,
                 fuel_used = 0,

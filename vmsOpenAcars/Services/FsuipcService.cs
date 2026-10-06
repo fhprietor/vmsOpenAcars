@@ -84,6 +84,15 @@ namespace vmsOpenAcars.Services
         private readonly Offset<int> _simTimeOffset = new Offset<int>(0x023A);
 
         // ---- Combustible ----
+        /// <summary>
+        /// 0x126C · INT32 · peso total de combustible, **en LIBRAS** (la tabla de FSUIPC no documenta
+        /// este offset en el proyecto, así que la unidad está fijada por medición): el valor se usa
+        /// tal cual como `fuel` de las posiciones ACARS —phpVMS también guarda la masa en libras— y
+        /// se convierte a kg para el PIREP (`PirepMassUnits`). Comprobado con el PIREP real
+        /// `9E20We81wlBgp3Nj`: 9797 en el arranque = 4444 kg de rampa, que es lo que aceptó la
+        /// validación contra el OFP en kg; si el offset fuese kg, esa validación (× 0,453592) habría
+        /// bloqueado todos los vuelos.
+        /// </summary>
         private readonly Offset<int> _fuelWeightOffset = new Offset<int>(0x126C);
 
         // ---- Motores (FLOAT64, los más precisos para jets/turboprops) ----
