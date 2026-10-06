@@ -2,6 +2,35 @@
 
 ---
 
+## [0.9.30] — 06/10/2026
+
+### Changed
+
+- **La zona de toma deja de ser ciega a la pista: los puntos siguen siendo 0/3/7, pero las rayas se
+  calculan con la longitud.** Regla nueva (`Helpers/TouchdownZonePolicy.cs`, puro y con test):
+  **0 puntos** hasta `max(1.500 ft, 15 % de la pista)` **con techo de 3.000 ft**; **3 puntos** hasta
+  `min(3.000 ft, mitad de la pista)`; **7 puntos** por encima. **Sin dato de longitud → la regla de
+  siempre (1.500 / 2.500)**, que es la regla de la casa: degradar sin datos, no puntuar a ciegas.
+- **El porqué**: el punto de mira está a **1.000 ft** y la zona de toma se marca hasta los **3.000 ft**
+  —o la mitad de la pista si es más corta—, así que el juicio **depende de la pista**. La regla anterior
+  medía igual una pista de 2.400 m que una de 4.200: en pistas cortas **no cambia nada** (el suelo de
+  1.500 ft protege el estándar) y en las largas se concede entre **150 y 650 ft**. El **techo de 3.000 ft
+  no se negocia**: en una pista larga, tocar a 3.200 ft **sigue siendo 7 puntos**.
+- **Medido antes de cambiarlo, con 32 aterrizajes reales** cruzados con la longitud real de su pista:
+  **5 cambian de tramo y los cinco a mejor** (de 7 a 3 puntos) —SKCC 16, SKCL 02, MPTO 03R, SKRG 01 y
+  SKBO 14R—, **20 puntos de penalización retirados** y **ninguno empeora**; los pies de exceso que se
+  castigaban iban de **1.098 a 1.451 ft**. **5 casos son pocos para concluir**, así que la medición se
+  repetirá cuando haya más vuelos.
+- **Y ahora se ve**: la línea del aterrizaje dice **dónde tocó y en qué tramo cayó**
+  (`🛬 PISTA 14R | TD: 2924 ft desde umbral | … | zona 0–1870 ft (3 pts)`), con el aviso expreso cuando
+  **falta la longitud**, y durante la aproximación aparece el **punto de mira (1.000 ft)**.
+- **Dato de NavData**: la longitud viene en **`length_ft`** (en pies). **No publica hoy ningún campo de
+  zona de toma ni de punto de mira**, por eso se deducen; cuando lo hagan, la regla los leerá. En
+  **SKVP 05** el servicio no publica la longitud de esa pista: ahí se aplica la regla anterior y la
+  línea del aterrizaje lo dice.
+- **El baremo (0/3/7), su clave `Score_CritTdz` y `PirepBuilder._critKeyMap` quedan intactos**: no hay
+  criterio nuevo. Idiomas simétricos (**430 claves** cada uno). **458/458**.
+
 ## [0.9.29] — 06/10/2026
 
 ### Changed

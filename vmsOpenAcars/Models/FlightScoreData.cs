@@ -134,6 +134,15 @@ namespace vmsOpenAcars.Models
         /// <summary>Runway designator used at landing (e.g. "13L"). Null if not available.</summary>
         public string RunwayName { get; set; }
 
+        /// <summary>
+        /// Length of the landing runway in feet (`length_ft` from NavData).
+        /// **0 = data not available**, and the Touchdown Zone criterion then falls back to the
+        /// house rule (1 500 / 2 500 ft). It is needed because the touchdown zone is marked up to
+        /// 3 000 ft **or half the runway, whichever is shorter** — see
+        /// <see cref="vmsOpenAcars.Helpers.TouchdownZonePolicy"/>.
+        /// </summary>
+        public double RunwayLengthFt { get; set; }
+
         // ─── ILS / Approach compliance (optional — populated when LNM DB configured) ─
 
         /// <summary>
@@ -203,6 +212,7 @@ public bool BelowMinimums { get; set; }
             TouchdownDistanceFt = 0;
             CenterlineDeviationFt = 0;
             RunwayName = null;
+            RunwayLengthFt = 0;
             IlsTunedCorrectly = true;
             LocalizerViolations = 0;
             BelowMinimums = false;

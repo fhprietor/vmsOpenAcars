@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 
 namespace vmsOpenAcars.Services
@@ -104,7 +105,9 @@ namespace vmsOpenAcars.Services
         private const int StdPressureDeduction = 5;  // 1013 no aplicado en la TA
         private const int OfflineFlightDeduction = 5;
         private const int LateDepartureDeduction = 5;
-        private const int MaxTouchdownZoneDeduction = 7;
+        // El máximo del criterio «Touchdown Zone» lo fija `TouchdownZonePolicy.PointsSeven` (7).
+        // El baremo (0/3/7) no cambió: lo que cambió es de dónde salen sus dos umbrales, y viven
+        // todos en el helper para poder revertir la decisión en un solo sitio.
         private const int MaxCenterlineDeduction = 7;
         private const int MaxLocalizerDeduction    = 5;
         private const int MinimumsBustDeduction    = 5;
@@ -271,17 +274,29 @@ namespace vmsOpenAcars.Services
 
             // ── Touchdown Zone ───────────────────────────────────────────────────
             // Only scored when NavMap DB data is available (distance > 0).
+            //
+            // Los umbrales NO son constantes: los pone la pista (Helpers/TouchdownZonePolicy). El
+            // punto de mira está a 1.000 ft del umbral y la zona de toma se marca hasta los 3.000 ft
+            // —o la mitad de la pista si es más corta—, así que juzgar la toma con 1.500/2.500 ft
+            // para toda pista era ciego a la longitud. Los tres tramos y los 0/3/7 puntos no cambian;
+            // sin dato de longitud se degrada a la regla de siempre.
             if (data.TouchdownDistanceFt > 0)
             {
-                int tdDeduction = CalcTouchdownDistanceDeduction(data.TouchdownDistanceFt);
+                int tdDeduction = TouchdownZonePolicy.PointsFor(
+                    data.TouchdownDistanceFt, data.RunwayLengthFt);
                 if (tdDeduction > 0)
                 {
                     string rwySuffix = !string.IsNullOrEmpty(data.RunwayName)
                         ? $" (RWY {data.RunwayName})" : "";
+                    // El motivo lleva también hasta dónde llegaba su zona de 0 puntos, para que el
+                    // desglose del PIREP explique la puntuación y no solo la distancia.
+                    string zoneSuffix = TouchdownZonePolicy.HasRunwayLength(data.RunwayLengthFt)
+                        ? $", zone 0-{(int)TouchdownZonePolicy.ZeroBandFt(data.RunwayLengthFt)} ft"
+                        : ", no runway length";
                     result.Deductions.Add(new ScoringDeduction
                     {
                         Criterion      = "Touchdown Zone",
-                        Reason         = $"{data.TouchdownDistanceFt:F0} ft from threshold{rwySuffix}",
+                        Reason         = $"{data.TouchdownDistanceFt:F0} ft from threshold{rwySuffix}{zoneSuffix}",
                         PointsDeducted = tdDeduction
                     });
                     totalDeduction += tdDeduction;
@@ -512,13 +527,6 @@ namespace vmsOpenAcars.Services
         {
             if (violations == 0) return 0;
             return Math.Min(violations * 5, MaxQnhDeduction);
-        }
-
-        private static int CalcTouchdownDistanceDeduction(double distFt)
-        {
-            if (distFt <= 1500) return 0;
-            if (distFt <= 2500) return 3;
-            return MaxTouchdownZoneDeduction;
         }
 
         private static int CalcCenterlineDeduction(double deviationFt)

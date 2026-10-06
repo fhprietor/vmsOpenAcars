@@ -338,6 +338,7 @@ namespace vmsOpenAcars.Core.Flight
             TouchdownDistanceFt          = _td.DistanceFt,
             CenterlineDeviationFt        = _td.CenterlineDeviationFt,
             RunwayName                   = _td.RunwayName,
+            RunwayLengthFt               = _td.RunwayLengthFt,
             IlsTunedCorrectly            = _approachValidator.IlsTunedCorrectly,
             LocalizerViolations          = _approachValidator.LocalizerViolations,
             BelowMinimums                = _approachValidator.BelowMinimums,

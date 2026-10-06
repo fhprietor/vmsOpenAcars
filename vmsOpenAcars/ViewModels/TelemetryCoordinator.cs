@@ -1687,13 +1687,15 @@ namespace vmsOpenAcars.ViewModels
             }
 
             _flightManager.SetRunwayTouchdownData(
-                result.ThresholdDistanceFt, result.CenterlineDeviationFt, result.RunwayName);
+                result.ThresholdDistanceFt, result.CenterlineDeviationFt, result.RunwayName,
+                result.RunwayLengthFt);
 
             _cb.Log?.Invoke(
                 string.Format(_("Lnm_TouchdownInfo"),
                     result.RunwayName,
                     (int)result.ThresholdDistanceFt,
-                    (int)result.CenterlineDeviationFt),
+                    (int)result.CenterlineDeviationFt,
+                    TouchdownZoneText(result.ThresholdDistanceFt, result.RunwayLengthFt)),
                 Theme.Success);
 
             CheckFlownDistance(plannedDest);
@@ -1777,6 +1779,20 @@ namespace vmsOpenAcars.ViewModels
             var approach = _navDataService.GetApproachType(airport, runwayName);
             var fixes    = approach != null ? _navDataService.GetApproachFixes(airport, runwayName) : null;
             _flightManager?.SetApproachData(ils, approach, fixes);
+
+            // Punto de mira durante la aproximación: 1 000 ft del umbral es donde debe tocar el
+            // avión, y es la mitad de la regla del criterio «Touchdown Zone» (la otra mitad la pone
+            // la longitud de la pista). Se dice al resolver la pista de llegada, que es el primer
+            // momento en que se sabe cuál es. **Sin dato de longitud no se pinta nada**: el aviso no
+            // puede inventarse una zona de toma.
+            double runwayLengthFt = _navDataService.GetRunwayLengthFt(airport, runwayName);
+            if (runwayLengthFt > 0 && !string.IsNullOrEmpty(runwayName))
+            {
+                _cb.OsdMessage?.Invoke(
+                    string.Format(_("Osd_AimingPoint"),
+                        (int)TouchdownZonePolicy.AimingPointFt, runwayName),
+                    OsdSeverity.Info);
+            }
         }
 
         private void LookupDepartureParking(string airport, double lat, double lon)
@@ -1799,6 +1815,25 @@ namespace vmsOpenAcars.ViewModels
         {
             int agl = (int)(_flightManager?.CurrentAGL ?? 0);
             return agl > 50 ? $" ({agl} ft AGL)" : "";
+        }
+
+        /// <summary>
+        /// **Por qué le puntúan lo que le puntúan.** La línea del aterrizaje dice dónde tocó; esto
+        /// añade hasta dónde llegaba su zona de 0 puntos y **qué tramo le toca**, con las mismas
+        /// constantes que usará `ScoringService` al filear (`TouchdownZonePolicy`), de modo que el
+        /// piloto no descubre la penalización en el PIREP.
+        ///
+        /// Sin dato de longitud de pista se enseña el tramo de la regla de siempre **diciendo que no
+        /// hay dato**: el número no se inventa y el piloto sabe que ese día el criterio no miró la
+        /// pista.
+        /// </summary>
+        private static string TouchdownZoneText(double touchdownDistanceFt, double runwayLengthFt)
+        {
+            bool hasLength = TouchdownZonePolicy.HasRunwayLength(runwayLengthFt);
+            return string.Format(
+                _(hasLength ? "Lnm_TouchdownZone" : "Lnm_TouchdownZoneNoLength"),
+                (int)TouchdownZonePolicy.ZeroBandFt(runwayLengthFt),
+                TouchdownZonePolicy.PointsFor(touchdownDistanceFt, runwayLengthFt));
         }
 
         private static string GetPhaseName(FlightPhase phase)

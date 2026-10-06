@@ -382,6 +382,61 @@ namespace vmsOpenAcars.Tests
             Assert.IsFalse(Score(d).Deductions.Any(x => x.Criterion == "Touchdown Zone"));
         }
 
+        // ── Touchdown Zone: los umbrales los pone la pista (03/10/2026) ───────────
+        // El baremo sigue siendo 0/3/7; lo que cambia es de dónde salen los dos umbrales, y el
+        // criterio tiene que estar conectado a la longitud real de la pista de la toma. Los
+        // umbrales y sus casos están en `TouchdownZonePolicyTests`; aquí se prueba **el cableado**.
+
+        [TestMethod]
+        public void TouchdownZone_ConLongitudDePista_UsaLaBandaDeLaPista()
+        {
+            // SKBO 14R = 12 467 ft (3 800 m), la longitud que publica NavData en vivo. La banda de
+            // 15 % llega a 1 870 ft, así que 2 924 ft son 3 puntos y no 7. Es el PIREP 4866 del
+            // 25/09/2026, el caso real que la regla vieja castigaba de más.
+            var d = PerfectFlight();
+            d.TouchdownDistanceFt = 2924;
+            d.RunwayName         = "14R";
+            d.RunwayLengthFt     = 12467;
+            Assert.AreEqual(3, DeductionFor(Score(d), "Touchdown Zone"),
+                "2 924 ft en una pista de 3 800 m caen en la banda de 3 puntos");
+        }
+
+        [TestMethod]
+        public void TouchdownZone_SinLongitudDePista_SeQuedaEnLaReglaDeHoy()
+        {
+            // Degradar sin datos: sin longitud, exactamente el mismo resultado que ayer.
+            var d = PerfectFlight();
+            d.TouchdownDistanceFt = 2924;
+            d.RunwayName         = "14R";
+            d.RunwayLengthFt     = 0;
+            Assert.AreEqual(7, DeductionFor(Score(d), "Touchdown Zone"),
+                "sin dato de longitud manda la regla de siempre");
+        }
+
+        [TestMethod]
+        public void TouchdownZone_ElTechoDe3000FtNoSeNegocia()
+        {
+            // Pista de 24 000 ft (sintética: 15 % serían 3 600 ft). El techo deja la banda en
+            // 3 000 ft, así que tocar a 3 200 ft **sigue** siendo 7 puntos.
+            var d = PerfectFlight();
+            d.TouchdownDistanceFt = 3200;
+            d.RunwayLengthFt     = 24000;
+            Assert.AreEqual(7, DeductionFor(Score(d), "Touchdown Zone"),
+                "una pista larga no puede convertir en gratis una toma larga");
+        }
+
+        [TestMethod]
+        public void TouchdownZone_ElMotivoDiceEnQueZonaCayo()
+        {
+            // El desglose del PIREP tiene que explicar la puntuación, no solo la distancia.
+            var d = PerfectFlight();
+            d.TouchdownDistanceFt = 2924;
+            d.RunwayName         = "14R";
+            d.RunwayLengthFt     = 12467;
+            var ded = Score(d).Deductions.First(x => x.Criterion == "Touchdown Zone");
+            StringAssert.Contains(ded.Reason, "zone 0-1870 ft");
+        }
+
         // ══ Centreline Deviation (max 7) ═════════════════════════════════════════
 
         [DataTestMethod]

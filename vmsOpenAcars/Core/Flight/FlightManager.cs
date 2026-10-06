@@ -175,6 +175,9 @@ namespace vmsOpenAcars.Core.Flight
         public double TouchdownDistanceFt   => _td.DistanceFt;
         public double TouchdownCenterlineFt => _td.CenterlineDeviationFt;
         public string TouchdownRunwayName   => _td.RunwayName;
+        /// <summary>Longitud de la pista de la toma, en pies; **0 = sin dato** (la puntuación
+        /// «Touchdown Zone» degrada entonces a la regla de siempre).</summary>
+        public double TouchdownRunwayLengthFt => _td.RunwayLengthFt;
         public double TouchdownGForce       => _td.GForce;
 
         public int  OverspeedCount               => _approachValidator.OverspeedCount;
@@ -556,8 +559,9 @@ namespace vmsOpenAcars.Core.Flight
 
         public void MarkOfflineFlight() => _pen.IsOfflineFlight = true;
 
-        public void SetRunwayTouchdownData(double thresholdDistFt, double centerlineDeviationFt, string runwayName)
-            => _td.SetRunwayData(thresholdDistFt, centerlineDeviationFt, runwayName);
+        public void SetRunwayTouchdownData(double thresholdDistFt, double centerlineDeviationFt,
+                                           string runwayName, double runwayLengthFt)
+            => _td.SetRunwayData(thresholdDistFt, centerlineDeviationFt, runwayName, runwayLengthFt);
 
         public void SetProcedureSpdViolations(int count)
             => _pen.ProcedureSpdViolations = count;

@@ -80,6 +80,7 @@
     <Compile Include="RaasReplayTests.cs" />
     <Compile Include="PirepStateTests.cs" />
     <Compile Include="ScoringServiceTests.cs" />
+    <Compile Include="TouchdownZonePolicyTests.cs" />
     <Compile Include="SimbriefDispatchPolicyTests.cs" />
     <Compile Include="TaxiRouteCaseTests.cs" />
     <Compile Include="TaxiCorpusMeasurementTests.cs" />

@@ -111,6 +111,9 @@ namespace vmsOpenAcars.Services
                 // the magnetic heading reintroduces the same variation error in the landing-log
                 // lateral/distance series (up to ~600 ft at variation ≥ 13°).
                 ThresholdHeading = TrueRunwayBearing(best),
+                // Misma longitud que publica `ProjectOnRunway`: el criterio «Touchdown Zone» la
+                // necesita para saber hasta dónde llega la zona de toma en esa pista.
+                RunwayLengthFt   = best.LengthFt,
             };
         }
 
@@ -517,6 +520,28 @@ namespace vmsOpenAcars.Services
 
         public void PrefetchAirport(string icao) => NavDataClient.PrefetchAirport(icao);
 
+        /// <summary>
+        /// Longitud de la pista en pies (`length_ft` de NavData), o **0 si no hay dato** —pista
+        /// desconocida, nombre que no cuadra, o caché sin aeropuerto—. La usa el aviso del punto de
+        /// mira durante la aproximación, donde la pista se conoce por nombre (el que resuelve
+        /// `/nearest/approach-airport/`) y no hay una proyección que traiga ya la longitud.
+        /// Degrada sin datos: sin longitud no se pinta el aviso, no se inventa un valor.
+        /// </summary>
+        public double GetRunwayLengthFt(string airport, string runwayName)
+        {
+            if (string.IsNullOrEmpty(airport) || string.IsNullOrEmpty(runwayName)) return 0.0;
+            try
+            {
+                foreach (var rwy in NavDataClient.GetRunways(airport))
+                {
+                    if (string.Equals(rwy.Name, runwayName, StringComparison.OrdinalIgnoreCase))
+                        return rwy.LengthFt;
+                }
+            }
+            catch { }
+            return 0.0;
+        }
+
         // ── Core projection ───────────────────────────────────────────────────────
 
         private static RunwayTouchdownResult ProjectOnRunway(
@@ -593,6 +618,12 @@ namespace vmsOpenAcars.Services
                     ThresholdLat          = best.ThresholdLat,
                     ThresholdLon          = best.ThresholdLon,
                     ThresholdHeading      = best.Heading,
+                    // La longitud sale gratis: `best` ya es el `NavRunway` elegido. Se publica junto
+                    // a la distancia porque el criterio «Touchdown Zone» la necesita para decidir
+                    // el tramo (la zona de toma se marca hasta los 3 000 ft o la mitad de la pista,
+                    // lo que sea menor). Si NavData no la trae vale 0 y la puntuación degrada a la
+                    // regla de siempre.
+                    RunwayLengthFt        = best.LengthFt,
                 };
             }
             catch { return null; }

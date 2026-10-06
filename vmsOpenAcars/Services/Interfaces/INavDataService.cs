@@ -23,6 +23,8 @@ namespace vmsOpenAcars.Services.Interfaces
         IlsData               GetIlsForRunway(string airport, string runwayName);
         ApproachInfo          GetApproachType(string airport, string runwayName);
         IList<ApproachFix>    GetApproachFixes(string airport, string runwayName);
+        /// <summary>Longitud de la pista en pies (`length_ft` de NavData); **0 = sin dato**.</summary>
+        double                GetRunwayLengthFt(string airport, string runwayName);
         void                  PrefetchAirport(string icao);
     }
 }

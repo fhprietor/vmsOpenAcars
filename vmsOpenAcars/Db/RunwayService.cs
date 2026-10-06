@@ -10,6 +10,15 @@ namespace vmsOpenAcars.Db
         public double ThresholdLat          { get; set; }
         public double ThresholdLon          { get; set; }
         public double ThresholdHeading      { get; set; }
+
+        /// <summary>
+        /// Longitud de la pista, en pies, tal como la publica NavData (`length_ft`). **Cero = sin
+        /// dato**, y con cero el criterio «Touchdown Zone» decide con la regla de siempre
+        /// (ver <see cref="Helpers.TouchdownZonePolicy"/>): degradar sin datos, nunca bloquear.
+        /// Es el segundo dato que necesita la puntuación de la toma, además de la distancia al
+        /// umbral, porque la zona de toma se marca hasta los 3 000 ft **o la mitad de la pista**.
+        /// </summary>
+        public double RunwayLengthFt        { get; set; }
     }
 
     public class RunwayEntry

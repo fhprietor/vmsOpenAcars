@@ -19,11 +19,21 @@ namespace vmsOpenAcars.Core.Flight
             public readonly double CenterlineDeviationFt;
             public readonly string RunwayName;
 
-            public RunwayGeometry(double distanceFt, double centerlineDeviationFt, string runwayName)
+            /// <summary>
+            /// Longitud de la pista en pies (`length_ft` de NavData). **Cero = sin dato**. Viaja en el
+            /// mismo bloque inmutable que la distancia y el nombre porque el criterio «Touchdown
+            /// Zone» los necesita **juntos**: decidir el tramo con la distancia de una pista y la
+            /// longitud de otra sería peor que no decidir. Ver `Helpers/TouchdownZonePolicy`.
+            /// </summary>
+            public readonly double RunwayLengthFt;
+
+            public RunwayGeometry(double distanceFt, double centerlineDeviationFt, string runwayName,
+                                  double runwayLengthFt)
             {
                 DistanceFt            = distanceFt;
                 CenterlineDeviationFt = centerlineDeviationFt;
                 RunwayName            = runwayName;
+                RunwayLengthFt        = runwayLengthFt;
             }
         }
 
@@ -39,6 +49,9 @@ namespace vmsOpenAcars.Core.Flight
         public double CenterlineDeviationFt => _geometry?.CenterlineDeviationFt ?? 0;
         public string RunwayName            => _geometry?.RunwayName;
 
+        /// <summary>Longitud de la pista de la toma, en pies; **0 = sin dato**.</summary>
+        public double RunwayLengthFt        => _geometry?.RunwayLengthFt ?? 0;
+
         public void Capture(int fpm, double pitch, double bank, double gforce,
                             double lat, double lon, double heading)
         {
@@ -53,8 +66,9 @@ namespace vmsOpenAcars.Core.Flight
             HeadingDeg = heading;
         }
 
-        public void SetRunwayData(double distFt, double deviationFt, string runwayName)
-            => _geometry = new RunwayGeometry(distFt, deviationFt, runwayName);
+        public void SetRunwayData(double distFt, double deviationFt, string runwayName,
+                                  double runwayLengthFt)
+            => _geometry = new RunwayGeometry(distFt, deviationFt, runwayName, runwayLengthFt);
 
         // Partial reset on touch-and-go: keep Fpm/GForce for scoring, clear runway data
         public void ResetRunwayData()

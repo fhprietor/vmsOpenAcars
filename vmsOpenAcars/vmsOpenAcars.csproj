@@ -198,6 +198,7 @@
     <Compile Include="Helpers\SystemInfoHelper.cs" />
     <Compile Include="Helpers\TransitionDefaults.cs" />
     <Compile Include="Helpers\UpdateIntervalPolicy.cs" />
+    <Compile Include="Helpers\TouchdownZonePolicy.cs" />
     <Compile Include="Helpers\Constants.cs" />
     <Compile Include="Helpers\FlightPhaseHelper.cs" />
     <Compile Include="Helpers\L.cs" />
