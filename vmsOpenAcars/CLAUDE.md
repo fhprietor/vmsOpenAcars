@@ -446,7 +446,7 @@ Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el
   telemetría cruda**, no sobre el envío de posiciones a phpVMS; **con la guía activa ese envío baja
   a 5 s desde 0.9.23** (`UpdateIntervalPolicy`, que decide las **tres** puertas que lo frenaban: el
   intervalo, el suelo de envío y el umbral de deduplicación de `HasSignificantChange`); **sin guía
-  no cambia nada**.
+  no cambia nada** — y desde v0.9.31 la guia entera se apaga con un **checkbox en Settings** (`taxi_guidance_enabled`): corta avisos, voz y popup de ruta, y devuelve la traza a 30 s, todo **sin reiniciar**.
 - **Grafo** (`Helpers/TaxiGraph.cs`, puro): extremos de segmento a ≤45 m son un nodo, Dijkstra
   hasta el umbral de la pista → secuencia de calles; resuelve también el cruce y el lado del giro.
   El `node_id` está implementado y **apagado**. Desde 0.9.23 el cliente **publica su ruta propuesta**
