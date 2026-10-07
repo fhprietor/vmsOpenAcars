@@ -34,20 +34,45 @@ namespace vmsOpenAcars.UI.Forms
         private CheckBox         _chkCloseup;
         private ComboBox         _cboCloseupScale;
         private Label            _lblCloseupSummary;
+        private Label            _lblCloseupSource;
 
         /// <summary>
-        /// Suelo del eje Y en el closeup: unos pies por debajo de AGL 0 para que la barra de pista
-        /// —que va **en** AGL 0, porque ahí está el suelo— no quede cortada por el borde inferior.
+        /// Suelo del eje Y en el closeup **cuando no hay dato con el que ajustarlo**: unos pies por
+        /// debajo de AGL 0 para que la barra de pista —que va **en** AGL 0, porque ahí está el
+        /// suelo— no quede cortada por el borde inferior. Con datos, el suelo y el techo los decide
+        /// `Helpers/CloseupVerticalAxis` (puro, con test).
         /// </summary>
         private const double VerticalFloorFt = -50.0;
 
-        /// <summary>Las dos escalas del closeup, de más ancha a más estrecha. El porqué de cada
-        /// número —muestras por tramo y toques que caben— está en `TouchdownCloseupGeometry`.</summary>
-        private static readonly (string Label, double BeforeFt, double AfterFt)[] CloseupScales =
+        /// <summary>Las dos escalas de siempre del closeup, de más ancha a más estrecha. El porqué de
+        /// cada número —muestras por tramo y toques que caben— está en `TouchdownCloseupGeometry`.</summary>
+        private static readonly (string Label, double BeforeFt, double AfterFt)[] BaseCloseupScales =
         {
             ("Last 5 000 ft", TouchdownCloseupGeometry.WideBeforeFt,  TouchdownCloseupGeometry.WideAfterFt),
             ("Last 2 500 ft", TouchdownCloseupGeometry.CloseBeforeFt, TouchdownCloseupGeometry.CloseAfterFt),
         };
+
+        /// <summary>
+        /// La escala fina (**±1 000 ft**), que **solo se ofrece cuando el vuelo tiene traza del flare**
+        /// (10 Hz): con la traza de 2 s ese encuadre se queda en dos o tres muestras y sería una
+        /// escala que promete un detalle que la base no tiene. Los vuelos anteriores a `flare_track`
+        /// ven exactamente el mismo desplegable que veían.
+        /// </summary>
+        private static readonly (string Label, double BeforeFt, double AfterFt) FineCloseupScale =
+            ("Last 1 000 ft", TouchdownCloseupGeometry.FineBeforeFt, TouchdownCloseupGeometry.FineAfterFt);
+
+        /// <summary>Las escalas que ofrece **este** formulario, según la traza disponible.</summary>
+        private readonly List<(string Label, double BeforeFt, double AfterFt)> _closeupScales =
+            new List<(string Label, double BeforeFt, double AfterFt)>();
+
+        /// <summary>
+        /// La **traza fina del flare** del vuelo, si la tiene. Se carga una sola vez al construir el
+        /// formulario porque de ella dependen tres cosas que se deciden antes de pintar: si se ofrece
+        /// la escala de ±1 000 ft, qué traza pinta el closeup y cómo se rotula su origen. Sin
+        /// cargador (comparación, o los tests que no lo inyectan) se queda en nulo y todo es como
+        /// antes de `flare_track`.
+        /// </summary>
+        private readonly List<FlareTrackPoint> _flareSamples;
 
         public LandingAnalysisForm(IList<(FlightRecord Record, List<ApproachTrackPoint> Track)> flights)
             : this(flights, null, null)
@@ -67,9 +92,40 @@ namespace vmsOpenAcars.UI.Forms
             _flights              = flights;
             _flareLoader          = flareLoader;
             _flareStartedLoader   = flareCaptureStartedLoader;
+            _flareSamples         = LoadFlareSamples();
+            BuildCloseupScaleList();
             BuildUI();
             PopulateCharts();
         }
+
+        /// <summary>
+        /// Lee la traza fina del vuelo **una vez**, degradando sin datos: sin cargador, en comparación
+        /// (el closeup es de un vuelo y una pista) o si la lectura falla, se queda en nulo y el
+        /// formulario enseña lo de siempre. Una base que no responde no puede tumbar el análisis.
+        /// </summary>
+        private List<FlareTrackPoint> LoadFlareSamples()
+        {
+            if (_flareLoader == null || _flights == null || _flights.Count != 1) return null;
+            try
+            {
+                return _flareLoader(_flights[0].Record.Id) ?? new List<FlareTrackPoint>();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void BuildCloseupScaleList()
+        {
+            _closeupScales.Clear();
+            _closeupScales.AddRange(BaseCloseupScales);
+            // La escala fina solo con la traza que la sostiene: ver `FineCloseupScale`.
+            if (HasFlareTrack) _closeupScales.Add(FineCloseupScale);
+        }
+
+        /// <summary>¿Este vuelo trae traza fina del flare? Sin muestras, nada cambia.</summary>
+        private bool HasFlareTrack => _flareSamples != null && _flareSamples.Count > 0;
 
         // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -219,7 +275,7 @@ namespace vmsOpenAcars.UI.Forms
                 BackColor     = Color.FromArgb(28, 40, 52),
                 ForeColor     = Color.White
             };
-            foreach (var scale in CloseupScales) _cboCloseupScale.Items.Add(scale.Label);
+            foreach (var scale in _closeupScales) _cboCloseupScale.Items.Add(scale.Label);
             _cboCloseupScale.SelectedIndex = 0;
 
             _lblCloseupSummary = new Label
@@ -228,6 +284,27 @@ namespace vmsOpenAcars.UI.Forms
                 Font      = new Font("Consolas", 8),
                 ForeColor = Color.FromArgb(170, 215, 185),
                 Margin    = new Padding(14, 7, 0, 0)
+            };
+
+            // ── El origen de la traza ─────────────────────────────────────────────
+            // El closeup puede pintar dos cosas **que no son lo mismo**: la traza fina del flare
+            // (10 Hz) o la de aproximación (2 s). Se dice aquí, en su propio rótulo, para que nadie
+            // lea una resolución por otra. El texto sale del idioma (clave en los dos `.json`), no
+            // del literal.
+            _lblCloseupSource = new Label
+            {
+                AutoSize  = false,
+                Font      = new Font("Consolas", 8, FontStyle.Bold),
+                ForeColor = Color.FromArgb(150, 200, 255),
+                Margin    = new Padding(14, 8, 0, 0),
+                // Ancho y alto **fijos**: un `FlowLayoutPanel` sin `WrapContents` no avisa de que un
+                // control no cabe —el que sobra simplemente no se ve—, y con `AutoSize` en falso un
+                // `Label` mide 23 px de alto por defecto, más que la franja de 29 útiles de la barra
+                // (32 px menos el `Padding` de arriba). Se quedaba fuera por abajo.
+                Width     = 190,
+                Height    = 15,
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true
             };
 
             // ── El botón FLARE ────────────────────────────────────────────────────
@@ -265,6 +342,9 @@ namespace vmsOpenAcars.UI.Forms
 
             flow.Controls.Add(_chkCloseup);
             flow.Controls.Add(_cboCloseupScale);
+            // El origen va **antes** del resumen: el resumen es un texto largo y de ancho variable, y
+            // un control que no quepa en un `FlowLayoutPanel` sin `WrapContents` simplemente no se ve.
+            flow.Controls.Add(_lblCloseupSource);
             flow.Controls.Add(_lblCloseupSummary);
             if (btnFlare != null) flow.Controls.Add(btnFlare);
             pnl.Controls.Add(flow);
@@ -292,14 +372,20 @@ namespace vmsOpenAcars.UI.Forms
         {
             if (_chkCloseup == null || !_chkCloseup.Checked || _flights.Count != 1) return null;
 
-            int index = Math.Max(0, Math.Min(CloseupScales.Length - 1, _cboCloseupScale.SelectedIndex));
-            var scale = CloseupScales[index];
+            var scale = CurrentCloseupScale();
             var rec   = _flights[0].Record;
 
             return TouchdownCloseupGeometry.Compute(
                 rec.TouchdownDistFt,
                 rec.RunwayLengthFt ?? 0.0,
                 scale.BeforeFt, scale.AfterFt);
+        }
+
+        /// <summary>La escala elegida en el desplegable, acotada a las que ofrece este vuelo.</summary>
+        private (string Label, double BeforeFt, double AfterFt) CurrentCloseupScale()
+        {
+            int index = Math.Max(0, Math.Min(_closeupScales.Count - 1, _cboCloseupScale.SelectedIndex));
+            return _closeupScales[index];
         }
 
         // ── Puntos de medida para los tests (el formulario se instancia sin enseñarlo, como
@@ -311,6 +397,7 @@ namespace vmsOpenAcars.UI.Forms
         internal ComboBox         CloseupScaleSelect => _cboCloseupScale;
         internal Chart            VerticalProfile    => _verticalChart;
         internal Label            CloseupSummaryLabel => _lblCloseupSummary;
+        internal Label            CloseupSourceLabel  => _lblCloseupSource;
 
         // ── Title bar ─────────────────────────────────────────────────────────────
 
@@ -540,6 +627,32 @@ namespace vmsOpenAcars.UI.Forms
             else
                 CloseupAxis.Reset(vArea.AxisX);
 
+            // ── Qué traza pinta el perfil vertical ────────────────────────────────
+            // Con el closeup encendido, si el vuelo tiene traza fina del flare (10 Hz) se pinta
+            // **esa**; si no, la de 2 s, que es lo que había. Fuera del closeup el perfil vertical
+            // es el descenso entero en NM y siempre sale de `approach_track`: el flare solo captura
+            // los últimos 1 500 ft.
+            var source = closeup != null
+                ? CloseupTrackSource.Pick(HasFlareTrack ? _flareSamples.Count : 0)
+                : CloseupTraceSource.Approach;
+
+            bool useFlare = closeup != null && source == CloseupTraceSource.Flare;
+            var verticalPoints = closeup != null
+                ? (useFlare ? CloseupTrackSource.FlarePoints(_flareSamples)
+                            : CloseupTrackSource.ApproachPoints(_flights[0].Track))
+                : null;
+
+            // ── El eje Y: la escala del tramo que se ve ───────────────────────────
+            // Lo decide `Helpers/CloseupVerticalAxis` (puro, con test) sobre las muestras **que
+            // entran en el encuadre**: la Y del perfil entero (miles de pies, la traza arranca a
+            // 2 563 ft AGL en el vuelo 41) aplastaba el tramo final contra la línea del suelo.
+            // Sin dato con el que ajustar, la Y se queda como estaba.
+            var fit = closeup != null
+                ? CloseupVerticalAxis.Fit(verticalPoints, closeup.BeforeFt, closeup.AfterFt)
+                : CloseupVerticalFit.None();
+
+            ApplyVerticalAxis(vArea, closeup, fit);
+
             // Shared reference lines (added first so they appear behind track data)
             AddRefSeries(charts["VERTICAL"], "3° ref",
                 Color.FromArgb(0, 200, 100), ChartDashStyle.Dash,
@@ -559,24 +672,37 @@ namespace vmsOpenAcars.UI.Forms
 
             // Las marcas del closeup van **antes** de la traza: la barra de pista y las líneas del
             // umbral y del toque no deben tapar la curva, que es lo que se viene a mirar.
-            if (closeup != null) AddCloseupDecorations(charts["VERTICAL"], vArea, closeup);
+            if (closeup != null)
+                AddCloseupDecorations(charts["VERTICAL"], vArea, closeup,
+                                      fit.HasData ? fit.MinimumFt : VerticalFloorFt,
+                                      fit.HasData ? fit.MaximumFt : CloseupTopFt(closeup));
 
             // One series per flight per chart
             for (int i = 0; i < _flights.Count; i++)
             {
                 var (rec, track) = _flights[i];
                 Color color = TrackColors[i % TrackColors.Length];
-                string name = IsComparison ? $"{rec.FlightNumber} #{i + 1}" : "Actual";
+                // Con el closeup encendido, el nombre de la serie lo dice **en la leyenda**: la traza
+                // fina (10 Hz) y la de 2 s no son lo mismo y la leyenda viaja en el propio gráfico.
+                string name = IsComparison ? $"{rec.FlightNumber} #{i + 1}"
+                            : closeup != null ? L._(CloseupTrackSource.LabelKey(source))
+                            : "Actual";
 
-                AddTrackSeries(charts["VERTICAL"], name, color, track, pt => pt.AglFt,     smooth: false, xFactor: vx);
+                if (useFlare)
+                    AddFlareSeries(charts["VERTICAL"], name, color, verticalPoints);
+                else
+                    AddTrackSeries(charts["VERTICAL"], name, color, track, pt => pt.AglFt, smooth: false, xFactor: vx);
+
                 AddTrackSeries(charts["LATERAL"],  name, color, track, pt => pt.LateralFt, smooth: true);
                 AddTrackSeries(charts["IAS"],      name, color, track, pt => pt.IasKt,     smooth: true);
                 AddTrackSeries(charts["VS"],       name, color, track, pt => pt.VsFpm,     smooth: true);
             }
 
-            // Y axis post-tuning. En el closeup el suelo baja unos pies por debajo de AGL 0 para que
-            // la barra de pista (que va en AGL 0, el suelo) se vea entera.
-            charts["VERTICAL"].ChartAreas["main"].AxisY.Minimum = closeup != null ? VerticalFloorFt : 0;
+            if (_lblCloseupSource != null)
+                _lblCloseupSource.Text = L._(CloseupTrackSource.LabelKey(source));
+
+            // Y axis post-tuning de los otros tres gráficos. La Y del perfil vertical ya la dejó
+            // puesta `ApplyVerticalAxis` antes de las marcas.
             charts["LATERAL"].ChartAreas["main"].AxisY.Title    = "Dev (ft)  + right  – left";
             charts["IAS"].ChartAreas["main"].AxisY.Minimum      = Math.Floor((vref - 20) / 10) * 10;
             charts["IAS"].ChartAreas["main"].AxisY.Maximum      = Math.Ceiling((vref + 20) / 10) * 10;
@@ -586,14 +712,72 @@ namespace vmsOpenAcars.UI.Forms
         }
 
         /// <summary>
+        /// **El eje Y del perfil vertical.** Lo decide <see cref="CloseupVerticalAxis"/> sobre las
+        /// muestras que entran en el encuadre: el suelo, el techo y el paso salen de ahí, con el cero
+        /// del terreno dentro para que la altura real se entienda.
+        ///
+        /// **Degradar sin datos**: si el helper no tiene con qué ajustar (tramo sin muestras) el eje
+        /// se queda como estaba —suelo en `VerticalFloorFt` y el resto automático—, que es lo que
+        /// pide la regla de la casa. Y al apagar el closeup se restauran los valores automáticos:
+        /// este mismo `AxisY` se reusa para el perfil en NM y una escala de 150 ft ahí no pinta nada.
+        /// </summary>
+        private static void ApplyVerticalAxis(ChartArea area, TouchdownCloseup cu, CloseupVerticalFit fit)
+        {
+            var y = area.AxisY;
+
+            if (cu == null || !fit.HasData)
+            {
+                y.Minimum        = cu != null ? VerticalFloorFt : 0.0;
+                y.Maximum        = double.NaN;   // automático: lo elige el motor con lo que hay
+                y.Interval       = 0.0;
+                y.IntervalOffset = 0.0;
+                y.LabelStyle.Format = "";
+                return;
+            }
+
+            y.Minimum           = fit.MinimumFt;
+            y.Maximum           = fit.MaximumFt;
+            y.Interval          = fit.StepFt;
+            // Las marcas caen en los múltiplos del paso contados desde el suelo, que es múltiplo de
+            // él: 0 queda siempre en una marca y de ahí sale una rejilla legible en pies enteros.
+            y.IntervalOffset    = 0.0;
+            y.IntervalType      = DateTimeIntervalType.Number;
+            y.IntervalOffsetType = DateTimeIntervalType.Number;
+            y.LabelStyle.Format = "0";
+            y.IsStartedFromZero = false;
+        }
+
+        /// <summary>
+        /// La traza fina, ya en el sistema del closeup (`CloseupTrackSource.FlarePoints`): **sin
+        /// suavizado**, que es justo lo que se viene a mirar —el muestreo real de 10 Hz—, y con los
+        /// mismos 2 px de grosor que la de 2 s para que el cambio de fuente no cambie el trazo.
+        /// </summary>
+        private static void AddFlareSeries(Chart chart, string name, Color color,
+                                           List<(double XFt, double AltFt)> points)
+        {
+            var series = new Series(name)
+            {
+                ChartType         = SeriesChartType.Line,
+                Color             = color,
+                BorderWidth       = 2,
+                IsVisibleInLegend = true
+            };
+            foreach (var p in points) series.Points.AddXY(p.XFt, p.AltFt);
+            chart.Series.Add(series);
+        }
+
+        /// <summary>
         /// Las cuatro marcas del closeup, con lo que decide <see cref="TouchdownCloseup"/>: las
         /// bandas de la zona de toma (lo que se puntúa), la pista, el umbral y el punto de toque.
         /// Nada se coloca aquí: si el helper dice que el toque no cabe, no se dibuja.
+        ///
+        /// El suelo y el techo de las líneas verticales son **los del eje** (`CloseupVerticalFit`),
+        /// no una segunda cuenta: así el umbral y el toque llegan justo a los bordes del área y no
+        /// quedan cortos ni se salen cuando la Y se autoescala.
         /// </summary>
-        private void AddCloseupDecorations(Chart chart, ChartArea area, TouchdownCloseup cu)
+        private void AddCloseupDecorations(Chart chart, ChartArea area, TouchdownCloseup cu,
+                                           double yBottom, double yTop)
         {
-            double yTop = CloseupTopFt(cu);
-
             // ── Bandas de la zona de toma: los mismos tramos que puntúa `TouchdownZonePolicy` ──
             if (cu.ZeroBandFt > 0.0)
                 area.AxisX.StripLines.Add(MakeBand(-cu.ZeroBandFt, cu.ZeroBandFt, "0 pts",
@@ -621,23 +805,27 @@ namespace vmsOpenAcars.UI.Forms
             }
 
             // ── El umbral y el punto de toque ──
-            // El «THR» va abajo pero **no pegado al eje**: en el borde inferior se solapa con las
-            // etiquetas del eje X (se vio renderizando el gráfico a un mapa de bits), así que se
-            // ancla un poco más arriba. El «TD» va arriba, y así los dos no se pisan aunque el toque
-            // caiga a 500 ft del umbral.
-            AddVerticalMark(chart, "THR", 0.0, VerticalFloorFt, yTop,
-                            VerticalFloorFt + (yTop - VerticalFloorFt) * 0.12,
+            // El «THR» se ancla **sobre el cero del terreno**, un 12 % del eje más arriba: pegado al
+            // borde inferior se solapaba con las etiquetas del eje X, y anclado a una fracción del
+            // alto (lo que hacía antes) caía **encima de la banda de pista** en cuanto la Y se
+            // autoescaló —visto en el PNG: el rótulo salía embutido en la barra blanca—. El «TD» va
+            // arriba, y así los dos no se pisan aunque el toque caiga a 500 ft del umbral.
+            double groundY = Math.Max(yBottom, Math.Min(yTop, 0.0));
+            double thrLabelY = Math.Min(groundY + (yTop - yBottom) * 0.12, yTop);
+
+            AddVerticalMark(chart, "THR", 0.0, yBottom, yTop, thrLabelY,
                             Color.FromArgb(255, 200, 60), "THR");
 
             if (cu.TouchdownInView)
-                AddVerticalMark(chart, "TD", cu.TouchdownX, VerticalFloorFt, yTop, yTop,
+                AddVerticalMark(chart, "TD", cu.TouchdownX, yBottom, yTop, yTop,
                                 Color.FromArgb(255, 80, 80), cu.TouchdownLabel);
         }
 
         /// <summary>
-        /// Alto de las líneas verticales: un poco por encima del AGL más alto que entra en el
-        /// encuadre. Sin ninguna muestra dentro (traza vacía) se usa el alto de la banda de 3 puntos,
-        /// que siempre existe, para no dibujar una marca de altura cero.
+        /// Alto de las líneas verticales **cuando el eje no se pudo ajustar** (el helper no tenía
+        /// muestras dentro del encuadre): un poco por encima del AGL más alto del tramo. Sin ninguna
+        /// muestra dentro se usa el alto de la banda de 3 puntos, que siempre existe, para no dibujar
+        /// una marca de altura cero.
         /// </summary>
         private double CloseupTopFt(TouchdownCloseup cu)
         {
@@ -665,7 +853,13 @@ namespace vmsOpenAcars.UI.Forms
                 BorderColor        = border,
                 BorderWidth        = 1,
                 Text               = text,
+                // El texto se centra **en la banda**, no en su borde, y en **horizontal**: sin la
+                // orientación explícita el motor lo gira 90° cuando la banda es estrecha y «0 pts» y
+                // «3 pts» salían en vertical, ilegibles —lo destapó el PNG del closeup; la ventana del
+                // flare ya lo tenía fijado y aquí faltaba—.
+                TextAlignment      = StringAlignment.Center,
                 TextLineAlignment  = StringAlignment.Center,
+                TextOrientation    = TextOrientation.Horizontal,
                 Font               = new Font("Consolas", 8, FontStyle.Bold),
                 ForeColor          = Color.FromArgb(210, 225, 240, 250)
             };

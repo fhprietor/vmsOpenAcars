@@ -390,6 +390,8 @@
   "Log_LandingLogTooFew":       "⚠️ Landing log not saved: only {0} points in buffer (minimum 3)",
   "Log_LandingLogSaved":        "💾 Landing log: flight #{0} saved ({1} points, RWY {2})",
   "Log_FlareTrackSaved":        "💾 Flare track: {0} samples saved (10 Hz)",
+  "LandingCloseup_TrackFlare":    "FLARE TRACK · 10 Hz",
+  "LandingCloseup_TrackApproach": "APPROACH TRACK · 2 s",
   "Log_LandingLogBadId":        "❌ Landing log: SaveFlight returned {0}",
   "Log_LandingLogError":        "❌ Landing log error: {0}",
   "Log_BaseUpdated":            "📍 Home base updated: {0}",

@@ -93,6 +93,9 @@
     <Compile Include="TouchdownCloseupGeometryTests.cs" />
     <Compile Include="LandingCloseupFormTests.cs" />
     <Compile Include="CloseupAxisTests.cs" />
+    <!-- El eje Y autoescalado del closeup y la fuente de la traza (flare 10 Hz / approach 2 s). -->
+    <Compile Include="CloseupVerticalAxisTests.cs" />
+    <Compile Include="CloseupTrackSourceTests.cs" />
     <Compile Include="FlareCapturePolicyTests.cs" />
     <Compile Include="FlareChartLayoutTests.cs" />
     <Compile Include="FlareAnalysisFormTests.cs" />

@@ -5,8 +5,10 @@ using System.Linq;
 using System.Windows.Forms;
 using System.Windows.Forms.DataVisualization.Charting;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.UI.Forms;
+
 
 namespace vmsOpenAcars.Tests
 {
@@ -80,6 +82,17 @@ namespace vmsOpenAcars.Tests
             {
                 (SkcgFlight(runwayLengthFt, touchdownFt), SkcgTrack())
             });
+
+        /// <summary>
+        /// El mismo vuelo 41, pero **con la traza fina del flare** (10 Hz) inyectada como la inyecta
+        /// `FlightHistoryForm`. Es el camino que el closeup tiene que aprovechar: misma pista, mismo
+        /// toque, y ~125 muestras donde la traza de 2 s tiene 7.
+        /// </summary>
+        private static LandingAnalysisForm SingleFlightFormWithFlare()
+            => new LandingAnalysisForm(
+                new List<(FlightRecord, List<ApproachTrackPoint>)> { (SkcgFlight(), SkcgTrack()) },
+                id => FlareChartLayoutTests.Skcg41Flare(),
+                id => true);
 
         // ── El reparto: la barra no puede comerse ni tapar los gráficos ───────────
 
@@ -163,6 +176,27 @@ namespace vmsOpenAcars.Tests
                 Assert.AreEqual(-50.0, area.AxisY.Minimum, 1e-9,
                     "el suelo baja bajo AGL 0 para que la barra de pista se vea entera");
 
+                // ── Y la Y se autoescala al tramo, no al perfil completo ──────────
+                // La traza entera del vuelo 41 arranca a 2 563 ft AGL; el tramo del closeup va de 50
+                // a 147 ft. La escala la decide `CloseupVerticalAxis` (puro, con test) sobre las
+                // muestras que entran en el encuadre: con 97 ft de recorrido manda el mínimo de
+                // 100 ft, y el eje queda −50 … 150 con paso 50. Antes se quedaba en la escala del
+                // perfil entero y el tramo final salía aplastado.
+                var fit = CloseupVerticalAxis.Fit(
+                    CloseupTrackSource.ApproachPoints(SkcgTrack()), 5000.0, 4500.0);
+                Assert.AreEqual(fit.MinimumFt, area.AxisY.Minimum, 1e-9);
+                Assert.AreEqual(fit.MaximumFt, area.AxisY.Maximum, 1e-9,
+                    "el techo de la Y lo decide el helper, no el motor con el perfil entero");
+                Assert.AreEqual(fit.StepFt, area.AxisY.Interval, 1e-9);
+                Assert.AreEqual(150.0, area.AxisY.Maximum, 1e-9);
+                Assert.IsTrue(area.AxisY.Maximum < 2563.0 / 5.0,
+                    "la Y no puede volver a la escala del perfil completo (2 563 ft)");
+
+                // Y el origen de la traza se declara: con 2 s no hay traza fina, así que se pinta la
+                // de aproximación y se dice.
+                Assert.AreEqual(L._(CloseupTrackSource.ApproachLabelKey), form.CloseupSourceLabel.Text);
+                Assert.IsNotNull(FindSeries(form, L._(CloseupTrackSource.ApproachLabelKey)));
+
                 // La pista, con su largo de verdad, y el umbral y el toque marcados.
                 Assert.IsNotNull(FindSeries(form, "RWY 7,841 ft"),
                     "la pista se dibuja con la longitud que publica NavData");
@@ -224,6 +258,11 @@ namespace vmsOpenAcars.Tests
                 Assert.IsNull(FindSeries(form, "RWY 7,841 ft"));
                 Assert.AreEqual(0, area.AxisX.StripLines.Count);
                 Assert.AreEqual(0.0, area.AxisY.Minimum, 1e-9);
+                // Y la Y vuelve a ser la automática del perfil completo: una escala de 150 ft en el
+                // descenso entero (que llega a 2 563 ft) no pinta nada. El eje es el **mismo** objeto
+                // que usa el closeup, así que hay que devolverlo, no solo dejar de ajustarlo.
+                Assert.IsTrue(double.IsNaN(area.AxisY.Maximum), $"la Y tiene que volver a ser automática ({area.AxisY.Maximum})");
+                Assert.AreEqual(0.0, area.AxisY.Interval, 1e-9, "y el paso, automático");
                 Assert.AreEqual("", form.CloseupSummaryLabel.Text);
             }
         }
@@ -278,6 +317,114 @@ namespace vmsOpenAcars.Tests
                 Assert.IsNotNull(FindSeries(form, "THR"));
                 Assert.IsTrue(form.CloseupSummaryLabel.Text.Contains("TD 5,898 ft from threshold"));
                 Assert.IsTrue(form.CloseupSummaryLabel.Text.Contains("beyond this view"));
+            }
+        }
+
+        // ── La traza fina del flare en el closeup ────────────────────────────────
+
+        /// <summary>
+        /// **Con traza fina, el closeup pinta la de 10 Hz y ofrece la escala de ±1 000 ft**, que es
+        /// la que necesita esa resolución para significar algo. Se comprueba en el formulario-de-verdad:
+        /// tres escalas en el desplegable, la fina encuadrando ±1 000 ft, las muestras de la traza
+        /// fina en la serie (decenas donde la de 2 s tiene tres) y la Y ajustada al tramo que se ve.
+        /// </summary>
+        [TestMethod]
+        public void ConTrazaFina_ElCloseupPintaLaDe10Hz_YOfreceLaEscalaDe1000Ft()
+        {
+            using (var form = SingleFlightFormWithFlare())
+            {
+                form.PerformLayout();
+
+                Assert.AreEqual(3, form.CloseupScaleSelect.Items.Count,
+                    "con traza fina se ofrece una escala más");
+                Assert.AreEqual("Last 1 000 ft", form.CloseupScaleSelect.Items[2].ToString());
+
+                form.CloseupToggle.Checked = true;
+                form.CloseupScaleSelect.SelectedIndex = 2;
+                form.PerformLayout();
+
+                var area = form.VerticalProfile.ChartAreas["main"];
+                Assert.AreEqual(-1000.0, area.AxisX.Minimum, 1e-9);
+                Assert.AreEqual(1000.0, area.AxisX.Maximum, 1e-9);
+
+                // La curva es la traza fina: decenas de muestras donde la de 2 s deja tres.
+                string flareLabel = L._(CloseupTrackSource.FlareLabelKey);
+                var flare = FindSeries(form, flareLabel);
+                Assert.IsNotNull(flare, "la serie del closeup tiene que ser la traza fina");
+                Assert.IsTrue(flare.Points.Count > 20,
+                    $"la traza de 10 Hz tiene que conservar su resolución ({flare.Points.Count} puntos)");
+
+                var approach = CloseupTrackSource.ApproachPoints(SkcgTrack())
+                    .Where(p => p.XFt <= 1000.0 && p.XFt >= -1000.0).ToList();
+                Assert.IsTrue(flare.Points.Count > approach.Count,
+                    "y tiene que haber más muestras que con la traza de 2 s");
+                Assert.IsNull(FindSeries(form, "Actual"),
+                    "con traza fina no se pinta además la de 2 s: sería mezclar dos resoluciones");
+
+                // El origen se declara en el rótulo de la barra y en la leyenda del gráfico, y **no**
+                // es el mismo texto que el de la traza de 2 s.
+                Assert.AreEqual(flareLabel, form.CloseupSourceLabel.Text);
+                Assert.AreNotEqual(L._(CloseupTrackSource.ApproachLabelKey), form.CloseupSourceLabel.Text);
+
+                // Y la Y la decide el helper sobre la traza fina del encuadre.
+                var fit = CloseupVerticalAxis.Fit(
+                    CloseupTrackSource.FlarePoints(FlareChartLayoutTests.Skcg41Flare()), 1000.0, 1000.0);
+                Assert.IsTrue(fit.HasData);
+                Assert.AreEqual(fit.MinimumFt, area.AxisY.Minimum, 1e-9);
+                Assert.AreEqual(fit.MaximumFt, area.AxisY.Maximum, 1e-9);
+                Assert.AreEqual(fit.StepFt,     area.AxisY.Interval, 1e-9);
+                Assert.IsTrue(area.AxisY.Maximum < 300.0,
+                    $"la Y describe el tramo, no el perfil completo ({area.AxisY.Maximum})");
+            }
+        }
+
+        /// <summary>
+        /// **Sin traza fina todo queda como estaba**: dos escalas —la de ±1 000 ft no se ofrece,
+        /// porque con 2 s solo tendría dos o tres puntos—, la serie sale de `approach_track` y el
+        /// rótulo dice que es la de 2 s.
+        /// </summary>
+        [TestMethod]
+        public void SinTrazaFina_TodoQuedaComoEstaba()
+        {
+            using (var form = SingleFlightForm())
+            {
+                form.PerformLayout();
+
+                Assert.AreEqual(2, form.CloseupScaleSelect.Items.Count,
+                    "sin traza fina el desplegable no cambia");
+                Assert.AreEqual("Last 2 500 ft", form.CloseupScaleSelect.Items[1].ToString());
+
+                form.CloseupToggle.Checked = true;
+                form.PerformLayout();
+
+                string approachLabel = L._(CloseupTrackSource.ApproachLabelKey);
+                Assert.IsNotNull(FindSeries(form, approachLabel), "la serie sale de `approach_track`");
+                Assert.IsNull(FindSeries(form, L._(CloseupTrackSource.FlareLabelKey)));
+                Assert.AreEqual(approachLabel, form.CloseupSourceLabel.Text);
+            }
+        }
+
+        /// <summary>
+        /// **La barra del closeup tiene que caber en su ancho.** Un `FlowLayoutPanel` con
+        /// `WrapContents` en falso no avisa: el control que sobra simplemente no se ve. Con el rótulo
+        /// del origen añadido, el botón FLARE (el último de la fila) era el candidato a desaparecer,
+        /// así que se mide en vez de suponerlo.
+        /// </summary>
+        [TestMethod]
+        public void LaBarraDelCloseup_NoDejaNingunControlFueraDeSuAncho()
+        {
+            using (var form = SingleFlightFormWithFlare())
+            {
+                form.PerformLayout();
+
+                var flow = form.CloseupBar.Controls.OfType<FlowLayoutPanel>().First();
+                foreach (Control c in flow.Controls)
+                {
+                    Assert.IsTrue(c.Bounds.Right <= flow.ClientSize.Width,
+                        $"«{c.Text}» se sale por la derecha de la barra ({c.Bounds} en {flow.ClientSize.Width} px)");
+                    Assert.IsTrue(c.Bounds.Bottom <= flow.ClientSize.Height,
+                        $"«{c.Text}» se sale por abajo de la barra ({c.Bounds} en {flow.ClientSize.Height} px)");
+                }
             }
         }
 

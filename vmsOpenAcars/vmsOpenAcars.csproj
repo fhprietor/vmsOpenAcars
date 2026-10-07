@@ -201,6 +201,8 @@
     <Compile Include="Helpers\TouchdownZonePolicy.cs" />
     <Compile Include="Helpers\TouchdownCloseupGeometry.cs" />
     <Compile Include="Helpers\CloseupAxis.cs" />
+    <Compile Include="Helpers\CloseupVerticalAxis.cs" />
+    <Compile Include="Helpers\CloseupTrackSource.cs" />
     <Compile Include="Helpers\FlareCapturePolicy.cs" />
     <Compile Include="Helpers\FlareChartLayout.cs" />
     <Compile Include="Helpers\WindComponents.cs" />

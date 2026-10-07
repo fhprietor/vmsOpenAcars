@@ -281,6 +281,61 @@ namespace vmsOpenAcars.Tests
             }
         }
 
+        /// <summary>
+        /// **El closeup con la Y autoescalada y la traza fina, renderizado a PNG.** Es lo que pide la
+        /// verificación por imagen que ya destapó el rótulo «THR» solapado y las bandas en vertical:
+        /// se vuelca el perfil vertical a `%TEMP%` en la escala fina (±1 000 ft), que solo tiene
+        /// sentido con las 40 muestras de la traza del flare, para poder abrirlo y ver que la curva
+        /// ocupa el gráfico en vez de quedarse aplastada contra el suelo.
+        /// </summary>
+        [TestMethod]
+        public void ElCloseupConYAutoescaladaYTrazaFina_SePuedeRenderizarAPng()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "vmsopenacars_closeup_yfit_flare.png");
+
+            using (var form = new LandingAnalysisForm(
+                new List<(FlightRecord, List<ApproachTrackPoint>)>
+                {
+                    (Skcg41(), FlareChartLayoutTests.TrackFromFlare())
+                },
+                id => FlareChartLayoutTests.Skcg41Flare(),
+                id => true))
+            {
+                form.Size = new Size(1000, 740);
+                form.CreateControl();
+                form.CloseupToggle.Checked = true;
+                form.CloseupScaleSelect.SelectedIndex = 2;   // Last 1 000 ft
+                form.PerformLayout();
+
+                var chart = form.VerticalProfile;
+                chart.Width  = 490;
+                chart.Height = 330;
+
+                using (var bmp = new Bitmap(490, 330))
+                {
+                    chart.DrawToBitmap(bmp, new Rectangle(0, 0, 490, 330));
+                    bmp.Save(path, ImageFormat.Png);
+
+                    Assert.IsTrue(File.Exists(path), "el PNG se tiene que haber escrito");
+                    Assert.IsTrue(new FileInfo(path).Length > 3000,
+                        $"el PNG del closeup con traza fina pesa poco ({new FileInfo(path).Length} B)");
+
+                    var colors = new HashSet<int>();
+                    for (int y = 0; y < bmp.Height; y += 3)
+                        for (int x = 0; x < bmp.Width; x += 3)
+                            colors.Add(bmp.GetPixel(x, y).ToArgb());
+                    Assert.IsTrue(colors.Count > 5,
+                        $"el closeup renderizado tiene que tener contenido ({colors.Count} colores)");
+                }
+
+                // Y la Y no es la del perfil completo: la traza entera del vuelo 41 llega a 2 563 ft.
+                var area = chart.ChartAreas["main"];
+                Assert.IsTrue(area.AxisY.Maximum < 2563.0 / 5.0,
+                    $"la Y tiene que describir el tramo ({area.AxisY.Maximum})");
+                Assert.IsTrue(area.AxisY.Minimum <= 0.0, "y el cero del terreno tiene que estar dentro");
+            }
+        }
+
         private static string ControlText(Control root)
         {
             var sb = new System.Text.StringBuilder();

@@ -187,6 +187,18 @@ namespace vmsOpenAcars.Helpers
         internal const double CloseAfterFt = 2500.0;
 
         /// <summary>
+        /// Escala fina: últimos **1 000 ft** antes del umbral. **No se ofrece siempre**, y el porqué
+        /// es el muestreo: con la traza de 2 s (± 550 ft por muestra) este encuadre se queda en
+        /// **2–3 puntos** y no hay curva que mirar — sería una escala que promete detalle y no lo
+        /// tiene—. Solo entra cuando el vuelo tiene la traza del flare (**10 Hz**, ~1 muestra cada
+        /// 25 ft a 150 kt), que es quien la sostiene; con la de 2 s el formulario no la ofrece.
+        /// </summary>
+        internal const double FineBeforeFt = 1000.0;
+
+        /// <inheritdoc cref="FineBeforeFt"/>
+        internal const double FineAfterFt = 1000.0;
+
+        /// <summary>
         /// **La decisión**, a partir de lo que hay en la base. Función pura.
         ///
         /// Degrada sin datos en los tres casos que importan: **sin distancia de toma** no hay marca

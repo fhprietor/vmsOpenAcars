@@ -2,6 +2,36 @@
 
 ---
 
+## [0.9.33] — 07/10/2026
+
+### Added
+
+- **El closeup autoescala el EJE Y al tramo que se está viendo.** La Y se quedaba con la escala del perfil entero
+  —que va a miles de pies— y por eso el tramo final salía **aplastado**: medido en el vuelo 41, que arranca a
+  2.563 ft AGL, el encuadre del closeup va de **50 a 309 ft**. Ahora `Helpers/CloseupVerticalAxis.cs` (puro, con
+  test) ajusta la Y **a lo que entra en el encuadre**, con **recorrido mínimo de 100 ft** —elegido con el dato
+  delante: el vuelo 35 (SKBO→SKPE 08) tiene **19 ft** de variación real de AGL, casi todo ruido de elevación, y sin
+  mínimo el eje se estiraba ×5 para enseñar ruido—, el **cero del terreno siempre dentro** con 50 ft de holgura
+  (la banda de pista vive en 0) y **pasos bonitos de 25/50/100/250/500 ft**, ≤5 intervalos. Sin datos, la Y se
+  queda como estaba.
+- **El closeup aprovecha la traza fina del flare.** Con muestras en `flare_track` pinta **la de 10 Hz** en vez de
+  la de 2 s y aparece una **tercera escala, ±1.000 ft**, que ahora sí tiene datos que la sostengan (~40 muestras
+  frente a las 3 de la traza de 2 s). **Si no hay traza fina, la de 2 s es el fallback** y todo queda exactamente
+  como estaba. Y el gráfico **dice de dónde sale la traza** (`LandingCloseup_TrackFlare` / `LandingCloseup_TrackApproach`),
+  porque **una resolución no es la otra** y no conviene confundirlas. La elección de fuente y la conversión viven
+  en `Helpers/CloseupTrackSource.cs`, con su test, y el signo de `dist_ft` (negativo pasado el umbral) se conserva
+  literal: un test fija que **la muestra en tierra y la marca del toque caen en la misma X**.
+
+### Fixed
+
+- **Renderizado fuera de pantalla a PNG otra vez, y otra vez encontró cosas**: los rótulos **`0 pts` / `3 pts`
+  salían en vertical** en el closeup (la banda no fijaba la orientación del texto, que la ventana del flare sí
+  tenía) y, al autoescalar la Y, el rótulo **`THR` quedaba enterrado en la banda de pista** porque estaba anclado
+  a una fracción del alto que ahora cae sobre el cero → anclado **al cero del terreno**. Además, el test de
+  reparto destapó que el rótulo nuevo del origen medía 23 px y **se salía de la barra de 32 px**.
+- **567/567** (549 + 18). Idiomas simétricos (**436 claves** cada uno; el recuento real antes de este cambio era
+  **434**, no 431: la cifra anterior estaba desfasada).
+
 ## [0.9.32] — 07/10/2026
 
 ### Added
