@@ -101,6 +101,20 @@ namespace vmsOpenAcars.ViewModels
         /// </summary>
         internal void RequestTaxiRouteChange() => _tc?.RequestTaxiRouteChange();
 
+        /// <summary>
+        /// El piloto acaba de encender/apagar la guía de rodaje en Settings. La cadencia de la traza
+        /// se decide al **cambiar de fase** y al arrancar la guía; si el interruptor se mueve con el
+        /// avión ya rodando no hay ninguna transición a la vista, así que se vuelve a decidir aquí
+        /// —mismo patrón que el volumen de los anuncios de cabina, que también aplica en caliente—.
+        /// La regla de la cadencia no se repite: vive en <see cref="Helpers.UpdateIntervalPolicy"/>.
+        /// </summary>
+        internal void OnTaxiGuidanceSettingChanged(bool enabled)
+        {
+            _tc?.OnTaxiGuidanceSwitchChanged(enabled);
+            _fsuipc?.SetUpdateIntervalForPhase(_flightManager?.CurrentPhase ?? FlightPhase.Idle,
+                                               _tc != null && _tc.IsTaxiGuidanceActive);
+        }
+
         public MainViewModel(
             FlightManager flightManager,
             FsuipcService fsuipc,

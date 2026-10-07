@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.30  
+**Versión actual:** v0.9.31  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -383,7 +383,7 @@ await FilePirep()         ← llama ResetFlightState() → _activePlan=null, tou
       → LandingLogService.SaveFlight(record, _approachBuffer)
 ```
 
-`LandingAnalysisForm`: 4 gráficos VERTICAL/LATERAL/IAS/VS, eje X 5NM→0. Suavizado Gaussiano (window=7) en LATERAL/IAS/VS, no en VERTICAL.
+`LandingAnalysisForm`: 4 gráficos VERTICAL/LATERAL/IAS/VS, eje X 5NM→0. Suavizado Gaussiano (window=7) en LATERAL/IAS/VS, no en VERTICAL. **En el aterrizaje se guarda la meteo** (METAR del destino + viento del simulador y sus componentes en cara/cruzada, `Helpers/WindComponents.cs`), que va al PIREP en el `notes`, y el perfil vertical tiene un **closeup del toque** con la pista, el umbral y el punto de toque (`Helpers/TouchdownCloseupGeometry.cs`) — v0.9.31.
 
 ---
 
@@ -566,7 +566,7 @@ anterior).
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **458 tests**:
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **510 tests**:
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
@@ -612,6 +612,19 @@ Cerradas en v0.9.8: MetarRaw en el LOGBOOK, fallback regional de TA/TL, panel AT
 detallado y los tramos de carta sin coordenadas. Cerrada en v0.9.9: la clase de falso desvío por
 alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL en un SKRG→SKBQ y
 28M/1B9/KOWD en un SKCG→KBOS). Pendiente por decisión de diseño, no por falta de trabajo:
+
+- **SayIntentions.AI — hilo nuevo, investigación cerrada y NADA implementado (07/10/2026).** Base en
+  `Docs/2026-10-07_VMSOPENACARS_SAYINTENTIONS_sayintentions_01_base-integracion.md`; diseño de la
+  primera pieza en `Docs/TRANSCRIPCION-ATC.md`. De un vistazo: la `va_api_key` **solo** sirve para
+  `importVAData` y **es del servidor**; la clave del piloto se lee de `flight.json` y **no sale de su
+  PC**; ese JSON va envuelto en **`flight_details`**; se pueden leer y **escribir** LVARs con la
+  `FSUIPCClientDLL` **ya referenciada** (`FSUIPCConnection.WriteLVar`), pero exige el **WASM de
+  FSUIPC7** y **solo MSFS** (X-Plane no tiene camino; sin WASM está **sin medir**); y
+  `L:SIAI_CABIN_ANNOUNCEMENTS_DISABLE` es la palanca para que la IA no hable encima de nuestros 7
+  anuncios, con dos matices que cambian el diseño (**unidireccional**, y calla **también** los
+  botones del piloto). Orden acordado: **1) `flight.json` + LVARs al mapa → 2) transcripción
+  `getCommsHistory` → 3) arbitraje de anuncios**. La documentación buena de SAPI **no** es la KB
+  (es una SPA ilegible): es `portal.sayintentions.ai/p2d/docs/`.
 
 - **Base de rutas de rodaje reales en NavData (respuesta recibida, base por implementar)** — caso de
   validación: `TaxiRouteCaseTests`; el pedido está en **`Docs/PEDIDO-NAVDATA-RUTAS-TAXI.md`** y
@@ -703,7 +716,7 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   Se arregla convirtiendo antes de comparar, y **el dato ya está** (30/09/2026): `mag_var` se publica
   en `/airport/{icao}/` y en `/runways/` (medido: **-8,58** en SKBO, **-13,73** en KBOS, +0,68 en LEMD). La
   evidencia del KBOS fija el signo: 19° verdadero contra 33,4 magnético con `mag_var` -13,73 →
-  **`magnético = verdadero − mag_var`**, dentro de 0,7°. **HECHA (0.9.21, 01/10/2026): la conversion esta en `MagVar` y en las tres comparaciones** en `Models/NavData.cs` (campo `MagVar`, 0 por defecto = degrada sin datos) y `Services/NavDataService.cs` (tres sitios que comparan el rumbo de la pista con el del avion: `rwy.Heading + rwy.MagVar`). Compila y **458/458**. Comprobado con el dato real de KBOS: 33,4 magnetico con mag_var -13,73 da **19,67 verdadero**, que es el rumbo del eje que marcaba el avion. **Cerrado en 0.9.21** con el test sobre el fixture real `KbosRwy04R()` (**458/458**): a 2 grados del eje verdadero la pista se reconoce con la variacion, y **sin** ella el aviso queda fuera de los 15 por el sesgo de 13,73, o sea el fallo queda fijado. Los tres sitios son `SelectApproachThreshold` (L77) y **dos dentro de `ProjectOnRunway`** (L540 y L560), que es la que decide en que pista esta el avion: el sesgo tambien ensuciaba eso. Simplificacion futura anotada, no bloqueo: comparar contra el rumbo verdadero geometrico (`TrueRunwayBearing`) en vez de depender de `mag_var`.
+  **`magnético = verdadero − mag_var`**, dentro de 0,7°. **HECHA (0.9.21, 01/10/2026): la conversion esta en `MagVar` y en las tres comparaciones** en `Models/NavData.cs` (campo `MagVar`, 0 por defecto = degrada sin datos) y `Services/NavDataService.cs` (tres sitios que comparan el rumbo de la pista con el del avion: `rwy.Heading + rwy.MagVar`). Compila y **510/510**. Comprobado con el dato real de KBOS: 33,4 magnetico con mag_var -13,73 da **19,67 verdadero**, que es el rumbo del eje que marcaba el avion. **Cerrado en 0.9.21** con el test sobre el fixture real `KbosRwy04R()` (**510/510**): a 2 grados del eje verdadero la pista se reconoce con la variacion, y **sin** ella el aviso queda fuera de los 15 por el sesgo de 13,73, o sea el fallo queda fijado. Los tres sitios son `SelectApproachThreshold` (L77) y **dos dentro de `ProjectOnRunway`** (L540 y L560), que es la que decide en que pista esta el avion: el sesgo tambien ensuciaba eso. Simplificacion futura anotada, no bloqueo: comparar contra el rumbo verdadero geometrico (`TrueRunwayBearing`) en vez de depender de `mag_var`.
   **No usar la puerta doble** (aceptar magnético *o* verdadero): el filtro que para el falso desvío
   de KOWD es justamente el cono angular, y ensancharlo lo reabriría.
 

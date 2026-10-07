@@ -15,6 +15,8 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 | `ANADIDO-PHPVMS-CIERRE-2026-09-29.md` | **Equipo de phpVMS** | Añadido al cierre, con la prueba en vivo: `type = 2` se acepta y **no se sirve** (corregido en el cliente) y **`fuel` sigue sin persistirse** en su lado, con la petición y la respuesta exactas |
 | `api_vms.md` | **Equipo de phpVMS** (copiado) | Contrato de su API REST: la **tabla de tipos** de `acars` (`0` posiciones, `1` ruta, `2` mensajes), `acars/logs` GET y POST, `fields`, y la nota de que en `fields` va el **nombre** y no el slug |
 | `PEDIDO-NAVDATA-TILES.md` | **Equipo de NavData** | Pedido de un endpoint proxy de teselas de CARTO con caché (para dejar de distribuir la clave del mapa) |
+| `2026-10-07_VMSOPENACARS_SAYINTENTIONS_sayintentions_01_base-integracion.md` | **Desarrolladores** | Base del hilo de **SayIntentions.AI**: qué canal es de quién (§1), el programa VA-Link, `flight.json`, el catálogo de SAPI, los LVARs, la colisión de anuncios de cabina y lo verificado contra la API real — más un **anexo** que contrasta todo con la documentación oficial de SAPI del 07/10/2026 |
+| `TRANSCRIPCION-ATC.md` | **Desarrolladores** | Diseño de la fase 2 del hilo de SayIntentions: el contrato de `getCommsHistory`, el sondeo incremental por `since_id`, el ciclo de vida del vuelo, el payload propuesto a phpVMS y **lo que no está verificado**. Nada implementado |
 - `PEDIDO-NAVDATA-CONECTIVIDAD-2026-09-30.md` — **el pedido de conectividad** (destapado por el rodaje de
 - `vmsOpenACars-a-NAVDATA-conectividad-4-2026-09-30.md` — **[NUESTRA]** entrega el **corpus de rutas escritas**
   (`rutas-escritas-2026-09-30.csv`: **una** ruta, LMML/05 `T J K L`) y explica el hallazgo: **los 37 vuelos del

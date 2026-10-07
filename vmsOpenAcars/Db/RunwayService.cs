@@ -12,6 +12,18 @@ namespace vmsOpenAcars.Db
         public double ThresholdHeading      { get; set; }
 
         /// <summary>
+        /// Rumbo **VERDADERO** del eje de la pista, calculado desde las coordenadas WGS-84 del umbral
+        /// y del extremo (`NavDataService.TrueRunwayBearing`). **Null = sin dato**.
+        ///
+        /// Va aparte de <see cref="ThresholdHeading"/> a propósito: ese campo vale el rumbo
+        /// **magnético** en el camino de `FindTouchdownRunway` (lo consume la geometría de la toma) y
+        /// el verdadero en el de `SelectApproachThreshold`. Confundirlos es justo el error que costó
+        /// los 600 ft de sesgo en aeropuertos con variación alta, así que el dato que necesita el
+        /// cálculo de componentes de viento se publica con su propio nombre y su propia referencia.
+        /// </summary>
+        public double? TrueHeadingDeg       { get; set; }
+
+        /// <summary>
         /// Longitud de la pista, en pies, tal como la publica NavData (`length_ft`). **Cero = sin
         /// dato**, y con cero el criterio «Touchdown Zone» decide con la regla de siempre
         /// (ver <see cref="Helpers.TouchdownZonePolicy"/>): degradar sin datos, nunca bloquear.

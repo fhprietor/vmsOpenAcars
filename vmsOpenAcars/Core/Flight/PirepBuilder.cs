@@ -55,6 +55,17 @@ namespace vmsOpenAcars.Core.Flight
             // truly ABSENT from the JSON when there's no diversion — phpVMS only
             // processes a diversion when the pirep includes that key, so an explicit
             // null would be the wrong signal.
+            //
+            // `notes` es texto libre y es **el único camino que tenemos hoy** para que la meteo del
+            // aterrizaje quede en el PIREP: `Departure Runway`/`Arrival Runway`/`Taxi Route` son
+            // campos personalizados que phpVMS creó en `pirep_fields`, y uno nuevo exige que lo cree
+            // él — mandar una clave que no existe no da error, se ignora en silencio. La línea se
+            // compone en `AcarsReporter` desde el snapshot del touchdown y aquí solo se concatena.
+            string notes = $"vmsOpenAcars Report - Total: {a.TotalFlightTimeMinutes} min, " +
+                           $"Flight: {a.ActualFlightTimeMinutes} min, Dist: {a.TotalDistanceNm:F1} NM";
+            if (!string.IsNullOrEmpty(a.LandingWeatherLine))
+                notes += " | " + a.LandingWeatherLine;
+
             var payload = new Dictionary<string, object>
             {
                 ["state"] = 2,
@@ -80,7 +91,7 @@ namespace vmsOpenAcars.Core.Flight
                                        ? a.LandingRateFpm.Value
                                        : 0,
                 ["score"] = a.Score,
-                ["notes"] = $"vmsOpenAcars Report - Total: {a.TotalFlightTimeMinutes} min, Flight: {a.ActualFlightTimeMinutes} min, Dist: {a.TotalDistanceNm:F1} NM"
+                ["notes"] = notes
             };
             if (!string.IsNullOrEmpty(a.DiversionAirport))
                 payload["diversion-airport"] = a.DiversionAirport;
@@ -104,5 +115,7 @@ namespace vmsOpenAcars.Core.Flight
         internal DateTime BlockOnTime;
         internal string   ArrivalAirport;
         internal string   DiversionAirport;
+        /// <summary>Línea compacta de la meteo del aterrizaje (`LandingWeatherLine.Build`), o null.</summary>
+        internal string   LandingWeatherLine;
     }
 }

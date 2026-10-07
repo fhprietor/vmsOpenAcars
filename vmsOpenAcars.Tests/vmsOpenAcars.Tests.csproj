@@ -55,6 +55,15 @@
     <!-- EcamDialogTests mide el reparto de espacio del popup: el formulario es WinForms. -->
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
+    <!-- LandingCloseupFormTests mide el closeup del perfil vertical sobre el formulario real: el
+         gráfico es un control de `System.Windows.Forms.DataVisualization`. -->
+    <Reference Include="System.Windows.Forms.DataVisualization" />
+    <!-- LandingLogServiceTests reproduce la migración defensiva de `landing_log.sqlite` sobre una
+         base con el esquema viejo: necesita el proveedor de SQLite que ya usa el cliente. -->
+    <Reference Include="System.Data.SQLite">
+      <HintPath>..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.119.0\lib\net46\System.Data.SQLite.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Data" />
     <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
   </ItemGroup>
@@ -81,7 +90,13 @@
     <Compile Include="PirepStateTests.cs" />
     <Compile Include="ScoringServiceTests.cs" />
     <Compile Include="TouchdownZonePolicyTests.cs" />
+    <Compile Include="TouchdownCloseupGeometryTests.cs" />
+    <Compile Include="LandingCloseupFormTests.cs" />
     <Compile Include="SimbriefDispatchPolicyTests.cs" />
+    <Compile Include="SettingsFormLayoutTests.cs" />
+    <Compile Include="WindComponentsTests.cs" />
+    <Compile Include="LandingLogServiceTests.cs" />
+    <Compile Include="PirepLandingWeatherTests.cs" />
     <Compile Include="TaxiRouteCaseTests.cs" />
     <Compile Include="TaxiCorpusMeasurementTests.cs" />
     <Compile Include="TaxiRouteQualityTests.cs" />
@@ -147,4 +162,11 @@
     </PropertyGroup>
     <Error Condition="!Exists('..\packages\MSTest.TestAdapter.1.3.2\build\net45\MSTest.TestAdapter.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\MSTest.TestAdapter.1.3.2\build\net45\MSTest.TestAdapter.props'))" />
   </Target>
+  <!-- `LandingLogServiceTests` abre SQLite de verdad (para reproducir la migración defensiva de
+       `landing_log.sqlite`), y `System.Data.SQLite` carga el nativo `SQLite.Interop.dll` desde las
+       carpetas `x86/` y `x64/` del directorio de la aplicación. El proyecto de tests no las tenía
+       —solo la referencia administrada— y las tres pruebas fallaban con `DllNotFoundException`.
+       El `targets` del paquete es el mismo que importa el cliente y es el que las copia. -->
+  <Import Project="..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.119.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets"
+          Condition="Exists('..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.119.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets')" />
 </Project>

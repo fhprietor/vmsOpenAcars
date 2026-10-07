@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.Services.Interfaces;
@@ -121,8 +122,13 @@ namespace vmsOpenAcars.UI.Forms
             _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Rate",    HeaderText = "VS (fpm)",FillWeight = 90  });
             _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "GForce",  HeaderText = "G",       FillWeight = 60  });
             _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Score",   HeaderText = "Score",   FillWeight = 70  });
+            // Viento del aterrizaje: dirección/intensidad (y racha si el METAR la trae) del momento
+            // del contacto. Las componentes en cara/cruzada y el METAR en crudo están en el detalle
+            // (VIEW ANALYSIS), pero aquí se ve de un vistazo en qué condiciones se tomó cada pista.
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Wind",    HeaderText = "Wind",    FillWeight = 90  });
             _grid.Columns["Rate"].DefaultCellStyle.Alignment  = DataGridViewContentAlignment.MiddleRight;
             _grid.Columns["Score"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            _grid.Columns["Wind"].DefaultCellStyle.Alignment  = DataGridViewContentAlignment.MiddleRight;
             _grid.CellDoubleClick    += (s, e) => OpenAnalysis();
             _grid.SelectionChanged   += (s, e) => UpdateButtonStates();
 
@@ -203,7 +209,10 @@ namespace vmsOpenAcars.UI.Forms
                     f.RunwayName,
                     f.DisplayLandingRate,
                     $"{f.GForce:F2}g",
-                    f.DisplayScore);
+                    f.DisplayScore,
+                    // El texto lo arma el helper puro para que la columna diga lo mismo que el
+                    // detalle: `320/12G20`, `CALM`… y `—` cuando no se capturó viento.
+                    WindComponents.FormatRaw(f.WindAtLanding));
                 _grid.Rows[row].Tag = f;
 
                 // Colour score

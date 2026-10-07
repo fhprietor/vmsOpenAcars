@@ -199,6 +199,10 @@
     <Compile Include="Helpers\TransitionDefaults.cs" />
     <Compile Include="Helpers\UpdateIntervalPolicy.cs" />
     <Compile Include="Helpers\TouchdownZonePolicy.cs" />
+    <Compile Include="Helpers\TouchdownCloseupGeometry.cs" />
+    <Compile Include="Helpers\WindComponents.cs" />
+    <Compile Include="Helpers\MetarObservationTime.cs" />
+    <Compile Include="Helpers\LandingWeatherLine.cs" />
     <Compile Include="Helpers\Constants.cs" />
     <Compile Include="Helpers\FlightPhaseHelper.cs" />
     <Compile Include="Helpers\L.cs" />
@@ -221,6 +225,7 @@
     <Compile Include="Models\TakeoffData.cs" />
     <Compile Include="Models\NavData.cs" />
     <Compile Include="Models\TouchdownData.cs" />
+    <Compile Include="Models\LandingWeather.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="ProgressForm.cs">
       <SubType>Form</SubType>

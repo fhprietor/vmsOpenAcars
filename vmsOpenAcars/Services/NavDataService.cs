@@ -114,6 +114,10 @@ namespace vmsOpenAcars.Services
                 // Misma longitud que publica `ProjectOnRunway`: el criterio «Touchdown Zone» la
                 // necesita para saber hasta dónde llega la zona de toma en esa pista.
                 RunwayLengthFt   = best.LengthFt,
+                // El rumbo verdadero con su propio nombre, para las componentes del viento del
+                // aterrizaje: `ThresholdHeading` aquí ya es verdadero, pero en el camino de
+                // `FindTouchdownRunway` es magnético y no se puede confiar en él.
+                TrueHeadingDeg   = TrueRunwayBearing(best),
             };
         }
 
@@ -624,6 +628,10 @@ namespace vmsOpenAcars.Services
                     // lo que sea menor). Si NavData no la trae vale 0 y la puntuación degrada a la
                     // regla de siempre.
                     RunwayLengthFt        = best.LengthFt,
+                    // El eje en rumbo **verdadero** (el que se acaba de usar para proyectar): es el
+                    // que necesitan las componentes del viento del aterrizaje. `ThresholdHeading` de
+                    // este camino es el magnético y no sirve para eso.
+                    TrueHeadingDeg        = trueBrg,
                 };
             }
             catch { return null; }

@@ -29,6 +29,16 @@ namespace vmsOpenAcars.ViewModels
         internal DateTime LastCheckpointSent { get; set; } = DateTime.MinValue;
         internal int      ProcSpdViolations  { get; set; } = 0;
 
+        /// <summary>
+        /// **La meteo del aterrizaje, capturada en el instante del contacto** (ver
+        /// <see cref="LandingWeather"/>). Null mientras no haya habido touchdown o tras `Reset()`.
+        /// Es lo que permite que el dato sea el del aterrizaje y no el de la hora de filear: el
+        /// METAR del destino se refresca cada 5 min y entre la toma y el SEND PIREP pasan los minutos
+        /// del rodaje. Sobrevive al reset del vuelo porque <see cref="SnapshotLandingRecord"/> —que
+        /// es quien lo consume— corre **antes** de `await FilePirep()`.
+        /// </summary>
+        private LandingWeather _landingWx;
+
         internal AcarsReporter(
             FlightManager           flightManager,
             IApiService             apiService,
@@ -53,6 +63,9 @@ namespace vmsOpenAcars.ViewModels
         {
             LastCheckpointSent = DateTime.MinValue;
             ProcSpdViolations  = 0;
+            // La meteo del aterrizaje es de ESTE vuelo: un vuelo nuevo (o uno cancelado) no puede
+            // heredar el METAR del anterior.
+            _landingWx         = null;
         }
 
         internal bool ShouldSendCheckpoint(int intervalSeconds)
@@ -81,6 +94,11 @@ namespace vmsOpenAcars.ViewModels
 
         internal void HandleLandingDetected(int verticalSpeed, double gforce, double pitch, double bank)
         {
+            // **El momento del aterrizaje.** Es el único punto del vuelo en el que el METAR vigente
+            // del destino y el viento del simulador son los de la toma; se capturan aquí y no al
+            // filear. Va lo primero de todo: lo que sigue ya manda la posición a phpVMS.
+            CaptureLandingWeather();
+
             var rec = new AcarsPosition
             {
                 type         = 0,  status   = "LDG", nav_type = 0, name = "TOUCHDOWN",
@@ -135,12 +153,27 @@ namespace vmsOpenAcars.ViewModels
         internal async Task SendPirep()
         {
             _flightManager.SetProcedureSpdViolations(ProcSpdViolations);
+            // El snapshot va **antes** de `await FilePirep()` por el orden crítico documentado: el
+            // fileo llama a `ResetFlightState()`, que borra el plan activo y los datos de touchdown.
             var pendingRecord = SnapshotLandingRecord();
+
+            // La MISMA meteo que se acaba de volcar al logbook viaja al PIREP, compuesta una sola
+            // vez desde el snapshot: dos lecturas distintas podrían dar dos textos distintos.
+            string landingWx = LandingWeatherLine.Build(
+                pendingRecord.MetarRaw,
+                pendingRecord.LandingMetarObsUtc,
+                pendingRecord.WindAtLanding);
+
+            // Camino de campo personalizado, **apagado por defecto**: un campo de `pirep_fields` lo
+            // tiene que crear phpVMS antes (ver AppConfig.PirepLandingWeatherFieldEnabled). El
+            // `notes` de abajo es el camino que sí funciona hoy.
+            if (AppConfig.PirepLandingWeatherFieldEnabled && !string.IsNullOrEmpty(landingWx))
+                _flightManager.SendLandingWeatherField(landingWx);
 
             bool filed = false;
             try
             {
-                filed = await _flightManager.FilePirep();
+                filed = await _flightManager.FilePirep(landingWx);
             }
             catch (Exception ex)
             {
@@ -175,10 +208,58 @@ namespace vmsOpenAcars.ViewModels
 
         // ── Snapshot / Save ───────────────────────────────────────────────────────
 
+        /// <summary>
+        /// **Captura la meteo en el instante del touchdown.**
+        ///
+        /// - **METAR del destino**: se toma del servicio, que ya lo tiene descargado en memoria
+        ///   (`MetarService.CurrentMetars`, refresco cada 5 min). No se pide uno nuevo: esto corre en
+        ///   el hilo de telemetría y lo que interesa es el METAR que el piloto **tenía delante** al
+        ///   tomar tierra, no el que devuelva una petición un segundo después.
+        /// - **Viento del simulador**: FSUIPC ya lo lee en cada sondeo (0x0E92 dirección, 0x0E90
+        ///   intensidad) y aquí se copia tal cual, que es el viento que el avión estaba volando.
+        /// - **Racha**: del METAR del destino. FSUIPC no publica offset de racha; inventarlo sería
+        ///   leer un valor que no es.
+        ///
+        /// Degrada sin datos: sin METAR (o sin red) se guarda solo el viento, y al revés.
+        /// </summary>
+        private void CaptureLandingWeather()
+        {
+            var metar = GetArrivalMetar();
+            string raw = string.IsNullOrWhiteSpace(metar?.Raw) ? null : metar.Raw.Trim();
+
+            bool connected = _fsuipc != null && _fsuipc.IsConnected;
+
+            _landingWx = new LandingWeather
+            {
+                MetarRaw      = raw,
+                ObservedAtUtc = MetarObservationTime.Parse(raw, DateTime.UtcNow),
+                // Sin simulador conectado no hay viento: null, no 0/0 (que sería «calma»).
+                WindDirDeg    = connected ? (double?)_fsuipc.CurrentWindDirDeg   : null,
+                WindSpeedKt   = connected ? (double?)_fsuipc.CurrentWindSpeedKt  : null,
+                WindGustKt    = metar?.WindGustKt,
+            };
+        }
+
         private FlightRecord SnapshotLandingRecord()
         {
             var fm   = _flightManager;
             var plan = fm.ActivePlan;
+
+            // El METAR del aterrizaje manda; si la captura no llegó a haberla (vuelo reanudado, o
+            // el touchdown no pasó por aquí) se cae a lo que el servicio tenga en ese momento, que es
+            // lo que se guardaba antes. Degradar sin datos, no perder el dato.
+            string metarRaw = _landingWx?.MetarRaw ?? GetDestinationMetarRaw();
+            DateTime? metarObs = _landingWx != null
+                ? _landingWx.ObservedAtUtc
+                : MetarObservationTime.Parse(metarRaw, DateTime.UtcNow);
+
+            // Componentes del viento contra el eje VERDADERO de la pista de la toma. Sin viento o
+            // sin pista resuelta el helper devuelve `Available = false` y se guarda NULL en las
+            // componentes (el viento en crudo sí se conserva).
+            var wind = WindComponents.Compute(_landingWx?.WindDirDeg, _landingWx?.WindSpeedKt,
+                                              _landingWx?.WindGustKt,
+                                              fm.TouchdownRunwayTrueHeadingDeg);
+
             return new FlightRecord
             {
                 FlightNumber    = plan?.FlightNumber     ?? "",
@@ -193,23 +274,41 @@ namespace vmsOpenAcars.ViewModels
                 GForce          = fm.TouchdownGForce,
                 TouchdownDistFt = fm.TouchdownDistanceFt,
                 CenterlineDevFt = fm.TouchdownCenterlineFt,
-                // METAR de llegada vigente en el momento del aterrizaje (slot 1 = DEST).
-                // Se toma del servicio, ya descargado durante el vuelo, en lugar de pedir
-                // uno nuevo: el snapshot debe ser síncrono y reflejar lo que el piloto
-                // tenía delante, no el clima de dentro de un minuto. Si el servicio no
-                // pudo obtenerlo, queda null — el LOGBOOK lo muestra como sin dato.
-                MetarRaw        = GetDestinationMetarRaw(),
+                // METAR de llegada vigente en el momento del aterrizaje (slot 1 = DEST). El snapshot
+                // es síncrono y refleja lo que el piloto tenía delante. Si el servicio no pudo
+                // obtenerlo, queda vacío — el LOGBOOK lo muestra como sin dato.
+                MetarRaw        = metarRaw,
+
+                LandingMetarObsUtc   = metarObs,
+                LandingWindDirDeg    = wind.WindDirDeg,
+                LandingWindSpeedKt   = wind.WindSpeedKt,
+                LandingWindGustKt    = wind.GustKt,
+                LandingRunwayTrueDeg = wind.RunwayHeadingTrueDeg,
+                LandingHeadwindKt    = wind.Available ? (double?)wind.HeadwindKt  : null,
+                LandingCrosswindKt   = wind.Available ? (double?)wind.CrosswindKt : null,
+
+                // Longitud de la pista de la toma, para el closeup del perfil vertical. `0` es «sin
+                // dato» en `TouchdownState` y se guarda como NULL: el closeup prefiere no dibujar la
+                // pista antes que dibujarla de un largo inventado.
+                RunwayLengthFt       = fm.TouchdownRunwayLengthFt > 0.0
+                                           ? (double?)fm.TouchdownRunwayLengthFt : null,
             };
         }
 
         /// <summary>
-        /// METAR raw del aeropuerto de llegada, o null si no se descargó.
+        /// METAR del aeropuerto de llegada, o null si no se descargó.
         /// Si el aterrizaje ocurrió en un aeropuerto distinto al planeado (desvío
         /// confirmado), se prefiere el METAR del destino real cuando el servicio lo tiene:
         /// el slot DEST corresponde al plan, y en un desvío ese ya no es el aeropuerto
         /// donde se aterrizó.
         /// </summary>
-        private string GetDestinationMetarRaw()
+        private string GetDestinationMetarRaw() => GetArrivalMetar()?.Raw;
+
+        /// <summary>
+        /// El METAR del aeropuerto de llegada **entero** (no solo el texto): además del `Raw` hace
+        /// falta la racha, que es la única fuente de racha que tenemos (FSUIPC no la publica).
+        /// </summary>
+        private MetarData GetArrivalMetar()
         {
             var metars = _metarService?.CurrentMetars;
             if (metars == null) return null;
@@ -224,11 +323,11 @@ namespace vmsOpenAcars.ViewModels
                 {
                     if (m != null &&
                         string.Equals(m.RequestedIcao, arrival, StringComparison.OrdinalIgnoreCase))
-                        return m.Raw;
+                        return m;
                 }
             }
 
-            return metars[1]?.Raw;
+            return metars.Length > 1 ? metars[1] : null;
         }
 
         private void SaveLandingRecord(FlightRecord record)

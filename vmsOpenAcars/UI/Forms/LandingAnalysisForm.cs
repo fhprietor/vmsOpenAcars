@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using System.Windows.Forms.DataVisualization.Charting;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 
 namespace vmsOpenAcars.UI.Forms
@@ -21,6 +22,30 @@ namespace vmsOpenAcars.UI.Forms
         };
 
         private bool IsComparison => _flights.Count > 1;
+
+        // ── Closeup del aterrizaje ────────────────────────────────────────────────
+        // El perfil vertical puede ampliar el tramo final. El encuadre, las marcas y las bandas los
+        // decide `Helpers/TouchdownCloseupGeometry` (puro, con test); aquí solo se traduce a píxeles.
+        private TableLayoutPanel _chartLayout;
+        private Chart            _verticalChart;
+        private Panel            _pnlCloseup;
+        private CheckBox         _chkCloseup;
+        private ComboBox         _cboCloseupScale;
+        private Label            _lblCloseupSummary;
+
+        /// <summary>
+        /// Suelo del eje Y en el closeup: unos pies por debajo de AGL 0 para que la barra de pista
+        /// —que va **en** AGL 0, porque ahí está el suelo— no quede cortada por el borde inferior.
+        /// </summary>
+        private const double VerticalFloorFt = -50.0;
+
+        /// <summary>Las dos escalas del closeup, de más ancha a más estrecha. El porqué de cada
+        /// número —muestras por tramo y toques que caben— está en `TouchdownCloseupGeometry`.</summary>
+        private static readonly (string Label, double BeforeFt, double AfterFt)[] CloseupScales =
+        {
+            ("Last 5 000 ft", TouchdownCloseupGeometry.WideBeforeFt,  TouchdownCloseupGeometry.WideAfterFt),
+            ("Last 2 500 ft", TouchdownCloseupGeometry.CloseBeforeFt, TouchdownCloseupGeometry.CloseAfterFt),
+        };
 
         public LandingAnalysisForm(IList<(FlightRecord Record, List<ApproachTrackPoint> Track)> flights)
         {
@@ -57,6 +82,7 @@ namespace vmsOpenAcars.UI.Forms
 
             // METAR strip — single flight only
             Panel pnlMetar = null;
+            Panel pnlWind  = null;
             if (!IsComparison)
             {
                 pnlMetar = new Panel { Dock = DockStyle.Top, Height = 24, BackColor = Color.FromArgb(15, 22, 32) };
@@ -69,31 +95,162 @@ namespace vmsOpenAcars.UI.Forms
                     TextAlign = ContentAlignment.MiddleLeft,
                     Padding   = new Padding(8, 0, 0, 0)
                 });
+
+                // Franja del viento del aterrizaje: el METAR de arriba dice de dónde soplaba en el
+                // aeropuerto; esto dice **el viento que el avión tenía en el momento del contacto**
+                // (FSUIPC) y sus componentes contra el eje **verdadero** de la pista
+                // (Helpers/WindComponents). Se pinta **debajo** del METAR: el orden de apilado de
+                // `Dock.Top` va del último añadido al primero, así que el METAR se añade después.
+                //
+                // Es una línea de texto y no un gráfico a propósito: la traza de la aproximación
+                // (`approach_track`) no guarda viento por punto —solo hay una medida, la del
+                // touchdown—, así que un gráfico tendría un único valor y no aportaría nada que la
+                // línea no diga ya.
+                pnlWind = new Panel { Dock = DockStyle.Top, Height = 22, BackColor = Color.FromArgb(15, 22, 32) };
+                pnlWind.Controls.Add(new Label
+                {
+                    Text      = LandingWeatherLine.Display(first.RunwayName, first.WindAtLanding),
+                    Font      = new Font("Consolas", 9),
+                    ForeColor = Color.FromArgb(170, 215, 185),
+                    Dock      = DockStyle.Fill,
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Padding   = new Padding(8, 0, 0, 0)
+                });
             }
 
             // 2×2 chart grid
-            var chartLayout = new TableLayoutPanel
+            _chartLayout = new TableLayoutPanel
             {
                 Dock        = DockStyle.Fill,
                 ColumnCount = 2,
                 RowCount    = 2,
                 BackColor   = Color.Transparent
             };
-            chartLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            chartLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            chartLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
-            chartLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            _chartLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            _chartLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            _chartLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            _chartLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
 
-            chartLayout.Controls.Add(MakeChart("Vertical Profile (AGL)",  "Distance to threshold (NM)", "AGL (ft)",       "VERTICAL"), 0, 0);
-            chartLayout.Controls.Add(MakeChart("Lateral Deviation",        "Distance to threshold (NM)", "Deviation (ft)", "LATERAL"),  1, 0);
-            chartLayout.Controls.Add(MakeChart("Indicated Airspeed",       "Distance to threshold (NM)", "IAS (kt)",       "IAS"),      0, 1);
-            chartLayout.Controls.Add(MakeChart("Vertical Speed",           "Distance to threshold (NM)", "VS (fpm)",       "VS"),       1, 1);
+            _verticalChart = MakeChart("Vertical Profile (AGL)", "Distance to threshold (NM)", "AGL (ft)", "VERTICAL");
 
-            Controls.Add(chartLayout);
+            _chartLayout.Controls.Add(_verticalChart, 0, 0);
+            _chartLayout.Controls.Add(MakeChart("Lateral Deviation",        "Distance to threshold (NM)", "Deviation (ft)", "LATERAL"),  1, 0);
+            _chartLayout.Controls.Add(MakeChart("Indicated Airspeed",       "Distance to threshold (NM)", "IAS (kt)",       "IAS"),      0, 1);
+            _chartLayout.Controls.Add(MakeChart("Vertical Speed",           "Distance to threshold (NM)", "VS (fpm)",       "VS"),       1, 1);
+
+            Controls.Add(_chartLayout);
+            // La barra del closeup vive en su **propio** panel acoplado abajo, no en una celda de la
+            // rejilla: en un `TableLayoutPanel` dos controles en la misma celda no dan error (el
+            // último se pinta encima). Es la trampa que la guía documenta para `SettingsForm`.
+            //
+            // No se ofrece en modo comparación: el closeup es de **una** pista y un **un** toque, y
+            // con tres vuelos de pistas distintas el encuadre no significaría nada.
+            _pnlCloseup = IsComparison ? null : BuildCloseupBar();
+            if (_pnlCloseup != null) Controls.Add(_pnlCloseup);
+            // Orden de apilado de `Dock.Top`: el último añadido queda arriba. Así el METAR va encima
+            // de la franja del viento, y las dos debajo de la cabecera del vuelo.
+            if (pnlWind  != null) Controls.Add(pnlWind);
             if (pnlMetar != null) Controls.Add(pnlMetar);
             Controls.Add(pnlHeader);
             Controls.Add(pnlTitle);
         }
+
+        // ── Closeup ───────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// La barra del closeup: un interruptor y la escala. Va en un `FlowLayoutPanel` dentro de su
+        /// panel acoplado abajo, así que no comparte celda con nada y no puede tapar los gráficos.
+        /// </summary>
+        private Panel BuildCloseupBar()
+        {
+            var pnl = new Panel
+            {
+                Dock      = DockStyle.Bottom,
+                Height    = 28,
+                BackColor = Color.FromArgb(15, 22, 32)
+            };
+
+            var flow = new FlowLayoutPanel
+            {
+                Dock          = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents  = false,
+                Padding       = new Padding(6, 3, 0, 0),
+                BackColor     = Color.Transparent
+            };
+
+            _chkCloseup = new CheckBox
+            {
+                Text      = "Closeup",
+                Font      = new Font("Consolas", 9, FontStyle.Bold),
+                ForeColor = Color.Cyan,
+                AutoSize  = true,
+                Margin    = new Padding(0, 5, 10, 0)
+            };
+
+            _cboCloseupScale = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font          = new Font("Consolas", 9),
+                Width         = 130,
+                Enabled       = false,
+                Margin        = new Padding(0, 2, 0, 0),
+                FlatStyle     = FlatStyle.Flat,
+                BackColor     = Color.FromArgb(28, 40, 52),
+                ForeColor     = Color.White
+            };
+            foreach (var scale in CloseupScales) _cboCloseupScale.Items.Add(scale.Label);
+            _cboCloseupScale.SelectedIndex = 0;
+
+            _lblCloseupSummary = new Label
+            {
+                AutoSize  = true,
+                Font      = new Font("Consolas", 8),
+                ForeColor = Color.FromArgb(170, 215, 185),
+                Margin    = new Padding(14, 7, 0, 0)
+            };
+
+            _chkCloseup.CheckedChanged += (s, e) =>
+            {
+                _cboCloseupScale.Enabled = _chkCloseup.Checked;
+                PopulateCharts();
+            };
+            _cboCloseupScale.SelectedIndexChanged += (s, e) =>
+            {
+                if (_chkCloseup.Checked) PopulateCharts();
+            };
+
+            flow.Controls.Add(_chkCloseup);
+            flow.Controls.Add(_cboCloseupScale);
+            flow.Controls.Add(_lblCloseupSummary);
+            pnl.Controls.Add(flow);
+            return pnl;
+        }
+
+        /// <summary>El encuadre pedido, o `null` si el closeup está apagado o no aplica.</summary>
+        private TouchdownCloseup ComputeCloseup()
+        {
+            if (_chkCloseup == null || !_chkCloseup.Checked || _flights.Count != 1) return null;
+
+            int index = Math.Max(0, Math.Min(CloseupScales.Length - 1, _cboCloseupScale.SelectedIndex));
+            var scale = CloseupScales[index];
+            var rec   = _flights[0].Record;
+
+            return TouchdownCloseupGeometry.Compute(
+                rec.TouchdownDistFt,
+                rec.RunwayLengthFt ?? 0.0,
+                scale.BeforeFt, scale.AfterFt);
+        }
+
+        // ── Puntos de medida para los tests (el formulario se instancia sin enseñarlo, como
+        //    `EcamDialogTests`, que es como este proyecto comprueba el reparto de un formulario) ──
+
+        internal TableLayoutPanel ChartGrid          => _chartLayout;
+        internal Panel            CloseupBar         => _pnlCloseup;
+        internal CheckBox         CloseupToggle      => _chkCloseup;
+        internal ComboBox         CloseupScaleSelect => _cboCloseupScale;
+        internal Chart            VerticalProfile    => _verticalChart;
+        internal Label            CloseupSummaryLabel => _lblCloseupSummary;
 
         // ── Title bar ─────────────────────────────────────────────────────────────
 
@@ -150,10 +307,10 @@ namespace vmsOpenAcars.UI.Forms
 
             var stats = new TableLayoutPanel
             {
-                Dock = DockStyle.Fill, ColumnCount = 7, RowCount = 1, BackColor = Color.Transparent
+                Dock = DockStyle.Fill, ColumnCount = 8, RowCount = 1, BackColor = Color.Transparent
             };
-            for (int i = 0; i < 7; i++)
-                stats.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 7));
+            for (int i = 0; i < 8; i++)
+                stats.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 8));
             stats.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             stats.Controls.Add(StatCell("DATE",   rec.DisplayDate),              0, 0);
@@ -168,6 +325,10 @@ namespace vmsOpenAcars.UI.Forms
                 sv.ForeColor = scoreClr;
             stats.Controls.Add(scoreCell, 5, 0);
             stats.Controls.Add(StatCell("RUNWAY", rec.RunwayName), 6, 0);
+            // El viento del aterrizaje, también en el detalle del vuelo: el METAR y las componentes
+            // tienen su franja debajo, pero aquí queda a la vista sin buscarla (y junto al resto del
+            // detalle, que es donde el piloto compara «qué tal fue la toma»).
+            stats.Controls.Add(StatCell("WIND", WindComponents.FormatRaw(rec.WindAtLanding)), 7, 0);
 
             pnl.Controls.Add(stats);
             return pnl;
@@ -260,6 +421,8 @@ namespace vmsOpenAcars.UI.Forms
         {
             if (_flights == null || _flights.Count == 0) return;
 
+            var closeup = ComputeCloseup();
+
             // Global max distance across all flights
             double maxDist = 0;
             foreach (var (_, track) in _flights)
@@ -277,14 +440,39 @@ namespace vmsOpenAcars.UI.Forms
                 if (c is Chart ch && ch.Tag is string t)
                     charts[t] = ch;
 
+            // Repintado limpio: el closeup reconstruye el perfil cada vez que se cambia de escala, y
+            // las series y las bandas de la pasada anterior no pueden quedarse detrás.
+            foreach (var ch in charts.Values)
+            {
+                ch.Series.Clear();
+                ch.Annotations.Clear();
+                foreach (var area in ch.ChartAreas)
+                    area.AxisX.StripLines.Clear();
+            }
+
+            // El perfil vertical cambia de unidad con el closeup: con 9 500 ft de encuadre, las
+            // etiquetas en NM («0,4 / 0,2 / 0,0») no dicen nada, y en pies se lee de un vistazo. Los
+            // otros tres gráficos siguen en NM, que es su escala natural.
+            double vx = closeup != null ? TouchdownCloseupGeometry.FeetPerNm : 1.0;
+
             // X axis bounds
             foreach (var ch in charts.Values)
                 ch.ChartAreas["main"].AxisX.Maximum = maxDist;
 
+            var vArea = charts["VERTICAL"].ChartAreas["main"];
+            // Con el closeup manda el encuadre pedido, no hasta dónde llega la traza: la escala es
+            // una ventana fija y no cambia de tamaño vuelo a vuelo (si la traza es más corta, lo que
+            // queda a la izquierda se ve vacío, que es la verdad).
+            double vMax = closeup != null ? closeup.BeforeFt : maxDist;
+            vArea.AxisX.Maximum = vMax;
+            vArea.AxisX.Minimum = closeup != null ? -closeup.AfterFt : 0.0;
+            vArea.AxisX.Title   = closeup != null ? "Distance to threshold (ft)"
+                                                  : "Distance to threshold (NM)";
+
             // Shared reference lines (added first so they appear behind track data)
             AddRefSeries(charts["VERTICAL"], "3° ref",
                 Color.FromArgb(0, 200, 100), ChartDashStyle.Dash,
-                new[] { (maxDist, maxDist * 319.0), (0.001, 0.0) }, visible: true);
+                new[] { (vMax, (vMax / vx) * 319.0), (0.001, 0.0) }, visible: true);
 
             AddRefSeries(charts["LATERAL"], "CL",
                 Color.FromArgb(80, 130, 80), ChartDashStyle.Dot,
@@ -298,6 +486,10 @@ namespace vmsOpenAcars.UI.Forms
                 Color.FromArgb(80, 130, 80), ChartDashStyle.Dot,
                 new[] { (maxDist, 0.0), (0.001, 0.0) }, visible: false);
 
+            // Las marcas del closeup van **antes** de la traza: la barra de pista y las líneas del
+            // umbral y del toque no deben tapar la curva, que es lo que se viene a mirar.
+            if (closeup != null) AddCloseupDecorations(charts["VERTICAL"], vArea, closeup);
+
             // One series per flight per chart
             for (int i = 0; i < _flights.Count; i++)
             {
@@ -305,17 +497,134 @@ namespace vmsOpenAcars.UI.Forms
                 Color color = TrackColors[i % TrackColors.Length];
                 string name = IsComparison ? $"{rec.FlightNumber} #{i + 1}" : "Actual";
 
-                AddTrackSeries(charts["VERTICAL"], name, color, track, pt => pt.AglFt,     smooth: false);
+                AddTrackSeries(charts["VERTICAL"], name, color, track, pt => pt.AglFt,     smooth: false, xFactor: vx);
                 AddTrackSeries(charts["LATERAL"],  name, color, track, pt => pt.LateralFt, smooth: true);
                 AddTrackSeries(charts["IAS"],      name, color, track, pt => pt.IasKt,     smooth: true);
                 AddTrackSeries(charts["VS"],       name, color, track, pt => pt.VsFpm,     smooth: true);
             }
 
-            // Y axis post-tuning
-            charts["VERTICAL"].ChartAreas["main"].AxisY.Minimum = 0;
+            // Y axis post-tuning. En el closeup el suelo baja unos pies por debajo de AGL 0 para que
+            // la barra de pista (que va en AGL 0, el suelo) se vea entera.
+            charts["VERTICAL"].ChartAreas["main"].AxisY.Minimum = closeup != null ? VerticalFloorFt : 0;
             charts["LATERAL"].ChartAreas["main"].AxisY.Title    = "Dev (ft)  + right  – left";
             charts["IAS"].ChartAreas["main"].AxisY.Minimum      = Math.Floor((vref - 20) / 10) * 10;
             charts["IAS"].ChartAreas["main"].AxisY.Maximum      = Math.Ceiling((vref + 20) / 10) * 10;
+
+            if (_lblCloseupSummary != null)
+                _lblCloseupSummary.Text = closeup != null ? closeup.Summary : "";
+        }
+
+        /// <summary>
+        /// Las cuatro marcas del closeup, con lo que decide <see cref="TouchdownCloseup"/>: las
+        /// bandas de la zona de toma (lo que se puntúa), la pista, el umbral y el punto de toque.
+        /// Nada se coloca aquí: si el helper dice que el toque no cabe, no se dibuja.
+        /// </summary>
+        private void AddCloseupDecorations(Chart chart, ChartArea area, TouchdownCloseup cu)
+        {
+            double yTop = CloseupTopFt(cu);
+
+            // ── Bandas de la zona de toma: los mismos tramos que puntúa `TouchdownZonePolicy` ──
+            if (cu.ZeroBandFt > 0.0)
+                area.AxisX.StripLines.Add(MakeBand(-cu.ZeroBandFt, cu.ZeroBandFt, "0 pts",
+                    Color.FromArgb(42, 70, 160, 90), Color.FromArgb(130, 70, 200, 120)));
+
+            if (cu.ThreeBandFt > cu.ZeroBandFt)
+                area.AxisX.StripLines.Add(MakeBand(-cu.ThreeBandFt, cu.ThreeBandFt - cu.ZeroBandFt, "3 pts",
+                    Color.FromArgb(34, 190, 150, 40), Color.FromArgb(120, 215, 175, 60)));
+
+            // ── La pista: una línea horizontal a AGL 0 desde el umbral hacia dentro del encuadre ──
+            // Sale del encuadre por la derecha cuando el encuadre es más corto que la pista, que es
+            // lo correcto: la pista no se recorta ni se dibuja más corta de lo que es.
+            if (cu.RunwayVisible)
+            {
+                var runway = new Series(cu.RunwayLabel)
+                {
+                    ChartType         = SeriesChartType.Line,
+                    Color             = Color.FromArgb(200, 206, 216),
+                    BorderWidth       = 8,
+                    IsVisibleInLegend = true
+                };
+                runway.Points.AddXY(-cu.RunwayVisibleFt, 0.0);
+                runway.Points.AddXY(0.0, 0.0);
+                chart.Series.Add(runway);
+            }
+
+            // ── El umbral y el punto de toque ──
+            // El «THR» va abajo pero **no pegado al eje**: en el borde inferior se solapa con las
+            // etiquetas del eje X (se vio renderizando el gráfico a un mapa de bits), así que se
+            // ancla un poco más arriba. El «TD» va arriba, y así los dos no se pisan aunque el toque
+            // caiga a 500 ft del umbral.
+            AddVerticalMark(chart, "THR", 0.0, VerticalFloorFt, yTop,
+                            VerticalFloorFt + (yTop - VerticalFloorFt) * 0.12,
+                            Color.FromArgb(255, 200, 60), "THR");
+
+            if (cu.TouchdownInView)
+                AddVerticalMark(chart, "TD", cu.TouchdownX, VerticalFloorFt, yTop, yTop,
+                                Color.FromArgb(255, 80, 80), cu.TouchdownLabel);
+        }
+
+        /// <summary>
+        /// Alto de las líneas verticales: un poco por encima del AGL más alto que entra en el
+        /// encuadre. Sin ninguna muestra dentro (traza vacía) se usa el alto de la banda de 3 puntos,
+        /// que siempre existe, para no dibujar una marca de altura cero.
+        /// </summary>
+        private double CloseupTopFt(TouchdownCloseup cu)
+        {
+            double top = 0.0;
+            foreach (var pt in _flights[0].Track)
+            {
+                double x = pt.DistNm * TouchdownCloseupGeometry.FeetPerNm;
+                if (x <= cu.BeforeFt && x >= -cu.AfterFt && pt.AglFt > top) top = pt.AglFt;
+            }
+            if (top <= 0.0) top = cu.ThreeBandFt;
+            return top * 1.05;
+        }
+
+        private static StripLine MakeBand(double offsetFt, double widthFt, string text,
+                                          Color back, Color border)
+        {
+            return new StripLine
+            {
+                Interval           = 0,      // una sola banda: no se repite a lo largo del eje
+                IntervalOffset     = offsetFt,
+                IntervalOffsetType = DateTimeIntervalType.Number,
+                StripWidth         = widthFt,
+                StripWidthType     = DateTimeIntervalType.Number,
+                BackColor          = back,
+                BorderColor        = border,
+                BorderWidth        = 1,
+                Text               = text,
+                TextLineAlignment  = StringAlignment.Center,
+                Font               = new Font("Consolas", 8, FontStyle.Bold),
+                ForeColor          = Color.FromArgb(210, 225, 240, 250)
+            };
+        }
+
+        private static void AddVerticalMark(Chart chart, string name, double x,
+                                            double yBottom, double yTop, double labelY,
+                                            Color color, string label)
+        {
+            var s = new Series(name)
+            {
+                ChartType         = SeriesChartType.Line,
+                Color             = color,
+                BorderWidth       = 1,
+                BorderDashStyle   = ChartDashStyle.Dash,
+                IsVisibleInLegend = false
+            };
+            // El rótulo se ancla en el punto intermedio, no en los extremos: así cada marca decide a
+            // qué altura se lee su texto sin dejar de ser una sola línea vertical.
+            s.SmartLabelStyle.Enabled = false;
+            s.Points.AddXY(x, yBottom);
+            s.Points.AddXY(x, labelY);
+            s.Points.AddXY(x, yTop);
+
+            var anchor = s.Points[1];
+            anchor.Label          = label;
+            anchor.LabelForeColor = color;
+            anchor.Font           = new Font("Consolas", 8, FontStyle.Bold);
+
+            chart.Series.Add(s);
         }
 
         private static void AddRefSeries(Chart chart, string name, Color color,
@@ -336,7 +645,7 @@ namespace vmsOpenAcars.UI.Forms
 
         private static void AddTrackSeries(Chart chart, string name, Color color,
             List<ApproachTrackPoint> track,
-            Func<ApproachTrackPoint, double> selector, bool smooth)
+            Func<ApproachTrackPoint, double> selector, bool smooth, double xFactor = 1.0)
         {
             var series = new Series(name)
             {
@@ -360,7 +669,7 @@ namespace vmsOpenAcars.UI.Forms
             }
 
             for (int i = 0; i < track.Count; i++)
-                series.Points.AddXY(track[i].DistNm, values[i]);
+                series.Points.AddXY(track[i].DistNm * xFactor, values[i]);
         }
 
         private double ComputeOverallVref()

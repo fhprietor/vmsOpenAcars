@@ -27,13 +27,23 @@ namespace vmsOpenAcars.Core.Flight
             /// </summary>
             public readonly double RunwayLengthFt;
 
+            /// <summary>
+            /// Rumbo **VERDADERO** del eje de la pista de la toma, o **null** si NavData no pudo
+            /// resolverla. Viaja en el mismo bloque inmutable por el mismo motivo que la longitud: el
+            /// cálculo de las **componentes del viento del aterrizaje** (`Helpers/WindComponents`)
+            /// necesita el eje y la dirección del viento del **mismo instante**; descomponer el viento
+            /// contra el eje de otra pista sería peor que no descomponerlo.
+            /// </summary>
+            public readonly double? TrueHeadingDeg;
+
             public RunwayGeometry(double distanceFt, double centerlineDeviationFt, string runwayName,
-                                  double runwayLengthFt)
+                                  double runwayLengthFt, double? trueHeadingDeg)
             {
                 DistanceFt            = distanceFt;
                 CenterlineDeviationFt = centerlineDeviationFt;
                 RunwayName            = runwayName;
                 RunwayLengthFt        = runwayLengthFt;
+                TrueHeadingDeg        = trueHeadingDeg;
             }
         }
 
@@ -52,6 +62,9 @@ namespace vmsOpenAcars.Core.Flight
         /// <summary>Longitud de la pista de la toma, en pies; **0 = sin dato**.</summary>
         public double RunwayLengthFt        => _geometry?.RunwayLengthFt ?? 0;
 
+        /// <summary>Rumbo **verdadero** del eje de la pista de la toma; **null = sin dato**.</summary>
+        public double? RunwayTrueHeadingDeg => _geometry?.TrueHeadingDeg;
+
         public void Capture(int fpm, double pitch, double bank, double gforce,
                             double lat, double lon, double heading)
         {
@@ -67,8 +80,9 @@ namespace vmsOpenAcars.Core.Flight
         }
 
         public void SetRunwayData(double distFt, double deviationFt, string runwayName,
-                                  double runwayLengthFt)
-            => _geometry = new RunwayGeometry(distFt, deviationFt, runwayName, runwayLengthFt);
+                                  double runwayLengthFt, double? trueHeadingDeg)
+            => _geometry = new RunwayGeometry(distFt, deviationFt, runwayName, runwayLengthFt,
+                                              trueHeadingDeg);
 
         // Partial reset on touch-and-go: keep Fpm/GForce for scoring, clear runway data
         public void ResetRunwayData()

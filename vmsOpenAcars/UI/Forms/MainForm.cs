@@ -766,6 +766,10 @@ namespace vmsOpenAcars.UI.Forms
                     _viewModel?.TestCabinAnnouncementAsync(phase) ?? Task.FromResult("No active session");
                 settingsForm.CabinVolumeChangedCallback = volume =>
                     _viewModel?.SetCabinVolume(volume);
+                // La guía de rodaje aplica en caliente: apagarla devuelve la traza a los 30 s y
+                // corta la voz sin reiniciar (el checkbox se auto-guarda).
+                settingsForm.TaxiGuidanceChangedCallback = enabled =>
+                    _viewModel?.OnTaxiGuidanceSettingChanged(enabled);
                 if (settingsForm.ShowDialog(this) == DialogResult.OK)
                 {
                     string airline = ConfigurationManager.AppSettings["airline"] ?? "vmsOpenAcars";
@@ -2488,6 +2492,10 @@ private void UpdateMetarPanel(MetarData[] metars)
                 { "raas_enabled",         "true" },
                 { "raas_voice_enabled",   "true" },
                 { "raas_volume",          "80" },
+
+                // Guía de rodaje: interruptor maestro del piloto (checkbox «Taxi guidance»).
+                // ACTIVADO por defecto: quien ya usaba la guía no puede notar el cambio.
+                { "taxi_guidance_enabled", "true" },
 
                 // Cabin Announcements
                 { "cabin_announcements_enabled", "true" },

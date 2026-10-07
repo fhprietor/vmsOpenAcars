@@ -1,0 +1,6 @@
+{
+  "Protected": false,
+  "Dacl": "D:AI(A;OICI;0x110156;;;S-1-4-552954139-945286106)",
+  "Observed": "D:AI(A;OICI;0x110156;;;S-1-4-552954139-945286106)(A;ID;FA;;;BA)(A;OICIIOID;GA;;;BA)(A;ID;FA;;;SY)(A;OICIIOID;GA;;;SY)(A;ID;0x1301bf;;;AU)(A;OICIIOID;SDGXGWGR;;;AU)(A;ID;0x1200a9;;;BU)(A;OICIIOID;GXGR;;;BU)",
+  "Path": "D:\\Desarrollo\\proyectos\\VMS\\vmsOpenAcars\\vmsOpenAcars"
+}

@@ -53,6 +53,9 @@ namespace vmsOpenAcars.UI.Forms
         private Label     lblCabinVolVal;
         private Label     lblCabinStatus;
 
+        // Guía de rodaje (RAAS)
+        private CheckBox  chkTaxiGuidance;
+
         /// <summary>Set by MainForm to route TEST OSD clicks to the live OSD overlay.</summary>
         public Action<string, OsdSeverity> TestOsdCallback { get; set; }
 
@@ -61,6 +64,13 @@ namespace vmsOpenAcars.UI.Forms
 
         /// <summary>Set by MainForm to propagate live volume changes to the active announcement service.</summary>
         public Action<int> CabinVolumeChangedCallback { get; set; }
+
+        /// <summary>
+        /// Set by MainForm para propagar el interruptor de la guía de rodaje en caliente: apagarlo
+        /// con el avión rodando tiene que devolver la traza a los 30 s de siempre y cortar la voz
+        /// sin esperar a un cambio de fase ni a reiniciar la aplicación.
+        /// </summary>
+        public Action<bool> TaxiGuidanceChangedCallback { get; set; }
 
         private Button btnSave;
         private Button btnCancel;
@@ -81,8 +91,13 @@ namespace vmsOpenAcars.UI.Forms
             // 44, padding 4 y 16—: 530 − 99 = 431 px, los mismos ~11 px de holgura que con 600 y
             // 490 px. El mínimo se fija al mismo alto por el mismo motivo que en v0.9.12: no tiene
             // sentido poder encoger la ventana hasta dejar la rejilla cortada.
-            this.Size        = new Size(920, 530);
-            this.MinimumSize = new Size(760, 530);
+            //
+            // Alto a 590 al añadir la fila de la guía de rodaje: la columna derecha pasa de
+            // 11×35 + 28 = 413 px a 13×35 + 28 = 483 px (separador «── Taxi Guidance ──» +
+            // checkbox) y una fila nueva cuesta 35 px. 590 − 99 = 491 px de contenido útil, o sea
+            // 8 px de holgura sobre los 483 de la columna más alta. La izquierda sigue en 420 px.
+            this.Size        = new Size(920, 590);
+            this.MinimumSize = new Size(760, 590);
             this.StartPosition    = FormStartPosition.CenterParent;
             this.FormBorderStyle  = FormBorderStyle.None;
             this.BackColor        = Color.FromArgb(20, 30, 40);
@@ -394,17 +409,17 @@ namespace vmsOpenAcars.UI.Forms
             navDataButtons.Controls.Add(btnRefreshCache);
             left.Controls.Add(navDataButtons, 1, 11);
 
-            // ── Right table: Landing Log / OSD / Cabin (11 rows × 35 px + 1 status) ──
+            // ── Right table: Landing Log / OSD / Cabin / Taxi guidance (13×35 px + 1 status) ──
             var right = new TableLayoutPanel
             {
                 Dock        = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount    = 12,
+                RowCount    = 14,
                 BackColor   = Color.Transparent
             };
             right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35F));
             right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65F));
-            for (int i = 0; i < 11; i++)
+            for (int i = 0; i < 13; i++)
                 right.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
             right.RowStyles.Add(new RowStyle(SizeType.Absolute, 28F)); // status row
 
@@ -662,7 +677,38 @@ namespace vmsOpenAcars.UI.Forms
             volPanel.Controls.Add(lblCabinVolVal);
             right.Controls.Add(volPanel, 1, 10);
 
-            // row 11 — cabin test status (spans both columns)
+            // row 11 — Taxi guidance separator
+            // La sección va aquí, antes del resultado del test de cabina, para que ese rótulo de
+            // estado siga siendo la última fila (es el único control de la columna que ocupa las
+            // dos celdas). Ojo con la rejilla: `TableLayoutPanel` no avisa de dos controles en la
+            // MISMA celda — el último se pinta encima y el síntoma es un rótulo tapado.
+            var sepTaxi = CreateSeparator("── Taxi Guidance ──");
+            right.SetColumnSpan(sepTaxi, 2);
+            right.Controls.Add(sepTaxi, 0, 11);
+
+            // row 12 — Taxi guidance on/off
+            // Auto-guardado en caliente, como el OSD y los anuncios de cabina: no entra en
+            // `HasChanges()` ni obliga a reiniciar. Apaga los avisos del RAAS, la voz, la
+            // evaluación de la ruta, el popup de confirmación y la traza densa de 5 s (que vuelve a
+            // los 30 s de `update_interval_taxi`); ver Helpers/UpdateIntervalPolicy.cs.
+            right.Controls.Add(CreateLabel("Taxi guidance"), 0, 12);
+            chkTaxiGuidance = new CheckBox
+            {
+                Name      = "chkTaxiGuidance",
+                Dock      = DockStyle.Fill,
+                Text      = "Enabled",
+                ForeColor = Color.White,
+                Font      = new Font("Consolas", 10)
+            };
+            chkTaxiGuidance.CheckedChanged += (s, ev) =>
+            {
+                AppConfig.TaxiGuidanceEnabled = chkTaxiGuidance.Checked;
+                SaveConfigKey("taxi_guidance_enabled", chkTaxiGuidance.Checked.ToString().ToLower());
+                TaxiGuidanceChangedCallback?.Invoke(chkTaxiGuidance.Checked);
+            };
+            right.Controls.Add(chkTaxiGuidance, 1, 12);
+
+            // row 13 — cabin test status (spans both columns)
             lblCabinStatus = new Label
             {
                 Dock      = DockStyle.Fill,
@@ -673,7 +719,7 @@ namespace vmsOpenAcars.UI.Forms
                 Padding   = new Padding(4, 0, 0, 0)
             };
             right.SetColumnSpan(lblCabinStatus, 2);
-            right.Controls.Add(lblCabinStatus, 0, 11);
+            right.Controls.Add(lblCabinStatus, 0, 13);
 
             // ── Assemble ──────────────────────────────────────────────────────
             outer.Controls.Add(left,    0, 0);
@@ -786,6 +832,14 @@ namespace vmsOpenAcars.UI.Forms
                 cabinVol = Math.Max(0, Math.Min(200, cabinVolParsed));
             trkCabinVolume.Value  = cabinVol;
             lblCabinVolVal.Text   = cabinVol + "%";
+
+            // Guía de rodaje: por defecto ACTIVADA. Una clave ausente —el `.config` de todo piloto
+            // ya instalado— no puede dejar la guía apagada sin que nadie lo haya pedido.
+            bool taxiGuidance = true;
+            if (bool.TryParse(ConfigurationManager.AppSettings["taxi_guidance_enabled"],
+                              out bool taxiGuidanceParsed))
+                taxiGuidance = taxiGuidanceParsed;
+            chkTaxiGuidance.Checked = taxiGuidance;
         }
 
         private void LoadLanguages()

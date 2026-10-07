@@ -201,7 +201,13 @@ namespace vmsOpenAcars.Core.Flight
             return success;
         }
 
-        public async Task<bool> FilePirep()
+        /// <param name="landingWeatherLine">
+        /// Línea compacta de la meteo del aterrizaje (`WX LANDING: METAR … | WIND … | HW … XW …`),
+        /// compuesta en `AcarsReporter` desde el snapshot del touchdown. Va al `notes` del PIREP, que
+        /// es texto libre: un campo personalizado nuevo exigiría que phpVMS lo cree antes. Null si no
+        /// hay dato — entonces el `notes` es exactamente el de siempre.
+        /// </param>
+        public async Task<bool> FilePirep(string landingWeatherLine = null)
         {
             if (string.IsNullOrEmpty(ActivePirepId)) return false;
 
@@ -287,6 +293,7 @@ namespace vmsOpenAcars.Core.Flight
                 BlockOnTime              = _timer.ServerBlockOnTime,
                 ArrivalAirport           = arrivalIcao,
                 DiversionAirport         = _divertedAirport,
+                LandingWeatherLine       = landingWeatherLine,
             });
 
             bool success = await _apiService.FilePirep(ActivePirepId, finalData);

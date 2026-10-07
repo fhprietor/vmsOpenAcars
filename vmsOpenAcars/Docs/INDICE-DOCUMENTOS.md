@@ -19,7 +19,7 @@ AAAA-MM-DD_<DE>_<PARA>_<hilo>_<n>_<asunto>.md
 
 - **La fecha va delante** → el orden alfabético del gestor de archivos es el orden cronológico.
 - `<hilo>`: uno de `tiles`, `conectividad`, `rutas-taxi`, `empalmes`, `generador-rutas`,
-  `phpvms`, `navdata-api`, `otro`.
+  `phpvms`, `navdata-api`, `sayintentions`, `otro`.
 - `<n>`: número de mensaje dentro del hilo, dos dígitos (`01`, `02`, …).
 - `<asunto>`: corto, en minúsculas y con guiones.
 - Ejemplo: `2026-10-01_SUYA_generador-rutas_02_cinco-condiciones-aceptadas.md`
@@ -286,6 +286,25 @@ renombrarlos rompería enlaces. La regla aplica **solo a lo que se cree desde 20
 
 > **ÚLTIMO DE ESTE HILO: `CONFIRMACION-NAVDATA-2026-09-29.md`** [VMSOPENACARS].
 > Su `aviso-vmsOpenACars-…` original **no está en `Docs/`**.
+
+---
+
+## Hilo 8 — SayIntentions.AI (integración con vmsOpenAcars)
+
+Hilo **interno** [VMSOPENACARS]: no es un intercambio de mensajes con otro equipo, así que los
+ficheros **no llevan número de mensaje**. La investigación está cerrada y verificada contra la API
+real el **07-10-2026**; la implementación **no ha empezado**.
+
+| Fichero | Fecha | Autor | Qué es |
+|---|---|---|---|
+| `2026-10-07_VMSOPENACARS_SAYINTENTIONS_sayintentions_01_base-integracion.md` | 2026-10-07 | [VMSOPENACARS] | **Documento base del hilo:** por qué es trabajo del cliente y no de phpVMS, el programa VA-Link, `flight.json`, el catálogo de SAPI, los LVARs, la colisión de los anuncios de cabina y **lo verificado contra la API real** (11 pruebas). Lleva un **anexo** propio que contrasta todo con la documentación oficial de SAPI del 07/10/2026 |
+| `TRANSCRIPCION-ATC.md` | 2026-10-07 | [VMSOPENACARS] | **Diseño de la fase 2** (transcripción ATC): el contrato de `getCommsHistory`, el sondeo incremental por `since_id`, el ciclo de vida del vuelo con sus dos huecos, el payload propuesto a phpVMS y lo que **no** está verificado |
+
+> **ÚLTIMO DE ESTE HILO: `TRANSCRIPCION-ATC.md`** [VMSOPENACARS].
+> El diseño de las **fases 1 y 3** (mapa en vivo con `flight.json` + LVARs, y arbitraje de los
+> anuncios de cabina) está enunciado en el documento base pero **todavía no tiene diseño propio**.
+> El artículo del Help Center sobre LVARs y la KB en general **no se pueden leer sin navegador**;
+> la copia legible que se usó se obtuvo vía `r.jina.ai`.
 
 ---
 

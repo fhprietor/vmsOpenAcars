@@ -178,6 +178,9 @@ namespace vmsOpenAcars.Core.Flight
         /// <summary>Longitud de la pista de la toma, en pies; **0 = sin dato** (la puntuación
         /// «Touchdown Zone» degrada entonces a la regla de siempre).</summary>
         public double TouchdownRunwayLengthFt => _td.RunwayLengthFt;
+        /// <summary>Rumbo **VERDADERO** del eje de la pista de la toma; **null = sin dato**. Es el
+        /// eje contra el que se descomponen las componentes del viento del aterrizaje.</summary>
+        public double? TouchdownRunwayTrueHeadingDeg => _td.RunwayTrueHeadingDeg;
         public double TouchdownGForce       => _td.GForce;
 
         public int  OverspeedCount               => _approachValidator.OverspeedCount;
@@ -560,8 +563,10 @@ namespace vmsOpenAcars.Core.Flight
         public void MarkOfflineFlight() => _pen.IsOfflineFlight = true;
 
         public void SetRunwayTouchdownData(double thresholdDistFt, double centerlineDeviationFt,
-                                           string runwayName, double runwayLengthFt)
-            => _td.SetRunwayData(thresholdDistFt, centerlineDeviationFt, runwayName, runwayLengthFt);
+                                           string runwayName, double runwayLengthFt,
+                                           double? runwayTrueHeadingDeg)
+            => _td.SetRunwayData(thresholdDistFt, centerlineDeviationFt, runwayName, runwayLengthFt,
+                                 runwayTrueHeadingDeg);
 
         public void SetProcedureSpdViolations(int count)
             => _pen.ProcedureSpdViolations = count;
@@ -684,6 +689,31 @@ namespace vmsOpenAcars.Core.Flight
             {
                 try { await _apiService.UpdatePirep(pirepId, new { fields }); }
                 catch { /* que el PIREP no lleve la ruta no puede tumbar el vuelo */ }
+            });
+        }
+
+        /// <summary>
+        /// Manda la meteo del aterrizaje al campo personalizado `Landing Weather`
+        /// (<see cref="PirepFields.LandingWeatherName"/>), el **camino estructurado** que solo se puede
+        /// usar cuando phpVMS ha creado ese campo: una clave desconocida no da error, se ignora en
+        /// silencio, y por eso el llamante lo gatea con
+        /// <see cref="AppConfig.PirepLandingWeatherFieldEnabled"/> (apagado por defecto).
+        ///
+        /// El camino que funciona hoy es el `notes` del PIREP, que lleva la misma línea y no depende
+        /// de que nadie cree nada.
+        /// </summary>
+        public void SendLandingWeatherField(string landingWeatherLine)
+        {
+            string pirepId = ActivePirepId;              // capturado: el vuelo puede resetearse antes
+            if (string.IsNullOrEmpty(pirepId) || string.IsNullOrEmpty(landingWeatherLine)) return;
+
+            var fields = PirepFields.Build(null, null, null, landingWeatherLine);
+            if (fields.Count == 0) return;
+
+            Task.Run(async () =>
+            {
+                try { await _apiService.UpdatePirep(pirepId, new { fields }); }
+                catch { /* que el PIREP no lleve la meteo estructurada no puede tumbar el vuelo */ }
             });
         }
 

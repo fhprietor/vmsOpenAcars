@@ -2,6 +2,41 @@
 
 ---
 
+## [0.9.31] — 07/10/2026
+
+### Added
+
+- **La guía de rodaje es opcional: checkbox en Settings (`taxi_guidance_enabled`, por defecto ACTIVADA).** No es un
+  interruptor decorativo: al apagarla **no hay avisos RAAS, ni voz, ni popup de confirmación de ruta**, y las
+  **tres puertas de la cadencia** (`UpdateIntervalPolicy`: intervalo, suelo de envío y umbral de deduplicación)
+  vuelven a los **30 s** de `update_interval_taxi` —los 5 s de 0.9.23 solo tienen sentido si hay guía—. Aplica
+  **sin reiniciar**: al marcar o desmarcar se recorta la voz ya encolada y se vuelve a decidir el intervalo con
+  la fase actual. Una clave ausente (el `.config` de todo piloto ya instalado) **no la apaga**.
+- **La meteo del aterrizaje queda registrada, y se ve.** En el mismo instante del contacto se capturan el
+  **METAR** del destino (con su hora de observación) y el **viento del simulador** (`0x0E92`/`0x0E90`; la racha
+  sale del METAR, porque FSUIPC no publica ese offset y **no se inventa**), y se calculan las **componentes**
+  contra el rumbo **verdadero** de la pista (`Helpers/WindComponents.cs`: `HW>0` en cara, `XW>0` desde la
+  derecha). Se guarda en `landing_log.sqlite` (columnas `landing_*` nullable, migración defensiva con
+  `PRAGMA table_info` + `ALTER TABLE`) y en el **logbook** se muestra la franja de viento
+  (`WIND 010/03 kt · RWY 14R TRUE 127° · TAILWIND 1.4 kt · CROSSWIND 2.7 kt (from the left)`) además de una
+  columna **Wind** en el historial. Casos reales en los tests: SKBO 14R verdadero 127,23° con `01003KT` →
+  **HW −1,37 / XW −2,67**; SKBG 17 con `32003KT` → **cola 2,83 / XW +1,00**.
+- **Al PIREP va en el `notes`** (texto libre, sin tocar el contrato): `WX LANDING: METAR … | WIND 010/03 | HW -1 XW -3`.
+  El camino de **campo personalizado** existe y va **apagado** (`pirep_landing_weather_field_enabled=false`)
+  porque **phpVMS tendría que crear el campo `Landing Weather`** — inventarlo desde el cliente solo serviría
+  para que la API lo ignore en silencio.
+- **Closeup del toque en el perfil vertical** (v0.9.31): la **pista como línea lateral** desde el umbral, el
+  **umbral** y el **punto de toque** rotulados con su distancia, y las **bandas de la zona** —delegando en
+  `TouchdownZonePolicy`, para que no puedan desincronizarse de lo que se puntúa—. Dos escalas: **5.000 ft antes /
+  4.500 después** y **±2.500 ft**. La de 1.500 ft se descartó **con el dato delante**: el muestreo es de **2 s
+  (≈500 ft)**, y en los últimos 1.500 ft solo entran 2–4 puntos y el toque aparece en **9 de 32** vuelos, frente a
+  **31/32** dentro de los 4.500 ft. Geometría en `Helpers/TouchdownCloseupGeometry.cs` (puro, `TouchdownX = NaN`
+  **prohíbe** pintar el toque fuera de encuadre). Estrena columna **`flights.runway_length_ft`** (nullable): los
+  vuelos anteriores salen **sin** línea de pista y el closeup sigue funcionando. La barra de controles va en su
+  propio panel acoplado, **no** en una celda compartida de la rejilla.
+- **510/510** (458 + 37 del interruptor y la meteo + 15 del closeup). Idiomas simétricos (**431 claves**).
+  Ventana de Settings a **920×590** (celda nueva en la columna derecha, comprobada celda por celda).
+
 ## [0.9.30] — 06/10/2026
 
 ### Changed

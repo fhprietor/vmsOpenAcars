@@ -159,7 +159,7 @@ namespace vmsOpenAcars.ViewModels
         /// `FsuipcService`: la traza se quedaría en 5 s. Ver <see cref="UpdateIntervalPolicy"/>.
         /// </summary>
         internal TimeSpan PositionUpdateInterval =>
-            TimeSpan.FromSeconds(UpdateIntervalPolicy.SendFloorSeconds(_raasGuidanceActive, 5));
+            TimeSpan.FromSeconds(UpdateIntervalPolicy.SendFloorSeconds(IsTaxiGuidanceActive, 5));
 
         // ── Aircraft info guard ───────────────────────────────────────────────────
         private bool _aircraftInfoShown;
@@ -856,7 +856,7 @@ namespace vmsOpenAcars.ViewModels
             // ~33 m, o sea una muestra cada 4–6 s a velocidad de rodaje, y con la guía activa eso
             // volvería a capar el 1 Hz que sí permite el intervalo adaptativo. Con guía se baja al
             // paso de ~1 s de rodaje lento; sin ella no cambia nada. Ver UpdateIntervalPolicy.
-            double posThreshold = UpdateIntervalPolicy.TaxiTracePosThresholdDeg(_raasGuidanceActive);
+            double posThreshold = UpdateIntervalPolicy.TaxiTracePosThresholdDeg(IsTaxiGuidanceActive);
             const int    hdgThreshold = 5;
             const int    altThreshold = 30;
             const int    spdThreshold = 5;
@@ -1231,12 +1231,28 @@ namespace vmsOpenAcars.ViewModels
         }
 
         /// <summary>
-        /// ¿Hay guía de rodaje activa? Es el dato que decide la **cadencia de envío de posiciones en
-        /// rodaje**: con guía, 1 s; sin ella, el valor configurado (ver
-        /// <see cref="Helpers.UpdateIntervalPolicy"/>). Se lee en el momento de decidir, no se copia:
-        /// así el reset de vuelo o un popup cancelado no dejan encendido un 1 Hz que ya no toca.
+        /// El piloto acaba de mover el interruptor «Taxi guidance» de Settings. Con la guía apagada
+        /// hay que cortar la voz **ya encolada**: sin esto, apagar el ajuste en pleno rodaje dejaría
+        /// sonar el aviso que estaba en la cola y el piloto oiría voz con la guía apagada. Los
+        /// avisos nuevos no hacen falta cortarlos aquí: los filtra <see cref="EvaluateRaas"/>, que
+        /// consulta <see cref="IsTaxiGuidanceActive"/> en cada sondeo.
         /// </summary>
-        internal bool IsTaxiGuidanceActive => _raasGuidanceActive;
+        internal void OnTaxiGuidanceSwitchChanged(bool enabled)
+        {
+            if (!enabled) RaasVoice.Cancel();
+        }
+
+        /// <summary>
+        /// ¿Hay guía de rodaje activa? Es el dato que decide la **cadencia de envío de posiciones en
+        /// rodaje**: con guía, 5 s; sin ella, el valor configurado (ver
+        /// <see cref="Helpers.UpdateIntervalPolicy"/>). Se lee en el momento de decidir, no se copia:
+        /// así el reset de vuelo o un popup cancelado no dejan encendida una cadencia que ya no toca.
+        /// **Y cuenta el interruptor del piloto** (`taxi_guidance_enabled`, el checkbox «Taxi
+        /// guidance» de Settings): apagarlo con el avión rodando devuelve la traza a los 30 s de
+        /// siempre en el acto, sin esperar a un cambio de fase, porque esta propiedad se consulta
+        /// cada vez que se decide el intervalo.
+        /// </summary>
+        internal bool IsTaxiGuidanceActive => _raasGuidanceActive && AppConfig.TaxiGuidanceEnabled;
 
         /// <summary>
         /// Umbral de la pista elegida, para poder medir si el avión se acerca a ella. Sin dato
@@ -1540,7 +1556,11 @@ namespace vmsOpenAcars.ViewModels
 
         private void EvaluateRaas(RawTelemetryData e)
         {
-            if (!_raasGuidanceActive || string.IsNullOrEmpty(_raasAirport)) return;
+            // El interruptor del piloto (`taxi_guidance_enabled`) entra por `IsTaxiGuidanceActive`:
+            // sin guía no se evalúa la ruta, no se dispara ningún aviso y no se pide voz. Se
+            // consulta en cada sondeo de 1 Hz, así que apagarlo en Settings corta los avisos en el
+            // acto aunque el avión ya esté rodando.
+            if (!IsTaxiGuidanceActive || string.IsNullOrEmpty(_raasAirport)) return;
 
             var phase = _flightManager?.CurrentPhase ?? FlightPhase.Idle;
             bool taxiPhase = phase == FlightPhase.Pushback || phase == FlightPhase.TaxiOut
@@ -1688,7 +1708,7 @@ namespace vmsOpenAcars.ViewModels
 
             _flightManager.SetRunwayTouchdownData(
                 result.ThresholdDistanceFt, result.CenterlineDeviationFt, result.RunwayName,
-                result.RunwayLengthFt);
+                result.RunwayLengthFt, result.TrueHeadingDeg);
 
             _cb.Log?.Invoke(
                 string.Format(_("Lnm_TouchdownInfo"),

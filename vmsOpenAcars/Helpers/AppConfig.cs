@@ -168,13 +168,34 @@ namespace vmsOpenAcars.Helpers
             set => _osdAirspaceAlerts = value;
         }
 
+        // ── Guía de rodaje: interruptor maestro del piloto ────────────────────────
+        // `taxi_guidance_enabled` es el checkbox «Taxi guidance» de Settings. **Nace ACTIVADA**:
+        // quien ya usaba la guía no puede notar el cambio (el valor por defecto de `GetBool` es
+        // `true`, así que un `.config` sin la clave —el de todos los pilotos ya instalados— sigue
+        // guiando). Apaga la guía **entera**: el popup de confirmación de ruta, los avisos del
+        // RAAS, la voz, la evaluación de la ruta y la **traza densa**. Esto último importa: la
+        // cadencia de 5 s existe solo para que NavData pueda medir la cobertura de un rodaje
+        // guiado (ver `Helpers/UpdateIntervalPolicy.cs`), así que sin guía la traza vuelve a los
+        // 30 s de `update_interval_taxi`. El valor se lee **en el momento de decidir** (el setter
+        // es el que usa el formulario), no se copia: el cambio aplica en vuelo, sin reiniciar.
+        private static bool _taxiGuidanceEnabled = GetBool("taxi_guidance_enabled", true);
+        public static bool TaxiGuidanceEnabled
+        {
+            get => _taxiGuidanceEnabled;
+            set => _taxiGuidanceEnabled = value;
+        }
+
         // ── RAAS: guía de rodaje giro a giro (v0.9.14) ────────────────────────────
         // `raas_enabled` decide si sale el popup de rodaje al encender la luz de taxi; el ajuste
         // fino (voz sí/no y volumen) se elige en ese popup y se recuerda para el próximo vuelo.
+        // **Y no es independiente del interruptor maestro**: con la guía apagada no hay RAAS que
+        // valga, así que `RaasEnabled` (lo que leen los dos puntos que abren el popup) devuelve
+        // **también** el estado del checkbox. Se deja `_raasEnabled` como clave propia para no
+        // perder la posibilidad de apagarlo desde el `.config` sin tocar la UI.
         private static bool _raasEnabled = GetBool("raas_enabled", true);
         public static bool RaasEnabled
         {
-            get => _raasEnabled;
+            get => _raasEnabled && _taxiGuidanceEnabled;
             set => _raasEnabled = value;
         }
 
@@ -202,6 +223,21 @@ namespace vmsOpenAcars.Helpers
         // degradar sin datos es la regla del repo.
         public static bool TaxiPlannedObservationEnabled
             => GetBool("taxi_planned_observation_enabled", false);
+
+        // ── Meteo del aterrizaje como campo PERSONALIZADO del PIREP ───────────────
+        // Nace **apagado** y sin campo en Settings, por el mismo motivo que la observación de la
+        // ruta propuesta: un campo de `pirep_fields` **lo tiene que crear phpVMS primero**. Si se
+        // manda un nombre que no existe, la API no lo pinta y no avisa — un fallo silencioso.
+        //
+        // Mientras esto siga apagado la meteo del aterrizaje **también viaja**, pero en el `notes`
+        // del PIREP, que es texto libre y ya se usaba en el prefile: así el dato queda desde ya en
+        // la base sin depender de que nadie cree el campo.
+        //
+        // Para encenderlo: que phpVMS cree el campo cuyo nombre está en
+        // `Helpers/PirepFields.LandingWeatherName` (hoy "Landing Weather"), y poner esta clave a
+        // `true` en el `.exe.config`. Ver `FlightManager.SendLandingWeatherField`.
+        public static bool PirepLandingWeatherFieldEnabled
+            => GetBool("pirep_landing_weather_field_enabled", false);
 
         /// <summary>Idioma de la interfaz ("es"/"en"): lo usa la voz del RAAS para elegir timbre.</summary>
         public static string Language => ConfigurationManager.AppSettings["language"] ?? "es";
