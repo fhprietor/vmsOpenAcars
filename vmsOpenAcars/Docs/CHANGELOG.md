@@ -2,6 +2,48 @@
 
 ---
 
+## [0.9.32] — 07/10/2026
+
+### Added
+
+- **Traza fina del flare, capturada a 10 Hz desde el umbral hasta el toque.** El análisis del flare era imposible
+  con lo que había: **medido**, `approach_track` guarda **una muestra cada 2 s** (mediana real 2,25 s y, a 148 kt
+  de IAS en final, **≈550 ft por muestra**: en los últimos 1.500 ft caben **6** puntos). Y no hacía falta subir
+  el ritmo de todo el vuelo: la telemetría cruda ya va a **20 Hz** (`polling_interval_ms` = 50 ms) y
+  `FSUIPCConnection.Process()` trae **todos** los offsets en una sola llamada, así que muestrear más fino **no
+  cuesta lecturas nuevas** —sólo decodificar, ~1 µs por muestra frente a un presupuesto de 50 ms—.
+- **La captura se arma sólo donde importa** (`Helpers/FlareCapturePolicy.cs`, puro y con test): **a 1.500 ft del
+  umbral** —donde el corpus está a 107 ft AGL de mediana y quedan ~3,3 s—, **respaldo a 300 ft AGL sólo si no hay
+  distancia** (con 1.000 ft AGL el vuelo 41 habría armado *antes* del umbral: lo destapó un test y está fijado),
+  **desarme 2 s después del toque**, **cap de 400 muestras**, **tope de 45 s** y **sin rearmarse** en ese
+  aterrizaje. Salen **~60–80 muestras** por aterrizaje.
+- **Tabla nueva `flare_track`** (no se reutiliza `approach_track`): instante, distancia al umbral, AGL,
+  **radioaltímetro**, IAS, VS, pitch, bank, GS, N1 de los dos motores, flaps, spoilers y on-ground. Migración
+  **defensiva** (`CREATE TABLE IF NOT EXISTS` + columnas idempotentes), con una sola lista de columnas para el
+  `CREATE` y la migración, y borrado junto al vuelo. **Lo que no existe no se inventa**: el **estabilizador** no
+  viaja en ningún offset que el cliente lea y se queda fuera en vez de rellenarse con ceros; el radioaltímetro a
+  0 se guarda **NULL** (ahí 0 significa «no lo publica»).
+- **Gráfica propia del flare** (`UI/Forms/FlareAnalysisForm.cs`, botón **FLARE** en la barra del closeup): tres
+  áreas apiladas —**altitud, IAS y pitch**— contra la distancia al umbral, con la **pista como banda**, el
+  **umbral** y el **punto de toque** marcados y las **bandas de la TDZ** delegando en `TouchdownCloseupGeometry`
+  y `TouchdownZonePolicy` (no se duplica esa geometría). Los vuelos anteriores dicen que **no hay traza fina** en
+  vez de rellenarla con la de 2 s, que sería mentir sobre la resolución.
+
+### Fixed
+
+- **El eje X del closeup iba con decimales.** Ahora `Helpers/CloseupAxis.cs` (puro, con test) decide el **paso**
+  (100/250/500/1.000/2.500/5.000 ft) y los rótulos en **pies enteros**, con **THR** en x=0 y miles con
+  separador: `5.000 · 2.500 · THR · 2.500`. El `Paint` ya no calcula nada.
+
+- **Renderizado fuera de pantalla a PNG** (desde tests, en `%TEMP%`) para poder mirar los gráficos sin piloto
+  delante: destapó **siete** defectos que ninguna aserción de propiedades veía —etiquetas rotadas y amontonadas,
+  `TD`/`THR` girados, las bandas de la TDZ en vertical, el rótulo pegado al borde— y **dos de fondo**: que el
+  contador de rótulos partía del borde del encuadre en vez de la rejilla del paso, y que con paso de 1.000 ft el
+  **signo menos se recortaba** (`-3.000` se pintaba `3.000`, que miente sobre el lado del umbral → el máximo de
+  rótulos bajó de 13 a **9**); y que **`flare_track.dist_ft` es negativo pasado el umbral** mientras la geometría
+  del closeup lo espera en positivo — sin esa conversión **el gráfico se quedaba sin punto de toque**.
+- **549/549** (510 + 39).
+
 ## [0.9.31] — 07/10/2026
 
 ### Added

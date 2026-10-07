@@ -210,6 +210,8 @@
   "Lnm_HoldingShort": "✋ HOLDING SHORT RWY {0} at {1}",
   "Lnm_HoldingShortNoTwy": "✋ HOLDING SHORT RWY {0}",
   "Lnm_ApproachCaptureStart": "📡 APPROACH CAPTURE: RWY {0} | AGL {1} ft | Dist {2} NM",
+  "Lnm_FlareCaptureStart": "🎯 FLARE TRACK START: RWY {0} | Dist {1} ft · 10 Hz",
+  "Lnm_FlareCaptureStop": "🎯 FLARE TRACK END: {0} samples ({1})",
 
   "Score_Result": "🏆 Score: {0}/100 — {1}",
   "Score_Deduction": "   −{0} pts: {1} ({2})",
@@ -387,6 +389,7 @@
   "Log_LandingLogNoService":    "⚠️ Landing log: service unavailable (path not configured)",
   "Log_LandingLogTooFew":       "⚠️ Landing log not saved: only {0} points in buffer (minimum 3)",
   "Log_LandingLogSaved":        "💾 Landing log: flight #{0} saved ({1} points, RWY {2})",
+  "Log_FlareTrackSaved":        "💾 Flare track: {0} samples saved (10 Hz)",
   "Log_LandingLogBadId":        "❌ Landing log: SaveFlight returned {0}",
   "Log_LandingLogError":        "❌ Landing log error: {0}",
   "Log_BaseUpdated":            "📍 Home base updated: {0}",

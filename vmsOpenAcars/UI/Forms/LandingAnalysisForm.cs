@@ -11,6 +11,8 @@ namespace vmsOpenAcars.UI.Forms
     public class LandingAnalysisForm : Form
     {
         private readonly IList<(FlightRecord Record, List<ApproachTrackPoint> Track)> _flights;
+        private readonly Func<int, List<FlareTrackPoint>> _flareLoader;
+        private readonly Func<int, bool>                  _flareStartedLoader;
 
         private static readonly Color[] TrackColors =
         {
@@ -48,8 +50,23 @@ namespace vmsOpenAcars.UI.Forms
         };
 
         public LandingAnalysisForm(IList<(FlightRecord Record, List<ApproachTrackPoint> Track)> flights)
+            : this(flights, null, null)
         {
-            _flights = flights;
+        }
+
+        /// <summary>
+        /// El mismo formulario, con acceso a la **traza fina del flare** (`flare_track`) para el botón
+        /// FLARE. Se inyecta como delegado y no como servicio para que el formulario siga sin conocer
+        /// `ILandingLogService` — y para poder instanciarlo en los tests sin base de datos: sin
+        /// cargador, el botón FLARE no aparece y nada más cambia.
+        /// </summary>
+        public LandingAnalysisForm(IList<(FlightRecord Record, List<ApproachTrackPoint> Track)> flights,
+                                   Func<int, List<FlareTrackPoint>> flareLoader,
+                                   Func<int, bool> flareCaptureStartedLoader)
+        {
+            _flights              = flights;
+            _flareLoader          = flareLoader;
+            _flareStartedLoader   = flareCaptureStartedLoader;
             BuildUI();
             PopulateCharts();
         }
@@ -166,7 +183,10 @@ namespace vmsOpenAcars.UI.Forms
             var pnl = new Panel
             {
                 Dock      = DockStyle.Bottom,
-                Height    = 28,
+                // 32 px y no 28: la barra lleva ahora el botón FLARE, que con `AutoSize` mide ~24 px
+                // más su margen. Con 28 el botón quedaba recortado por el borde del panel —el mismo
+                // tipo de recorte silencioso que la guía avisa para el reparto de `SettingsForm`—.
+                Height    = 32,
                 BackColor = Color.FromArgb(15, 22, 32)
             };
 
@@ -210,6 +230,29 @@ namespace vmsOpenAcars.UI.Forms
                 Margin    = new Padding(14, 7, 0, 0)
             };
 
+            // ── El botón FLARE ────────────────────────────────────────────────────
+            // Abre el gráfico del flare en **su propia ventana** (`FlareAnalysisForm`): la rejilla
+            // 2×2 de los cuatro gráficos no se toca, que es lo que exige la guía —dos controles en
+            // una celda de `TableLayoutPanel` se pintan uno sobre otro **sin dar error**—. Solo
+            // aparece si quien construye el formulario sabe leer `flare_track` (`_flareLoader`); sin
+            // esa fuente no hay nada que enseñar y el botón sería un botón muerto.
+            Button btnFlare = null;
+            if (_flareLoader != null && _flights.Count == 1)
+            {
+                btnFlare = new Button
+                {
+                    Text      = "FLARE",
+                    Font      = new Font("Consolas", 9, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(255, 215, 0),
+                    BackColor = Color.FromArgb(28, 40, 52),
+                    FlatStyle = FlatStyle.Flat,
+                    AutoSize  = true,
+                    Margin    = new Padding(0, 1, 0, 0)
+                };
+                btnFlare.FlatAppearance.BorderColor = Color.FromArgb(90, 110, 130);
+                btnFlare.Click += (s, e) => OpenFlareAnalysis();
+            }
+
             _chkCloseup.CheckedChanged += (s, e) =>
             {
                 _cboCloseupScale.Enabled = _chkCloseup.Checked;
@@ -223,8 +266,25 @@ namespace vmsOpenAcars.UI.Forms
             flow.Controls.Add(_chkCloseup);
             flow.Controls.Add(_cboCloseupScale);
             flow.Controls.Add(_lblCloseupSummary);
+            if (btnFlare != null) flow.Controls.Add(btnFlare);
             pnl.Controls.Add(flow);
             return pnl;
+        }
+
+        /// <summary>
+        /// Abre la ventana del gráfico del flare con la traza fina del vuelo. Si el vuelo no tiene
+        /// `flare_track` (los anteriores a esta traza), el formulario lo dice: **no se rellena con
+        /// `approach_track`**, que sería vender 2 s de muestreo como si fueran 0,1 s.
+        /// </summary>
+        private void OpenFlareAnalysis()
+        {
+            if (_flights.Count != 1 || _flareLoader == null) return;
+
+            var rec      = _flights[0].Record;
+            var samples  = _flareLoader(rec.Id) ?? new List<FlareTrackPoint>();
+            bool started = _flareStartedLoader != null && _flareStartedLoader(rec.Id);
+
+            new FlareAnalysisForm(rec, samples, started).Show(this);
         }
 
         /// <summary>El encuadre pedido, o `null` si el closeup está apagado o no aplica.</summary>
@@ -468,6 +528,17 @@ namespace vmsOpenAcars.UI.Forms
             vArea.AxisX.Minimum = closeup != null ? -closeup.AfterFt : 0.0;
             vArea.AxisX.Title   = closeup != null ? "Distance to threshold (ft)"
                                                   : "Distance to threshold (NM)";
+
+            // ── El eje X del closeup, en pies enteros ─────────────────────────────
+            // Sin esto el motor de gráficos reparte los 9 500 ft del encuadre en cuatro marcas y
+            // saca −2 250 · −750 · 750 · 2 250 · 3 750, más las fracciones que se veían en los
+            // bordes. El paso y los rótulos los decide `Helpers/CloseupAxis` (puro, con test): THR
+            // clavado en el umbral y los miles separados. Al volver al eje en NM se restauran los
+            // valores automáticos, que allí sí son los buenos.
+            if (closeup != null)
+                CloseupAxis.ApplyTo(vArea.AxisX, closeup.BeforeFt, closeup.AfterFt);
+            else
+                CloseupAxis.Reset(vArea.AxisX);
 
             // Shared reference lines (added first so they appear behind track data)
             AddRefSeries(charts["VERTICAL"], "3° ref",

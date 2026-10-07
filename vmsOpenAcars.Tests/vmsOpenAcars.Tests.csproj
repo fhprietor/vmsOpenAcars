@@ -92,6 +92,10 @@
     <Compile Include="TouchdownZonePolicyTests.cs" />
     <Compile Include="TouchdownCloseupGeometryTests.cs" />
     <Compile Include="LandingCloseupFormTests.cs" />
+    <Compile Include="CloseupAxisTests.cs" />
+    <Compile Include="FlareCapturePolicyTests.cs" />
+    <Compile Include="FlareChartLayoutTests.cs" />
+    <Compile Include="FlareAnalysisFormTests.cs" />
     <Compile Include="SimbriefDispatchPolicyTests.cs" />
     <Compile Include="SettingsFormLayoutTests.cs" />
     <Compile Include="WindComponentsTests.cs" />

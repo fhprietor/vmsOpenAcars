@@ -106,6 +106,31 @@ namespace vmsOpenAcars.ViewModels
         private readonly List<ApproachTrackPoint> _approachBuffer = new List<ApproachTrackPoint>();
         private readonly object _approachBufferLock = new object();
 
+        // ── Traza fina del flare (v0.9.32) ────────────────────────────────────────
+        // La regla de cuándo se arma y se desarma vive en `Helpers/FlareCapturePolicy` (pura, con
+        // test); aquí solo está el cableado. El porqué de la frecuencia está en `FlareInterval`:
+        // **10 Hz sobre la telemetría cruda**, que corre a `polling_interval_ms` = 50 ms (20 Hz).
+        // No se sube el ritmo global del vuelo: se muestrea solo entre el armado y ~2 s después del
+        // toque, y el tope de muestras lo decide la política (400).
+        private readonly FlareCapturePolicy  _flare          = new FlareCapturePolicy();
+        private readonly FlareSampleBuffer   _flareBuffer    = new FlareSampleBuffer(FlareCapturePolicy.MaxSamples);
+        private DateTime _lastFlareSample = DateTime.MinValue;
+        private DateTime? _flareTouchdownUtc;
+
+        /// <summary>
+        /// Cadencia de la traza del flare: **100 ms (10 Hz)**.
+        ///
+        /// Medido antes de elegirla: el bucle de telemetría ya corre a **20 Hz** (`polling_interval_ms`
+        /// = 50 ms en `App.config`) y el coste de leer cualquier offset es **cero adicional**, porque
+        /// `FSUIPCConnection.Process()` ya trae **todos** los offsets registrados en una sola llamada
+        /// por ciclo y este código solo lee las propiedades en memoria que deja `ReadAllOffsets()`.
+        /// A 10 Hz, los ~6 s de captura entre 1 500 ft del umbral y el toque son **~60 muestras**
+        /// (con el margen posterior, ~80); a 2 s, que es el muestreo de `approach_track`, serían
+        /// 3–4. Duplicar la frecuencia no compra nada en un tramo de 6 s, y no tocar el ciclo
+        /// existente garantiza que el hilo de telemetría no cambia de carga.
+        /// </summary>
+        private static readonly TimeSpan FlareInterval = TimeSpan.FromMilliseconds(100);
+
         /// <summary>Number of captured approach points. Safe to read from any thread.</summary>
         internal int ApproachBufferCount
         {
@@ -130,6 +155,90 @@ namespace vmsOpenAcars.ViewModels
                 point.SeqNo = _approachBuffer.Count;
                 _approachBuffer.Add(point);
             }
+        }
+
+        // ── Traza del flare: consumidores ─────────────────────────────────────────
+
+        /// <summary>Muestras del flare capturadas. Seguro de leer desde cualquier hilo.</summary>
+        internal int FlareBufferCount => _flareBuffer.Count;
+
+        /// <summary>Copia de la traza del flare, para persistirla sin el cerrojo tomado.</summary>
+        internal List<FlareTrackPoint> SnapshotFlareBuffer() => _flareBuffer.Snapshot();
+
+        /// <summary>¿La captura del flare llegó a armarse en este aterrizaje?</summary>
+        internal bool FlareCaptureStarted => _flare.EverStarted;
+
+        internal void ClearFlareBuffer()
+        {
+            _flareBuffer.Clear();
+            _flare.Reset();
+            _flareTouchdownUtc = null;
+            _lastFlareSample = DateTime.MinValue;
+        }
+
+        /// <summary>
+        /// **La captura de alta frecuencia del flare**, colgada del ciclo de telemetría cruda.
+        ///
+        /// Tres cosas que no puede hacer: subir el ritmo global del vuelo (aquí no se toca el
+        /// intervalo adaptativo de `FsuipcService`), bloquearse (todo es aritmética y una lista con
+        /// cerrojo, sin red ni I/O) y crecer sin tope (lo decide la política: 400 muestras).
+        ///
+        /// Se ejecuta en las fases de aproximación **y** mientras la captura siga viva, porque el
+        /// toque puede cambiar la fase antes de que se cumpla el margen posterior.
+        /// </summary>
+        private void CaptureFlareSample(RawTelemetryData e, double aglFt, bool landingPhase)
+        {
+            DateTime now = DateTime.UtcNow;
+            bool capturing = _flare.Capturing;
+            if (!capturing && !landingPhase) return;
+
+            // El armado se evalúa en cada ciclo (es una comparación de dos números, no hay motivo
+            // para perder el primer tramo); la muestra se guarda a 10 Hz.
+            if (capturing && (now - _lastFlareSample) < FlareInterval) return;
+
+            double? distFt = null;
+            if (_approachThreshold != null)
+            {
+                var (distNm, _) = NavDataService.ComputeApproachMetrics(
+                    _approachThreshold.ThresholdLat,
+                    _approachThreshold.ThresholdLon,
+                    _approachThreshold.ThresholdHeading,
+                    e.Latitude, e.Longitude);
+                distFt = distNm * TouchdownCloseupGeometry.FeetPerNm;
+            }
+
+            var decision = _flare.Update(now, aglFt, distFt, e.IsOnGround, _flareTouchdownUtc, landingPhase);
+            if (decision.Action == FlareCaptureAction.Start)
+                _cb.Log?.Invoke(string.Format(_("Lnm_FlareCaptureStart"),
+                    _approachThreshold != null ? _approachThreshold.RunwayName : "—",
+                    distFt.HasValue ? (int)distFt.Value : -1), Theme.Success);
+            else if (decision.Action == FlareCaptureAction.Stop)
+                _cb.Log?.Invoke(string.Format(_("Lnm_FlareCaptureStop"),
+                    _flareBuffer.Count, decision.Reason), Theme.SecondaryText);
+
+            if (!decision.KeepSampling) return;
+
+            _lastFlareSample = now;
+            _flareBuffer.Append(new FlareTrackPoint
+            {
+                TimestampUtc = now,
+                DistFt       = distFt ?? 0.0,
+                AglFt        = aglFt,
+                // El radioaltímetro es el instrumento del flare, pero **0 no es un dato**: los
+                // addons que no publican `0x31E4` dejan el offset a cero, y un cero guardado se
+                // leería como «avión en el suelo» en mitad del descenso.
+                RadarAltFt   = e.RadarAltitudeFeet > 0.0 ? e.RadarAltitudeFeet : (double?)null,
+                IasKt        = e.IndicatedAirspeedKt,
+                VsFpm        = e.VerticalSpeedFpm,
+                PitchDeg     = e.PitchDeg,
+                BankDeg      = e.BankDeg,
+                GsKt         = e.GroundSpeedKt,
+                Eng1Pct      = e.N1_1 > 0f ? (double?)e.N1_1 : null,
+                Eng2Pct      = e.N1_2 > 0f ? (double?)e.N1_2 : null,
+                FlapsPct     = e.FlapsPercent,
+                SpoilersDeployed = e.SpoilersDeployed,
+                OnGround     = e.IsOnGround,
+            });
         }
 
         // ── UI delta tracking ─────────────────────────────────────────────────────
@@ -255,6 +364,12 @@ namespace vmsOpenAcars.ViewModels
             _raas.ResetRouteState();
             _lastRaasEval       = DateTime.MinValue;
             RaasVoice.Cancel();
+
+            // La traza del flare se vacía con el vuelo: la captura del aterrizaje anterior no puede
+            // colarse en el siguiente. El reset va DESPUÉS de que `AcarsReporter` haya persistido
+            // (`SaveLandingRecord` corre en el camino de `SendPirep`), igual que el buffer de
+            // aproximación.
+            ClearFlareBuffer();
         }
 
         // ── Phase change ──────────────────────────────────────────────────────────
@@ -435,10 +550,12 @@ namespace vmsOpenAcars.ViewModels
             // computed relative to the PLANNED destination). Without this, diversion
             // detection would never run for that flight.
             var currentPhase = _flightManager?.CurrentPhase;
+            // El AGL se calcula para las dos capturas: la de 2 s lo usa como puerta y la del flare
+            // como **respaldo de armado** cuando la geometría del umbral no está disponible. Es el
+            // mismo `CurrentAGL` que ya gobierna las transiciones de fase, no un AGL nuevo.
+            double computedAgl = _flightManager?.CurrentAGL ?? 0.0;
             if (currentPhase == FlightPhase.Approach || currentPhase == FlightPhase.Descent)
             {
-                double computedAgl = _flightManager.CurrentAGL;
-
                 // Keep re-confirming the approaching airport/runway via NavData's
                 // nearest/approach-airport match — not just resolving once — until the
                 // 1000 ft AGL stabilized-approach gate fires. Parallel runways sharing an
@@ -493,6 +610,14 @@ namespace vmsOpenAcars.ViewModels
                     });
                 }
             }
+
+            // ── Traza fina del flare ──────────────────────────────────────────────
+            // Va **después** de la traza de 2 s y solo se ocupa del tramo final: la política decide
+            // si toca armar (últimos 1 500 ft al umbral, o 1 000 ft AGL de respaldo), seguir o
+            // cerrar. El AGL sale de `CurrentAGL`, que es el que ya usa el resto del vuelo.
+            CaptureFlareSample(e, computedAgl, currentPhase == FlightPhase.Approach
+                                                  || currentPhase == FlightPhase.Landing
+                                                  || currentPhase == FlightPhase.Descent);
         }
 
         // Resolves/re-confirms the airport+runway being approached via NavData's
@@ -947,6 +1072,12 @@ namespace vmsOpenAcars.ViewModels
 
         private void OnTouchdownDetectedEvent(object sender, TouchdownData data)
         {
+            // El toque cierra la traza fina del flare: la política la deja viva un margen para
+            // capturar la frenada y el morro bajando, y luego la sella. Es el único consumidor de
+            // la marca de tiempo, y se guarda aquí (en el hilo de telemetría) porque la muestra
+            // que decide el cierre también vive ahí.
+            _flareTouchdownUtc = data != null ? data.Timestamp : (DateTime?)null;
+
             string rating = data.GForcePeak < 1.3 ? _("Score_Perfect")
                           : data.GForcePeak < 1.8 ? _("Score_Normal")
                           : data.GForcePeak < 2.5 ? _("Score_Hard")

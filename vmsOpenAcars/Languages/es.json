@@ -210,6 +210,8 @@
   "Lnm_HoldingShort": "✋ ESPERA ANTES DE PISTA {0} en {1}",
   "Lnm_HoldingShortNoTwy": "✋ ESPERA ANTES DE PISTA {0}",
   "Lnm_ApproachCaptureStart": "📡 INICIO CAPTURA APROX: PISTA {0} | AGL {1} ft | Dist {2} NM",
+  "Lnm_FlareCaptureStart": "🎯 INICIO TRAZA FLARE: PISTA {0} | Dist {1} ft · 10 Hz",
+  "Lnm_FlareCaptureStop": "🎯 FIN TRAZA FLARE: {0} muestras ({1})",
 
   "Score_Result": "🏆 Puntuación: {0}/100 — {1}",
   "Score_Deduction": "   −{0} pts: {1} ({2})",
@@ -385,6 +387,7 @@
   "Log_LandingLogNoService":    "⚠️ Landing log: servicio no disponible (ruta no configurada)",
   "Log_LandingLogTooFew":       "⚠️ Landing log no grabado: solo {0} puntos en buffer (mínimo 3)",
   "Log_LandingLogSaved":        "💾 Landing log: vuelo #{0} guardado ({1} puntos, RWY {2})",
+  "Log_FlareTrackSaved":        "💾 Traza del flare: {0} muestras guardadas (10 Hz)",
   "Log_LandingLogBadId":        "❌ Landing log: SaveFlight devolvió {0}",
   "Log_LandingLogError":        "❌ Landing log error: {0}",
   "Log_BaseUpdated":            "📍 Base actualizada: {0}",

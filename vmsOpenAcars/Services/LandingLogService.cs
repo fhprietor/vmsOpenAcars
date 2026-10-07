@@ -63,6 +63,43 @@ namespace vmsOpenAcars.Services
                             lateral_ft  REAL
                         )");
 
+                    // ── La traza FINA del flare ───────────────────────────────────────
+                    // Tabla **nueva**, no una columna ni una reutilización de `approach_track`: esa
+                    // es de 2 s (2,25 s medidos en la base local, ≈ 550 ft por muestra a 150 kt) y la
+                    // usan los cuatro gráficos del análisis. El flare se muestrea a 10 Hz **solo** en
+                    // los últimos ~1 500 ft, y guardarlo en la misma tabla obligaría a cambiar el
+                    // muestreo de todo el descenso —o a mentir sobre la resolución— para afinar
+                    // cinco segundos. Separadas, cada una dice la verdad de su ritmo.
+                    //
+                    // `flight_id` enlaza con `flights.id` y se borra con el vuelo (`DeleteFlight`),
+                    // que es como lo hace `approach_track` (no hay `FOREIGN KEY ... CASCADE`: la
+                    // tabla vieja tampoco la tiene y añadirla ahora obligaría a recrear `flights`).
+                    //
+                    // Todo nullable menos lo imprescindible: `dist_ft` es la X del gráfico y siempre
+                    // existe (la calcula la telemetría), `on_ground` cierra la traza. Lo demás es
+                    // «lo que el simulador publicó»: sin dato va NULL, **nunca 0**, porque un 0 en
+                    // `radar_alt_ft` sería un avión a cero pies y en `pitch_deg` un avión nivelado.
+                    Exec(conn, @"
+                        CREATE TABLE IF NOT EXISTS flare_track (
+                            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                            flight_id     INTEGER NOT NULL,
+                            seq_no        INTEGER NOT NULL,
+                            ts_utc        TEXT,
+                            dist_ft       REAL NOT NULL,
+                            agl_ft        REAL,
+                            radar_alt_ft  REAL,
+                            ias_kt        REAL,
+                            vs_fpm        REAL,
+                            pitch_deg     REAL,
+                            bank_deg      REAL,
+                            gs_kt         REAL,
+                            eng1_pct      REAL,
+                            eng2_pct      REAL,
+                            flaps_pct     REAL,
+                            spoilers      INTEGER,
+                            on_ground     INTEGER
+                        )");
+
                     // ── Meteo del aterrizaje ──────────────────────────────────────────
                     // La tabla `flights` **ya existe en la base de cada piloto**, así que las
                     // columnas nuevas hay que añadirlas sobre la marcha: `CREATE TABLE IF NOT
@@ -89,10 +126,41 @@ namespace vmsOpenAcars.Services
                     // de la pista, como `touchdown_dist_ft` y `centerline_dev_ft`, que tampoco lo
                     // llevan. Nullable: las filas viejas se quedan en NULL y el closeup degrada.
                     EnsureColumn(conn, "flights", "runway_length_ft", "REAL");
+
+                    // La traza del flare también se migra por si la tabla viene de una versión
+                    // anterior con menos columnas: `CREATE TABLE IF NOT EXISTS` no toca una tabla que
+                    // ya está, exactamente el mismo caso que el de `flights`.
+                    foreach (var column in FlareColumns)
+                        EnsureColumn(conn, "flare_track", column.Name, column.Type);
                 }
             }
             catch { }
         }
+
+        /// <summary>
+        /// Las columnas de `flare_track`, en el orden en que las lee <see cref="GetFlareTrack"/>.
+        /// Están en una lista y no repetidas a mano para que el `CREATE TABLE` y la migración
+        /// defensiva no puedan desincronizarse: si mañana falta una en una base vieja, se añade sola.
+        /// </summary>
+        private static readonly (string Name, string Type)[] FlareColumns =
+        {
+            ("flight_id",    "INTEGER"),
+            ("seq_no",       "INTEGER"),
+            ("ts_utc",       "TEXT"),
+            ("dist_ft",      "REAL"),
+            ("agl_ft",       "REAL"),
+            ("radar_alt_ft", "REAL"),
+            ("ias_kt",       "REAL"),
+            ("vs_fpm",       "REAL"),
+            ("pitch_deg",    "REAL"),
+            ("bank_deg",     "REAL"),
+            ("gs_kt",        "REAL"),
+            ("eng1_pct",     "REAL"),
+            ("eng2_pct",     "REAL"),
+            ("flaps_pct",    "REAL"),
+            ("spoilers",     "INTEGER"),
+            ("on_ground",    "INTEGER"),
+        };
 
         /// <summary>
         /// Añade la columna si falta. `PRAGMA table_info` es lo que dice la verdad del esquema real
@@ -179,8 +247,81 @@ namespace vmsOpenAcars.Services
             }
         }
 
-        private int InsertFlight(SQLiteConnection conn, FlightRecord r)
+        /// <summary>
+        /// **La traza fina del flare**, atada a un vuelo ya guardado.
+        ///
+        /// Va en su propia transacción, después de <see cref="SaveFlight"/>: el `flight_id` solo se
+        /// conoce tras el INSERT, y el flare es un extra —si falla, el vuelo y su traza de 2 s ya
+        /// están en la base—. Devuelve cuántas muestras se persistieron, `0` si no se pudo.
+        ///
+        /// **Sin muestras no se escribe nada**: un vuelo sin captura de flare (los viejos, o uno en el
+        /// que la geometría del umbral nunca se resolvió) se queda sin filas, y el gráfico lo dice.
+        /// No se rellena con `approach_track`.
+        /// </summary>
+        public int SaveFlareTrack(int flightId, IList<FlareTrackPoint> samples)
         {
+            if (!IsAvailable || flightId <= 0 || samples == null || samples.Count == 0) return 0;
+            try
+            {
+                using (var conn = OpenConn())
+                using (var tx = conn.BeginTransaction())
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = tx;
+                    cmd.CommandText = @"
+                        INSERT INTO flare_track
+                            (flight_id, seq_no, ts_utc, dist_ft, agl_ft, radar_alt_ft, ias_kt,
+                             vs_fpm, pitch_deg, bank_deg, gs_kt, eng1_pct, eng2_pct,
+                             flaps_pct, spoilers, on_ground)
+                        VALUES
+                            (@fid, @seq, @ts, @dist, @agl, @ra, @ias,
+                             @vs, @pitch, @bank, @gs, @n1, @n2,
+                             @flaps, @spoilers, @ground)";
+
+                    int written = 0;
+                    foreach (var s in samples)
+                    {
+                        if (s == null) continue;
+                        cmd.Parameters.Clear();
+                        cmd.Parameters.AddWithValue("@fid",  flightId);
+                        cmd.Parameters.AddWithValue("@seq",  s.SeqNo);
+                        cmd.Parameters.AddWithValue("@ts",   (object)s.TimestampUtc.ToString("o") ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@dist", s.DistFt);
+                        // Nullable de verdad: lo que el simulador no publicó va NULL, no 0.
+                        cmd.Parameters.AddWithValue("@agl",      Param(s.AglFt));
+                        cmd.Parameters.AddWithValue("@ra",       Param(s.RadarAltFt));
+                        cmd.Parameters.AddWithValue("@ias",      Param(s.IasKt));
+                        cmd.Parameters.AddWithValue("@vs",       Param(s.VsFpm));
+                        cmd.Parameters.AddWithValue("@pitch",    Param(s.PitchDeg));
+                        cmd.Parameters.AddWithValue("@bank",     Param(s.BankDeg));
+                        cmd.Parameters.AddWithValue("@gs",       Param(s.GsKt));
+                        // Los N1 llegan ya a NULL cuando el offset viene a 0: un 0 ahí es «no lo
+                        // publica» o «motor parado», y no hay manera de distinguirlos.
+                        cmd.Parameters.AddWithValue("@n1",       Param(s.Eng1Pct));
+                        cmd.Parameters.AddWithValue("@n2",       Param(s.Eng2Pct));
+                        cmd.Parameters.AddWithValue("@flaps",    Param(s.FlapsPct));
+                        cmd.Parameters.AddWithValue("@spoilers", s.SpoilersDeployed.HasValue
+                                                                    ? (object)(s.SpoilersDeployed.Value ? 1 : 0)
+                                                                    : DBNull.Value);
+                        cmd.Parameters.AddWithValue("@ground", s.OnGround ? 1 : 0);
+                        cmd.ExecuteNonQuery();
+                        written++;
+                    }
+
+                    tx.Commit();
+                    return written;
+                }
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        /// <summary>`DBNull` para un nullable sin valor; el valor tal cual cuando lo hay.</summary>
+        private static object Param(double? value) => (object)value ?? DBNull.Value;
+
+        private int InsertFlight(SQLiteConnection conn, FlightRecord r)        {
             using (var cmd = conn.CreateCommand())
             {
                 cmd.CommandText = @"
@@ -333,6 +474,63 @@ namespace vmsOpenAcars.Services
             return list;
         }
 
+        /// <summary>
+        /// La traza fina del flare de un vuelo, ordenada por `seq_no`. **Lista vacía es la respuesta
+        /// correcta para un vuelo viejo** (sin `flare_track`): el gráfico no se rellena con
+        /// `approach_track`, porque eso sería presentar un muestreo de 2 s como uno de 0,1 s.
+        /// </summary>
+        public List<FlareTrackPoint> GetFlareTrack(int flightId)
+        {
+            var list = new List<FlareTrackPoint>();
+            if (!IsAvailable) return list;
+            try
+            {
+                using (var conn = OpenConn())
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"
+                        SELECT flight_id, seq_no, ts_utc, dist_ft, agl_ft, radar_alt_ft, ias_kt,
+                               vs_fpm, pitch_deg, bank_deg, gs_kt, eng1_pct, eng2_pct,
+                               flaps_pct, spoilers, on_ground
+                        FROM flare_track
+                        WHERE flight_id = @fid
+                        ORDER BY seq_no";
+                    cmd.Parameters.AddWithValue("@fid", flightId);
+
+                    using (var r = cmd.ExecuteReader())
+                    {
+                        while (r.Read())
+                        {
+                            list.Add(new FlareTrackPoint
+                            {
+                                FlightId     = r.GetInt32(0),
+                                SeqNo        = r.GetInt32(1),
+                                TimestampUtc = r.IsDBNull(2) ? DateTime.MinValue : DateTime.Parse(r.GetString(2)),
+                                DistFt       = r.GetDouble(3),
+                                AglFt        = Nullable(r, 4),
+                                RadarAltFt   = Nullable(r, 5),
+                                IasKt        = Nullable(r, 6),
+                                VsFpm        = Nullable(r, 7),
+                                PitchDeg     = Nullable(r, 8),
+                                BankDeg      = Nullable(r, 9),
+                                GsKt         = Nullable(r, 10),
+                                Eng1Pct      = Nullable(r, 11),
+                                Eng2Pct      = Nullable(r, 12),
+                                FlapsPct     = Nullable(r, 13),
+                                SpoilersDeployed = r.IsDBNull(14) ? (bool?)null : r.GetInt32(14) != 0,
+                                OnGround     = !r.IsDBNull(15) && r.GetInt32(15) != 0,
+                            });
+                        }
+                    }
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        private static double? Nullable(SQLiteDataReader r, int index) =>
+            r.IsDBNull(index) ? (double?)null : r.GetDouble(index);
+
         public bool HasFlights()
         {
             if (!IsAvailable) return false;
@@ -354,12 +552,17 @@ namespace vmsOpenAcars.Services
             using (var conn = OpenConn())
             using (var tx = conn.BeginTransaction())
             {
-                using (var cmd = conn.CreateCommand())
+                // Las dos trazas caen con el vuelo: si `approach_track` se limpia y `flare_track` no,
+                // quedarían filas huérfanas apuntando a un `flight_id` que ya no existe.
+                foreach (string table in new[] { "approach_track", "flare_track" })
                 {
-                    cmd.Transaction  = tx;
-                    cmd.CommandText  = "DELETE FROM approach_track WHERE flight_id = @id";
-                    cmd.Parameters.AddWithValue("@id", id);
-                    cmd.ExecuteNonQuery();
+                    using (var cmd = conn.CreateCommand())
+                    {
+                        cmd.Transaction  = tx;
+                        cmd.CommandText  = $"DELETE FROM {table} WHERE flight_id = @id";
+                        cmd.Parameters.AddWithValue("@id", id);
+                        cmd.ExecuteNonQuery();
+                    }
                 }
                 using (var cmd = conn.CreateCommand())
                 {

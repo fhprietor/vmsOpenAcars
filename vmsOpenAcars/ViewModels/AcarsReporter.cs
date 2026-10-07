@@ -354,9 +354,23 @@ namespace vmsOpenAcars.ViewModels
                 if (newId > 0)
                 {
                     _cb.Log?.Invoke(_("Log_LandingLogSaved", newId, bufCount, record.RunwayName), Theme.Success);
+
+                    // La traza fina del flare, en su propia tabla y **solo si existe**. Va aquí y no
+                    // dentro de `SaveFlight` porque el `flight_id` solo se conoce tras el INSERT del
+                    // vuelo; y si falla no arrastra al vuelo, que ya está guardado. Un vuelo sin
+                    // captura de flare no estrena filas y el gráfico dirá que no hay datos — que es
+                    // la verdad, no un hueco que rellenar con la traza de 2 s.
+                    if (_tc != null && _tc.FlareBufferCount > 0)
+                    {
+                        int flareCount = _landingLogService.SaveFlareTrack(newId, _tc.SnapshotFlareBuffer());
+                        if (flareCount > 0)
+                            _cb.Log?.Invoke(_("Log_FlareTrackSaved", flareCount), Theme.Success);
+                    }
+
                     // Solo descartar la trayectoria si realmente se persistió: si SaveFlight
                     // falla (devuelve -1) el buffer sigue siendo la única copia del track.
                     _tc?.ClearApproachBuffer();
+                    _tc?.ClearFlareBuffer();
                 }
                 else
                 {

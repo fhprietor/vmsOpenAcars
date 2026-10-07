@@ -243,7 +243,24 @@ namespace vmsOpenAcars.UI.Forms
             {
                 (record, track)
             };
-            new LandingAnalysisForm(flights).Show(this);
+            // El cargador de la traza fina del flare se inyecta aquí: el formulario de análisis no
+            // conoce `ILandingLogService`, y el botón FLARE solo aparece cuando hay de dónde leer.
+            // Un vuelo anterior a `flare_track` abre la ventana del flare y en ella se dice que no
+            // hay datos, sin rellenarla con la traza de 2 s.
+            new LandingAnalysisForm(flights,
+                id => _svc.GetFlareTrack(id),
+                id => HasFlareTrack(id)).Show(this);
+        }
+
+        /// <summary>
+        /// ¿Este vuelo tiene traza fina de flare? Sirve para distinguir «la captura no se armó» de
+        /// «el vuelo es anterior a la tabla» en el mensaje de la ventana del flare. Degrada a falso
+        /// sin servicio o sin filas: en la duda se dice que no hay traza, que es la verdad.
+        /// </summary>
+        private bool HasFlareTrack(int flightId)
+        {
+            try { return _svc.GetFlareTrack(flightId).Count > 0; }
+            catch { return false; }
         }
 
         private void BtnCompare_Click(object sender, EventArgs e)
