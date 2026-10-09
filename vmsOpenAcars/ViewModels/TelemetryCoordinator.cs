@@ -123,6 +123,9 @@ namespace vmsOpenAcars.ViewModels
         private double _flareThresholdLat     = double.NaN;
         private double _flareThresholdLon     = double.NaN;
         private double _flareThresholdHeading = double.NaN;
+        // Offset del umbral desplazado, congelado junto al umbral: la distancia de la traza se
+        // mide desde el umbral **legal** (restando este offset), igual que `touchdown_dist_ft`.
+        private double _flareThresholdOffsetFt;
 
         /// <summary>
         /// Cadencia de la traza del flare: **100 ms (10 Hz)**.
@@ -184,6 +187,7 @@ namespace vmsOpenAcars.ViewModels
             _flareThresholdLat = double.NaN;
             _flareThresholdLon = double.NaN;
             _flareThresholdHeading = double.NaN;
+            _flareThresholdOffsetFt = 0.0;
         }
 
         /// <summary>
@@ -258,25 +262,30 @@ namespace vmsOpenAcars.ViewModels
 
         /// <summary>
         /// Distancia al umbral para la traza del flare, en pies y **negativa pasado el umbral**
-        /// (el mismo convenio que `flare_track.dist_ft`). Mientras la captura no está armada usa el
-        /// umbral **en vivo** (`_approachThreshold`), que es lo que decide el armado; una vez armada
-        /// usa el umbral **congelado** por <see cref="FreezeFlareThreshold"/>, para que el tramo
-        /// posterior al toque siga posicionado en la pista aunque la fase ya no sea Approach.
+        /// (el mismo convenio que `flare_track.dist_ft`). Mide desde el umbral **legal** de
+        /// aterrizaje: suma `OffsetThresholdFt` al proyección sobre el extremo físico, para que el
+        /// cero coincida con `touchdown_dist_ft` y la marca `TD`/las bandas de la TDZ no queden
+        /// corridas en pistas con umbral desplazado. Mientras la captura no está armada usa el
+        /// umbral **en vivo** (`_approachThreshold`), que es lo que decide el armado; una vez
+        /// armada usa el umbral **congelado** por <see cref="FreezeFlareThreshold"/>, para que el
+        /// tramo posterior al toque siga posicionado en la pista aunque la fase ya no sea Approach.
         /// </summary>
         private double? FlareDistanceFt(RawTelemetryData e)
         {
-            double lat, lon, heading;
+            double lat, lon, heading, offset;
             if (!double.IsNaN(_flareThresholdLat))
             {
                 lat = _flareThresholdLat;
                 lon = _flareThresholdLon;
                 heading = _flareThresholdHeading;
+                offset = _flareThresholdOffsetFt;
             }
             else if (_approachThreshold != null)
             {
                 lat = _approachThreshold.ThresholdLat;
                 lon = _approachThreshold.ThresholdLon;
                 heading = _approachThreshold.ThresholdHeading;
+                offset = _approachThreshold.OffsetThresholdFt;
             }
             else
             {
@@ -284,7 +293,10 @@ namespace vmsOpenAcars.ViewModels
             }
 
             var (distNm, _) = NavDataService.ComputeApproachMetrics(lat, lon, heading, e.Latitude, e.Longitude);
-            return distNm * TouchdownCloseupGeometry.FeetPerNm;
+            // `distNm` es negativo pasado el umbral FÍSICO. Se suma el offset del umbral desplazado
+            // para medir desde el umbral **legal** (el mismo cero que `touchdown_dist_ft`): en una
+            // pista con offset de 496 ft, tocar a 698 ft del extremo físico es 202 ft del legal.
+            return distNm * TouchdownCloseupGeometry.FeetPerNm + offset;
         }
 
         /// <summary>
@@ -298,6 +310,7 @@ namespace vmsOpenAcars.ViewModels
             _flareThresholdLat = _approachThreshold.ThresholdLat;
             _flareThresholdLon = _approachThreshold.ThresholdLon;
             _flareThresholdHeading = _approachThreshold.ThresholdHeading;
+            _flareThresholdOffsetFt = _approachThreshold.OffsetThresholdFt;
         }
 
         // ── UI delta tracking ─────────────────────────────────────────────────────

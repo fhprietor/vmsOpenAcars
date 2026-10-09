@@ -114,6 +114,10 @@ namespace vmsOpenAcars.Services
                 // Misma longitud que publica `ProjectOnRunway`: el criterio «Touchdown Zone» la
                 // necesita para saber hasta dónde llega la zona de toma en esa pista.
                 RunwayLengthFt   = best.LengthFt,
+                // El offset del umbral desplazado, para que la distancia de la traza del flare se
+                // mida desde el umbral **legal** (como `ThresholdDistanceFt`), no desde el extremo
+                // físico sobre el que proyectan `ThresholdLat/Lon`.
+                OffsetThresholdFt = best.OffsetThresholdFt,
                 // El rumbo verdadero con su propio nombre, para las componentes del viento del
                 // aterrizaje: `ThresholdHeading` aquí ya es verdadero, pero en el camino de
                 // `FindTouchdownRunway` es magnético y no se puede confiar en él.

@@ -63,14 +63,28 @@ Punto por punto (antes de esto, todo era una hipótesis):
   fase Approach el `_approachThreshold` se pone a `null` (`TelemetryCoordinator` L461) mientras la
   captura **sigue viva** los 2 s posteriores. El margen que captura «la frenada y el morro bajando»
   **no se puede posicionar en la pista**: en el gráfico cae todo en x=0.
-  **Arreglado (08/10/2026):** `FlareDistanceFt` congela las coordenadas del umbral al armarse la
-  captura (`FreezeFlareThreshold`) y sigue midiendo contra ese umbral tras el toque, aunque
-  `_approachThreshold` se suelte. Compila Debug/Release y **655/655**; **pendiente de un vuelo
-  real** para confirmar que el tramo post-toque ya no colapsa a 0.
+  **Arreglado y verificado en vuelo (vuelo 44, SKCC→SKBG):** `FlareDistanceFt` congela las
+  coordenadas del umbral al armarse la captura (`FreezeFlareThreshold`) y sigue midiendo contra ese
+  umbral tras el toque, aunque `_approachThreshold` se suelte. En el vuelo 44 las 15 muestras en
+  tierra ya **no colapsan**: `dist_ft` sigue negativa de −698 a −1196 (~500 ft de rodaje en ~1,9 s,
+  coherente con 145 kt frenando). Compila Debug/Release y **655/655**.
 - **El flag `on_ground` llega tarde**: el AGL cruza 0 en la muestra 74 (dist −939) pero `on_ground`
   no pasa a 1 hasta la 81 (~0,9 s después). El touchdown registrado (1 156 ft) es coherente con el
   contacto real (más allá de donde el MSL iguala la elevación de campo), pero el detector de toque
   usa una señal distinta al cruce de AGL.
+- **La distancia de toma no coincide con la traza — es el umbral desplazado, no un bug (vuelo 44).**
+  `touchdown_dist_ft` = **202 ft** y la traza del flare sitúa el contacto a **~698 ft** del umbral:
+  **496 ft de diferencia**. Causa raíz: **referencias distintas**. `ProjectOnRunway` (touchdown,
+  v0.7.2) mide desde el **umbral legal** de aterrizaje restando `OffsetThresholdFt`
+  (`along − offset`), mientras `ComputeApproachMetrics` (el flare) proyecta sobre el **extremo
+  físico** (`threshold_lat/lon`) sin restar nada. Los 496 ft son el `offset_threshold_ft` de la
+  pista 17 de SKBG. **No** es el detector de toque, ni lo introdujo el fix de `dist_ft`: es un
+  desajuste de referencia que ya existía. **Consecuencia**: en el gráfico del flare la marca `TD`
+  y las bandas de la TDZ (umbral legal) quedan ~496 ft corridas respecto a la traza (umbral
+  físico); y en el dato para el servidor, las dos «distancias al umbral» no serían comparables tal
+  cual. **Decisión pendiente**: alinear el flare al umbral legal (restar el offset en
+  `FlareDistanceFt`, exige propagar `OffsetThresholdFt` al umbral congelado) o documentar las dos
+  referencias y dejar el gráfico como está.
 
 **Sigue pendiente** (este vuelo no lo cubre):
 

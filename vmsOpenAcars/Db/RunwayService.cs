@@ -12,6 +12,20 @@ namespace vmsOpenAcars.Db
         public double ThresholdHeading      { get; set; }
 
         /// <summary>
+        /// Desplazamiento del umbral (`offset_threshold_ft` de NavData): la distancia entre el
+        /// extremo **físico** del pavimento (`threshold_lat/lon`) y el umbral **legal** de
+        /// aterrizaje, en pies. **Cero = sin umbral desplazado** (o sin dato).
+        ///
+        /// `ThresholdLat/Lon` son el extremo físico, así que quien mida «distancia al umbral»
+        /// proyectando sobre ellos obtiene la distancia al inicio del pavimento. Para que sea
+        /// comparable con `ThresholdDistanceFt` —que se mide desde el umbral legal restando este
+        /// offset (`ProjectOnRunway`, v0.7.2)— hay que restarlo: la traza del flare lo hace en
+        /// `TelemetryCoordinator.FlareDistanceFt`. Sin esta resta, en una pista con umbral
+        /// desplazado la marca de toque y la traza quedan corridas exactamente este offset.
+        /// </summary>
+        public double OffsetThresholdFt     { get; set; }
+
+        /// <summary>
         /// Rumbo **VERDADERO** del eje de la pista, calculado desde las coordenadas WGS-84 del umbral
         /// y del extremo (`NavDataService.TrueRunwayBearing`). **Null = sin dato**.
         ///
