@@ -98,7 +98,15 @@
     <Compile Include="CloseupTrackSourceTests.cs" />
     <Compile Include="FlareCapturePolicyTests.cs" />
     <Compile Include="FlareChartLayoutTests.cs" />
+    <Compile Include="ThresholdToTouchdownTests.cs" />
+    <!-- Flaps y potencia del aterrizaje: la compuerta traducida y el corte de potencia. -->
+    <Compile Include="FlapSettingTests.cs" />
+    <Compile Include="FlapTrackSummaryTests.cs" />
+    <Compile Include="PowerCutTests.cs" />
     <Compile Include="FlareAnalysisFormTests.cs" />
+    <!-- El blindaje del pintado de los gráficos: ningún área se queda con el eje en automático y
+         sin datos (la excepción `Axis Object - Auto interval does not have proper value`). -->
+    <Compile Include="ChartAxisSafetyTests.cs" />
     <Compile Include="SimbriefDispatchPolicyTests.cs" />
     <Compile Include="SettingsFormLayoutTests.cs" />
     <Compile Include="WindComponentsTests.cs" />
@@ -136,6 +144,21 @@
     <!-- Pistas y puntos de espera de KMIA para el caso de la sugerencia de VHR31
          (TaxiSuggestionKmIaTests). -->
     <Content Include="Fixtures\KMIA-holds-runways-2026-09-29.csv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Los idiomas, junto al `.exe` de pruebas: `LocalizationService` los busca en
+         `Application.StartupPath` y sin ellos `L._(clave)` devuelve `[[clave]]`, así que cualquier
+         prueba que mire un rótulo traducido —los del análisis del aterrizaje, p. ej.— medía el
+         marcador de depuración en vez del texto. Se copian del proyecto del cliente para no tener
+         dos copias que se puedan separar. -->
+    <Content Include="..\vmsOpenAcars\Languages\es.json">
+      <Link>Languages\es.json</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\vmsOpenAcars\Languages\en.json">
+      <Link>Languages\en.json</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

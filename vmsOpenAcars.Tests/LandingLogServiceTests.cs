@@ -100,6 +100,8 @@ namespace vmsOpenAcars.Tests
             Assert.IsNull(old.LandingRunwayTrueDeg);
             Assert.IsNull(old.RunwayLengthFt,
                 "una fila vieja no tiene longitud de pista: el closeup tendrá que arreglárselas sin ella");
+            Assert.IsFalse(old.FlareCaptureArmed,
+                "sin la columna no se sabe si la captura se armó, y en la duda se dice que no");
             Assert.IsFalse(old.WindAtLanding.Available);
         }
 
@@ -173,6 +175,48 @@ namespace vmsOpenAcars.Tests
         // ── La traza fina del flare (`flare_track`) ───────────────────────────────
 
         /// <summary>
+        /// **«La captura del flare se armó» viaja con el vuelo.** No es «hay filas en `flare_track`»,
+        /// y esa diferencia es el motivo de que exista la columna: es lo único que, con cero filas,
+        /// separa «esta captura se armó y se perdió» de «este vuelo es anterior a la traza fina».
+        /// Hasta v0.9.34 el buffer del flare se vaciaba antes de persistir y **todos** los vuelos
+        /// salían con cero filas, así que la ventana contaba lo primero como lo segundo.
+        /// </summary>
+        [TestMethod]
+        public void LaCapturaArmadaDelFlare_ViajaDeIdaYVuelta()
+        {
+            var svc = new LandingLogService(_dbPath);
+
+            // El vuelo 42 de la base local (SKCG → MMTL): la captura se armó y terminó con 196
+            // muestras, y aun así `flare_track` quedó vacía.
+            int armada = svc.SaveFlight(new FlightRecord
+            {
+                FlightNumber = "578", Origin = "SKCG", Destination = "MMTL", RunwayName = "12",
+                FlightDate = new DateTime(2026, 10, 8, 4, 37, 50, DateTimeKind.Utc),
+                LandingRateFpm = -216, GForce = 1.48, TouchdownDistFt = 3949.5,
+                FlareCaptureArmed = true,
+            }, null);
+
+            // Y uno sin captura: umbral sin resolver, o anterior a la traza.
+            int sinArmar = svc.SaveFlight(new FlightRecord
+            {
+                FlightNumber = "9821", Origin = "SKBG", Destination = "SKCG", RunwayName = "01",
+                FlightDate = new DateTime(2026, 10, 7, 3, 9, 22, DateTimeKind.Utc),
+                FlareCaptureArmed = false,
+            }, null);
+
+            Assert.IsTrue(armada > 0 && sinArmar > 0);
+
+            var vuelos = svc.GetFlights();
+            Assert.IsTrue(vuelos.Find(f => f.Id == armada).FlareCaptureArmed,
+                "la captura armada tiene que sobrevivir al vuelo: es lo que la ventana del flare mira");
+            Assert.IsFalse(vuelos.Find(f => f.Id == sinArmar).FlareCaptureArmed);
+
+            // Y sigue siendo verdad lo que dice el otro camino: armada no es «tiene traza».
+            Assert.AreEqual(0, svc.GetFlareTrack(armada).Count,
+                "una captura armada y perdida son cero filas: por eso el recuento no sirve de testigo");
+        }
+
+        /// <summary>
         /// **La tabla del flare nace al abrir la base**, también en una base vieja: `CREATE TABLE IF
         /// NOT EXISTS` la crea sin tocar nada de lo que ya había. Y va aparte de `approach_track` a
         /// propósito —esa es de 2 s y la usan los cuatro gráficos del análisis—, así que la
@@ -222,7 +266,7 @@ namespace vmsOpenAcars.Tests
                     SeqNo = 0, TimestampUtc = t0, DistFt = 1408.3,
                     AglFt = 118.0, RadarAltFt = 114.0, IasKt = 151.6, VsFpm = -370.6,
                     PitchDeg = 2.4, BankDeg = -0.8, GsKt = 150.2,
-                    Eng1Pct = 58.4, Eng2Pct = 57.9, FlapsPct = 100.0,
+                    Eng1Pct = 58.4, Eng2Pct = 57.9, FlapsPct = 100.0, FlapsIndex = 8,
                     SpoilersDeployed = false, OnGround = false,
                 },
                 // …y otra sin radioaltímetro ni motores: los huecos son huecos.
@@ -231,7 +275,7 @@ namespace vmsOpenAcars.Tests
                     SeqNo = 1, TimestampUtc = t0.AddMilliseconds(100), DistFt = 155.7,
                     AglFt = 102.0, RadarAltFt = null, IasKt = 151.3, VsFpm = -504.4,
                     PitchDeg = 3.6, BankDeg = 0.2, GsKt = null,
-                    Eng1Pct = null, Eng2Pct = null, FlapsPct = 100.0,
+                    Eng1Pct = null, Eng2Pct = null, FlapsPct = 100.0, FlapsIndex = null,
                     SpoilersDeployed = true, OnGround = false,
                 },
                 // La del toque, ya en tierra.
@@ -264,6 +308,10 @@ namespace vmsOpenAcars.Tests
             Assert.IsNull(back[1].RadarAltFt, "sin radioaltímetro se guarda NULL, no 0");
             Assert.IsNull(back[1].GsKt);
             Assert.IsNull(back[1].Eng1Pct);
+            // El detente real viaja junto al porcentaje, y su hueco vuelve como hueco: un 0 sería
+            // «flaps arriba», que es lo contrario de «el avión no publicó el notch».
+            Assert.AreEqual(8, back[0].FlapsIndex.Value, "el detente real se guarda tal cual");
+            Assert.IsNull(back[1].FlapsIndex, "sin detente se guarda NULL, no 0");
             Assert.IsTrue(back[1].SpoilersDeployed.Value);
             Assert.IsTrue(back[2].OnGround);
 
@@ -329,6 +377,81 @@ namespace vmsOpenAcars.Tests
             Assert.AreEqual(0, svc.GetFlareTrack(id).Count);
         }
 
+        /// <summary>
+        /// **La migración defensiva sobre una `flare_track` que ya existe.** La tabla del flare nació
+        /// en v0.9.34 y en la base local ya está creada; `CREATE TABLE IF NOT EXISTS` no la toca, así
+        /// que `flaps_index` —igual que `aircraft_icao` en `flights`— solo puede aparecer por el
+        /// `PRAGMA table_info` + `ALTER TABLE` de `LandingLogService`. Este test reproduce ese esquema
+        /// viejo y comprueba las dos mitades: la columna aparece y el detente viaja de ida y vuelta.
+        /// </summary>
+        [TestMethod]
+        public void LaBaseViejaConFlareTrackSinFlapsIndex_MigraLaColumnaYElDetenteViaja()
+        {
+            string path = Path.Combine(Path.GetTempPath(),
+                                       "vmsopenacars_flapsindex_" + Guid.NewGuid().ToString("N") + ".sqlite");
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={path};Version=3;"))
+                {
+                    conn.Open();
+                    using (var cmd = conn.CreateCommand())
+                    {
+                        // El esquema EXACTO de `flare_track` antes de este cambio: sin `flaps_index`.
+                        cmd.CommandText = @"
+                            CREATE TABLE flare_track (
+                                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                                flight_id     INTEGER NOT NULL,
+                                seq_no        INTEGER NOT NULL,
+                                ts_utc        TEXT,
+                                dist_ft       REAL NOT NULL,
+                                agl_ft        REAL,
+                                radar_alt_ft  REAL,
+                                ias_kt        REAL,
+                                vs_fpm        REAL,
+                                pitch_deg     REAL,
+                                bank_deg      REAL,
+                                gs_kt         REAL,
+                                eng1_pct      REAL,
+                                eng2_pct      REAL,
+                                eng1_n2_pct   REAL,
+                                eng2_n2_pct   REAL,
+                                flaps_pct     REAL,
+                                spoilers      INTEGER,
+                                on_ground     INTEGER
+                            )";
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                var svc = new LandingLogService(path);   // aquí corre la migración
+
+                Assert.IsTrue(HasColumnIn(path, "flaps_index", "flare_track"),
+                    "una `flare_track` vieja tiene que ganar `flaps_index` al abrir la base");
+
+                int id = svc.SaveFlight(new FlightRecord
+                {
+                    FlightNumber = "578", Origin = "SKCG", Destination = "MMTL",
+                    FlightDate = new DateTime(2026, 10, 8, 4, 37, 50, DateTimeKind.Utc),
+                }, null);
+
+                int written = svc.SaveFlareTrack(id, new List<FlareTrackPoint>
+                {
+                    new FlareTrackPoint { SeqNo = 0, DistFt = 120.0, FlapsPct = 100.0, FlapsIndex = 8 },
+                    new FlareTrackPoint { SeqNo = 1, DistFt = 40.0,  FlapsPct = 100.0, FlapsIndex = null },
+                });
+                Assert.AreEqual(2, written, "la base migrada tiene que aceptar las muestras con detente");
+
+                var back = svc.GetFlareTrack(id);
+                Assert.AreEqual(2, back.Count);
+                Assert.AreEqual(8, back[0].FlapsIndex.Value);
+                Assert.IsNull(back[1].FlapsIndex, "sin detente el hueco vuelve como NULL, no 0");
+            }
+            finally
+            {
+                try { if (File.Exists(path)) File.Delete(path); } catch { }
+            }
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────────
 
         private static readonly string[] NewColumns =
@@ -343,6 +466,10 @@ namespace vmsOpenAcars.Tests
             // La que necesita el closeup del perfil vertical (`TouchdownCloseupGeometry`): sin ella
             // no se dibuja la pista, y **no se inventa un largo**.
             "runway_length_ft",
+            // «La captura del flare se armó». No se deduce de `flare_track`: existe para el caso de
+            // la captura armada **sin** filas guardadas (v0.9.34), que es justo el que hay que poder
+            // contarle a la ventana del flare.
+            "flare_capture_armed",
         };
 
         /// <summary>
@@ -354,7 +481,7 @@ namespace vmsOpenAcars.Tests
         {
             "flight_id", "seq_no", "ts_utc", "dist_ft", "agl_ft", "radar_alt_ft", "ias_kt",
             "vs_fpm", "pitch_deg", "bank_deg", "gs_kt", "eng1_pct", "eng2_pct",
-            "flaps_pct", "spoilers", "on_ground",
+            "flaps_pct", "spoilers", "on_ground", "flaps_index",
         };
 
         private bool TableExists(string table)
@@ -374,9 +501,11 @@ namespace vmsOpenAcars.Tests
 
         private bool HasColumn(string column) => HasColumn(column, "flights");
 
-        private bool HasColumn(string column, string table)
+        private bool HasColumn(string column, string table) => HasColumnIn(_dbPath, column, table);
+
+        private static bool HasColumnIn(string dbPath, string column, string table)
         {
-            using (var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;"))
+            using (var conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
             {
                 conn.Open();
                 using (var cmd = conn.CreateCommand())

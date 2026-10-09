@@ -661,6 +661,10 @@ namespace vmsOpenAcars.Services
                 BankDeg = CurrentBank,
                 SpoilersDeployed = CurrentSpoilersDeployed,
                 FlapsPercent = FlapsPercent,
+                // El detente real, ya cruzado con el porcentaje: `0x0BFC` a 0 es ambiguo («arriba» o
+                // «el addon no lo escribe»), y `FlapSetting.DetentOrNull` solo lo da por bueno cuando
+                // el mando no lo desmiente. Sin dato va `null`, no 0.
+                FlapsIndex = FlapSetting.DetentOrNull(FlapsIndex, FlapsPercent),
                 FlapsLabel = this.FlapsLabel,
                 FlapsInTransit = FlapsInTransit,
                 GearDown = CurrentGearPosition == 1,
@@ -1814,6 +1818,13 @@ namespace vmsOpenAcars.Services
         public double BankDeg { get; set; }
         public bool SpoilersDeployed { get; set; }
         public double FlapsPercent { get; set; }
+        /// <summary>
+        /// **El detente real** (`0x0BFC`, «Notch actual»), o `null` si el avión no lo publica. No es
+        /// lo mismo que <see cref="FlapsPercent"/>: ese es el recorrido del mando y este la compuerta.
+        /// Se decide con `FlapSetting.DetentOrNull`, que descarta el 0 de los addons que no escriben
+        /// el offset en vez de guardarlo como «flaps arriba».
+        /// </summary>
+        public int? FlapsIndex { get; set; }
         public string FlapsLabel { get; set; } = "UP";
         public bool FlapsInTransit { get; set; }
         public bool GearDown { get; set; }

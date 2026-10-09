@@ -2,6 +2,79 @@
 
 ---
 
+## [0.9.35] — 08/10/2026
+
+### Fixed
+
+- **Una ventana de excepción en la cara del piloto: `Axis Object - Auto interval does not have proper value`.**
+  La pila lo delataba (`Control.OnPrint` → `WmPrintClient`), y eran las **cinco** llamadas a **`Chart.DrawToBitmap`**
+  del proyecto, **todas en las pruebas** (`FlareAnalysisFormTests`): `DrawToBitmap` manda `WM_PRINTCLIENT` y llega al
+  `Chart` por `OnPaint` → `ReCalcInternal` → `Axis.EstimateAxis`, que revienta cuando el eje se queda en **intervalo
+  automático sin valor válido**. Ahora las sondas usan **`Chart.SaveImage`** (el render propio del control, sin
+  `WM_PRINTCLIENT`) dentro de un `try/catch` que **falla el test con el mensaje** en vez de abrir un diálogo.
+  **Honesto**: la excepción **no se pudo reproducir** (19 sondas); lo confirmado es que ese era el **único** camino del
+  código que pasaba por `WM_PRINTCLIENT`.
+- **Y la causa de fondo, que es la que importa: un gráfico no puede reventar al pintarse.** Nuevo
+  `Helpers/ChartAxisSafety.cs` (puro, con test): un área **sin un solo punto** queda con **marco fijo** y el rótulo
+  **«SIN DATOS»**; los rangos explícitos degenerados se corrigen; y el **automático se respeta cuando hay datos**, para
+  no romper la Y autoescalada del closeup. Con pruebas de los dos casos reales de hoy: **un vuelo sin traza de flare** y
+  **uno sin traza de aproximación** se abren sin lanzar. El PNG destapó además el rótulo **espejado** (el eje X va
+  invertido), su colocación cuando `Position` no está resuelto, la pérdida de la escala del eje X y marcas `NaN` en un
+  área sin eje.
+- **`LocalizationService` no encontraba `Languages\` en el host de pruebas** (usaba `Application.StartupPath`, el del
+  proceso host) y devolvía `[[clave]]`: ahora resuelve **junto al ensamblado** y el proyecto de tests copia los dos
+  `.json`. Ese era el rojo que arrastraba la suite.
+
+### Added
+
+- **Flaps y potencia en el análisis del aterrizaje.** Los dos datos **ya se capturaban** y ahora se interpretan y se ven.
+  - **Flaps**: lo que se guardaba era el **porcentaje del recorrido del mando** (offset `0x0BDC`, 0–16383 → 0–100), que
+    **no es un detent**. La etiqueta (`CONF 2`, `FLAPS 30`) se deduce **por bandas de familia** —Airbus CONF, 737/747/777
+    sus detents— **sólo si el valor cae claramente en una banda**, y va marcada **aproximada** (`≈FLAPS 30`). **Familia
+    desconocida o valor dudoso → el porcentaje, sin etiqueta.**
+  - **Y el detent real ya se persiste** (`flare_track.flaps_index`, de `0x0BFC`, que se leía y se tiraba): cuando existe,
+    la etiqueta va **sin `≈`**. Sin dato, **NULL**, nunca 0.
+  - **Potencia por N1** (offset `0x2000`/`0x2100`, en por ciento — que es lo que importa en el flare): el **corte** se
+    calcula **relativo al pico** de la aproximación (no con un umbral absoluto, que depende del avión) como la **primera
+    caída sostenida ≥5 puntos durante ≥0,3 s**, y se expresa en **segundos antes de la toma**. Sin datos devuelve
+    **motivo, nunca un cero**; con la traza de 2 s no publica tiempos finos.
+  - Se ve en la **ventana del FLARE** (curva de N1 con la marca `PWR CUT`, áreas de flaps), la **línea del aterrizaje**,
+    el **logbook** (columnas FLAPS y PWR CUT) y el **PIREP** (`~FLAPS 30 | PWR-CUT 4.2s`, ~140 caracteres).
+- **630/630** (625 + 5). Idiomas simétricos (**446 claves**, con `Chart_NoData`).
+
+## [0.9.34] — 08/10/2026
+
+### Fixed
+
+- **La traza fina del flare no se guardaba: `flare_track` estaba vacía en TODOS los vuelos desde v0.9.32.**
+  Medido en la base local: **0 filas** en la tabla con capturas terminadas —el vuelo 42 (SKCG → MMTL, pista 12)
+  dejó `🎯 FIN TRAZA FLARE: 196 muestras (stopped:post-touchdown 2.1s)` en el log y ni una fila en la base—. La
+  causa era el **orden** dentro de `AcarsReporter.SendPirep`: `_cb.ResetTelemetry` (que corre
+  `TelemetryCoordinator.Reset()` → `ClearFlareBuffer()`) iba en la línea **192**, y `SaveLandingRecord` en la
+  **196**. Al llegar el guardado, el buffer ya tenía **0 muestras**, así que la condición «hay muestras» no se
+  cumplía nunca y `SaveFlareTrack` no se llamaba. El buffer de **aproximación** se libraba porque `Reset()` no lo
+  vacía —y eso es lo que hacía invisible el fallo: el vuelo se guardaba, solo perdía la traza fina, y la ventana
+  del flare se abría para decir que no había datos—. El comentario de `Reset()` afirmaba justo lo contrario
+  («el reset va DESPUÉS de que `AcarsReporter` haya persistido»), y era falso: con la traza del flare, el único
+  consumidor que corre en ese camino va **antes** del reset.
+  **Fix estructural, no de orden:** `SendPirep` copia las dos trazas junto al registro **antes** de
+  `await FilePirep()` y `SaveLandingRecord` las recibe como argumentos, así que la persistencia deja de depender
+  del orden de las sentencias de un método de 700 líneas. Es lo que ya se hacía con `SnapshotLandingRecord()`, y
+  por el mismo motivo.
+- **`flights.flare_capture_armed`** (columna nueva, migración defensiva como las demás): «la captura del flare se
+  armó en este aterrizaje», leída **antes** del reset —después, el estado en vivo ya no existe—. **No es** «hay
+  filas en `flare_track`», y esa diferencia es su razón de ser: con cero filas es lo único que separa «esta
+  captura se perdió» de «este vuelo es anterior a la traza». Sin ella, la ventana del flare contaba lo primero
+  como lo segundo: `FlightHistoryForm` pasaba `GetFlareTrack(id).Count > 0` como «¿se armó?», y el
+  `FlareCaptureStarted` que se escribió para eso (`TelemetryCoordinator`) **no lo usaba nadie**. NULL en las
+  filas anteriores a la columna = «no se sabe» = no armada.
+
+- **568/568** (567 + 1). El test nuevo
+  (`LandingLogServiceTests.LaCapturaArmadaDelFlare_ViajaDeIdaYVuelta`) cubre el viaje de ida y vuelta de la
+  columna y fija que «armada» **no** es «tiene traza». **Lo que no cubre ningún test automático es el cableado
+  de `SendPirep`** —necesita la API, el `FlightManager` y la base—: ese camino se verificó por lectura y queda
+  pendiente de un vuelo real.
+
 ## [0.9.33] — 07/10/2026
 
 ### Added

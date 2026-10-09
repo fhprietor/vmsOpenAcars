@@ -235,7 +235,16 @@ namespace vmsOpenAcars.ViewModels
                 GsKt         = e.GroundSpeedKt,
                 Eng1Pct      = e.N1_1 > 0f ? (double?)e.N1_1 : null,
                 Eng2Pct      = e.N1_2 > 0f ? (double?)e.N1_2 : null,
+                // El N2 sí existe en FSUIPC (`0x2220`/`0x2420`, DWORD 0–16384 → %): se guarda con el
+                // mismo criterio que el N1 —un 0 es «no lo publica» o «motor parado», y no hay manera
+                // de distinguirlos, así que va `null` en vez de un cero que se leería como parado—.
+                Eng1N2Pct    = e.N2_1 > 0f ? (double?)e.N2_1 : null,
+                Eng2N2Pct    = e.N2_2 > 0f ? (double?)e.N2_2 : null,
                 FlapsPct     = e.FlapsPercent,
+                // El detente real, junto al porcentaje: `FlapsIndex` ya viene en `null` cuando el
+                // avión no publica `0x0BFC` (lo decide `FlapSetting.DetentOrNull` en FsuipcService),
+                // así que aquí no se reinterpreta. Un 0 sería «flaps arriba», que es un dato.
+                FlapsIndex   = e.FlapsIndex,
                 SpoilersDeployed = e.SpoilersDeployed,
                 OnGround     = e.IsOnGround,
             });

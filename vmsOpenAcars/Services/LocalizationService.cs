@@ -28,7 +28,7 @@ namespace vmsOpenAcars.Services
 
         private void LoadDefaultLanguage()
         {
-            string defaultPath = Path.Combine(Application.StartupPath, "Languages", "es.json");
+            string defaultPath = Path.Combine(LanguageFolder, "es.json");
             if (File.Exists(defaultPath))
             {
                 try
@@ -48,11 +48,39 @@ namespace vmsOpenAcars.Services
             }
         }
 
+        /// <summary>
+        /// De dónde cuelga `Languages\`.
+        ///
+        /// Es la carpeta del **ejecutable que aloja este ensamblado**, no la del proceso que lo carga.
+        /// En el cliente coinciden, pero cuando el ensamblado lo hospeda otro proceso —el host de
+        /// pruebas vive en la carpeta de Visual Studio— `Application.StartupPath` apunta al host y el
+        /// servicio se quedaba **sin ningún idioma**: `GetString` devolvía `[[clave]]` y cualquier
+        /// prueba que mirase un rótulo traducido medía el marcador de depuración en vez del texto.
+        /// Con la ruta del ensamblado, lo que se mide en las pruebas es lo que ve el piloto.
+        /// </summary>
+        private static string LanguageFolder
+        {
+            get
+            {
+                try
+                {
+                    string dir = Path.GetDirectoryName(typeof(LocalizationService).Assembly.Location);
+                    if (!string.IsNullOrEmpty(dir) && Directory.Exists(Path.Combine(dir, "Languages")))
+                        return Path.Combine(dir, "Languages");
+                }
+                catch
+                {
+                    // Sin ruta del ensamblado se cae al directorio del proceso, que es lo de siempre.
+                }
+                return Path.Combine(Application.StartupPath, "Languages");
+            }
+        }
+
         public void LoadLanguage(string languageCode)
         {
             try
             {
-                string filePath = Path.Combine(Application.StartupPath, "Languages", $"{languageCode}.json");
+                string filePath = Path.Combine(LanguageFolder, $"{languageCode}.json");
                 if (File.Exists(filePath))
                 {
                     string json = File.ReadAllText(filePath);

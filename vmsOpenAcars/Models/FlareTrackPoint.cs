@@ -69,6 +69,21 @@ namespace vmsOpenAcars.Models
         public double? Eng2Pct { get; set; }
 
         /// <summary>
+        /// **N2 del motor 1, en porcentaje (0–100)** — la bobina de alta presión, la que dice si el
+        /// motor está girando de verdad. Se lee del offset `0x2220` (`DWORD`, 0–16384 = 0–100 %) en
+        /// `Services/FsuipcService.cs`, declarado en la línea 108 y convertido a porcentaje en la 601.
+        ///
+        /// **`null` cuando el addon no escribe el offset.** `FsuipcService` documenta ese caso en su
+        /// propio campo (`N2_1`, línea 1837: «0 when addon does not write offset 0x2220») y aquí se
+        /// respeta: un 0 guardado se leería como «motor parado» en mitad del descenso, que es
+        /// exactamente el error que se evita en el radioaltímetro.
+        /// </summary>
+        public double? Eng1N2Pct { get; set; }
+
+        /// <inheritdoc cref="Eng1N2Pct"/>
+        public double? Eng2N2Pct { get; set; }
+
+        /// <summary>
         /// Deflexión del **estabilizador horizontal**: **no se captura**. La posición de la columna
         /// que mueve el flare no viaja en ninguno de los offsets que este cliente ya lee, y meter un
         /// offset nuevo sin poder comprobarlo contra el simulador sería inventar la magnitud. Se
@@ -77,6 +92,19 @@ namespace vmsOpenAcars.Models
 
         /// <summary>Posición de los **flaps** en porcentaje del handle (0–100).</summary>
         public double? FlapsPct { get; set; }
+
+        /// <summary>
+        /// **El detente real** que el simulador publica en `0x0BFC` («Notch actual»): 0 = arriba,
+        /// 1 = primera compuerta, 2 = segunda…, la escala que pinta el marcado del avión. Se lee junto
+        /// a <see cref="FlapsPct"/> (`0x0BDC`, el recorrido del mando) y es un dato distinto: el
+        /// porcentaje es una **posición** y el detente es una **compuerta**.
+        ///
+        /// **`null` cuando el avión no lo publica** (ver `Helpers/FlapSetting.DetentOrNull`, que cruza
+        /// el notch con el porcentaje para no confundir «flaps arriba» con «el addon no escribe el
+        /// offset»), cuando la fila es anterior a la columna o cuando la muestra no lo traía. Nunca 0
+        /// por defecto: un 0 es «flaps arriba», que es un dato.
+        /// </summary>
+        public int? FlapsIndex { get; set; }
 
         /// <summary>Spoilers desplegados.</summary>
         public bool? SpoilersDeployed { get; set; }

@@ -203,8 +203,15 @@
     <Compile Include="Helpers\CloseupAxis.cs" />
     <Compile Include="Helpers\CloseupVerticalAxis.cs" />
     <Compile Include="Helpers\CloseupTrackSource.cs" />
+    <!-- El blindaje del pintado: ningún área se queda con el eje en automático y sin datos. -->
+    <Compile Include="Helpers\ChartAxisSafety.cs" />
+    <Compile Include="Helpers\ThresholdToTouchdown.cs" />
     <Compile Include="Helpers\FlareCapturePolicy.cs" />
     <Compile Include="Helpers\FlareChartLayout.cs" />
+    <!-- Flaps y potencia del aterrizaje: la compuerta traducida, el resumen de la traza y el corte. -->
+    <Compile Include="Helpers\FlapSetting.cs" />
+    <Compile Include="Helpers\FlapTrackSummary.cs" />
+    <Compile Include="Helpers\PowerCut.cs" />
     <Compile Include="Helpers\WindComponents.cs" />
     <Compile Include="Helpers\MetarObservationTime.cs" />
     <Compile Include="Helpers\LandingWeatherLine.cs" />

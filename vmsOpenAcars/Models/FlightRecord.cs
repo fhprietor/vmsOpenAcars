@@ -66,6 +66,36 @@ namespace vmsOpenAcars.Models
         public double?   RunwayLengthFt { get; set; }
 
         /// <summary>
+        /// **¿La captura de la traza fina del flare llegó a armarse en este aterrizaje?**
+        /// (`TelemetryCoordinator.FlareCaptureStarted`, leído al persistir, antes de que el reset del
+        /// vuelo se llevara el estado en vivo.)
+        ///
+        /// **No es «hay filas en `flare_track`»**, y esa diferencia es el motivo de que exista: la
+        /// ventana del flare tiene que poder distinguir «este vuelo es anterior a la traza» de «la
+        /// captura se armó y no dejó muestras guardadas». Con el recuento de filas, el segundo caso
+        /// se contaba como el primero —y con la captura del flare vaciándose antes de persistir
+        /// (v0.9.34), eso era exactamente lo que pasaba en todos los vuelos—.
+        ///
+        /// Una base sin la columna (vuelos anteriores) degrada a `false`: no armada.
+        /// </summary>
+        public bool FlareCaptureArmed { get; set; }
+
+        /// <summary>
+        /// **La familia de la aeronave que voló este aterrizaje**, tal como la publicaba el simulador
+        /// en el **modelo ATC** (`FsuipcService.AircraftIcao`, offset `0x0618`): `B737`, `B777`,
+        /// `A320`… Null = sin dato (vuelo anterior a la columna, o el simulador no lo publicaba).
+        ///
+        /// **No es un adorno del historial**: los flaps se guardan como **porcentaje del recorrido del
+        /// mando** (`flare_track.flaps_pct`) y el mismo número significa `CONF 2` en un Airbus y
+        /// `FLAPS 5` en un 737. Sin la familia, al releer un vuelo solo se puede enseñar el número
+        /// (`Helpers/FlapSetting`), que es la respuesta honesta pero no la que el piloto reconoce.
+        ///
+        /// **No se rellena con el tipo del OFP**: el plan y el avión que de verdad voló pueden no
+        /// coincidir, y esa discrepancia es lo que valida `AircraftTypeMatch` al empezar el vuelo.
+        /// </summary>
+        public string AircraftIcao { get; set; }
+
+        /// <summary>
         /// Las componentes tal como se guardaron, para poder pintarlas con
         /// <see cref="Helpers.LandingWeatherLine"/> sin recalcular nada: lo que se enseña es lo que
         /// quedó en la base. `Available` solo es true si las dos componentes se persistieron.

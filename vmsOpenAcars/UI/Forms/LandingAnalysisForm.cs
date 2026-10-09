@@ -570,22 +570,32 @@ namespace vmsOpenAcars.UI.Forms
 
             var closeup = ComputeCloseup();
 
+            // Collect charts by tag
+            var charts = new Dictionary<string, Chart>();
+            foreach (Control c in FindChartControls(this))
+                if (c is Chart ch && ch.Tag is string t)
+                    charts[t] = ch;
+
             // Global max distance across all flights
             double maxDist = 0;
             foreach (var (_, track) in _flights)
                 foreach (var pt in track)
                     if (pt.DistNm > maxDist) maxDist = pt.DistNm;
             maxDist = Math.Ceiling(maxDist * 10) / 10.0;
-            if (maxDist <= 0) return;
+
+            // **Sin una sola distancia no hay nada que pintar, pero hay que salir bien.** Los cuatro
+            // gráficos se quedan con su área y sin ninguna serie: es el estado en el que el motor no
+            // puede estimar el intervalo de sus ejes y lanza `InvalidOperationException` al pintarse
+            // (la pila `EstimateAxis ← SetDefaultAxesValues ← Chart.SetData`, la del popup). Se cierran
+            // las cuatro antes de salir, y así un vuelo sin traza de aproximación se abre y se ve.
+            if (maxDist <= 0)
+            {
+                foreach (var ch in charts.Values) ChartAxisSafety.EnsureExplicit(ch);
+                return;
+            }
 
             // Overall Vref (average IAS across all tracks)
             double vref = ComputeOverallVref();
-
-            // Collect charts by tag
-            var charts = new Dictionary<string, Chart>();
-            foreach (Control c in FindChartControls(this))
-                if (c is Chart ch && ch.Tag is string t)
-                    charts[t] = ch;
 
             // Repintado limpio: el closeup reconstruye el perfil cada vez que se cambia de escala, y
             // las series y las bandas de la pasada anterior no pueden quedarse detrás.
@@ -708,7 +718,57 @@ namespace vmsOpenAcars.UI.Forms
             charts["IAS"].ChartAreas["main"].AxisY.Maximum      = Math.Ceiling((vref + 20) / 10) * 10;
 
             if (_lblCloseupSummary != null)
-                _lblCloseupSummary.Text = closeup != null ? closeup.Summary : "";
+                _lblCloseupSummary.Text = closeup != null
+                    ? closeup.Summary + LandingTrackNote()
+                    : "";
+
+            // ── El blindaje del pintado ───────────────────────────────────────────
+            // Último paso: con todas las series y las bandas puestas, cada área queda en un estado
+            // explícito. Un área sin datos —el perfil lateral de un vuelo sin desviación, o cualquier
+            // gráfico cuando la traza no trae esa magnitud— se marca «sin datos» en vez de dejar el
+            // eje en automático, que es lo que lanza al pintar (ver `ChartAxisSafety`).
+            foreach (var ch in charts.Values) ChartAxisSafety.EnsureExplicit(ch);
+        }
+
+        /// <summary>
+        /// **Lo que dice la traza fina de este aterrizaje**, en el resumen del closeup: el tiempo
+        /// umbral→toma, los flaps con los que se tomó —y si cambiaron en el flare— y dónde se cortó la
+        /// potencia. Son los **mismos tres helpers puros** que lo publican en la ventana del flare, en
+        /// la línea del aterrizaje y en el logbook, así que las tres pantallas no pueden discrepar.
+        ///
+        /// Sale de la traza **fina** (`_flareSamples`, 10 Hz), que es la única que sostiene los tres
+        /// datos. **Sin dato no se añade nada** —ni un cero ni un guion—: el resumen del closeup se
+        /// queda exactamente como estaba, y quien quiera el detalle abre la ventana FLARE.
+        ///
+        /// La familia del avión sale del **registro del vuelo** (`FlightRecord.AircraftIcao`), no del
+        /// OFP: es la que de verdad voló, y sin ella los flaps se enseñan en porcentaje.
+        /// </summary>
+        private string LandingTrackNote()
+        {
+            var timeline = ThresholdToTouchdown.Compute(_flareSamples);
+
+            string family = _flights.Count > 0 ? _flights[0].Record.AircraftIcao : null;
+            var flaps = FlapTrackSummary.Compute(_flareSamples, family);
+            var power = PowerCut.Compute(_flareSamples);
+
+            var sb = new System.Text.StringBuilder();
+            if (timeline.HasValue)
+                sb.Append("  ·  ").Append(L._("Landing_ThrToTd", timeline.Seconds));
+
+            if (flaps.HasTrack && flaps.AtThreshold != null)
+            {
+                sb.Append("  ·  ").Append(L._("Landing_FlapsHeader")).Append(" ").Append(flaps.AtThreshold.Text);
+                if (flaps.AtTouchdown != null && flaps.Changed)
+                    sb.Append("  ").Append(L._("Landing_FlapsChanged",
+                                               flaps.AtThreshold.ShortText, flaps.AtTouchdown.ShortText));
+            }
+
+            if (power.HasValue)
+                sb.Append("  ·  ").Append(L._(power.EngineCount == 2 ? "Landing_PowerCut"
+                                                                    : "Landing_PowerCutEngine1",
+                                              power.SecondsBeforeTouchdown));
+
+            return sb.ToString();
         }
 
         /// <summary>

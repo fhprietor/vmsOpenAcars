@@ -95,9 +95,12 @@ namespace vmsOpenAcars.Services
                             gs_kt         REAL,
                             eng1_pct      REAL,
                             eng2_pct      REAL,
+                            eng1_n2_pct   REAL,
+                            eng2_n2_pct   REAL,
                             flaps_pct     REAL,
                             spoilers      INTEGER,
-                            on_ground     INTEGER
+                            on_ground     INTEGER,
+                            flaps_index   INTEGER
                         )");
 
                     // ── Meteo del aterrizaje ──────────────────────────────────────────
@@ -126,6 +129,31 @@ namespace vmsOpenAcars.Services
                     // de la pista, como `touchdown_dist_ft` y `centerline_dev_ft`, que tampoco lo
                     // llevan. Nullable: las filas viejas se quedan en NULL y el closeup degrada.
                     EnsureColumn(conn, "flights", "runway_length_ft", "REAL");
+
+                    // ── ¿Se armó la captura del flare? ────────────────────────────────
+                    // Va en `flights` y **no** se deduce de `flare_track`: existe justo para el caso
+                    // contrario, el de la captura armada **sin** filas guardadas —que hasta v0.9.34
+                    // era el caso de todos los vuelos, porque el reset del vuelo vaciaba el buffer
+                    // antes de que se persistiera—. Sin este dato, la ventana del flare no puede
+                    // distinguir «vuelo anterior a la traza» de «la captura se armó y se perdió», y
+                    // contaba lo segundo como lo primero. `INTEGER` 0/1; NULL en las filas viejas =
+                    // no armada.
+                    EnsureColumn(conn, "flights", "flare_capture_armed", "INTEGER");
+
+                    // ── La familia de la aeronave ─────────────────────────────────────
+                    // **Sin esto las compuertas de flaps no se pueden etiquetar fuera del vuelo.**
+                    // `flaps_pct` es un porcentaje del recorrido del mando y el mismo número significa
+                    // cosas distintas en un Airbus que en un Boeing (`Helpers/FlapSetting`), así que
+                    // al abrir un vuelo del historial hay que saber en qué avión se voló. El dato sale
+                    // del **modelo ATC** del simulador (`FsuipcService.AircraftIcao`, offset `0x0618`),
+                    // que es el que publica la familia (`B737`, `B777`, `A320`…).
+                    //
+                    // Nullable: los vuelos anteriores a la columna se quedan en NULL y el helper
+                    // devuelve el porcentaje sin etiqueta, que es la respuesta honesta cuando no se
+                    // sabe el avión. **No se rellena a posteriori con el tipo del OFP**: el plan y el
+                    // avión que voló pueden no coincidir, y esa discrepancia es justo lo que valida
+                    // `AircraftTypeMatch` al empezar el vuelo.
+                    EnsureColumn(conn, "flights", "aircraft_icao", "TEXT");
 
                     // La traza del flare también se migra por si la tabla viene de una versión
                     // anterior con menos columnas: `CREATE TABLE IF NOT EXISTS` no toca una tabla que
@@ -157,9 +185,18 @@ namespace vmsOpenAcars.Services
             ("gs_kt",        "REAL"),
             ("eng1_pct",     "REAL"),
             ("eng2_pct",     "REAL"),
+            ("eng1_n2_pct",  "REAL"),
+            ("eng2_n2_pct",  "REAL"),
             ("flaps_pct",    "REAL"),
             ("spoilers",     "INTEGER"),
             ("on_ground",    "INTEGER"),
+            // El detente real (`0x0BFC`), que hasta ahora solo servía para el rótulo del panel de
+            // vuelo. Va **aparte** de `flaps_pct` porque no son el mismo dato: el porcentaje es la
+            // posición del mando y el detente es la compuerta que el avión tiene puesta. Es la
+            // lectura que permite etiquetar la compuerta **sin** el «≈» de la traducción por bandas
+            // (`Helpers/FlapSetting`), así que se guarda nullable: sin él se cae a las bandas, y un
+            // 0 por defecto sería «flaps arriba», que es un dato, no un hueco.
+            ("flaps_index",  "INTEGER"),
         };
 
         /// <summary>
@@ -272,11 +309,11 @@ namespace vmsOpenAcars.Services
                         INSERT INTO flare_track
                             (flight_id, seq_no, ts_utc, dist_ft, agl_ft, radar_alt_ft, ias_kt,
                              vs_fpm, pitch_deg, bank_deg, gs_kt, eng1_pct, eng2_pct,
-                             flaps_pct, spoilers, on_ground)
+                             eng1_n2_pct, eng2_n2_pct, flaps_pct, spoilers, on_ground, flaps_index)
                         VALUES
                             (@fid, @seq, @ts, @dist, @agl, @ra, @ias,
-                             @vs, @pitch, @bank, @gs, @n1, @n2,
-                             @flaps, @spoilers, @ground)";
+                             @vs, @pitch, @bank, @gs, @eng1n1, @eng2n1,
+                             @eng1n2, @eng2n2, @flaps, @spoilers, @ground, @flapsIndex)";
 
                     int written = 0;
                     foreach (var s in samples)
@@ -297,13 +334,24 @@ namespace vmsOpenAcars.Services
                         cmd.Parameters.AddWithValue("@gs",       Param(s.GsKt));
                         // Los N1 llegan ya a NULL cuando el offset viene a 0: un 0 ahí es «no lo
                         // publica» o «motor parado», y no hay manera de distinguirlos.
-                        cmd.Parameters.AddWithValue("@n1",       Param(s.Eng1Pct));
-                        cmd.Parameters.AddWithValue("@n2",       Param(s.Eng2Pct));
+                        cmd.Parameters.AddWithValue("@eng1n1",   Param(s.Eng1Pct));
+                        cmd.Parameters.AddWithValue("@eng2n1",   Param(s.Eng2Pct));
+                        // El N2 va por el mismo camino y por el mismo motivo: `0x2220`/`0x2420` se
+                        // quedan a cero en los addons que no los escriben (documentado en el propio
+                        // `FsuipcService`), así que un 0 es «no lo sé» y se guarda NULL.
+                        cmd.Parameters.AddWithValue("@eng1n2",   Param(s.Eng1N2Pct));
+                        cmd.Parameters.AddWithValue("@eng2n2",   Param(s.Eng2N2Pct));
                         cmd.Parameters.AddWithValue("@flaps",    Param(s.FlapsPct));
                         cmd.Parameters.AddWithValue("@spoilers", s.SpoilersDeployed.HasValue
                                                                     ? (object)(s.SpoilersDeployed.Value ? 1 : 0)
                                                                     : DBNull.Value);
                         cmd.Parameters.AddWithValue("@ground", s.OnGround ? 1 : 0);
+                        // El detente real: nullable de verdad. Sin dato va NULL, nunca 0, porque un 0
+                        // es «flaps arriba» y afirmarlo cuando el avión no publica el notch inventaría
+                        // una compuerta (ver `FlapSetting.DetentOrNull`).
+                        cmd.Parameters.AddWithValue("@flapsIndex", s.FlapsIndex.HasValue
+                                                                       ? (object)s.FlapsIndex.Value
+                                                                       : DBNull.Value);
                         cmd.ExecuteNonQuery();
                         written++;
                     }
@@ -331,14 +379,15 @@ namespace vmsOpenAcars.Services
                          score, metar_raw,
                          landing_metar_obs_utc, landing_wind_dir_deg, landing_wind_speed_kt,
                          landing_wind_gust_kt, landing_headwind_kt, landing_crosswind_kt,
-                         landing_runway_true_deg, runway_length_ft)
+                         landing_runway_true_deg, runway_length_ft,
+                         flare_capture_armed, aircraft_icao)
                     VALUES
                         (@fn, @org, @dest, @rwy, @dt,
                          @rate, @gf, @dist, @cl,
                          @score, @metar,
                          @obs, @wdir, @wspd,
                          @wgst, @hw, @xw,
-                         @rwytrue, @rlen)";
+                         @rwytrue, @rlen, @flareArmed, @acft)";
 
                 cmd.Parameters.AddWithValue("@fn",    r.FlightNumber ?? "");
                 cmd.Parameters.AddWithValue("@org",   r.Origin ?? "");
@@ -364,6 +413,13 @@ namespace vmsOpenAcars.Services
                 double? runwayLength = r.RunwayLengthFt.HasValue && r.RunwayLengthFt.Value > 0.0
                     ? r.RunwayLengthFt : null;
                 cmd.Parameters.AddWithValue("@rlen", (object)runwayLength ?? DBNull.Value);
+                // La captura del flare, 0/1. **No** es «hay filas en `flare_track`»: ver
+                // `FlightRecord.FlareCaptureArmed`.
+                cmd.Parameters.AddWithValue("@flareArmed", r.FlareCaptureArmed ? 1 : 0);
+                // La familia del avión que voló, para poder etiquetar los flaps al releer el vuelo.
+                // Vacío es «no la sé» y va NULL, igual que el resto de datos que pueden faltar.
+                cmd.Parameters.AddWithValue("@acft",
+                    string.IsNullOrWhiteSpace(r.AircraftIcao) ? (object)DBNull.Value : r.AircraftIcao.Trim());
                 cmd.ExecuteNonQuery();
             }
             using (var cmd2 = conn.CreateCommand())
@@ -390,7 +446,8 @@ namespace vmsOpenAcars.Services
                                score, metar_raw,
                                landing_metar_obs_utc, landing_wind_dir_deg, landing_wind_speed_kt,
                                landing_wind_gust_kt, landing_headwind_kt, landing_crosswind_kt,
-                               landing_runway_true_deg, runway_length_ft
+                               landing_runway_true_deg, runway_length_ft,
+                               flare_capture_armed, aircraft_icao
                         FROM flights
                         ORDER BY flight_date DESC";
 
@@ -421,7 +478,13 @@ namespace vmsOpenAcars.Services
                                 LandingHeadwindKt   = r.IsDBNull(16) ? (double?)null   : r.GetDouble(16),
                                 LandingCrosswindKt  = r.IsDBNull(17) ? (double?)null   : r.GetDouble(17),
                                 LandingRunwayTrueDeg= r.IsDBNull(18) ? (double?)null   : r.GetDouble(18),
-                                RunwayLengthFt      = r.IsDBNull(19) ? (double?)null   : r.GetDouble(19)
+                                RunwayLengthFt      = r.IsDBNull(19) ? (double?)null   : r.GetDouble(19),
+                                // NULL en una fila anterior a la columna = «no se sabe», y se trata
+                                // como no armada: en la duda no se acusa a la captura de un fallo.
+                                FlareCaptureArmed   = !r.IsDBNull(20) && r.GetInt32(20) != 0,
+                                // NULL = vuelo anterior a la columna, o el simulador no publicaba el
+                                // modelo ATC: el helper de flaps devuelve el porcentaje sin etiqueta.
+                                AircraftIcao        = r.IsDBNull(21) ? null : r.GetString(21)
                             });
                         }
                     }
@@ -491,7 +554,7 @@ namespace vmsOpenAcars.Services
                     cmd.CommandText = @"
                         SELECT flight_id, seq_no, ts_utc, dist_ft, agl_ft, radar_alt_ft, ias_kt,
                                vs_fpm, pitch_deg, bank_deg, gs_kt, eng1_pct, eng2_pct,
-                               flaps_pct, spoilers, on_ground
+                               eng1_n2_pct, eng2_n2_pct, flaps_pct, spoilers, on_ground, flaps_index
                         FROM flare_track
                         WHERE flight_id = @fid
                         ORDER BY seq_no";
@@ -516,9 +579,14 @@ namespace vmsOpenAcars.Services
                                 GsKt         = Nullable(r, 10),
                                 Eng1Pct      = Nullable(r, 11),
                                 Eng2Pct      = Nullable(r, 12),
-                                FlapsPct     = Nullable(r, 13),
-                                SpoilersDeployed = r.IsDBNull(14) ? (bool?)null : r.GetInt32(14) != 0,
-                                OnGround     = !r.IsDBNull(15) && r.GetInt32(15) != 0,
+                                Eng1N2Pct    = Nullable(r, 13),
+                                Eng2N2Pct    = Nullable(r, 14),
+                                FlapsPct     = Nullable(r, 15),
+                                SpoilersDeployed = r.IsDBNull(16) ? (bool?)null : r.GetInt32(16) != 0,
+                                OnGround     = !r.IsDBNull(17) && r.GetInt32(17) != 0,
+                                // NULL = vuelo anterior a la columna, o el avión no publica `0x0BFC`:
+                                // el helper de flaps cae entonces a la traducción por bandas.
+                                FlapsIndex   = r.IsDBNull(18) ? (int?)null : r.GetInt32(18),
                             });
                         }
                     }

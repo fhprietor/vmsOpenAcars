@@ -252,6 +252,41 @@ namespace vmsOpenAcars.Tests
             Assert.IsTrue(l.PitchFloorDeg <= -0.5 && l.PitchTopDeg >= 4.0);
         }
 
+        /// <summary>
+        /// **Con la velocidad constante el eje no puede quedarse en 0–0.** No es un detalle estético:
+        /// un `AxisY` con el mínimo igual al máximo deja el área sin escala y **el motor de gráficos no
+        /// la pinta** —el gráfico entero sale en blanco, y así lo destapó el volcado a PNG del caso con
+        /// flaps y N1, cuya traza lleva la IAS fija del tramo—. Se abre ±20 kt alrededor, que es lo que
+        /// mide la maniobra en un flare.
+        /// </summary>
+        [TestMethod]
+        public void ConVelocidadConstante_ElEjeNoSeQuedaEnCero()
+        {
+            var samples = Skcg41Flare();
+            foreach (var s in samples) s.IasKt = 150.0;   // la IAS fija de una traza reconstruida
+
+            var l = FlareChartLayout.Build(samples, Skcg01, true);
+
+            Assert.IsTrue(l.HasSpeed, "hay IAS: el eje se tiene que ajustar");
+            Assert.IsTrue(l.SpeedTopKt > l.SpeedFloorKt,
+                $"un eje de {l.SpeedFloorKt}–{l.SpeedTopKt} deja el área sin poder pintarse");
+            Assert.IsTrue(l.SpeedFloorKt <= 130.0 && l.SpeedTopKt >= 170.0,
+                $"y tiene que contener la velocidad real ({l.SpeedFloorKt}–{l.SpeedTopKt})");
+        }
+
+        /// <summary>Sin ninguna IAS no hay escala que fijar: el eje se queda en automático, que es
+        /// distinto de un rango inventado.</summary>
+        [TestMethod]
+        public void SinIas_ElEjeDeVelocidadNoSeFija()
+        {
+            var samples = Skcg41Flare();
+            foreach (var s in samples) s.IasKt = null;
+
+            var l = FlareChartLayout.Build(samples, Skcg01, true);
+
+            Assert.IsFalse(l.HasSpeed);
+        }
+
         // ── Degradar sin datos ────────────────────────────────────────────────────
 
         /// <summary>

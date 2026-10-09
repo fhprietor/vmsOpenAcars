@@ -117,14 +117,97 @@ namespace vmsOpenAcars.ViewModels
             {
                 var upd = new AcarsPositionUpdate { positions = new[] { rec } };
                 await _apiService.SendPositionUpdate(_flightManager.ActivePirepId, upd);
+                // La línea del aterrizaje gana el tiempo umbral→toma, los flaps y el corte de potencia,
+                // leídos del buffer del flare **en memoria**: en vuelo no hay que ir a la base.
                 _cb.Log?.Invoke(_("Log_LandingRecorded", verticalSpeed, $"{gforce:F2}",
-                    (int)_fsuipc.CurrentHeading, $"{pitch:F1}", $"{bank:F1}"), Theme.Success);
+                    (int)_fsuipc.CurrentHeading, $"{pitch:F1}", $"{bank:F1}")
+                    + LandingTrackNote(), Theme.Success);
             });
 
             int abs = Math.Abs(verticalSpeed);
             OsdSeverity sev   = abs <= 300 ? OsdSeverity.Success : abs <= 600 ? OsdSeverity.Warning : OsdSeverity.Critical;
             string      label = abs <= 300 ? "TOUCHDOWN"         : abs <= 600 ? "FIRM LANDING"      : "HARD LANDING";
             _cb.OsdMessage?.Invoke($"{label}  {verticalSpeed} FPM  {gforce:F2} G", sev);
+        }
+
+        /// <summary>
+        /// **Lo que la traza fina del flare dice de este aterrizaje**, para la línea del log: el tiempo
+        /// umbral→toma, los flaps con los que se tomó y dónde se cortó la potencia. Los tres salen de
+        /// los helpers puros que los publican en el resto de la aplicación, y los tres **degradan
+        /// callándose**: sin dato no se añade nada, nunca un cero.
+        ///
+        /// **La espera acotada tiene causa raíz.** El ciclo de telemetría que detecta el toque corre
+        /// **antes** de que ese mismo ciclo guarde su muestra del flare —el estado de fase se
+        /// actualiza en `FlightManager.UpdateTelemetry`, y la captura del flare va después, en
+        /// `ProcessRawData`—, así que en la primera lectura la traza acaba en la última muestra **en
+        /// el aire** y los helpers, que exigen la transición a tierra, no devuelven número. La muestra
+        /// en tierra llega en el ciclo siguiente (captura a 10 Hz sobre un sondeo de 50 ms), así que se
+        /// espera como mucho **1 s** a que aparezca. Es espera dentro del `Task.Run` que ya está
+        /// mandando la posición del toque —no en el hilo de telemetría ni en el de UI— y, si no
+        /// llega, se degrada: la línea del aterrizaje sale sin el dato, nunca con un cero.
+        ///
+        /// Los tres se calculan sobre **el mismo snapshot**: el de la última lectura, ya con la
+        /// muestra en tierra, para que los números que se enseñan juntos sean del mismo instante.
+        /// </summary>
+        private string LandingTrackNote()
+        {
+            if (_tc == null) return "";
+
+            var samples  = _tc.SnapshotFlareBuffer();
+            var timeline = ThresholdToTouchdown.Compute(samples);
+            var deadline = DateTime.UtcNow.AddSeconds(1.0);
+            while (timeline.Status == ThresholdToTouchdownStatus.NoGroundTransition
+                   && _tc.FlareBufferCount > 0
+                   && DateTime.UtcNow < deadline)
+            {
+                System.Threading.Thread.Sleep(50);
+                samples  = _tc.SnapshotFlareBuffer();
+                timeline = ThresholdToTouchdown.Compute(samples);
+            }
+
+            string family = _fsuipc != null ? _fsuipc.AircraftIcao : null;
+            var flaps = FlapTrackSummary.Compute(samples, family);
+            var power = PowerCut.Compute(samples);
+
+            var sb = new System.Text.StringBuilder();
+            if (timeline.HasValue)
+                sb.Append("  ·  ").Append(_("Landing_ThrToTd", timeline.Seconds));
+
+            // Los flaps del aterrizaje: el ajuste en el umbral es el que el piloto recuerda, y el
+            // aviso de cambio es lo que explica un flotado largo. Con la familia desconocida el helper
+            // devuelve el porcentaje, nunca una compuerta inventada.
+            if (flaps.HasTrack && flaps.AtThreshold != null)
+            {
+                sb.Append("  ·  ").Append(L._("Landing_FlapsHeader")).Append(" ").Append(flaps.AtThreshold.Text);
+                if (flaps.AtTouchdown != null && flaps.Changed)
+                    sb.Append("  ").Append(L._("Landing_FlapsChanged",
+                                               flaps.AtThreshold.ShortText, flaps.AtTouchdown.ShortText));
+            }
+
+            if (power.HasValue)
+                sb.Append("  ·  ").Append(L._(power.EngineCount == 2 ? "Landing_PowerCut"
+                                                                    : "Landing_PowerCutEngine1",
+                                              power.SecondsBeforeTouchdown));
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// **Los flaps del aterrizaje tal como viajan al `notes` del PIREP**: el ajuste que el piloto
+        /// tenía puesto **al cruzar el umbral**, que es el que responde a «¿con cuánto flap tomé?».
+        ///
+        /// **El cambio durante el flare no entra aquí**, y es una decisión de espacio, no un olvido: la
+        /// línea del `notes` ya lleva el METAR entero, el viento con sus componentes, el `THR-TD`, este
+        /// ajuste y el corte de potencia, y un segundo ajuste la alarga y la vuelve difícil de leer de
+        /// un vistazo. El cambio **sí** se publica donde hay sitio para explicarlo: la línea del
+        /// aterrizaje del log y el resumen de la ventana FLARE (`Landing_FlapsChanged`).
+        ///
+        /// `null` sin dato, para que el llamante no concatene nada.
+        /// </summary>
+        private static string FlapPirepSuffix(FlapTrackSummary flaps)
+        {
+            if (flaps == null || !flaps.HasTrack || flaps.AtThreshold == null) return null;
+            return flaps.AtThreshold.PirepText;
         }
 
         internal void HandleBlockDetected()
@@ -157,12 +240,59 @@ namespace vmsOpenAcars.ViewModels
             // fileo llama a `ResetFlightState()`, que borra el plan activo y los datos de touchdown.
             var pendingRecord = SnapshotLandingRecord();
 
+            // Las dos trazas se copian aquí, pegadas al registro y por el mismo motivo: en cuanto el
+            // PIREP se da por enviado, `ResetTelemetry` corre `TelemetryCoordinator.Reset()` y los
+            // buffers en vivo dejan de existir. Copiarlas aquí hace que la persistencia **no dependa
+            // del orden de las sentencias** de este método.
+            //
+            // Es la causa raíz de que `flare_track` quedara vacía: el guardado corría después del
+            // reset, el buffer ya estaba a cero y la condición «hay muestras» no se cumplía nunca (0
+            // filas en toda la base local con capturas de ~200 muestras terminadas). El buffer de
+            // aproximación se libraba porque `Reset()` no lo vacía, y eso es lo que hacía que el
+            // fallo pasara desapercibido: el vuelo se guardaba, solo perdía la traza fina.
+            //
+            // El «¿se armó la captura?» también se lee ahora: después del reset el estado en vivo ya
+            // no lo sabe, y es lo que la ventana del flare necesita para no contar una captura
+            // perdida como un vuelo anterior a la traza.
+            var pendingApproach = _tc?.SnapshotApproachBuffer() ?? new List<ApproachTrackPoint>();
+            var pendingFlare    = _tc?.SnapshotFlareBuffer()    ?? new List<FlareTrackPoint>();
+            bool flareArmed     = _tc != null && _tc.FlareCaptureStarted;
+
             // La MISMA meteo que se acaba de volcar al logbook viaja al PIREP, compuesta una sola
             // vez desde el snapshot: dos lecturas distintas podrían dar dos textos distintos.
             string landingWx = LandingWeatherLine.Build(
                 pendingRecord.MetarRaw,
                 pendingRecord.LandingMetarObsUtc,
                 pendingRecord.WindAtLanding);
+
+            // El tiempo umbral→toma va **al final** de la línea de meteo, que es el único camino que
+            // hoy llega al `notes` del PIREP. Solo con la **traza fina**: con la de 2 s el helper
+            // devuelve `CoarseTrack` y no se publica —±1 s disfrazado de décimas es peor que no
+            // tener el dato—, y sin línea de meteo no hay dónde colgarlo.
+            string thrToTd = ThresholdToTouchdown.PirepSuffix(
+                ThresholdToTouchdown.Compute(pendingFlare));
+            if (!string.IsNullOrEmpty(thrToTd) && !string.IsNullOrEmpty(landingWx))
+                landingWx += " | " + thrToTd;
+
+            // Los flaps y el corte de potencia van **detrás del tiempo** y con la línea de meteo ya
+            // compuesta. La línea resultante queda en unos 140 caracteres en el peor caso (METAR
+            // completo + viento + componentes + los tres datos), que un `notes` de texto libre aguanta
+            // sin volverse ilegible; por eso entran los dos y no solo uno.
+            //
+            // **Sin dato no se añade nada** —ni un cero ni un guion—: cada sufijo es `null` cuando su
+            // helper no tiene número, y la línea se queda como estaba. Y los dos son **cortos y
+            // autodescriptivos** (`~FLAPS 30`, `PWR-CUT 4.1s`) porque comparten renglón con el METAR.
+            //
+            // La familia para etiquetar los flaps sale del **snapshot**: el `AirportIcao` que se acaba
+            // de guardar en el registro es el del avión que voló, no el tipo del OFP —que puede no
+            // coincidir—.
+            string flapsPirep = FlapPirepSuffix(FlapTrackSummary.Compute(pendingFlare, pendingRecord.AircraftIcao));
+            string powerPirep = PowerCut.PirepSuffix(PowerCut.Compute(pendingFlare));
+            if (!string.IsNullOrEmpty(landingWx))
+            {
+                if (!string.IsNullOrEmpty(flapsPirep)) landingWx += " | " + flapsPirep;
+                if (!string.IsNullOrEmpty(powerPirep)) landingWx += " | " + powerPirep;
+            }
 
             // Camino de campo personalizado, **apagado por defecto**: un campo de `pirep_fields` lo
             // tiene que crear phpVMS antes (ver AppConfig.PirepLandingWeatherFieldEnabled). El
@@ -193,7 +323,7 @@ namespace vmsOpenAcars.ViewModels
                 LastCheckpointSent = DateTime.MinValue;
                 _cb.Log?.Invoke("✅ Vuelo reportado, listo para siguiente vuelo", Theme.Success);
                 _cb.FlightEnded?.Invoke();
-                SaveLandingRecord(pendingRecord);
+                SaveLandingRecord(pendingRecord, pendingApproach, pendingFlare, flareArmed);
                 // Releer los datos del piloto implica una llamada HTTP y 5 s de espera; no
                 // debe bloquear el cierre del vuelo, pero un fallo debe quedar registrado.
                 FireAndForget.Run(RefreshPilotDataAfterPirep,
@@ -292,6 +422,13 @@ namespace vmsOpenAcars.ViewModels
                 // pista antes que dibujarla de un largo inventado.
                 RunwayLengthFt       = fm.TouchdownRunwayLengthFt > 0.0
                                            ? (double?)fm.TouchdownRunwayLengthFt : null,
+
+                // La familia del avión, para poder etiquetar los flaps al releer el vuelo. Se guarda
+                // el **modelo ATC** del simulador (`B737`, `A320`…), que es el que dice la familia;
+                // `????` es «no lo publica» y va como null, no como un texto que parezca un avión.
+                AircraftIcao         = _fsuipc != null && !string.IsNullOrEmpty(_fsuipc.AircraftIcao)
+                                       && _fsuipc.AircraftIcao != "????"
+                                           ? _fsuipc.AircraftIcao.Trim() : null,
             };
         }
 
@@ -330,9 +467,19 @@ namespace vmsOpenAcars.ViewModels
             return metars.Length > 1 ? metars[1] : null;
         }
 
-        private void SaveLandingRecord(FlightRecord record)
+        /// <summary>
+        /// Persiste el vuelo y sus dos trazas. **Las trazas llegan como argumentos, ya copiadas**
+        /// (`SendPirep` las copia antes de `await FilePirep()`): leerlas aquí en vivo ataba el guardado
+        /// a que nadie hubiera vaciado los buffers por el camino, y el reset del vuelo —que corre en
+        /// este mismo método, después— vacía el del flare. Con la copia en la mano, el orden de las
+        /// sentencias deja de importar.
+        /// </summary>
+        private void SaveLandingRecord(FlightRecord record,
+                                       IList<ApproachTrackPoint> approachTrack,
+                                       IList<FlareTrackPoint>    flareTrack,
+                                       bool                      flareCaptureArmed)
         {
-            int  bufCount = _tc?.ApproachBufferCount ?? 0;
+            int  bufCount = approachTrack?.Count ?? 0;
             bool svcOk    = _landingLogService?.IsAvailable ?? false;
 
             if (!svcOk)
@@ -348,9 +495,11 @@ namespace vmsOpenAcars.ViewModels
             try
             {
                 record.Score = _flightManager.LastFlightScore;
-                // Snapshot rather than the live list: while this runs, ReconfirmApproachRunway
-                // may clear the buffer from a background task.
-                int newId = _landingLogService.SaveFlight(record, _tc.SnapshotApproachBuffer());
+                // «La captura del flare se armó» viaja con el vuelo: con cero filas en `flare_track`
+                // es lo único que separa «esta captura se perdió» de «este vuelo es anterior a la
+                // traza del flare», y el estado en vivo ya no existe a estas alturas.
+                record.FlareCaptureArmed = flareCaptureArmed;
+                int newId = _landingLogService.SaveFlight(record, approachTrack);
                 if (newId > 0)
                 {
                     _cb.Log?.Invoke(_("Log_LandingLogSaved", newId, bufCount, record.RunwayName), Theme.Success);
@@ -360,15 +509,15 @@ namespace vmsOpenAcars.ViewModels
                     // vuelo; y si falla no arrastra al vuelo, que ya está guardado. Un vuelo sin
                     // captura de flare no estrena filas y el gráfico dirá que no hay datos — que es
                     // la verdad, no un hueco que rellenar con la traza de 2 s.
-                    if (_tc != null && _tc.FlareBufferCount > 0)
+                    if (flareTrack != null && flareTrack.Count > 0)
                     {
-                        int flareCount = _landingLogService.SaveFlareTrack(newId, _tc.SnapshotFlareBuffer());
+                        int flareCount = _landingLogService.SaveFlareTrack(newId, flareTrack);
                         if (flareCount > 0)
                             _cb.Log?.Invoke(_("Log_FlareTrackSaved", flareCount), Theme.Success);
                     }
 
-                    // Solo descartar la trayectoria si realmente se persistió: si SaveFlight
-                    // falla (devuelve -1) el buffer sigue siendo la única copia del track.
+                    // Solo descartar la trayectoria si realmente se persistió: si `SaveFlight` falla, el
+                    // buffer en vivo sigue siendo la única copia que queda en el proceso.
                     _tc?.ClearApproachBuffer();
                     _tc?.ClearFlareBuffer();
                 }
