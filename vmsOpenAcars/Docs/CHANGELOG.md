@@ -2,6 +2,41 @@
 
 ---
 
+## [0.9.36] — 08/10/2026
+
+### Added
+
+- **Cabecera de datos en la ventana del FLARE, para poder compartir el gráfico**, con lo que exista y **sin rellenar huecos
+  con ceros**: **AERONAVE** (variante + `[addon]` + la familia ATC sólo si difiere), **FABRICANTE** (deducido del
+  designador ICAO; el **addon sólo si el título lo nombra**, porque no está en FSUIPC y el cliente **no escanea la
+  carpeta de community** desde v0.9.16), **LTOW**, **VUELO** (UTC, ruta, pista, largo, puntuación), **TOMA** (tasa, GS/IAS
+  del contacto, distancia al umbral, CL), **FLAPS**, **CORTE POT.** y **VIENTO**, con la línea `vmsOpenACars <versión>`.
+  Fuera por sitio: el METAR en crudo (ya está en el logbook y es larguísimo) y ancho/peso máximo (no se leen).
+- **Botón 💾 PNG** en la barra de título: `SaveFileDialog` + **`Chart.SaveImage`**, sin dependencias nuevas. El bloque de
+  texto no sale en el PNG (es una franja del formulario), así que **el título del gráfico lleva la identidad compacta**
+  para que la imagen se entienda sola.
+- **Tres columnas nuevas en `flights`**, con la migración defensiva de siempre y **leídas en el snapshot antes del
+  `await`** (el error que dejó `flare_track` vacía en 0.9.32–0.9.33): `aircraft_title` y `aircraft_model` (que se leían
+  en vuelo y **sólo se logueaban**) y `landing_weight_lbs`. El ***title*** (`0x3D00`) y el modelo (`0x0B26`) viven en
+  `FsuipcService`, y **LTOW es una lectura medida** (`FSUIPC.PayloadServices.GrossWeightLbs`, en libras, capturada en el
+  contacto con un `RefreshData()` **una vez por vuelo**, no a 20 Hz). **Sin lectura va `NULL` y la línea se omite**: no se
+  deriva del ZFW del plan para llamarlo LTOW.
+
+### Fixed
+
+- **Una sola identidad de aeronave, y era un fallo real que destapó el mantenedor con dos PIREPs suyos.** La línea del log
+  (`ViewModels/MainViewModel.cs:740`) publicaba **`_fsuipc.AircraftIcao`, la familia ATC**, mientras el bloque del gráfico
+  resolvía **la variante**: con el PMDG 777 el log decía `✈️ B777  [PMDG]` y el gráfico `B77L`. En los dos casos reales
+  aportados (`A319 [ToLiss]`, `B38M [iFly]`) coincidían porque **esos simuladores ya publican la variante** — o sea el
+  fallo estaba latente y sólo se veía en los aviones que publican la familia. Ahora `AircraftIdentity.Resolve/Compose/LogLine`
+  es **la única fuente** y la usan el log y el gráfico, con un test de coherencia que falla si divergen.
+  (Matiz: la transcripción de la web muestra un espacio entre el tipo y el corchete y nuestra plantilla tiene dos; el HTML
+  **colapsa los espacios**, así que es lo mismo).
+- **El título del gráfico en dos líneas cruzaba la traza de AGL**, porque `ChartArea.Position` son porcentajes del control
+  y el título no aparta el gráfico: el título quedó en **una línea** y las áreas bajan a una banda del 5 %. Y documentado
+  en test, no tapado: la línea técnica de `TouchdownCloseupGeometry.Summary` mide **1 505 px** y ya se cortaba antes.
+- **649/649 → 655/655** (630 + 19 del bloque + 6 de la identidad). Idiomas simétricos (**460 claves**).
+
 ## [0.9.35] — 08/10/2026
 
 ### Fixed

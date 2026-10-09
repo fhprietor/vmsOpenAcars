@@ -512,6 +512,151 @@ namespace vmsOpenAcars.Tests
             }
         }
 
+        // ── La cabecera de datos: lo que se comparte ─────────────────────────────
+
+        /// <summary>
+        /// **Un vuelo sin traza de flare y sin aeronave guardada no puede tumbar la ventana.** Es el
+        /// caso real de los vuelos anteriores a `flare_track` (y de los que se grabaron antes de que
+        /// existiera `flights.aircraft_icao`): no hay muestras —no se pinta gráfico— y no hay título,
+        /// modelo ni familia, así que la cabecera **no tiene de dónde sacar la aeronave ni el peso**.
+        ///
+        /// Lo que se mide: que el formulario se construye y se reparte sin lanzar, que el bloque
+        /// **no inventa** la línea de aeronave, y que el aviso de «no hay traza fina» sigue en su
+        /// franja sin que el bloque lo tape.
+        /// </summary>
+        [TestMethod]
+        public void SinTrazaNiAeronaveGuardada_LaVentanaNoLanzaYNoInventaLineas()
+        {
+            var record = Skcg41();       // sin AircraftIcao / AircraftTitle / AircraftModel
+            Assert.IsNull(record.AircraftIcao);
+
+            using (var form = new FlareAnalysisForm(record, new List<FlareTrackPoint>(), true))
+            {
+                form.CreateControl();
+                form.PerformLayout();
+
+                Assert.IsNull(form.FlareChart, "sin muestras no hay gráfico");
+                Assert.IsNotNull(form.SummaryLabel);
+                StringAssert.Contains(form.SummaryLabel.Text, "No flare samples");
+
+                // La cabecera no puede afirmar una aeronave que no se guardó.
+                StringAssert.Contains(form.SummaryLabel.Text, L._(LandingHeader.KeyFlight),
+                    "el vuelo sí se sabe y se publica");
+                Assert.IsFalse(form.SummaryLabel.Text.Contains(L._(LandingHeader.KeyAircraft)),
+                    "sin dato no se escribe la línea de aeronave");
+                Assert.IsFalse(form.SummaryLabel.Text.Contains(L._(LandingHeader.KeyWeight)),
+                    "ni la del peso");
+
+                // El reparto: el bloque crece hacia arriba y el contenido no lo invade.
+                var contenido = form.Controls.Cast<Control>()
+                    .FirstOrDefault(c => c.Dock == DockStyle.Fill);
+                Assert.IsNotNull(contenido);
+                Assert.IsTrue(contenido.Bottom <= form.SummaryLabel.Top,
+                    $"el contenido no puede invadir el bloque (contenido {contenido.Bounds}, bloque {form.SummaryLabel.Bounds})");
+
+                // Sin gráfico no hay nada que guardar: el botón se queda apagado.
+                Assert.IsNotNull(form.SaveImageButton);
+                Assert.IsFalse(form.SaveImageButton.Enabled);
+            }
+        }
+
+        /// <summary>
+        /// **Con datos, la cabecera del gráfico lleva la identidad del vuelo y el bloque crece.** La
+        /// franja del formulario pasa de una línea a varias; aquí se comprueba que sigue sin comerse
+        /// el gráfico (`Dock.Bottom` reserva su alto) y que el botón de guardar está disponible.
+        /// </summary>
+        [TestMethod]
+        public void ConAeronave_LaCabeceraLlevaLaIdentidadYElBloqueNoTapaElGrafico()
+        {
+            using (var form = new FlareAnalysisForm(Skcg41B737(), Skcg41WithFlapsAndPower(), true))
+            {
+                form.CreateControl();
+                form.PerformLayout();
+
+                StringAssert.Contains(form.SummaryLabel.Text, "B737",
+                    "la familia guardada con el vuelo sale en la cabecera");
+                StringAssert.Contains(form.SummaryLabel.Text, "Boeing",
+                    "y el fabricante, deducido del designador ICAO");
+
+                var contenido = form.Controls.Cast<Control>()
+                    .FirstOrDefault(c => c.Dock == DockStyle.Fill);
+                Assert.IsTrue(contenido.Bottom <= form.SummaryLabel.Top,
+                    $"el bloque no puede invadir el gráfico (contenido {contenido.Bounds}, bloque {form.SummaryLabel.Bounds})");
+
+                Assert.IsTrue(form.SaveImageButton.Enabled, "con gráfico, el botón de guardar está activo");
+
+                // **El ancho**: el bloque es monoespaciado y se corta, no se reparte. Se mide **línea a
+                // línea** con el tipo de letra real del rótulo —`PreferredWidth` mide el texto como
+                // una sola línea y aquí hay varias—.
+                //
+                // Se mide el **bloque de datos** (todas las líneas menos la última, que es la línea
+                // técnica del gráfico: muestras, encuadre, bandas de la TDZ y THR-TD). Esa última ya
+                // era más larga que la ventana **antes** de este cambio —la compone
+                // `TouchdownCloseupGeometry.Summary`, que comparten los dos formularios— y aquí queda
+                // documentada en vez de tapada con una aserción que no se sostiene.
+                var lineas = form.SummaryLabel.Text.Split('\n');
+                var bloque = lineas.Take(lineas.Length - 1).ToArray();
+                var fuente = form.SummaryLabel.Font;
+
+                foreach (string linea in bloque)
+                {
+                    int ancho = TextRenderer.MeasureText(linea, fuente).Width;
+                    Assert.IsTrue(ancho <= form.ClientSize.Width,
+                        $"una línea del bloque no cabe a lo ancho ({ancho} px de {form.ClientSize.Width} px): «{linea}»");
+                }
+
+                // El nombre propuesto lleva el vuelo y la pista, para poder archivarlo.
+                StringAssert.Contains(form.DefaultImageName(), "9821");
+                StringAssert.Contains(form.DefaultImageName(), "SKBG-SKCG");
+                StringAssert.Contains(form.DefaultImageName(), "RWY01");
+            }
+        }
+
+        /// <summary>
+        /// **El botón de guardar escribe el PNG con `Chart.SaveImage`.** Se prueba el volcado sin el
+        /// `SaveFileDialog` a propósito: una prueba **no puede abrir una ventana** delante del
+        /// mantenedor. Y la ruta que usa es la del motor de gráficos, no `DrawToBitmap`, que es la
+        /// pila de la excepción que ya apareció en pantalla.
+        /// </summary>
+        [TestMethod]
+        public void ElBotonDeGuardar_VuelcaElPngSinPasarPorDrawToBitmap()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "vmsopenacars_flare_header.png");
+
+            using (var form = new FlareAnalysisForm(Skcg41B737(), Skcg41WithFlapsAndPower(), true))
+            {
+                form.CreateControl();
+                form.PerformLayout();
+                form.FlareChart.Width  = 960;
+                form.FlareChart.Height = 620;
+
+                try
+                {
+                    form.SaveChartImage(path);
+                }
+                catch (Exception ex)
+                {
+                    Assert.Fail($"el volcado del gráfico falló: {ex.GetType().Name}: {ex.Message}");
+                }
+
+                Assert.IsTrue(File.Exists(path), "el PNG se tiene que haber escrito");
+                Assert.IsTrue(new FileInfo(path).Length > 5000,
+                    $"un PNG con contenido pesa más que esto ({new FileInfo(path).Length} B)");
+                Assert.IsTrue(DistinctColors(path) > 5,
+                    "y tiene que tener contenido, no un solo color");
+
+                // Y el título del gráfico lleva la identidad que viaja en la imagen: sin ella, un PNG
+                // compartido no diría de qué avión ni de qué día es. **En una sola línea**: las áreas
+                // se colocan en porcentajes del control y un título de dos líneas se les echa encima
+                // —lo destapó el PNG con `9821 · SKBG → SKCG …` cruzado por la traza de AGL—.
+                var titulo = form.FlareChart.Titles.Cast<Title>().FirstOrDefault();
+                Assert.IsNotNull(titulo);
+                StringAssert.Contains(titulo.Text, "RWY");
+                Assert.IsFalse(titulo.Text.Contains("\n"),
+                    "el título tiene que caber en una línea o se solapa con la primera área");
+            }
+        }
+
         // ── Auxiliares del volcado ────────────────────────────────────────────────
 
         /// <summary>Las anotaciones que marcan un área como sin datos (van en el gráfico, sin recortar).</summary>

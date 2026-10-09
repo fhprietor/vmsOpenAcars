@@ -1,4 +1,4 @@
-﻿// En Helpers/Constants.cs
+// En Helpers/Constants.cs
 
 using System.Configuration;
 

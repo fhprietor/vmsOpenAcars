@@ -171,6 +171,7 @@
     <Compile Include="Core\Flight\PirepBuilder.cs" />
     <Compile Include="Core\Helpers\AppInfo.cs" />
     <Compile Include="Helpers\AppConfig.cs" />
+    <Compile Include="Helpers\AircraftIdentity.cs" />
     <Compile Include="Helpers\AircraftLivery.cs" />
     <Compile Include="Helpers\AircraftTypeMatch.cs" />
     <Compile Include="Helpers\AirspaceRouteSampler.cs" />
@@ -214,6 +215,7 @@
     <Compile Include="Helpers\PowerCut.cs" />
     <Compile Include="Helpers\WindComponents.cs" />
     <Compile Include="Helpers\MetarObservationTime.cs" />
+    <Compile Include="Helpers\LandingHeader.cs" />
     <Compile Include="Helpers\LandingWeatherLine.cs" />
     <Compile Include="Helpers\Constants.cs" />
     <Compile Include="Helpers\FlightPhaseHelper.cs" />

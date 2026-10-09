@@ -96,6 +96,37 @@ namespace vmsOpenAcars.Models
         public string AircraftIcao { get; set; }
 
         /// <summary>
+        /// **El *title* de la aeronave** tal como lo publicaba el simulador (`0x3D00`), por ejemplo
+        /// `PMDG 777-200LR British Airways`. Null = sin dato (vuelo anterior a la columna, o el
+        /// simulador no lo publicaba).
+        ///
+        /// Hace falta porque en el título está lo que **no** está en ningún offset: la variante
+        /// (`777-200LR` → `B77L`) y, si el addon lo escribe, **quién hizo el addon**. El ACARS no
+        /// escanea la carpeta de community (decisión del mantenedor, v0.9.16), así que el título es
+        /// la única fuente honesta de esa segunda parte —y solo cuando lo nombra—.
+        /// </summary>
+        public string AircraftTitle { get; set; }
+
+        /// <summary>
+        /// El **modelo** que publica el simulador (`FsuipcService.AircraftModel`, offset `0x0B26`).
+        /// Es la otra mitad de donde sale la variante ICAO, junto con el título
+        /// (`Helpers/AircraftTypeMatch.ResolveVariant`).
+        /// </summary>
+        public string AircraftModel { get; set; }
+
+        /// <summary>
+        /// **El peso del avión en el momento de la toma (LTOW), en LIBRAS.** Es una **lectura del
+        /// simulador** —el peso bruto de la aeronave que publica su sistema de peso y balance,
+        /// `FSUIPC.PayloadServices.GrossWeightLbs`— capturada en el contacto, no una derivación del
+        /// ZFW del plan: el plan y el avión que de verdad voló no tienen por qué coincidir.
+        ///
+        /// Null = el dato no se pudo leer (simulador desconectado, o el addon no publica sus
+        /// estaciones de carga): se guarda NULL y el bloque de datos **omite la línea**, en vez de
+        /// publicar un cero o el peso del OFP disfrazado de medición.
+        /// </summary>
+        public double? LandingWeightLbs { get; set; }
+
+        /// <summary>
         /// Las componentes tal como se guardaron, para poder pintarlas con
         /// <see cref="Helpers.LandingWeatherLine"/> sin recalcular nada: lo que se enseña es lo que
         /// quedó en la base. `Available` solo es true si las dos componentes se persistieron.

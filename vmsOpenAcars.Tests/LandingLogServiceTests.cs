@@ -470,6 +470,14 @@ namespace vmsOpenAcars.Tests
             // la captura armada **sin** filas guardadas (v0.9.34), que es justo el que hay que poder
             // contarle a la ventana del flare.
             "flare_capture_armed",
+            // La identidad de la aeronave que no se puede reconstruir después: el título (`0x3D00`)
+            // y el modelo (`0x0B26`) solo existen mientras el avión está cargado en el simulador, y
+            // son de donde salen la variante ICAO y el nombre del addon del bloque del gráfico.
+            "aircraft_title",
+            "aircraft_model",
+            // El peso en la toma (LTOW), en libras, **leído** del simulador en el contacto. NULL en
+            // las filas viejas y en las que no hubo lectura: el bloque omite la línea.
+            "landing_weight_lbs",
         };
 
         /// <summary>

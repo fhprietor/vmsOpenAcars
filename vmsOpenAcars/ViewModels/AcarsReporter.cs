@@ -39,6 +39,14 @@ namespace vmsOpenAcars.ViewModels
         /// </summary>
         private LandingWeather _landingWx;
 
+        /// <summary>
+        /// **El peso del avión en el instante del contacto (LTOW), en libras.** Se lee del simulador
+        /// en el aterrizaje —no en cada sondeo— y viaja al registro con el mismo mecanismo que la
+        /// meteo: lo consume <see cref="SnapshotLandingRecord"/>, que corre antes del reset. Null si
+        /// no se pudo leer; entonces el bloque del gráfico omite la línea en vez de inventar el peso.
+        /// </summary>
+        private double? _landingWeightLbs;
+
         internal AcarsReporter(
             FlightManager           flightManager,
             IApiService             apiService,
@@ -66,6 +74,9 @@ namespace vmsOpenAcars.ViewModels
             // La meteo del aterrizaje es de ESTE vuelo: un vuelo nuevo (o uno cancelado) no puede
             // heredar el METAR del anterior.
             _landingWx         = null;
+            // Y el peso de la toma, por el mismo motivo: es una lectura de la TOMA, no del avión que
+            // se cargue después.
+            _landingWeightLbs  = null;
         }
 
         internal bool ShouldSendCheckpoint(int intervalSeconds)
@@ -98,6 +109,10 @@ namespace vmsOpenAcars.ViewModels
             // del destino y el viento del simulador son los de la toma; se capturan aquí y no al
             // filear. Va lo primero de todo: lo que sigue ya manda la posición a phpVMS.
             CaptureLandingWeather();
+            // El peso de la toma, en el mismo instante y por el mismo motivo: es la única vez en el
+            // vuelo en que el peso bruto que publica el simulador es el de aterrizaje. Va aquí y no
+            // al filear porque entre la toma y el SEND PIREP pasan los minutos del rodaje.
+            CaptureLandingWeight();
 
             var rec = new AcarsPosition
             {
@@ -370,6 +385,21 @@ namespace vmsOpenAcars.ViewModels
             };
         }
 
+        /// <summary>
+        /// **El peso del avión en la toma (LTOW)**, en libras, leído del simulador con
+        /// `FsuipcService.ReadGrossWeightLbs` en el instante del contacto.
+        ///
+        /// Es una **lectura**, no una cuenta: el ZFW del plan más el combustible restante sería un
+        /// número distinto —el plan no dice cuánta carga llevaba de verdad el avión— y llamarlo LTOW
+        /// sería vender como medido algo que no lo es. Si el simulador no lo publica, se queda en
+        /// `null` y la cabecera del gráfico **omite la línea**.
+        /// </summary>
+        private void CaptureLandingWeight()
+        {
+            if (_fsuipc == null || !_fsuipc.IsConnected) return;
+            _landingWeightLbs = _fsuipc.ReadGrossWeightLbs();
+        }
+
         private FlightRecord SnapshotLandingRecord()
         {
             var fm   = _flightManager;
@@ -429,7 +459,29 @@ namespace vmsOpenAcars.ViewModels
                 AircraftIcao         = _fsuipc != null && !string.IsNullOrEmpty(_fsuipc.AircraftIcao)
                                        && _fsuipc.AircraftIcao != "????"
                                            ? _fsuipc.AircraftIcao.Trim() : null,
+
+                // El título y el modelo, **leídos aquí y no en la ventana**: solo existen mientras el
+                // avión está cargado en el simulador, y la ventana del flare se abre semanas después.
+                // Son de donde salen la variante ICAO (`B77L`) y el nombre del addon; sin ellos, el
+                // bloque del gráfico solo puede enseñar la familia.
+                AircraftTitle        = KnownText(_fsuipc?.AircraftTitle),
+                AircraftModel        = KnownText(_fsuipc?.AircraftModel),
+
+                // El LTOW, capturado en el contacto (ver `CaptureLandingWeight`). Null si el
+                // simulador no lo publicó, que es un hueco y no un cero.
+                LandingWeightLbs     = _landingWeightLbs,
             };
+        }
+
+        /// <summary>
+        /// El texto que publica el simulador, o `null` si no hay dato: `Unknown` es el centinela de
+        /// `FsuipcService` para «no lo sé» y guardarlo sería un título que parece un avión.
+        /// </summary>
+        private static string KnownText(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            string trimmed = value.Trim();
+            return string.Equals(trimmed, "Unknown", StringComparison.OrdinalIgnoreCase) ? null : trimmed;
         }
 
         /// <summary>

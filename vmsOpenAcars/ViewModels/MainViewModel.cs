@@ -735,9 +735,12 @@ namespace vmsOpenAcars.ViewModels
 
         private void OnFlightStartedAsync(SimbriefPlan plan)
         {
-            string acDev  = _fsuipc.GetAircraftDeveloper();
-            string acType = _fsuipc.AircraftIcao != "????" ? _fsuipc.AircraftIcao : "Unknown";
-            string acLine = string.IsNullOrEmpty(acDev) ? $"✈️ {acType}" : $"✈️ {acType}  [{acDev}]";
+            // La aeronave **con la misma función que el bloque del gráfico**: se resuelve la variante
+            // del modelo/título (`B77L` en un PMDG 777-200LR, `B38M` en un 737 MAX 8) y el addon entre
+            // corchetes. Antes el log publicaba el crudo del modelo ATC —`B777`— mientras el bloque
+            // enseñaba `B77L`: dos formatos de la misma identidad que ahora no pueden divergir.
+            string acLine = AircraftIdentity.LogLine(_fsuipc.AircraftModel, _fsuipc.AircraftTitle,
+                                                     _fsuipc.AircraftIcao);
             OnLog?.Invoke(_("Log_SimRunning", _fsuipc.SimulatorName), Theme.MainText);
             OnLog?.Invoke(acLine, Theme.MainText);
 

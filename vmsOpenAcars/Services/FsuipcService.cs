@@ -1721,49 +1721,48 @@ namespace vmsOpenAcars.Services
 
         public string GetAircraftLivery() => Helpers.AircraftLivery.FromTitle(AircraftTitle);
 
+        /// <summary>
+        /// El desarrollador del addon según el **título**, o vacío si el título no lo nombra.
+        ///
+        /// La tabla y la regla viven en <see cref="Helpers.AircraftIdentity.AddonFromTitle"/>, que es
+        /// la **misma** que usa la cabecera del gráfico del flare: dos listas separadas —una para el
+        /// «✈️ B738 [PMDG]» del log y otra para el gráfico— se habrían separado en cuanto alguien
+        /// añadiera un addon en una sola.
+        /// </summary>
         public string GetAircraftDeveloper()
+            => Helpers.AircraftIdentity.AddonFromTitle(AircraftTitle) ?? string.Empty;
+
+        /// <summary>
+        /// **El peso bruto del avión en libras** (`FSUIPC.PayloadServices.GrossWeightLbs`, «The total
+        /// current weight of the aircraft in Pounds»), o `null` si no se puede leer.
+        ///
+        /// Es el **LTOW** cuando se llama en el instante del contacto, y por eso **no se sondea a
+        /// 20 Hz**: el dato solo hace falta una vez por vuelo, y `RefreshData()` recorre las
+        /// estaciones de carga de la aeronave. Se pide en el aterrizaje y no en cada ciclo.
+        ///
+        /// **No se inventa nada**: sin simulador conectado, si el servicio no está disponible o si el
+        /// resultado no es un peso positivo, devuelve `null` y el bloque de datos omite la línea. Un
+        /// addon que no publica sus estaciones de carga da 0, y un 0 ahí sería un avión sin peso.
+        /// </summary>
+        public double? ReadGrossWeightLbs()
         {
-            if (string.IsNullOrEmpty(AircraftTitle)) return string.Empty;
-            string titleUp = AircraftTitle.ToUpperInvariant();
-            var map = new (string Search, string Display)[]
+            if (_connectionState != ConnectionState.Connected) return null;
+
+            try
             {
-                ("PMDG",          "PMDG"),
-                ("TOLISS",        "ToLiss"),
-                ("FLY BY WIRE",   "FlyByWire"),
-                ("FLYBYWISE",     "FlyByWire"),
-                ("A32NX",         "FlyByWire"),
-                ("FENIX",         "Fenix"),
-                ("INIBUILDS",     "iniBuilds"),
-                ("MAJESTIC",      "Majestic"),
-                ("LEONARDO",      "Leonardo"),
-                ("QUALITYWINGS",  "QualityWings"),
-                ("CAPTAINSIM",    "Captain Sim"),
-                ("CAPTAIN SIM",   "Captain Sim"),
-                ("AEROSOFT",      "Aerosoft"),
-                ("FLIGHTFACTOR",  "FlightFactor"),
-                ("FELIS",         "Felis"),
-                ("ZIBO",          "Zibo"),
-                ("IFLY",          "iFly"),
-                ("TFDI",          "TFDi"),
-                ("ROTATE",        "Rotate"),
-                ("AIRFOILLABS",   "Airfoillabs"),
-                ("LAMINAR",       "Laminar"),
-                ("BLACKBOX",      "BlackBox"),
-                ("JARDESIGN",     "JARDesign"),
-                ("X-CRAFTS",      "X-Crafts"),
-                ("FSLABS",        "FSLabs"),
-                ("CARENADO",      "Carenado"),
-                ("ALABEO",        "Alabeo"),
-                ("JUSTFLIGHT",    "JustFlight"),
-                ("JUST FLIGHT",   "JustFlight"),
-                ("HEADWIND",      "Headwind"),
-                ("BLACK SQUARE",  "Black Square"),
-                ("BLACKSQUARE",   "Black Square"),
-                ("SWS",           "SWS"),
-            };
-            foreach (var (search, display) in map)
-                if (titleUp.Contains(search)) return display;
-            return string.Empty;
+                var payload = FSUIPCConnection.PayloadServices;
+                if (payload == null) return null;
+
+                payload.RefreshData();
+                double lbs = payload.GrossWeightLbs;
+                return lbs > 0.0 && !double.IsNaN(lbs) && !double.IsInfinity(lbs) ? (double?)lbs : null;
+            }
+            catch
+            {
+                // Sin lectura no hay dato: no se propaga la excepción al hilo de telemetría por un
+                // adorno del gráfico.
+                return null;
+            }
         }
 
         #endregion

@@ -42,8 +42,22 @@ namespace vmsOpenAcars.UI.Forms
         private readonly IList<FlareTrackPoint> _samples;
         private readonly bool                   _flareTrackExists;
 
+        /// <summary>
+        /// El encuadre y las marcas, calculados **una sola vez**: lo usa el gráfico para pintar y el
+        /// bloque de datos para publicar los flaps y el corte de potencia. Dos llamadas al helper
+        /// podrían dar dos textos distintos de lo mismo.
+        /// </summary>
+        private readonly FlareChartLayout       _layout;
+
         private Chart _chart;
         private Label _lblSummary;
+        private Button _btnSaveImage;
+
+        /// <summary>Alto de línea del bloque de datos, en píxeles (Consolas 9 con su interlineado).</summary>
+        private const int BlockLineHeight = 15;
+
+        /// <summary>Franja mínima del bloque: la línea de resumen del gráfico cabe siempre.</summary>
+        private const int BlockMinHeight = 30;
 
         private static readonly Color AltitudeColor = Color.FromArgb( 30, 144, 255);   // DodgerBlue
         private static readonly Color RadarColor    = Color.FromArgb(140, 210, 255);   // radioaltímetro
@@ -69,6 +83,11 @@ namespace vmsOpenAcars.UI.Forms
             _record            = record;
             _samples           = samples ?? new List<FlareTrackPoint>();
             _flareTrackExists  = captureStarted;
+            // El helper se calcula **siempre**, también sin muestras: el bloque de datos tiene que
+            // poder decir de qué avión, cuándo y con qué viento fue el vuelo aunque no haya traza
+            // fina que pintar. Sin muestras devuelve un layout vacío, no lanza.
+            _layout            = FlareChartLayout.Build(_samples, _record.RunwayLengthFt ?? 0.0,
+                                                        _flareTrackExists, _record.AircraftIcao);
             BuildUI();
         }
         /// <summary>Punto de medida para los tests: el gráfico, sin necesidad de enseñar la ventana.</summary>
@@ -76,6 +95,64 @@ namespace vmsOpenAcars.UI.Forms
 
         /// <summary>Punto de medida para los tests: el rótulo de resumen (o el aviso de que no hay datos).</summary>
         internal Label SummaryLabel => _lblSummary;
+
+        /// <summary>Punto de medida para los tests: el botón de guardar la imagen.</summary>
+        internal Button SaveImageButton => _btnSaveImage;
+
+        /// <summary>
+        /// **Vuelca el gráfico a un PNG.** Es lo que hace el botón, separado del diálogo a propósito:
+        /// una prueba **no puede abrir una ventana** delante del mantenedor, así que lo que se prueba
+        /// es el volcado, no el `SaveFileDialog`.
+        ///
+        /// Usa `Chart.SaveImage` —el render propio del motor de gráficos— y **nunca**
+        /// `Control.DrawToBitmap`: ese camino manda `WM_PRINTCLIENT` y es la pila exacta de la
+        /// excepción «Axis Object - Auto interval does not have proper value» que ya apareció en
+        /// pantalla (ver `Helpers/ChartAxisSafety`).
+        /// </summary>
+        internal void SaveChartImage(string path)
+        {
+            if (_chart == null || string.IsNullOrEmpty(path)) return;
+            _chart.SaveImage(path, ChartImageFormat.Png);
+        }
+
+        /// <summary>El nombre propuesto para el PNG: el vuelo y la pista, para poder archivarlo.</summary>
+        internal string DefaultImageName()
+        {
+            var parts = new List<string> { "flare" };
+            if (!string.IsNullOrWhiteSpace(_record.FlightNumber)) parts.Add(_record.FlightNumber.Trim());
+            if (!string.IsNullOrWhiteSpace(_record.Origin) && !string.IsNullOrWhiteSpace(_record.Destination))
+                parts.Add(_record.Origin.Trim() + "-" + _record.Destination.Trim());
+            if (!string.IsNullOrWhiteSpace(_record.RunwayName)) parts.Add("RWY" + _record.RunwayName.Trim());
+            return string.Join("_", parts) + ".png";
+        }
+
+        private void PromptSaveImage()
+        {
+            if (_chart == null) return;
+
+            using (var dialog = new SaveFileDialog
+            {
+                Title           = "Save flare chart",
+                Filter          = "PNG image (*.png)|*.png",
+                DefaultExt      = "png",
+                FileName        = DefaultImageName(),
+                OverwritePrompt = true,
+            })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    SaveChartImage(dialog.FileName);
+                }
+                catch (Exception ex)
+                {
+                    // Un fallo al guardar no puede tumbar la ventana ni abrir una excepción sin
+                    // contexto: se cuenta y se sigue mirando el gráfico.
+                    MessageBox.Show(this, ex.Message, "Flare chart",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+        }
 
         // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -98,14 +175,15 @@ namespace vmsOpenAcars.UI.Forms
             _lblSummary = new Label
             {
                 Dock      = DockStyle.Bottom,
-                Height    = 28,
+                Height    = BlockMinHeight,
                 Font      = new Font("Consolas", 9),
                 ForeColor = Color.FromArgb(170, 215, 185),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding   = new Padding(8, 0, 0, 0),
+                // **Arriba a la izquierda**: la franja lleva varias líneas —el bloque de datos y la
+                // línea técnica— y centrarlas verticalmente las dejaría desalineadas entre sí.
+                TextAlign = ContentAlignment.TopLeft,
+                Padding   = new Padding(8, 4, 0, 0),
                 BackColor = Color.FromArgb(15, 22, 32)
             };
-            _lblSummary.Text = HasSamples ? "" : MissingDataMessage().Replace("\r\n", " ");
 
             // El aviso de «no hay traza fina» va en **su propia franja** (`Dock.Fill`), nunca encima
             // del gráfico: dos controles en la misma celda se pintan uno sobre otro sin dar error.
@@ -128,8 +206,44 @@ namespace vmsOpenAcars.UI.Forms
                 Controls.Add(pnl);
             }
 
+            // El bloque de datos se compone **después** del gráfico (necesita el layout, ya hecho) y
+            // va en la **misma franja** que el resumen técnico: un solo control dockeado abajo, así
+            // que no hay dos controles que puedan repartirse mal el espacio ni taparse.
+            _lblSummary.Text   = BuildDataBlock();
+            _lblSummary.Height = Math.Max(BlockMinHeight,
+                                          CountLines(_lblSummary.Text) * BlockLineHeight + 6);
+
             Controls.Add(_lblSummary);
             Controls.Add(BuildTitleBar());
+        }
+
+        /// <summary>
+        /// **El bloque de datos del gráfico**: la identidad de la aeronave y su fabricante, el LTOW,
+        /// el vuelo, la toma, los flaps, la potencia y el viento —solo lo que existe— y, debajo, la
+        /// línea técnica con la versión del cliente.
+        ///
+        /// Todo el texto sale de <see cref="LandingHeader"/> (puro y con test); aquí solo se le añade
+        /// la versión del cliente, que es lo que permite saber con qué se generó la imagen.
+        /// </summary>
+        private string BuildDataBlock()
+        {
+            string header = LandingHeader.Render(LandingHeader.Build(_record, _layout, _samples));
+
+            string technical = HasSamples
+                ? _layout.Summary + ThresholdToTouchdownNote()
+                : MissingDataMessage().Replace("\r\n", " ");
+            string caption = LandingHeader.ClientCaption(technical);
+
+            return header.Length > 0 ? header + "\n" + caption : caption;
+        }
+
+        /// <summary>Cuántas líneas tiene un texto (un `\n` por salto).</summary>
+        private static int CountLines(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return 1;
+            int lines = 1;
+            foreach (char c in text) if (c == '\n') lines++;
+            return lines;
         }
 
         private bool HasSamples => _samples != null && _samples.Count > 0;
@@ -171,6 +285,28 @@ namespace vmsOpenAcars.UI.Forms
             btnX.FlatAppearance.BorderSize = 0;
             btnX.Click += (s, e) => Close();
             pnl.Controls.Add(btnX);
+
+            // **Guardar la imagen** es lo que hace que el bloque sirva «a la hora de compartir»: sin
+            // esto, lo único que se puede compartir es una captura de pantalla de la ventana. El PNG
+            // sale del propio gráfico (`Chart.SaveImage`, nunca `DrawToBitmap`) y lleva la identidad
+            // del vuelo en su título, que es la franja del formulario que **no** está en la imagen.
+            _btnSaveImage = new Button
+            {
+                Text      = "💾 PNG",
+                Font      = new Font("Consolas", 9, FontStyle.Bold),
+                Size      = new Size(90, 25),
+                Location  = new Point(ClientSize.Width - 130, 5),
+                BackColor = Color.FromArgb(20, 70, 110),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                // Solo tiene sentido con gráfico: sin muestras no hay nada que guardar.
+                Enabled   = HasSamples,
+                Anchor    = AnchorStyles.Top | AnchorStyles.Right
+            };
+            _btnSaveImage.FlatAppearance.BorderSize = 0;
+            _btnSaveImage.Click += (s, e) => PromptSaveImage();
+            pnl.Controls.Add(_btnSaveImage);
+            Resize += (s, e) => _btnSaveImage.Location = new Point(ClientSize.Width - 130, 5);
             Resize += (s, e) => btnX.Location = new Point(ClientSize.Width - 35, 5);
 
             bool dragging = false; Point dragStart = Point.Empty;
@@ -193,8 +329,7 @@ namespace vmsOpenAcars.UI.Forms
         /// </summary>
         private Chart BuildChart()
         {
-            var layout = FlareChartLayout.Build(_samples, _record.RunwayLengthFt ?? 0.0,
-                                                _flareTrackExists, _record.AircraftIcao);
+            var layout = _layout;
 
             var chart = new Chart { Dock = DockStyle.Fill, BackColor = Color.FromArgb(20, 30, 42) };
 
@@ -208,12 +343,22 @@ namespace vmsOpenAcars.UI.Forms
             if (layout.HasFlaps) areas.Add(("flp", "Flaps (%)"));
             if (layout.HasPower) areas.Add(("n1",  "N1 (%)"));
 
-            // El alto útil va de 2 a 76: lo que queda por debajo es la leyenda y el eje X rotulado,
-            // que va dentro del área de abajo. Antes eran tres bandas de 21 puntos con 4 de hueco.
-            double slice = 74.0 / areas.Count;
+            // El alto útil va de `TitleBandPct` a 76: lo que queda por debajo es la leyenda y el eje X
+            // rotulado, que va dentro del área de abajo. Antes eran tres bandas de 21 puntos con 4 de
+            // hueco.
+            //
+            // **La banda del 2 % al 5 % es para el título, y no es cosmético**: `ChartArea.Position`
+            // son porcentajes del **control**, no del rectángulo que deja el título, así que un título
+            // de arriba **no aparta** el gráfico —se le echa encima—. Con el 2 % la traza de AGL
+            // cruzaba el texto del título (visto en el PNG `vmsopenacars_flare_header.png`), y con el
+            // rótulo nuevo —que lleva la identidad del vuelo— el cruce era peor. El 5 % son ~30 px en
+            // una ventana de 760, que es lo que mide el renglón del título.
+            const double TitleBandPct = 5.0;
+            const double StackBottomPct = 76.0;
+            double slice = (StackBottomPct - TitleBandPct) / areas.Count;
             for (int i = 0; i < areas.Count; i++)
             {
-                double top    = 2.0 + i * slice;
+                double top    = TitleBandPct + i * slice;
                 double bottom = top + slice - 3.0;
                 chart.ChartAreas.Add(MakeArea(areas[i].Name, top, bottom, areas[i].Title));
             }
@@ -224,7 +369,11 @@ namespace vmsOpenAcars.UI.Forms
             foreach (var area in chart.ChartAreas)
                 if (area.Name != "alt") area.AlignWithChartArea = "alt";
 
-            chart.Titles.Add(new Title("Flare — altitude · speed · pitch · flaps · N1 vs distance to threshold")
+            // El título lleva **dos líneas**: la de siempre —qué pinta cada banda— y la **identidad
+            // del vuelo**, que es lo que hace que el PNG se entienda solo cuando se comparte. La
+            // franja de datos del formulario no sale en la imagen, así que sin esta línea una captura
+            // del gráfico no diría de qué avión ni de qué día es.
+            chart.Titles.Add(new Title(BuildChartTitle())
             {
                 Font      = new Font("Consolas", 10, FontStyle.Bold),
                 ForeColor = Color.Cyan,
@@ -239,8 +388,6 @@ namespace vmsOpenAcars.UI.Forms
                 Font      = new Font("Consolas", 8),
                 Docking   = Docking.Bottom,
             });
-
-            _lblSummary.Text = layout.Summary + ThresholdToTouchdownNote() + FlapsNote(layout) + PowerNote(layout);
 
             // ── Los ejes, ANTES de las marcas: las bandas de la pista y las líneas del umbral y del
             //    toque se anclan en los mínimos de cada eje, que se fijan aquí.
@@ -624,36 +771,22 @@ namespace vmsOpenAcars.UI.Forms
         }
 
         /// <summary>
-        /// **Los flaps del aterrizaje**, en el resumen: el ajuste en el umbral, el de la toma y, si
-        /// cambió, el aviso —que es lo que explica un flotado largo—. Todo el texto sale de
-        /// `FlapTrackSummary`, que es el mismo helper que lo publica en el logbook; con la familia
-        /// desconocida enseña el **porcentaje**, nunca una compuerta inventada.
+        /// **El título del gráfico, en UNA línea**: la identidad del vuelo (ver
+        /// `LandingHeader.CompactIdentity`). Es la parte del bloque de datos que **sí viaja en el
+        /// PNG**: la franja del formulario no sale en la imagen, así que sin esto una captura del
+        /// gráfico no diría de qué avión ni de qué día es.
+        ///
+        /// **Una sola línea, y no dos, por una razón medida**: las áreas del gráfico se colocan en
+        /// porcentajes del control, así que un título más alto **no aparta** el gráfico —se le echa
+        /// encima—. Con dos líneas, la traza de AGL cruzaba el texto de la segunda (visto en el PNG
+        /// de `vmsopenacars_flare_header.png`). El reparto de las cinco áreas ya está medido y no se
+        /// toca: el rótulo de cada banda lo lleva su eje Y y la leyenda nombra las series.
         /// </summary>
-        private string FlapsNote(FlareChartLayout layout)
+        private string BuildChartTitle()
         {
-            var flaps = layout.Flaps;
-            if (flaps == null || !flaps.HasTrack || flaps.AtThreshold == null) return "";
-
-            string text = "  ·  " + L._("Landing_FlapsHeader") + " " + flaps.AtThreshold.Text;
-
-            if (flaps.AtTouchdown != null && flaps.Changed)
-                text += "  " + L._("Landing_FlapsChanged", flaps.AtThreshold.ShortText,
-                                    flaps.AtTouchdown.ShortText);
-
-            return text;
-        }
-
-        /// <summary>
-        /// **El corte de potencia**, en el resumen: los segundos antes de la toma, o el motivo por el
-        /// que no se publica. Sin dato no se enseña un cero.
-        /// </summary>
-        private string PowerNote(FlareChartLayout layout)
-        {
-            var power = layout.Power;
-            if (power == null || !power.HasValue) return "";
-
-            return "  ·  " + L._(power.EngineCount == 2 ? "Landing_PowerCut" : "Landing_PowerCutEngine1",
-                                 power.SecondsBeforeTouchdown);
+            const string head = "FLARE";
+            string identity = LandingHeader.CompactIdentity(_record);
+            return identity.Length > 0 ? head + "  ·  " + identity : head + " ANALYSIS";
         }
 
         private static Series NewSeries(string name, Color color, string areaName)

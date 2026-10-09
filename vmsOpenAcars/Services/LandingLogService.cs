@@ -155,6 +155,27 @@ namespace vmsOpenAcars.Services
                     // `AircraftTypeMatch` al empezar el vuelo.
                     EnsureColumn(conn, "flights", "aircraft_icao", "TEXT");
 
+                    // ── La identidad de la aeronave, entera ───────────────────────────
+                    // `aircraft_icao` guarda solo el **modelo ATC** (la familia), que es lo que
+                    // bastaba para etiquetar las compuertas de flaps. La cabecera del gráfico del
+                    // flare necesita lo demás, y ese dato **no se puede reconstruir después**: el
+                    // título (`0x3D00`) y el modelo (`0x0B26`) solo existen mientras el avión está
+                    // cargado en el simulador, y al filear el vuelo se pierden. De ahí que se
+                    // persistan, en vez de volver a leerlos del simulador al abrir el historial.
+                    //
+                    // Nullable y vacío = NULL, como `aircraft_icao`: los vuelos anteriores a la
+                    // columna se quedan sin título y el bloque de datos simplemente enseña la
+                    // familia, que es lo honesto.
+                    EnsureColumn(conn, "flights", "aircraft_title", "TEXT");
+                    EnsureColumn(conn, "flights", "aircraft_model", "TEXT");
+
+                    // ── El peso en la toma (LTOW), en LIBRAS ──────────────────────────
+                    // Es una **lectura** del peso bruto del simulador hecha en el contacto, no una
+                    // cuenta con el ZFW del plan. NULL = no se pudo leer (sin simulador, o un addon
+                    // que no publica sus estaciones de carga), y entonces el bloque **no pinta la
+                    // línea**: un 0 ahí sería un avión sin peso.
+                    EnsureColumn(conn, "flights", "landing_weight_lbs", "REAL");
+
                     // La traza del flare también se migra por si la tabla viene de una versión
                     // anterior con menos columnas: `CREATE TABLE IF NOT EXISTS` no toca una tabla que
                     // ya está, exactamente el mismo caso que el de `flights`.
@@ -380,14 +401,16 @@ namespace vmsOpenAcars.Services
                          landing_metar_obs_utc, landing_wind_dir_deg, landing_wind_speed_kt,
                          landing_wind_gust_kt, landing_headwind_kt, landing_crosswind_kt,
                          landing_runway_true_deg, runway_length_ft,
-                         flare_capture_armed, aircraft_icao)
+                         flare_capture_armed, aircraft_icao,
+                         aircraft_title, aircraft_model, landing_weight_lbs)
                     VALUES
                         (@fn, @org, @dest, @rwy, @dt,
                          @rate, @gf, @dist, @cl,
                          @score, @metar,
                          @obs, @wdir, @wspd,
                          @wgst, @hw, @xw,
-                         @rwytrue, @rlen, @flareArmed, @acft)";
+                         @rwytrue, @rlen, @flareArmed, @acft,
+                         @acftTitle, @acftModel, @lw)";
 
                 cmd.Parameters.AddWithValue("@fn",    r.FlightNumber ?? "");
                 cmd.Parameters.AddWithValue("@org",   r.Origin ?? "");
@@ -420,6 +443,14 @@ namespace vmsOpenAcars.Services
                 // Vacío es «no la sé» y va NULL, igual que el resto de datos que pueden faltar.
                 cmd.Parameters.AddWithValue("@acft",
                     string.IsNullOrWhiteSpace(r.AircraftIcao) ? (object)DBNull.Value : r.AircraftIcao.Trim());
+                // El título y el modelo, con el mismo criterio: vacío es «no lo sé» y va NULL.
+                cmd.Parameters.AddWithValue("@acftTitle",
+                    string.IsNullOrWhiteSpace(r.AircraftTitle) ? (object)DBNull.Value : r.AircraftTitle.Trim());
+                cmd.Parameters.AddWithValue("@acftModel",
+                    string.IsNullOrWhiteSpace(r.AircraftModel) ? (object)DBNull.Value : r.AircraftModel.Trim());
+                // El LTOW, en libras. Sin lectura va NULL: el bloque de datos omite la línea en vez
+                // de enseñar un cero, que sería un avión sin peso.
+                cmd.Parameters.AddWithValue("@lw", (object)r.LandingWeightLbs ?? DBNull.Value);
                 cmd.ExecuteNonQuery();
             }
             using (var cmd2 = conn.CreateCommand())
@@ -447,7 +478,8 @@ namespace vmsOpenAcars.Services
                                landing_metar_obs_utc, landing_wind_dir_deg, landing_wind_speed_kt,
                                landing_wind_gust_kt, landing_headwind_kt, landing_crosswind_kt,
                                landing_runway_true_deg, runway_length_ft,
-                               flare_capture_armed, aircraft_icao
+                               flare_capture_armed, aircraft_icao,
+                               aircraft_title, aircraft_model, landing_weight_lbs
                         FROM flights
                         ORDER BY flight_date DESC";
 
@@ -484,7 +516,12 @@ namespace vmsOpenAcars.Services
                                 FlareCaptureArmed   = !r.IsDBNull(20) && r.GetInt32(20) != 0,
                                 // NULL = vuelo anterior a la columna, o el simulador no publicaba el
                                 // modelo ATC: el helper de flaps devuelve el porcentaje sin etiqueta.
-                                AircraftIcao        = r.IsDBNull(21) ? null : r.GetString(21)
+                                AircraftIcao        = r.IsDBNull(21) ? null : r.GetString(21),
+                                // La identidad completa y el peso de la toma. NULL en las filas
+                                // anteriores a las columnas: el bloque del gráfico enseña lo que hay.
+                                AircraftTitle       = r.IsDBNull(22) ? null : r.GetString(22),
+                                AircraftModel       = r.IsDBNull(23) ? null : r.GetString(23),
+                                LandingWeightLbs    = r.IsDBNull(24) ? (double?)null : r.GetDouble(24)
                             });
                         }
                     }
