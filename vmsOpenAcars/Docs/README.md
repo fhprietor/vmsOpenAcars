@@ -8,6 +8,10 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 |---|---|---|
 | `BRIEFING.md` | **Pilotos** | Guía de usuario: configuración, flujo de vuelo, scoring, mapa, LOGBOOK |
 | `PRIMEROS_PASOS.md` | **Pilotos nuevos** | Alta en phpVMS, API key, descarga e instalación |
+| `NOTAS-PILOTOS-0.9.25-a-0.9.27.md` | **Pilotos** | La clave de NavData **deja de viajar en el `.config`** (llega en un sobre desde phpVMS), el **combustible en las unidades que espera la web** y la retirada de la URL/clave de NavData del formulario |
+| `NOTAS-PILOTOS-0.9.30-a-0.9.33.md` | **Pilotos** | Zona de toma **proporcional a la pista**, la guía de rodaje que se puede apagar, la **meteorología del aterrizaje** en el logbook y el análisis del **flare** (traza fina a 10 Hz, window propia y closeup) |
+| `NOTAS-PILOTOS-0.9.34.md` | **Pilotos** | La traza fina del flare **se medía y se tiraba antes de guardarse**: qué falló, qué **no** se vio afectado y qué no se puede recuperar |
+| `COMUNICADO-PILOTOS-ZONA-DE-TOMA.md` | **Pilotos** | Comunicado a los pilotos sobre la penalización de la **zona de toma**: la regla proporcional, el techo de 3.000 ft que no se mueve y las pistas cortas que no cambian |
 | `architecture.md` | **Desarrolladores** | Arquitectura, módulos, esquemas de BD, notas de build |
 | `SETUP-ENTORNO.md` | **Desarrolladores** | Cómo montar el proyecto en otro equipo: qué no viaja por git (`App.config`, `packages/`), toolchain, y `dsh` (DeepSeek Harness) |
 | `PEDIDO-PHPVMS-PRUEBAS.md` | **Equipo de phpVMS** | Lo que hace falta para validar con PIREPs reales, **solo los producidos por vmsOpenACars**: filtro por productor y sin el tope de 20 (el único vuelo con datos de rodaje cae fuera), `source_name` en los 13 que lo traen vacío, la pista usada, la ruta de rodaje declarada y el estado de moderación |
