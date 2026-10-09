@@ -117,6 +117,13 @@ namespace vmsOpenAcars.ViewModels
         private DateTime _lastFlareSample = DateTime.MinValue;
         private DateTime? _flareTouchdownUtc;
 
+        // Congelado del umbral que armó la captura: al salir de Approach el `_approachThreshold`
+        // se suelta (L461), pero la traza sigue viva 2 s tras el toque y necesita la distancia
+        // contra el MISMO umbral. `double.NaN` = sin congelar (aún no armado, o respaldo por AGL).
+        private double _flareThresholdLat     = double.NaN;
+        private double _flareThresholdLon     = double.NaN;
+        private double _flareThresholdHeading = double.NaN;
+
         /// <summary>
         /// Cadencia de la traza del flare: **100 ms (10 Hz)**.
         ///
@@ -174,6 +181,9 @@ namespace vmsOpenAcars.ViewModels
             _flare.Reset();
             _flareTouchdownUtc = null;
             _lastFlareSample = DateTime.MinValue;
+            _flareThresholdLat = double.NaN;
+            _flareThresholdLon = double.NaN;
+            _flareThresholdHeading = double.NaN;
         }
 
         /// <summary>
@@ -196,22 +206,18 @@ namespace vmsOpenAcars.ViewModels
             // para perder el primer tramo); la muestra se guarda a 10 Hz.
             if (capturing && (now - _lastFlareSample) < FlareInterval) return;
 
-            double? distFt = null;
-            if (_approachThreshold != null)
-            {
-                var (distNm, _) = NavDataService.ComputeApproachMetrics(
-                    _approachThreshold.ThresholdLat,
-                    _approachThreshold.ThresholdLon,
-                    _approachThreshold.ThresholdHeading,
-                    e.Latitude, e.Longitude);
-                distFt = distNm * TouchdownCloseupGeometry.FeetPerNm;
-            }
+            double? distFt = FlareDistanceFt(e);
 
             var decision = _flare.Update(now, aglFt, distFt, e.IsOnGround, _flareTouchdownUtc, landingPhase);
             if (decision.Action == FlareCaptureAction.Start)
+            {
+                // Congela el umbral que armó la captura: es lo que impide que `dist_ft` caiga a 0
+                // cuando, al tocar, la fase sale de Approach y `_approachThreshold` se suelta.
+                FreezeFlareThreshold();
                 _cb.Log?.Invoke(string.Format(_("Lnm_FlareCaptureStart"),
                     _approachThreshold != null ? _approachThreshold.RunwayName : "—",
                     distFt.HasValue ? (int)distFt.Value : -1), Theme.Success);
+            }
             else if (decision.Action == FlareCaptureAction.Stop)
                 _cb.Log?.Invoke(string.Format(_("Lnm_FlareCaptureStop"),
                     _flareBuffer.Count, decision.Reason), Theme.SecondaryText);
@@ -248,6 +254,50 @@ namespace vmsOpenAcars.ViewModels
                 SpoilersDeployed = e.SpoilersDeployed,
                 OnGround     = e.IsOnGround,
             });
+        }
+
+        /// <summary>
+        /// Distancia al umbral para la traza del flare, en pies y **negativa pasado el umbral**
+        /// (el mismo convenio que `flare_track.dist_ft`). Mientras la captura no está armada usa el
+        /// umbral **en vivo** (`_approachThreshold`), que es lo que decide el armado; una vez armada
+        /// usa el umbral **congelado** por <see cref="FreezeFlareThreshold"/>, para que el tramo
+        /// posterior al toque siga posicionado en la pista aunque la fase ya no sea Approach.
+        /// </summary>
+        private double? FlareDistanceFt(RawTelemetryData e)
+        {
+            double lat, lon, heading;
+            if (!double.IsNaN(_flareThresholdLat))
+            {
+                lat = _flareThresholdLat;
+                lon = _flareThresholdLon;
+                heading = _flareThresholdHeading;
+            }
+            else if (_approachThreshold != null)
+            {
+                lat = _approachThreshold.ThresholdLat;
+                lon = _approachThreshold.ThresholdLon;
+                heading = _approachThreshold.ThresholdHeading;
+            }
+            else
+            {
+                return null;
+            }
+
+            var (distNm, _) = NavDataService.ComputeApproachMetrics(lat, lon, heading, e.Latitude, e.Longitude);
+            return distNm * TouchdownCloseupGeometry.FeetPerNm;
+        }
+
+        /// <summary>
+        /// Congela las coordenadas del umbral en el instante en que se arma la captura. Solo la
+        /// primera vez (si ya está congelado no pisa el umbral original) y solo si había umbral
+        /// resuelto: con el respaldo por AGL no hay distancia y no hay nada que congelar.
+        /// </summary>
+        private void FreezeFlareThreshold()
+        {
+            if (!double.IsNaN(_flareThresholdLat) || _approachThreshold == null) return;
+            _flareThresholdLat = _approachThreshold.ThresholdLat;
+            _flareThresholdLon = _approachThreshold.ThresholdLon;
+            _flareThresholdHeading = _approachThreshold.ThresholdHeading;
         }
 
         // ── UI delta tracking ─────────────────────────────────────────────────────

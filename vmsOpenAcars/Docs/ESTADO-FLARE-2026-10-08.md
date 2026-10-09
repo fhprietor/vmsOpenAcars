@@ -31,47 +31,56 @@ persistencia en `Services/LandingLogService.cs` (tabla `flare_track` + columnas 
 
 ## 2. Deuda de verificación (esto es lo importante)
 
-**Nada de este bloque se ha visto funcionar con filas reales de `flare_track`.** La tabla estuvo
-**vacía en todos los vuelos** desde que existe (0.9.32–0.9.33) por el fallo del orden de copiado
-que arregló la 0.9.34, y **desde entonces no se ha volado**. Consecuencia directa: los tests usan
-el **perfil real del vuelo 41 remuestreado a 10 Hz** y los valores que **documenta el offset**, no
-una traza medida en vuelo.
+**Verificado con un vuelo real el 09/10/2026: el vuelo 43 (VHR8062, SKCL→SKCC pista 16).** La
+traza fina **ya se captura y se guarda**: **97 muestras** en `flare_track` (seq 0–96, todas
+distintas), armada a **1 492 ft del umbral** (el armado es a 1 500) y cerrada **2 s después del
+toque**, ~**12,1 s** de captura de −1 144 ft a +1 492 ft. El fallo de la 0.9.34 queda cerrado de
+verdad: snapshot antes del `await` → `SaveFlareTrack` funciona de extremo a extremo. Y es un caso
+duro, ideal para mirar el gráfico: **−530 fpm, 2,4 g, score 43**, touchdown a 1 156 ft, desviación
+45 ft.
 
-Sin verificar, una a una:
+Punto por punto (antes de esto, todo era una hipótesis):
 
-1. **La cadencia real de 10 Hz.** El diseño muestrea sobre la lectura de 20 Hz de FSUIPC (no añade
-   lecturas), pero el retardo del temporizador de 50 ms con el simulador cargado **no se ha medido**.
-2. **El camino completo de `SendPirep`** (snapshot antes del `await` → `SaveFlight` + `SaveFlareTrack`).
-   Lo cubre **la lectura del código y un test de la columna**, no un test automático: necesita la
-   API, el `FlightManager` y la base. **Pendiente de un vuelo real.**
-3. **El radioaltímetro** (`0x31E4`) según addon: no comprobado. Un 0 se guarda como **NULL**.
-4. **LTOW** (`FSUIPC.PayloadServices.GrossWeightLbs`, lb, `RefreshData()` una vez por vuelo):
-   **compila y degrada a NULL, pero no se le ha visto devolver un peso real**. Si sale vacío en el
-   próximo vuelo, es esto — y **no se deriva del plan** para rellenarlo.
-5. **La captura del flare**: el respaldo a **300 ft AGL** (solo cuando no hay distancia) y el
-   timeout de 45 s no se han ejercitado. El armado principal es a **1.500 ft del umbral** (con
-   1.000 ft AGL se habría armado *antes* del umbral: el vuelo 41 lo habría hecho a 1.653,8 ft).
-6. **La distancia de toma** sale de la última muestra en tierra: **±1 muestra ≈ 25 ft a 150 kt**.
-7. **Flaps**: lo que se guarda es el **porcentaje del recorrido del mando** (`0x0BDC`, 0–16383 →
-   0–100), que **no es un detent**. El detent real (`0x0BFC` → `flare_track.flaps_index`) se
-   persiste desde la 0.9.35, pero:
-   - la regla que **descarta el `0`** cuando el mando está desplegado (`0x0BFC = 0` se interpreta
-     como «el addon no escribe el offset») es una **inferencia razonada**, no una medición;
-   - las bandas por familia vienen de los umbrales de `FsuipcService.DecodeFlapsByFamily`, **nunca
-     contrastadas con una traza real**.
-8. **Potencia**: el N1 es de verdad (`0x2000`/`0x2100`, en por ciento). El **criterio del corte**
-   —pico del N1 medio + primera caída sostenida ≥5 puntos durante ≥0,3 s, relativa al pico— es una
-   **decisión de diseño**, no un valor validado: puede quedar corto o largo según el avión.
-9. **`ChartAxisSafety`**: la excepción `Axis Object - Auto interval does not have proper value`
-   **no se consiguió reproducir** (19 sondas). Lo confirmado es que `DrawToBitmap` sobre un `Chart`
-   era el **único** camino del código que pasaba por `WM_PRINTCLIENT`, que es la pila que se vio.
-   Si vuelve a aparecer, **hay otro camino** y hay que buscarlo.
-10. **La identidad de aeronave**: validada con los dos PIREPs reales (`A319 [ToLiss]`,
-    `B38M [iFly]`) y el caso PMDG (`B77L [PMDG]`). Los **títulos exactos** de ToLiss e iFly se
-    **reconstruyeron** (el log solo guarda tipo y addon), así que las pruebas de esos dos casos
-    usan la forma real del título, no una captura literal.
-11. **`flights.aircraft_title` / `aircraft_model`**: columnas nuevas. El addon sale del **título**,
-    así que un avión que no lo publique no mostrará addon (es el comportamiento buscado).
+1. ✅ **Radioaltímetro** (`0x31E4`): **97 valores reales** (12,7–167,2 ft) con el iFly 737 MAX 8.
+   El 0→NULL sigue sin ejercitarse (este addon sí publica).
+2. ✅ **LTOW**: **150 468,6 lb** (68 252 kg) — ya se le ha visto devolver un peso real, y es
+   plausible (SKCL→SKCC es un salto corto, con fuel a bordo).
+3. ✅ **Flaps / detent real** (`0x0BFC`): **`flaps_index = 7`** constante → **«FLAPS 30»** sin `≈`,
+   y el porcentaje (`0x0BDC` = **87,5 %**, raw 14 335) cae justo en la banda alta de FLAPS 30
+   (14 336 es la frontera con FLAPS 40): **las dos señales coinciden**. La tabla 737 queda
+   contrastada con una traza real por primera vez.
+4. ✅ **Identidad de aeronave con título real** (no reconstruido): `iFly B38M VHR N665VH (178Seat)`,
+   `aircraft_model = 737 MAX 8`, `aircraft_icao = B38M`. Las columnas nuevas se pueblan.
+5. ⚠️ **Cadencia: es ~8 Hz, no 10 Hz.** 97 muestras en 12,1 s = **126 ms de media** (112–154 ms).
+   `FlareInterval` es 100 ms, pero el ciclo de telemetría corre a ~126 ms con el simulador cargado
+   (el «20 Hz» de 50 ms es el nominal, no el real). Consecuencia: la distancia de toma se mueve
+   **±1 muestra ≈ 32 ft a 151 kt** (no 25 ft), y el «10 Hz» de la doc pasa a «~8 Hz».
+
+**Hallazgos nuevos que la traza destapó** (no estaban en la deuda, hay que decidir):
+
+- **`dist_ft` se colapsa a 0 tras el toque.** Las 16 muestras en tierra (seq 81–96) llevan
+  `dist_ft = 0,0` y `agl_ft = 0,0`: `CaptureFlareSample` escribe `distFt ?? 0.0`, y al salir de la
+  fase Approach el `_approachThreshold` se pone a `null` (`TelemetryCoordinator` L461) mientras la
+  captura **sigue viva** los 2 s posteriores. El margen que captura «la frenada y el morro bajando»
+  **no se puede posicionar en la pista**: en el gráfico cae todo en x=0.
+  **Arreglado (08/10/2026):** `FlareDistanceFt` congela las coordenadas del umbral al armarse la
+  captura (`FreezeFlareThreshold`) y sigue midiendo contra ese umbral tras el toque, aunque
+  `_approachThreshold` se suelte. Compila Debug/Release y **655/655**; **pendiente de un vuelo
+  real** para confirmar que el tramo post-toque ya no colapsa a 0.
+- **El flag `on_ground` llega tarde**: el AGL cruza 0 en la muestra 74 (dist −939) pero `on_ground`
+  no pasa a 1 hasta la 81 (~0,9 s después). El touchdown registrado (1 156 ft) es coherente con el
+  contacto real (más allá de donde el MSL iguala la elevación de campo), pero el detector de toque
+  usa una señal distinta al cruce de AGL.
+
+**Sigue pendiente** (este vuelo no lo cubre):
+
+- El respaldo a **300 ft AGL** y el **timeout de 45 s** (este vuelo tenía distancia al umbral, no
+  se ejercitaron).
+- El **corte de potencia**: el N1 es real (28,8–60,5 %) pero **cae monótono desde el arranque** de
+  la captura; falta confirmar qué «corte» reporta el criterio y si es sensato (relativo al pico de
+  la aproximación, que cae fuera de los 12 s de la traza).
+- La regla que **descarta el `0`** del detent con el mando desplegado (este vuelo dio índice 7, no 0).
+- **`ChartAxisSafety`**: sigue sin reproducirse la excepción.
 
 ---
 
