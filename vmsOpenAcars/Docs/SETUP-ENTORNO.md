@@ -70,6 +70,12 @@ instrucciones del workspace — es el mismo archivo que lee Claude Code, así qu
 proyecto (reglas de trabajo, arquitectura, decisiones pendientes) es idéntico en los dos agentes.
 Por eso las reglas viven ahí y no en el hilo de conversación.
 
+> **En Windows, `dsh` se lanza desde una consola de Administrador.** El sandbox necesita el
+> privilegio `SeSecurityPrivilege` para escribir la etiqueta de integridad de la carpeta temporal,
+> y un servidor sin elevar no lo tiene: el síntoma es que **ningún** comando del agente se ejecuta
+> (`sandbox-local windows-acl temp grant materialization failed`). El diagnóstico completo, con la
+> reproducción y la verificación, está en `2026-10-08-DSH-SHELL-BLOQUEADO-WINDOWS.md`.
+
 ---
 
 ## 4. Checklist en el equipo nuevo
