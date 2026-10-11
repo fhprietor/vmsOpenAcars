@@ -183,6 +183,21 @@ namespace vmsOpenAcars.Core.Flight
         public double? TouchdownRunwayTrueHeadingDeg => _td.RunwayTrueHeadingDeg;
         public double TouchdownGForce       => _td.GForce;
 
+        /// <summary>
+        /// **Congela el toque para el informe del vuelo.** Lo llama
+        /// `AcarsReporter.SnapshotLandingRecord` al copiar el registro —después del último
+        /// aterrizaje y antes de `FilePirep`—, y a partir de ahí la puntuación y el payload leen
+        /// esa misma lectura en vez del toque vivo, que un rearme del detector puede sobrescribir.
+        /// Motivo y medidas: `TouchdownState.FrozenTouchdown`.
+        /// </summary>
+        public void FreezeTouchdownForReport() => _td.FreezeIfNeeded();
+
+        /// <summary>
+        /// El toque que se **publica** (payload) y el que se **puntúa**: la lectura congelada del
+        /// informe, o el toque vivo si nadie la congeló (el registro por pantalla, que no filea).
+        /// </summary>
+        private TouchdownState.FrozenTouchdown TouchdownForReport => _td.Frozen ?? _td.FreezeIfNeeded();
+
         public int  OverspeedCount               => _approachValidator.OverspeedCount;
         public int  OverspeedPenaltyCount        => _approachValidator.OverspeedPenaltyCount;
         public int  LightsViolationCount         => _approachValidator.LightsViolationCount;

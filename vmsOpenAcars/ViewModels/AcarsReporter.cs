@@ -432,6 +432,14 @@ namespace vmsOpenAcars.ViewModels
             var fm   = _flightManager;
             var plan = fm.ActivePlan;
 
+            // **El toque se congela AQUÍ, y esta llamada es la que hace que el logbook y el PIREP no
+            // puedan discrepar.** Corre justo después del último aterrizaje y antes del `await` de
+            // `FilePirep`, así que fija el mismo número para el registro, para la puntuación y para
+            // el payload. Sin ella, un rearme del detector durante ese `await` (touch-and-go, o uno
+            // espurio) sobrescribía el toque vivo y el payload salía con otro valor: medido en el
+            // vuelo 20 (+156 en el log contra −155 en el PIREP) y en el 23 (+34 contra −26).
+            fm.FreezeTouchdownForReport();
+
             // El METAR del aterrizaje manda; si la captura no llegó a haberla (vuelo reanudado, o
             // el touchdown no pasó por aquí) se cae a lo que el servicio tenga en ese momento, que es
             // lo que se guardaba antes. Degradar sin datos, no perder el dato.

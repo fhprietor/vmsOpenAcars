@@ -89,13 +89,16 @@
   apareció —**una comprobación que solo mira las diferencias no ve lo que está mal en los dos
   lados**—. Lo detectaron ellos, se reenvió, y con los **32** subidos repasados **no queda ningún
   positivo** en su tabla.
-  **Y de este hilo sale un pendiente que no se toca aquí:** al explicar phpVMS de dónde sale su
-  `pireps.landing_rate` quedó claro que la copia local del toque y el payload del `file` son **dos
+  **Y de este hilo salió un fallo nuestro, ya corregido:** al explicar phpVMS de dónde sale su
+  `pireps.landing_rate` quedó claro que la copia local del toque y el payload del `file` eran **dos
   lecturas en vivo del mismo toque separadas por el `await` de `FilePirep`** (la copia antes, el
-  payload después), así que **el logbook y el PIREP pueden discrepar en la tasa**: medido en 2 de los
-  41 vuelos del log, y en los dos la copia es la que trae el artefacto del signo. El arreglo es
-  **congelar el toque al contactar**, no mover la copia; el detalle, en
-  `Docs/ESTADO-FLARE-2026-10-08.md` §5.
+  payload después), así que **el logbook y el PIREP podían discrepar en la tasa**: medido en 2 de los
+  41 vuelos del log, y en los dos la copia era la que traía el artefacto del signo. Ahora la
+  puntuación y el payload leen una **lectura congelada del toque** (`TouchdownState.FrozenTouchdown`,
+  fijada en `SnapshotLandingRecord` con `FreezeTouchdownForReport`) que un rearme del detector ya no
+  puede sobrescribir — y **phpVMS sigue recibiendo exactamente el mismo número que recibía**. El
+  detalle y los tres casos medidos, en `Docs/ESTADO-FLARE-2026-10-08.md` §5; 5 pruebas nuevas en
+  `TouchdownStateTests`.
 - **La marca de tiempo de la muestra viajaba con el huso cambiado al releerla del log: 5 horas antes.**
   El `ts_utc` se guarda en UTC (`ToString("o")` sobre un `DateTime` UTC, con su `Z`), pero el lector lo
   devolvía con **`DateTime.Parse` a secas**, que lo convierte a la hora **local** del equipo —así que

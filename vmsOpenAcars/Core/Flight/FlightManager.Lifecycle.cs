@@ -288,7 +288,7 @@ namespace vmsOpenAcars.Core.Flight
                 PlannedDistanceNm        = plannedDistance,
                 BlockFuel                = blockFuel,
                 FuelUsed                 = fuelUsed,
-                LandingRateFpm           = _td.Fpm,
+                LandingRateFpm           = TouchdownForReport.Fpm,
                 Score                    = scoreResult.TotalScore,
                 BlockOnTime              = _timer.ServerBlockOnTime,
                 ArrivalAirport           = arrivalIcao,
@@ -325,15 +325,21 @@ namespace vmsOpenAcars.Core.Flight
             return false;
         }
 
-        private FlightScoreData BuildScoreData() => new FlightScoreData
+        // Los cuatro datos del toque que puntúan salen de la lectura CONGELADA del informe
+        // (`TouchdownForReport`), no del toque vivo: entre la copia del registro y este punto hay
+        // `await`s en los que un rearme del detector puede sobrescribir el valor, y entonces la
+        // puntuación y el payload hablarían de aterrizajes distintos. Ver `FrozenTouchdown`.
+        private FlightScoreData BuildScoreData() => BuildScoreData(TouchdownForReport);
+
+        private FlightScoreData BuildScoreData(TouchdownState.FrozenTouchdown td) => new FlightScoreData
         {
-            LandingDataCaptured          = _td.Captured && _td.Fpm.HasValue,
-            LandingRate                  = _td.Captured && _td.Fpm.HasValue
-                                               ? _td.Fpm.Value
+            LandingDataCaptured          = td.Captured && td.Fpm.HasValue,
+            LandingRate                  = td.Captured && td.Fpm.HasValue
+                                               ? td.Fpm.Value
                                                : Services.ScoringService.NoLandingData,
-            LandingPitch                 = _td.Pitch,
-            LandingBank                  = _td.Bank,
-            LandingGForce                = _td.GForce,
+            LandingPitch                 = td.Pitch,
+            LandingBank                  = td.Bank,
+            LandingGForce                = td.GForce,
             OverspeedCount               = _approachValidator.OverspeedCount,
             OverspeedPenaltyCount        = _approachValidator.OverspeedPenaltyCount,
             LightsViolations             = _approachValidator.LightsViolationCount,

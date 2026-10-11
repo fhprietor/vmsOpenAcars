@@ -53,6 +53,59 @@ namespace vmsOpenAcars.Core.Flight
         public double   Pitch, Bank, GForce;
         public double   Lat, Lon, HeadingDeg;
 
+        /// <summary>
+        /// **La lectura del toque que se publica y la que se puntúa**, congelada en un bloque
+        /// inmutable.
+        ///
+        /// El toque vivo —`Fpm`, `GForce`, `Pitch`, `Bank`— **sí puede cambiar después de
+        /// capturarse**: `ResetRunwayData()` (el rearme del touch-and-go, y también un rearme
+        /// espurio del detector) pone `Captured = false` y el siguiente ciclo de 20 Hz vuelve a
+        /// entrar por `RegisterTouchdown`, que sobrescribe el valor. Y entre la copia del registro
+        /// (`AcarsReporter.SnapshotLandingRecord`, **antes** de `FilePirep`) y los dos sitios donde
+        /// se puntúa y se arma el payload hay `await`s en los que la telemetría sigue corriendo, así
+        /// que **el logbook y el PIREP podían llevar números distintos del mismo toque**.
+        ///
+        /// Medido en el log real: el vuelo 20 quedó con **+156** en el log local y **−155** en el
+        /// PIREP, y el 23 con **+34** y **−26**. En el 40, que no se rearmó, los dos dicen **+74**.
+        /// </summary>
+        internal sealed class FrozenTouchdown
+        {
+            public readonly bool   Captured;
+            public readonly int?   Fpm;
+            public readonly double Pitch, Bank, GForce;
+
+            public FrozenTouchdown(bool captured, int? fpm, double pitch, double bank, double gforce)
+            {
+                Captured = captured;
+                Fpm      = fpm;
+                Pitch    = pitch;
+                Bank     = bank;
+                GForce   = gforce;
+            }
+        }
+
+        private volatile FrozenTouchdown _frozen;
+
+        /// <summary>La lectura congelada del toque, o `null` si todavía no se ha congelado.</summary>
+        public FrozenTouchdown Frozen => _frozen;
+
+        /// <summary>
+        /// Congela el toque **una sola vez** y devuelve esa lectura. Se llama al copiar el registro
+        /// del vuelo —después del último aterrizaje y antes de filear—, que es el punto donde queda
+        /// fijado lo que se publica y lo que se puntúa. Congelar aquí y no en `Capture` es
+        /// deliberado: en un touch-and-go lo que se informa es el **último** aterrizaje, y la copia
+        /// del registro corre después de él.
+        /// </summary>
+        public FrozenTouchdown FreezeIfNeeded()
+        {
+            var frozen = _frozen;
+            if (frozen != null) return frozen;
+
+            frozen = new FrozenTouchdown(Captured, Fpm, Pitch, Bank, GForce);
+            _frozen = frozen;
+            return frozen;
+        }
+
         private volatile RunwayGeometry _geometry;
 
         public double DistanceFt            => _geometry?.DistanceFt ?? 0;
@@ -89,6 +142,10 @@ namespace vmsOpenAcars.Core.Flight
         {
             Captured  = false;
             _geometry = null;
+            // El rearme del touch-and-go es para el aterrizaje SIGUIENTE, así que suelta también la
+            // lectura congelada: la copia del registro volverá a congelar el toque que de verdad se
+            // publica (el último). Sin esto, un touch-and-go informaría el toque del ciclo anterior.
+            _frozen   = null;
         }
 
         public void Reset()
@@ -99,6 +156,7 @@ namespace vmsOpenAcars.Core.Flight
             Pitch = Bank = GForce = 0;
             Lat = Lon = HeadingDeg = 0;
             _geometry             = null;
+            _frozen               = null;
         }
     }
 }

@@ -139,7 +139,7 @@ Punto por punto (antes de esto, todo era una hipótesis):
 
 ---
 
-## 5. La copia del toque y el fileo pueden discrepar (11/10/2026, medido y **sin arreglar**)
+## 5. La copia del toque y el fileo podían discrepar (11/10/2026, medido y **arreglado**)
 
 Salió al explicarnos phpVMS de dónde sale su `pireps.landing_rate`: **es nuestro propio campo del
 `file`**, guardado tal cual, así que las dos tasas que se ven en su base son **dos lecturas nuestras
@@ -167,8 +167,21 @@ camino: **la copia se tomó antes de que el toque estuviera resuelto**. Consecue
 logbook del piloto puede discrepar del PIREP en la tasa**, y el análisis del flare se construye
 sobre la copia.
 
-**Cómo se arregla (no moviendo la copia):** el fileo resetea el estado, así que la copia tiene que
-seguir yendo antes. Lo que hay que cambiar es **qué** se copia: **congelar el toque en el momento
-del contacto** —una única vez, cuando se detecta— en vez de leerlo al filear. Queda abierto, con el
-signo ya normalizado en el payload (que es lo que ve phpVMS) y sin tocar el log local, que hoy sigue
-teniendo el valor viejo en esos tres vuelos.
+**Cómo se arregló, y por qué NO moviendo la copia:** el fileo resetea el estado, así que la copia
+tiene que seguir yendo antes. Lo que cambió es **qué** leen el payload y la puntuación: ahora leen
+una **lectura congelada del toque** (`TouchdownState.FrozenTouchdown`), que se fija al copiar el
+registro (`AcarsReporter.SnapshotLandingRecord` → `FlightManager.FreezeTouchdownForReport`) y que
+un rearme posterior del detector **ya no puede sobrescribir**. Tres detalles deliberados:
+
+- **No se congela en `Capture`, sino al copiar el registro.** En un touch-and-go lo que se informa
+  es el **último** aterrizaje, y la copia corre después de él; congelar en la primera captura haría
+  que el segundo ciclo se publicara con la tasa del primero.
+- **`ResetRunwayData()` (el rearme del touch-and-go) suelta el congelado**, para que el ciclo
+  siguiente vuelva a congelar *su* toque.
+- **`Reset()` también lo suelta**: un vuelo nuevo no hereda el toque del anterior.
+
+**Efecto neto:** phpVMS **sigue recibiendo el mismo número que ya recibía** (el valor congelado es el
+que ya iba en el payload), y lo que deja de pasar es que el logbook diga otro. Los tres vuelos
+históricos del cuadro siguen con su valor viejo en el log local —son datos ya escritos—, así que la
+divergencia con `pireps.landing_rate` en esos tres se queda como está, documentada. Fijado con
+`TouchdownStateTests` (5 pruebas, con los números del vuelo 20).

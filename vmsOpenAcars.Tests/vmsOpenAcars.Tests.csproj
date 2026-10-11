@@ -115,6 +115,7 @@
     <Compile Include="LandingUploadPayloadTests.cs" />
     <Compile Include="LandingBackfillToolTests.cs" />
     <Compile Include="LandingLogServiceTests.cs" />
+    <Compile Include="TouchdownStateTests.cs" />
     <Compile Include="PirepLandingWeatherTests.cs" />
     <Compile Include="TaxiRouteCaseTests.cs" />
     <Compile Include="TaxiCorpusMeasurementTests.cs" />
