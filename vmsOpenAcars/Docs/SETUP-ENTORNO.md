@@ -82,6 +82,33 @@ Por eso las reglas viven ahí y no en el hilo de conversación.
 > (`sandbox-local windows-acl temp grant materialization failed`). El diagnóstico completo, con la
 > reproducción y la verificación, está en `2026-10-08-DSH-SHELL-BLOQUEADO-WINDOWS.md`.
 
+### 3.1. Trampas del `git` en esta máquina (medidas el 11/10/2026)
+
+**Un pathspec relativo exacto puede no casar aunque el nombre sea idéntico, en silencio.** Medido:
+`git add -- vmsOpenACars/CLAUDE.md` **no** hace nada (ni error), mientras que el comodín
+`'*CLAUDE.md*'` sí casa el mismo fichero y `git add -u` lo añade. Los bytes del nombre en disco y en
+el índice son **idénticos** (`76 6d 73 4f 70 65 6e 41 63 61 72 73 2f …`), así que no es un problema
+de mayúsculas ni de acentos. Consecuencias reales: un `git add` que parece correcto deja el commit
+**con menos ficheros de los que crees** (pasó: un commit de documentación salió con **1** de los 5),
+y `git checkout -- <ruta>` y `git show HEAD:<ruta>` fallan con «did not match any file(s) known to
+git» / «exists on disk, but not in 'HEAD'».
+
+**Qué hacer:** usar **`git add -u`** para los modificados (o comodines), y **comprobar siempre con
+`git diff --cached --stat` antes de comitear** que están todos. Para leer un fichero commiteado sin
+que PowerShell estropee los acentos, sacarlo **en binario**:
+
+```powershell
+cmd /c "git -C <repo> cat-file blob <hash-del-indice> > salida.md"   # git ls-files -s da el hash
+```
+
+**Y `CLAUDE.md` no tiene 64 KB de presupuesto, tiene ~65 218 bytes.** El 11/10/2026 el arnés truncó
+un fichero de 65 407 a 65 218 y **se comió la última línea de "Próximas áreas"** (el bullet de
+`landing_rate = 0`), que es justo lo que la regla del techo quiere evitar. Se detecta porque el
+aviso del arnés pasa de *omitted* a **truncated**; se arregla reconstruyendo el fichero desde el
+blob commiteado (`cat-file`, arriba) y aplicando **solo** el cambio pretendido, nunca editando el
+fichero dañado a mano.
+
+
 ---
 
 ## 4. Checklist en el equipo nuevo

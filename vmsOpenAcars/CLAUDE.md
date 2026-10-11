@@ -67,7 +67,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
   y su clave `Score_Crit*` en ambos idiomas.
 
 **Documentación**
-- **`CLAUDE.md` tiene un techo duro de 65 536 bytes** (64 KB): es el presupuesto de instrucciones
+- **`CLAUDE.md` tiene un techo duro real de ~65 200 bytes** (medido el 11/10/2026: el arnes trunco a 65 218): es el presupuesto de instrucciones
   del agente, y el harness **trunca en silencio** lo que sobra, empezando por el final del archivo
   —o sea *Próximas áreas*, justo lo que no se puede perder—. Se pasó de 67 KB en v0.9.13 y se
   movieron a `Docs/architecture.md` la narrativa de desvíos (~21 KB) y el índice de archivos

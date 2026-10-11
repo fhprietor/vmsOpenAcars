@@ -84,6 +84,18 @@
   valor con signo**, así que un positivo se va al otro lado del cero y la arrastra hacia arriba. Se
   normaliza en el borde, que es donde vive la convención, y **no se pierde nada de la medida**: la
   magnitud es el dato y el signo no lo lleva. Los dos vuelos ya subidos se reenviaron corregidos.
+  **Y uno más se escapó al primer reenvío** (`9E20We81wlBgp3Nj`, `+74`): el cruce con phpVMS solo
+  listaba las tasas que **diferían** de las suyas, y esa coincidía en los dos lados, así que no
+  apareció —**una comprobación que solo mira las diferencias no ve lo que está mal en los dos
+  lados**—. Lo detectaron ellos, se reenvió, y con los **32** subidos repasados **no queda ningún
+  positivo** en su tabla.
+  **Y de este hilo sale un pendiente que no se toca aquí:** al explicar phpVMS de dónde sale su
+  `pireps.landing_rate` quedó claro que la copia local del toque y el payload del `file` son **dos
+  lecturas en vivo del mismo toque separadas por el `await` de `FilePirep`** (la copia antes, el
+  payload después), así que **el logbook y el PIREP pueden discrepar en la tasa**: medido en 2 de los
+  41 vuelos del log, y en los dos la copia es la que trae el artefacto del signo. El arreglo es
+  **congelar el toque al contactar**, no mover la copia; el detalle, en
+  `Docs/ESTADO-FLARE-2026-10-08.md` §5.
 - **La marca de tiempo de la muestra viajaba con el huso cambiado al releerla del log: 5 horas antes.**
   El `ts_utc` se guarda en UTC (`ToString("o")` sobre un `DateTime` UTC, con su `Z`), pero el lector lo
   devolvía con **`DateTime.Parse` a secas**, que lo convierte a la hora **local** del equipo —así que

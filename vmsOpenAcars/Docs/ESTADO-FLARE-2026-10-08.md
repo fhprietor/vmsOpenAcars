@@ -136,3 +136,39 @@ Punto por punto (antes de esto, todo era una hipótesis):
   aproximado, se marca (`≈`).
 - Antes de dar algo por hecho: **build Debug y Release + la suite completa**, y **ningún diálogo en
   pantalla** durante las pruebas.
+
+---
+
+## 5. La copia del toque y el fileo pueden discrepar (11/10/2026, medido y **sin arreglar**)
+
+Salió al explicarnos phpVMS de dónde sale su `pireps.landing_rate`: **es nuestro propio campo del
+`file`**, guardado tal cual, así que las dos tasas que se ven en su base son **dos lecturas nuestras
+del mismo toque**:
+
+| | |
+|---|---|
+| `pireps.landing_rate` | la del payload, construida **dentro** de `FilePirep` |
+| `flights.landing_rate_fpm` | la del registro local, copiada en `SnapshotLandingRecord` |
+
+Y el orden es el que hace el daño: **la copia va ANTES del `await`** (por el motivo de la §4: el
+fileo resetea el estado del vuelo) y **el payload se arma DESPUÉS**, con la telemetría corriendo a
+20 Hz en medio. No es «vivo contra relectura»: son dos lecturas en vivo separadas por ese `await`.
+
+**Medido en 3 de los 41 vuelos del log con dato (7%)**, y en los tres la copia es la mala:
+
+| Vuelo | En el log local (copia) | En el PIREP (payload) | Firma de la copia |
+|---|---|---|---|
+| 20 | **+156** | −155 | `touchdown_dist_ft = 0`, sin captura de flare |
+| 23 | **+34** | −26 | `touchdown_dist_ft = 0` |
+| 40 | **+74** | +74 | `touchdown_dist_ft = 0` |
+
+La tasa en positivo es un artefacto del detector de contacto, y el `dist = 0` dice lo mismo por otro
+camino: **la copia se tomó antes de que el toque estuviera resuelto**. Consecuencia real: **el
+logbook del piloto puede discrepar del PIREP en la tasa**, y el análisis del flare se construye
+sobre la copia.
+
+**Cómo se arregla (no moviendo la copia):** el fileo resetea el estado, así que la copia tiene que
+seguir yendo antes. Lo que hay que cambiar es **qué** se copia: **congelar el toque en el momento
+del contacto** —una única vez, cuando se detecta— en vez de leerlo al filear. Queda abierto, con el
+signo ya normalizado en el payload (que es lo que ve phpVMS) y sin tocar el log local, que hoy sigue
+teniendo el valor viejo en esos tres vuelos.
