@@ -113,6 +113,7 @@
     <Compile Include="WindComponentsTests.cs" />
     <Compile Include="LandingHeaderTests.cs" />
     <Compile Include="LandingUploadPayloadTests.cs" />
+    <Compile Include="LandingBackfillToolTests.cs" />
     <Compile Include="LandingLogServiceTests.cs" />
     <Compile Include="PirepLandingWeatherTests.cs" />
     <Compile Include="TaxiRouteCaseTests.cs" />
