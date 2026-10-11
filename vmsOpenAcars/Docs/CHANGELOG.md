@@ -4,6 +4,52 @@
 
 ## [0.9.37] — 11/10/2026
 
+### Added
+
+- **El análisis del aterrizaje viaja al servidor: métricas y traza del flare al PIREP.**
+  phpVMS desplegó el **11/10/2026** la ingesta que pedimos (`Docs/PEDIDO-PHPVMS-ANALISIS-FLARE.md`,
+  respuesta en `Docs/RESPUESTA-PHPVMS-ANALISIS-FLARE-2026-10-11.md`): aceptó el contrato tal cual, y
+  además hizo por su cuenta las fases 3 y 4 (IA y web), así que **la traza deja de ser un PNG que un
+  piloto comparte a mano**. En el cliente es **un solo `POST /api/pireps/{id}/landing` por vuelo**,
+  **después** de filear y en segundo plano: `Helpers/LandingUploadPayload.cs` arma el cuerpo (puro,
+  con `LandingUploadPayloadTests`) y `ApiService.SendLandingAnalysis` lo envía.
+  - **El `pirep_id` se copia antes del `await`, y es la tercera vez que este orden muerde.**
+    `FilePirep` pone `ActivePirepId = ""` **antes** de devolver `true`
+    (`FlightManager.Lifecycle`), así que leerlo después del file mandaba el análisis a
+    `/api/pireps//landing`. Los dos casos anteriores fueron la traza del flare vacía (v0.9.34) y el
+    `dist_ft` a cero (v0.9.37); la regla que los cierra es siempre la misma: **lo que haga falta
+    después del file se copia antes del file**.
+  - **`null` es «sin dato», nunca `0`**, que es lo que phpVMS necesita para que las medianas de su
+    `/landings/aggregate` no se envenenen. Obliga a traducir tres ceros que **en el modelo local sí
+    son huecos**: el centinela **`NoLandingData` (-1)** de un vuelo sin toque capturado —que en su
+    agregación entraría como una tasa real—, el **`0` de `GForce`** (la puntuación ya lo trata como
+    ausencia: omite el criterio «si dato = 0») y el **`0` de `CenterlineDevFt`** (mismo guard que
+    `ScoringService`, `> 0`). **`touchdown_dist_ft` no entra en la lista**: tocar justo en el umbral
+    es un `0` de verdad, y ahí el 0 es una medida.
+  - **Nada no finito se cuela como número.** `FlareTrackPoint` puede traer `NaN` —`FlapTrackSummary`
+    los filtra explícitamente— y Newtonsoft los escribiría como `NaN`, que **no es JSON válido**: su
+    validación es **todo o nada**, así que una sola muestra así habría tirado **el vuelo entero**,
+    traza incluida. Se convierten en `null`.
+  - **Se respetan sus topes de longitud recortando en cliente** (METAR 400, título 191, pista 16…),
+    por lo mismo: con validación todo-o-nada, un METAR de 420 caracteres no costaría el METAR,
+    costaría la traza. Se dice en la respuesta que preferimos perder el final de un texto informativo.
+  - **Los `null` van escritos en el cuerpo**, no omitidos, y **un test lo fija** para que nadie añada
+    `NullValueHandling.Ignore` a este camino.
+  - **El instante de cada muestra va en ISO-8601 con `Z` explícita**, compuesto en el cliente: el
+    formato de un `DateTime` en JSON depende de su `Kind`, y un `Unspecified` viajaría sin huso —su
+    servidor lo leería como su hora local y el flare caería a las tantas—.
+  - Interruptor **`pirep_landing_analysis_enabled`, encendido por defecto** (el pedido lo dejaba
+    apagado «hasta que vuestro endpoint exista», y ya existe). Si contesta 400/401/403/404 o el
+    piloto vuela sin red, **el vuelo se filea igual** y el análisis se queda en su
+    `landing_log.sqlite`: es un extra del análisis, **nunca** un requisito para acreditar el vuelo.
+  - **Sin verificar en vuelo**: no se ha enviado ni un PIREP real todavía (phpVMS lo pidió y es el
+    siguiente paso). Lo verificado es el contrato contra los **números reales del vuelo 44** en 10
+    pruebas, no la ingesta de extremo a extremo.
+- **El log de la traza y la leyenda del gráfico dejan de decir «10 Hz» a secas.** Son **~8 Hz reales**
+  con el simulador cargado (97 muestras en 12,1 s, medido en el vuelo 43), y el rótulo pasa a
+  `~10 Hz` / `(~8 Hz reales…)`: el diseño es 100 ms nominales y el ciclo de telemetría corre a
+  ~126 ms, así que prometer 10 Hz exactos era prometer lo que no se mide.
+
 ### Fixed
 
 - **La traza del flare se guardaba sin posición en todo el tramo posterior al toque (`dist_ft = 0`).**
@@ -32,8 +78,8 @@
   mueve **±1 muestra ≈ 32 ft**, no los 25 ft que se deducían del «10 Hz». La documentación pasa a decir
   «~8 Hz con el simulador cargado» y el número de muestras deja de presentarse como si fuera fijo.
 
-**655/655** (sin tests nuevos: los dos fixes son de captura y su verificación es de vuelo real) e idiomas
-simétricos sin cambios (**460 claves**).
+**665/665** (655 + **los 10 del payload**) e idiomas simétricos (**463 claves**, +3 del envío del
+análisis). Recuento del contrato verificado contra el **vuelo 44** real, no contra geometría inventada.
 
 ## [0.9.36] — 08/10/2026
 

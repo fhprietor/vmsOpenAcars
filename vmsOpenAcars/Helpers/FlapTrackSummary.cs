@@ -37,10 +37,26 @@ namespace vmsOpenAcars.Helpers
         internal FlapSetting AtThreshold { get; private set; }
 
         /// <summary>
-        /// El ajuste en la toma (la última muestra **en el aire**). `null` si la traza no llegó a
-        /// tener una transición aire→tierra: sin toque no hay ajuste de toque.
+        /// El detente **real** (`0x0BFC`) de esa misma muestra del umbral, sin traducir y sin el
+        /// «≈»: es el dato que se publica al servidor como `flaps_index`. `null` si el avión no
+        /// publica el offset o si la muestra no lo traía.
+        ///
+        /// Vive aquí y no en quien lo consume porque **«la muestra del umbral» se decide una sola
+        /// vez**, en esta clase: recalcularla fuera sería dos definiciones del mismo instante, que es
+        /// justo lo que este repo evita (el fallo de la 0.9.36 fue dos identidades de aeronave).
         /// </summary>
+        internal int? AtThresholdIndex { get; private set; }
+
+        /// <summary>El ajuste en la toma (la última muestra **en el aire**). `null` si la traza no llegó a
+        /// tener una transición aire→tierra: sin toque no hay ajuste de toque.</summary>
         internal FlapSetting AtTouchdown { get; private set; }
+
+        /// <summary>
+        /// El detente **real** de la muestra del contacto, para `flaps_index` del payload. `null` sin
+        /// transición aire→tierra o sin detente publicado — y entonces la etiqueta del contacto es la
+        /// del porcentaje, que sí va con «≈».
+        /// </summary>
+        internal int? AtTouchdownIndex { get; private set; }
 
         /// <summary>Cambió el ajuste entre el umbral y la toma (más de <see cref="ChangeHysteresisPct"/>).</summary>
         internal bool Changed { get; private set; }
@@ -106,6 +122,7 @@ namespace vmsOpenAcars.Helpers
             }
             summary.AtThreshold = FlapSetting.Interpret(atThreshold.FlapsPct, aircraftFamily,
                                                         atThreshold.FlapsIndex);
+            summary.AtThresholdIndex = atThreshold.FlapsIndex;
 
             // ── El contacto: la última muestra en el aire ─────────────────────────
             // Es la misma transición que usa `ThresholdToTouchdown` para el tiempo, leída igual: el
@@ -116,6 +133,7 @@ namespace vmsOpenAcars.Helpers
                 if (usable[i - 1].OnGround || !usable[i].OnGround) continue;
                 summary.AtTouchdown = FlapSetting.Interpret(usable[i - 1].FlapsPct, aircraftFamily,
                                                             usable[i - 1].FlapsIndex);
+                summary.AtTouchdownIndex = usable[i - 1].FlapsIndex;
                 break;
             }
 

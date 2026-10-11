@@ -31,6 +31,27 @@ Ahora las dos usan el **mismo cero**.
 
 ---
 
+## Tu aterrizaje ya viaja a la web
+
+Hasta ahora la traza del flare y sus métricas **se quedaban en tu ordenador**: al cerrar el simulador no
+las veía nadie más. Desde esta versión **se envían a phpVMS una vez por vuelo**, después de registrar el
+PIREP, y la aerolínea puede enseñarlas en la página del vuelo.
+
+Qué significa eso en la práctica:
+
+- **Va después del PIREP, no durante el vuelo.** No cambia nada de lo que pasa mientras vuelas.
+- **No toca tu puntuación ni tu acreditación.** Es análisis, igual que el gráfico del FLARE que ya veías.
+- **Si el envío falla, el vuelo se registra igual.** Sin conexión, o si el servidor lo rechaza, el
+  análisis se queda en tu historial local y el log te lo dice en una línea. **Un extra del análisis nunca
+  puede costarte un vuelo.**
+- **Solo viaja lo que se midió.** Donde no hay dato viaja un hueco, no un cero: no vas a aparecer con
+  «viento en calma» si el simulador no publicó el viento, ni con un aterrizaje de 0 fpm si no se capturó
+  el toque.
+- **Se compara lo comparable:** tus aterrizajes en la misma pista y con el mismo tipo de avión. No hay
+  identidad tuya en el dato más allá del vuelo al que pertenece.
+
+---
+
 ## Lo que hay que saber
 
 - La traza fina **no es exactamente de 10 Hz**: el ciclo real de telemetría, con el simulador cargado,

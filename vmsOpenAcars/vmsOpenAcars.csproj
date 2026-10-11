@@ -216,6 +216,7 @@
     <Compile Include="Helpers\WindComponents.cs" />
     <Compile Include="Helpers\MetarObservationTime.cs" />
     <Compile Include="Helpers\LandingHeader.cs" />
+    <Compile Include="Helpers\LandingUploadPayload.cs" />
     <Compile Include="Helpers\LandingWeatherLine.cs" />
     <Compile Include="Helpers\Constants.cs" />
     <Compile Include="Helpers\FlightPhaseHelper.cs" />
@@ -224,6 +225,7 @@
     <Compile Include="Models\AcarsPosition.cs" />
     <Compile Include="Models\ApproachTrackPoint.cs" />
     <Compile Include="Models\FlareTrackPoint.cs" />
+    <Compile Include="Models\LandingUpload.cs" />
     <Compile Include="Models\FlightRecord.cs" />
     <Compile Include="Models\Aircraft.cs" />
     <Compile Include="Models\Aircraftperformancetable.cs" />

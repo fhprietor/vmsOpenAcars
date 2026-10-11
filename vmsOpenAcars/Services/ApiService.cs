@@ -316,6 +316,19 @@ namespace vmsOpenAcars.Services
         }
 
         /// <summary>
+        /// Sube el análisis del aterrizaje —métricas y traza fina del flare— al PIREP **ya fileado**:
+        /// `POST /api/pireps/{id}/landing` (phpVMS, desplegado el 11/10/2026).
+        ///
+        /// Devuelve también el cuerpo de la respuesta porque el log lo enseña: su `200` trae `count`
+        /// con las muestras guardadas, que es la única prueba de que la ingesta entendió la traza
+        /// entera. Un fallo aquí **no** invalida el vuelo: es un extra del análisis.
+        /// </summary>
+        public async Task<(bool Success, string Body)> SendLandingAnalysis(string pirepId, object payload)
+        {
+            return await PostJsonAsync($"api/pireps/{pirepId}/landing", payload);
+        }
+
+        /// <summary>
         /// Prefile un vuelo y devuelve el ID del PIREP y la hora de creación del servidor
         /// </summary>
         public async Task<(string pirepId, DateTime serverCreatedAt)> PrefileFlight(SimbriefPlan plan, Pilot pilot)

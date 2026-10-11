@@ -19,6 +19,12 @@ namespace vmsOpenAcars.Services.Interfaces
         Task<bool>                                   UpdatePirep(string pirepId, object data);
         Task<bool>                                   DeletePirep(string pirepId);
         Task<bool>                                   FilePirep(string pirepId, object finalData);
+        /// <summary>
+        /// Sube el análisis del aterrizaje (métricas + traza del flare) al PIREP ya fileado:
+        /// `POST /api/pireps/{id}/landing`. Devuelve el cuerpo para poder reportar el motivo del
+        /// rechazo —su validación es todo o nada y detalla el campo que falló—.
+        /// </summary>
+        Task<(bool Success, string Body)>            SendLandingAnalysis(string pirepId, object payload);
         Task<(string pirepId, System.DateTime serverCreatedAt)> PrefileFlight(SimbriefPlan plan, Pilot pilot);
         Task<Pirep>                                  GetPirepDetail(string pirepId);
         Task<List<Pirep>>                            GetActivePireps();

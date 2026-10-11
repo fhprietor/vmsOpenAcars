@@ -112,6 +112,7 @@
     <Compile Include="SettingsFormLayoutTests.cs" />
     <Compile Include="WindComponentsTests.cs" />
     <Compile Include="LandingHeaderTests.cs" />
+    <Compile Include="LandingUploadPayloadTests.cs" />
     <Compile Include="LandingLogServiceTests.cs" />
     <Compile Include="PirepLandingWeatherTests.cs" />
     <Compile Include="TaxiRouteCaseTests.cs" />

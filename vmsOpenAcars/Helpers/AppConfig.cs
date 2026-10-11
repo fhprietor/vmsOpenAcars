@@ -242,6 +242,18 @@ namespace vmsOpenAcars.Helpers
         /// <summary>Idioma de la interfaz ("es"/"en"): lo usa la voz del RAAS para elegir timbre.</summary>
         public static string Language => ConfigurationManager.AppSettings["language"] ?? "es";
 
+        // ── Análisis del aterrizaje (métricas + traza del flare) al servidor ──────
+        // **Encendido por defecto desde la 0.9.37**, que es cuando phpVMS desplegó su ingesta
+        // (`POST /api/pireps/{id}/landing`, 11/10/2026): nuestro pedido lo dejaba apagado «hasta que
+        // vuestro endpoint exista» y ya existe, así que la razón para tenerlo apagado desapareció.
+        //
+        // Si el endpoint contesta 400/401/403/404, **el vuelo se filea igual** y el dato sigue en el
+        // `landing_log.sqlite` local: esto es un extra del análisis, nunca un requisito para
+        // acreditar el vuelo. Con la clave ausente se trata como `true` —el `.config` ya instalado de
+        // un piloto no la trae, y un dato que no se sube no se puede recuperar después—.
+        public static bool PirepLandingAnalysisEnabled
+            => GetBool("pirep_landing_analysis_enabled", true);
+
         private static int GetInt(string key, int defaultValue)
         {
             string value = ConfigurationManager.AppSettings[key];

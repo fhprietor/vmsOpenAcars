@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
+using vmsOpenAcars.Core.Helpers;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
@@ -273,6 +274,15 @@ namespace vmsOpenAcars.ViewModels
             var pendingFlare    = _tc?.SnapshotFlareBuffer()    ?? new List<FlareTrackPoint>();
             bool flareArmed     = _tc != null && _tc.FlareCaptureStarted;
 
+            // **El id del PIREP se copia aquí, con las trazas y por el mismo motivo que ellas.**
+            // `FilePirep` pone `ActivePirepId = ""` *antes* de devolver `true`
+            // (`FlightManager.Lifecycle`), así que leerlo después del `await` da cadena vacía y el
+            // análisis se subiría a `/api/pireps//landing`. Es la tercera vez que este orden muerde
+            // —la traza del flare vacía en la 0.9.34, el `dist_ft` a cero en la 0.9.37— y la regla
+            // que lo cierra es siempre la misma: lo que haga falta *después* del file se copia
+            // *antes* del file.
+            string pendingPirepId = _flightManager.ActivePirepId;
+
             // La MISMA meteo que se acaba de volcar al logbook viaja al PIREP, compuesta una sola
             // vez desde el snapshot: dos lecturas distintas podrían dar dos textos distintos.
             string landingWx = LandingWeatherLine.Build(
@@ -339,6 +349,23 @@ namespace vmsOpenAcars.ViewModels
                 _cb.Log?.Invoke("✅ Vuelo reportado, listo para siguiente vuelo", Theme.Success);
                 _cb.FlightEnded?.Invoke();
                 SaveLandingRecord(pendingRecord, pendingApproach, pendingFlare, flareArmed);
+
+                // El análisis del aterrizaje al servidor, **después** de filear y en segundo plano.
+                //
+                // `Score` se fija aquí otra vez, y no es redundante: `LastFlightScore` **solo existe
+                // a partir del fileo** (`FlightManager` lo calcula dentro de `FilePirep`, y por eso
+                // no se puede leer antes del `await`) y `SaveLandingRecord` sale por sus dos salidas
+                // tempranas *antes* de asignarlo cuando no hay log local o hay menos de 3 puntos de
+                // aproximación. Sin esta línea, un piloto sin `landing_log.sqlite` —como este
+                // portátil— mandaría **un 0 como puntuación** de un vuelo que sí se puntuó.
+                if (AppConfig.PirepLandingAnalysisEnabled && !string.IsNullOrEmpty(pendingPirepId))
+                {
+                    pendingRecord.Score = _flightManager.LastFlightScore;
+                    FireAndForget.Run(
+                        () => UploadLandingAnalysis(pendingPirepId, pendingRecord, pendingFlare),
+                        ex => _cb.Log?.Invoke(_("Log_LandingAnalysisFailed", ex.Message), Theme.Warning),
+                        "análisis del aterrizaje");
+                }
                 // Releer los datos del piloto implica una llamada HTTP y 5 s de espera; no
                 // debe bloquear el cierre del vuelo, pero un fallo debe quedar registrado.
                 FireAndForget.Run(RefreshPilotDataAfterPirep,
@@ -582,6 +609,38 @@ namespace vmsOpenAcars.ViewModels
             {
                 _cb.Log?.Invoke(_("Log_LandingLogError", ex.Message), Theme.Danger);
             }
+        }
+
+        /// <summary>
+        /// **Sube el análisis del aterrizaje** —métricas y traza fina del flare— al PIREP recién
+        /// fileado: `POST /api/pireps/{id}/landing` (phpVMS, desplegado el 11/10/2026).
+        ///
+        /// Es un **extra del análisis, nunca parte de la acreditación del vuelo**: si el endpoint
+        /// contesta 400/401/403/404, o el piloto vuela sin red, el PIREP ya está enviado y el dato
+        /// sigue en su `landing_log.sqlite`. Por eso ningún fallo de aquí sale de este método.
+        ///
+        /// Su ingesta es un **reemplazo total**, así que se manda siempre el análisis **completo**:
+        /// `LandingUploadPayload.Build` no sabe hacer envíos parciales, y un reenvío con menos campos
+        /// dejaría el resto en `null` en su lado.
+        /// </summary>
+        private async Task UploadLandingAnalysis(string pirepId, FlightRecord record,
+                                                 IList<FlareTrackPoint> trace)
+        {
+            var payload = LandingUploadPayload.Build(record, trace, AppInfo.Version);
+            var (ok, body) = await _apiService.SendLandingAnalysis(pirepId, payload);
+
+            if (ok)
+            {
+                _cb.Log?.Invoke(_("Log_LandingAnalysisUploaded", payload.trace.Count), Theme.Success);
+                return;
+            }
+
+            // El cuerpo del error es lo único que dice *por qué* lo rechazó: su validación es todo o
+            // nada y devuelve el detalle del campo que falló. Se recorta porque el log es una lista
+            // de la interfaz, no un fichero.
+            string why = string.IsNullOrWhiteSpace(body) ? "sin respuesta del servidor" : body.Trim();
+            if (why.Length > 200) why = why.Substring(0, 200) + "…";
+            _cb.Log?.Invoke(_("Log_LandingAnalysisRejected", why), Theme.Warning);
         }
 
         // ── RefreshPilotData ──────────────────────────────────────────────────────
