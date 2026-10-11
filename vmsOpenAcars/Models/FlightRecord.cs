@@ -105,6 +105,21 @@ namespace vmsOpenAcars.Models
         public bool FlareCaptureArmed { get; set; }
 
         /// <summary>
+        /// **Por qué se cerró la captura de la traza** (`stopped:post-touchdown 2.0s`,
+        /// `stopped:on-ground`, `stopped:cap`, `stopped:timeout`), tal cual lo produce
+        /// `FlareCapturePolicy.StopReason`.
+        ///
+        /// Va al payload como `trace_stop_reason` (phpVMS lo pidió el 11/10/2026 y **ya tiene la
+        /// columna**) y no es decorativo: `stopped:cap` y `stopped:timeout` significan **traza
+        /// truncada**, y su IA y su gráfico avisan de eso antes de sacar conclusiones del final.
+        ///
+        /// `null` no es «no se sabe»: es que la captura **no llegó a cerrarse** —no se armó, o el
+        /// vuelo acabó con ella abierta—. Es lo que distingue un final normal de una traza que nadie
+        /// cerró. NULL también en las filas anteriores a esta columna.
+        /// </summary>
+        public string TraceStopReason { get; set; }
+
+        /// <summary>
         /// **La familia de la aeronave que voló este aterrizaje**, tal como la publicaba el simulador
         /// en el **modelo ATC** (`FsuipcService.AircraftIcao`, offset `0x0618`): `B737`, `B777`,
         /// `A320`… Null = sin dato (vuelo anterior a la columna, o el simulador no lo publicaba).

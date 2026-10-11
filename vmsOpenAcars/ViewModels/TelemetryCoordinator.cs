@@ -178,6 +178,13 @@ namespace vmsOpenAcars.ViewModels
         /// <summary>¿La captura del flare llegó a armarse en este aterrizaje?</summary>
         internal bool FlareCaptureStarted => _flare.EverStarted;
 
+        /// <summary>
+        /// **Por qué se cerró la captura** (`stopped:…`), o `null` si no llegó a cerrarse. Se lee al
+        /// copiar el registro —antes del reset del vuelo, como el resto de la traza— y va al payload
+        /// como `trace_stop_reason`. Ver `FlareCapturePolicy.StopReason`.
+        /// </summary>
+        internal string FlareStopReason => _flare.StopReason;
+
         internal void ClearFlareBuffer()
         {
             _flareBuffer.Clear();

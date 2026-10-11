@@ -189,6 +189,13 @@ namespace vmsOpenAcars.Services
                     // aproximación no es un Vref.
                     EnsureColumn(conn, "flights", "vref_kt", "INTEGER");
 
+                    // **Por qué se cerró la captura de la traza** (`stopped:post-touchdown 2.0s`,
+                    // `stopped:cap`, …). Se guarda aquí porque es lo que deja distinguir un final
+                    // normal de una traza truncada al releer el vuelo semanas después —el estado en
+                    // vivo de la política ya no existe— y porque phpVMS lo pidió para su IA y su
+                    // gráfico el 11/10/2026. NULL = la captura no llegó a cerrarse (o fila anterior).
+                    EnsureColumn(conn, "flights", "trace_stop_reason", "TEXT");
+
                     // La traza del flare también se migra por si la tabla viene de una versión
                     // anterior con menos columnas: `CREATE TABLE IF NOT EXISTS` no toca una tabla que
                     // ya está, exactamente el mismo caso que el de `flights`.
@@ -416,7 +423,7 @@ namespace vmsOpenAcars.Services
                          landing_runway_true_deg, runway_length_ft,
                          flare_capture_armed, aircraft_icao,
                          aircraft_title, aircraft_model, landing_weight_lbs,
-                         offset_threshold_ft, vref_kt)
+                         offset_threshold_ft, vref_kt, trace_stop_reason)
                     VALUES
                         (@fn, @org, @dest, @rwy, @dt,
                          @rate, @gf, @dist, @cl,
@@ -425,7 +432,7 @@ namespace vmsOpenAcars.Services
                          @wgst, @hw, @xw,
                          @rwytrue, @rlen, @flareArmed, @acft,
                          @acftTitle, @acftModel, @lw,
-                         @offset, @vref)";
+                         @offset, @vref, @stopReason)";
 
                 cmd.Parameters.AddWithValue("@fn",    r.FlightNumber ?? "");
                 cmd.Parameters.AddWithValue("@org",   r.Origin ?? "");
@@ -472,6 +479,11 @@ namespace vmsOpenAcars.Services
                 cmd.Parameters.AddWithValue("@offset", (object)r.OffsetThresholdFt ?? DBNull.Value);
                 // El Vref del plan. Sin TLR va NULL, y no se estima.
                 cmd.Parameters.AddWithValue("@vref",   (object)r.VrefKt            ?? DBNull.Value);
+                // El motivo del cierre de la captura, recortado a 64 (el vocabulario real son ~30).
+                // Vacío es «no lo sé» y va NULL, como el resto de textos que pueden faltar.
+                cmd.Parameters.AddWithValue("@stopReason",
+                    string.IsNullOrWhiteSpace(r.TraceStopReason) ? (object)DBNull.Value
+                                                                 : r.TraceStopReason.Trim());
                 cmd.ExecuteNonQuery();
             }
             using (var cmd2 = conn.CreateCommand())
@@ -501,7 +513,7 @@ namespace vmsOpenAcars.Services
                                landing_runway_true_deg, runway_length_ft,
                                flare_capture_armed, aircraft_icao,
                                aircraft_title, aircraft_model, landing_weight_lbs,
-                               offset_threshold_ft, vref_kt
+                               offset_threshold_ft, vref_kt, trace_stop_reason
                         FROM flights
                         ORDER BY flight_date DESC";
 
@@ -549,7 +561,10 @@ namespace vmsOpenAcars.Services
                                 // resolver — y **0 es una medida**, así que no se filtra como la
                                 // longitud de pista de arriba.
                                 OffsetThresholdFt   = r.IsDBNull(25) ? (double?)null : r.GetDouble(25),
-                                VrefKt              = r.IsDBNull(26) ? (int?)null    : r.GetInt32(26)
+                                VrefKt              = r.IsDBNull(26) ? (int?)null    : r.GetInt32(26),
+                                // El motivo del cierre de la captura. NULL en las filas anteriores a la
+                                // columna y en los vuelos donde la captura no llegó a cerrarse.
+                                TraceStopReason     = r.IsDBNull(27) ? null : r.GetString(27)
                             });
                         }
                     }

@@ -188,12 +188,23 @@ históricos del cuadro siguen con su valor viejo en el log local —son datos ya
 divergencia con `pireps.landing_rate` en esos tres se queda como está, documentada. Fijado con
 `TouchdownStateTests` (6 pruebas, con los números del vuelo 20).
 
-## 6. Los dos campos que pidió phpVMS, y el cero que se disfrazaba de medida (11/10/2026)
+## 6. Los tres campos que pidió phpVMS, y el cero que se disfrazaba de medida (11/10/2026)
 
-phpVMS pidió dos campos el 11/10/2026 (`Docs/RESPUESTA7-PHPVMS-ANALISIS-FLARE-2026-10-11.md`) para
-dejar de **deducir** la alineación de la traza y para poder juzgar la velocidad del umbral. Los dos
-están ya en el payload: `metrics.offset_threshold_ft` (pies) y `metrics.vref_kt` (nudos), opcionales
-y **sin subir `schema_version`**.
+phpVMS pidió dos campos el 11/10/2026 (`Docs/RESPUESTA7-PHPVMS-ANALISIS-FLARE-2026-10-11.md`):
+`metrics.offset_threshold_ft` (pies), para dejar de **deducir** la alineación de la traza, y
+`metrics.vref_kt` (nudos), para poder juzgar la velocidad del umbral. Y en su respuesta (8) aceptó un
+**tercero** que ya existía en nuestro código y solo se usaba para el log:
+**`metrics.trace_stop_reason`** (`stopped:post-touchdown 2.0s`, `stopped:on-ground`, `stopped:cap`,
+`stopped:timeout`), que es lo que les deja marcar una traza **truncada** —`cap` y `timeout`— frente a
+un final normal, tanto en su IA como en su gráfico.
+
+Los tres son opcionales y aditivos —**sin subir `schema_version`**— y **`null` significa una cosa
+distinta en cada uno**: en el offset, «no lo sé, dedúcelo»; en el Vref, «el plan no traía TLR»; y en
+el motivo de cierre, «la captura **no llegó a cerrarse**» —no se armó, o el vuelo acabó con ella
+abierta—. Ninguno se rellena con un valor que parezca medido: el offset se publica solo cuando la
+pista se resolvió, el Vref no se deriva del tipo de avión, y el motivo solo se publica cuando
+`Finish` selló la captura (`armed:threshold` sin cerrar **no** es un motivo de cierre, y mandarlo
+diría que la traza se cortó cuando lo que pasó es que el vuelo se acabó antes).
 
 **`offset_threshold_ft` es el único campo del contrato donde el `0` mide** —significa «el umbral legal
 está pegado al extremo físico»—, y esa frase no es un adorno: al implementarlo apareció el fallo más

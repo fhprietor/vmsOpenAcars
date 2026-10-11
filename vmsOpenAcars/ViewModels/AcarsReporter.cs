@@ -273,6 +273,9 @@ namespace vmsOpenAcars.ViewModels
             var pendingApproach = _tc?.SnapshotApproachBuffer() ?? new List<ApproachTrackPoint>();
             var pendingFlare    = _tc?.SnapshotFlareBuffer()    ?? new List<FlareTrackPoint>();
             bool flareArmed     = _tc != null && _tc.FlareCaptureStarted;
+            // Por qué se cerró la captura, leído **también aquí**: `Reset()` se lleva el estado en
+            // vivo, y con él el motivo. Va al payload como `trace_stop_reason`, que phpVMS ya guarda.
+            string flareStopReason = _tc?.FlareStopReason;
 
             // **El id del PIREP se copia aquí, con las trazas y por el mismo motivo que ellas.**
             // `FilePirep` pone `ActivePirepId = ""` *antes* de devolver `true`
@@ -348,7 +351,7 @@ namespace vmsOpenAcars.ViewModels
                 LastCheckpointSent = DateTime.MinValue;
                 _cb.Log?.Invoke("✅ Vuelo reportado, listo para siguiente vuelo", Theme.Success);
                 _cb.FlightEnded?.Invoke();
-                SaveLandingRecord(pendingRecord, pendingApproach, pendingFlare, flareArmed);
+                SaveLandingRecord(pendingRecord, pendingApproach, pendingFlare, flareArmed, flareStopReason);
 
                 // El análisis del aterrizaje al servidor, **después** de filear y en segundo plano.
                 //
@@ -574,7 +577,8 @@ namespace vmsOpenAcars.ViewModels
         private void SaveLandingRecord(FlightRecord record,
                                        IList<ApproachTrackPoint> approachTrack,
                                        IList<FlareTrackPoint>    flareTrack,
-                                       bool                      flareCaptureArmed)
+                                       bool                      flareCaptureArmed,
+                                       string                    flareStopReason)
         {
             int  bufCount = approachTrack?.Count ?? 0;
             bool svcOk    = _landingLogService?.IsAvailable ?? false;
@@ -596,6 +600,10 @@ namespace vmsOpenAcars.ViewModels
                 // es lo único que separa «esta captura se perdió» de «este vuelo es anterior a la
                 // traza del flare», y el estado en vivo ya no existe a estas alturas.
                 record.FlareCaptureArmed = flareCaptureArmed;
+                // Y **por qué** se cerró, que es lo que deja a phpVMS distinguir un final normal
+                // (`stopped:post-touchdown`, `stopped:on-ground`) de una traza **truncada**
+                // (`stopped:cap`, `stopped:timeout`). `null` = la captura no llegó a cerrarse.
+                record.TraceStopReason   = flareStopReason;
                 int newId = _landingLogService.SaveFlight(record, approachTrack);
                 if (newId > 0)
                 {

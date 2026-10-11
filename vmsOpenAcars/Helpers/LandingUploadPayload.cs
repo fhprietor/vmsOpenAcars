@@ -58,6 +58,13 @@ namespace vmsOpenAcars.Helpers
         internal const int MaxFlapsLabel    = 32;
 
         /// <summary>
+        /// Tope del motivo de cierre de la captura. El vocabulario real ronda los 30 caracteres
+        /// (`stopped:post-touchdown 2.0s`), y phpVMS **no valida contra lista cerrada**, así que el
+        /// margen es para que un motivo nuevo no cueste el envío entero (su validación es todo o nada).
+        /// </summary>
+        internal const int MaxTraceStopReason = 64;
+
+        /// <summary>
         /// **El tope del METAR: 500 desde el 11/10/2026.** phpVMS lo subió desde 400 a petición
         /// nuestra y lo desplegó ese día, así que nuestro recorte en cliente se alinea con el suyo.
         /// Sigue habiendo recorte porque su validación es **todo o nada**: un METAR de 520
@@ -174,6 +181,10 @@ namespace vmsOpenAcars.Helpers
                     power_cut_sec = power.HasValue ? FiniteOrNull(power.SecondsBeforeTouchdown) : null,
 
                     flare_capture_armed = record.FlareCaptureArmed,
+                    // Y **por qué** se cerró la captura. `null` = no llegó a cerrarse (no se armó, o el
+                    // vuelo acabó con ella abierta): phpVMS lo lee como «aquí no hubo cierre», y
+                    // `stopped:cap` / `stopped:timeout` son los dos que marcan traza **truncada**.
+                    trace_stop_reason  = ClipOrNull(record.TraceStopReason, MaxTraceStopReason),
                     landing_metar       = ClipOrNull(record.MetarRaw, MaxMetar),
 
                     wind_dir_deg   = FiniteOrNull(record.LandingWindDirDeg),

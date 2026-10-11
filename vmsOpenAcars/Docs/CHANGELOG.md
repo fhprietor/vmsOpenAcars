@@ -11,7 +11,8 @@
 
 ### Added
 
-- **Los dos campos que pidió phpVMS** (respuesta en `Docs/RESPUESTA7-PHPVMS-ANALISIS-FLARE-2026-10-11.md`):
+- **Los dos campos de métricas que pidió phpVMS en la respuesta (7)** (nuestra respuesta, en
+  `Docs/RESPUESTA7-PHPVMS-ANALISIS-FLARE-2026-10-11.md`):
   el **desfase del umbral** (`metrics.offset_threshold_ft`, pies) y el **Vref del plan**
   (`metrics.vref_kt`, nudos). Los dos son opcionales y aditivos, así que **no se sube
   `schema_version`**. El desfase sale del `offset_threshold_ft` de NavData —el mismo dato con el que
@@ -32,7 +33,20 @@
   `0`**, y **no se deriva del tipo de avión**: la ventana de Vapp por tipo que usa el gate de
   aproximación **no es un Vref**. Corresponde al **peso de planeo** del plan, no al real (ese ya va
   en `landing_weight_lbs`, que es una lectura del simulador).
-- **Sin verificar en vuelo**: **ninguna versión con estos dos campos ha volado todavía**. Lo probado
+- **`trace_stop_reason`: el tercer campo, y el que dice si la traza está entera.** phpVMS lo
+  aceptó con ese nombre y **ya tiene la columna** (11/10/2026), y lo usa en dos sitios: su IA recibe
+  `fin_captura` y sabe que `stopped:post-touchdown` y `stopped:on-ground` son finales normales
+  mientras que **`stopped:cap` y `stopped:timeout` significan traza TRUNCADA**, y su gráfico pinta un
+  aviso cuando la captura se cortó. El motivo ya existía en `FlareCapturePolicy` y solo se usaba para
+  el log; ahora se publica con `StopReason`, que **solo devuelve el motivo cuando la captura se
+  cerró** (`Sealed`): un `armed:threshold` sin cerrar **no** es un motivo de cierre, y mandarlo diría
+  que la traza se cortó cuando lo que pasó es que el vuelo se acabó antes. Por eso **`null` es un
+  valor con significado** —«aquí no hubo cierre»: no se armó, o el vuelo terminó con ella abierta— y
+  viaja como `null`, **nunca como cadena vacía**. Los motivos van en `CultureInfo.InvariantCulture`,
+  así que el número es `2.0s` y no `2,0s` según el idioma del equipo del piloto. Se guarda también en
+  `landing_log.sqlite` (`flights.trace_stop_reason`), que es lo que deja distinguir al releer el
+  vuelo semanas después una traza completa de una truncada.
+- **Sin verificar en vuelo**: **ninguna versión con estos tres campos ha volado todavía**. Lo probado
   es el payload (el 0 medido contra `null`), el viaje de ida y vuelta a `landing_log.sqlite` con su
   migración, la semántica del toque (`TouchdownStateTests`) y el parseo del TLR contra el OFP real.
   El tramo `NavData → geometría del toque` **no tiene test propio** (necesita la caché de NavData):

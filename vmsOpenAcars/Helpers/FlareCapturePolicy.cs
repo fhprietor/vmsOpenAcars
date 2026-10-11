@@ -125,6 +125,25 @@ namespace vmsOpenAcars.Helpers
 
         internal FlareCaptureDecision LastDecision => _last;
 
+        /// <summary>
+        /// **El motivo por el que se cerró la captura**, o `null` si no llegó a cerrarse.
+        ///
+        /// Es lo que phpVMS guarda como `trace_stop_reason` (pedido y aceptado el 11/10/2026) y lo que
+        /// usa su IA para saber si la traza está **completa**: `stopped:post-touchdown {N.N}s` y
+        /// `stopped:on-ground` son finales normales, pero **`stopped:cap` y `stopped:timeout`
+        /// significan traza TRUNCADA** —el cap de 400 muestras o el seguro de 45 s—.
+        ///
+        /// **`null` es un caso con significado propio, no un hueco**: o la captura nunca se armó (no
+        /// hubo traza que cerrar) o el vuelo terminó con la captura abierta. Por eso se publica solo
+        /// con `Sealed` —el sello lo pone `Finish`, y solo `Finish`—, y no el `Reason` en crudo: un
+        /// `armed:threshold` sin cerrar no es un motivo de cierre, y mandarlo como tal diría que la
+        /// traza se cortó cuando lo que pasó es que el vuelo se acabó antes.
+        ///
+        /// Los motivos van con **`CultureInfo.InvariantCulture`**, así que el número es `2.0s` y no
+        /// `2,0s` según el idioma del equipo del piloto.
+        /// </summary>
+        internal string StopReason => _last.Sealed ? _last.Reason : null;
+
         /// <summary>Vuelve al estado inicial. Se llama al empezar un vuelo.</summary>
         internal void Reset()
         {

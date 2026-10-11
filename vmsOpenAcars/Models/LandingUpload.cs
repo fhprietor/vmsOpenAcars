@@ -83,6 +83,20 @@ namespace vmsOpenAcars.Models
         public int?    flaps_index       { get; set; }
         public double? power_cut_sec     { get; set; }
         public bool?   flare_capture_armed { get; set; }
+
+        /// <summary>
+        /// **Por qué se cerró la captura de la traza** (`stopped:post-touchdown 2.0s`,
+        /// `stopped:on-ground`, `stopped:cap`, `stopped:timeout`). Pedido por phpVMS y aceptado con
+        /// este nombre el 11/10/2026; su columna ya existe y **no lo valida contra lista cerrada**,
+        /// así que un motivo nuevo se guarda.
+        ///
+        /// **`null` significa «la captura no llegó a cerrarse»** —no se armó, o el vuelo terminó con
+        /// ella abierta—, y no «no se sabe»: es el caso que su IA tiene que leer como «aquí no hubo
+        /// cierre» y no como un final. `stopped:cap` y `stopped:timeout` son los dos que marcan traza
+        /// **truncada**. Los motivos van con `CultureInfo.InvariantCulture`, así que el número es
+        /// `2.0s` y no `2,0s`.
+        /// </summary>
+        public string  trace_stop_reason { get; set; }
         public string  landing_metar     { get; set; }
         public double? wind_dir_deg      { get; set; }
         public double? wind_speed_kt     { get; set; }

@@ -235,6 +235,41 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
+        public void ElMotivoDeCierreDeLaTraza_ViajaDeIdaYVueltaYConservaSuAusencia()
+        {
+            // Es el tercer campo del bloque, y el único **texto** de los tres. Lo que hay que fijar
+            // aquí es que «no hubo cierre» vuelve como `null` y no como cadena vacía: phpVMS lee ese
+            // null como «aquí no hubo cierre», y una cadena vacía sería un motivo en blanco —que es
+            // justo lo que no se puede distinguir de un motivo que no supimos escribir—.
+            var svc = new LandingLogService(_dbPath);
+
+            int cerrada = svc.SaveFlight(new FlightRecord
+            {
+                FlightNumber = "9060", Origin = "SKCC", Destination = "SKBG", RunwayName = "17",
+                FlightDate = new DateTime(2026, 10, 9, 11, 26, 49, DateTimeKind.Utc),
+                LandingRateFpm = -789,
+                FlareCaptureArmed = true,
+                TraceStopReason = "stopped:post-touchdown 2.0s",
+            }, null);
+
+            var guardado = svc.GetFlights().Find(f => f.Id == cerrada);
+            Assert.AreEqual("stopped:post-touchdown 2.0s", guardado.TraceStopReason,
+                            "el motivo va tal cual, sin recortes ni reetiquetados");
+
+            int sinCierre = svc.SaveFlight(new FlightRecord
+            {
+                FlightNumber = "1114", Origin = "SKBO", Destination = "SKCL", RunwayName = "32",
+                FlightDate = new DateTime(2026, 10, 10, 12, 0, 0, DateTimeKind.Utc),
+                LandingRateFpm = -110,
+                FlareCaptureArmed = false,
+                TraceStopReason = null,
+            }, null);
+
+            Assert.IsNull(svc.GetFlights().Find(f => f.Id == sinCierre).TraceStopReason,
+                          "sin cierre queda NULL, no cadena vacía");
+        }
+
+        [TestMethod]
         public void LaCapturaArmadaDelFlare_ViajaDeIdaYVuelta()
         {
             var svc = new LandingLogService(_dbPath);
@@ -542,6 +577,9 @@ namespace vmsOpenAcars.Tests
             // pista»; en `vref_kt`, NULL es «el plan no traía TLR» y **no se estima**.
             "offset_threshold_ft",
             "vref_kt",
+            // El motivo del cierre de la captura (`stopped:…`). Es lo que deja distinguir al releer un
+            // vuelo una traza completa de una **truncada**, y phpVMS lo usa en su IA y su gráfico.
+            "trace_stop_reason",
         };
 
         /// <summary>

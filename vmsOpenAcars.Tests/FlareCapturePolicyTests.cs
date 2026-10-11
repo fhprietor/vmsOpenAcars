@@ -205,6 +205,32 @@ namespace vmsOpenAcars.Tests
         }
 
         /// <summary>
+        /// **El motivo que viaja a phpVMS** (`trace_stop_reason`): solo se publica lo que **cerró** la
+        /// captura. Un `armed:…` sin cerrar no es un motivo de cierre, y mandarlo diría que la traza se
+        /// cortó cuando lo que pasó es que el vuelo se acabó antes —y su IA tiene justamente eso que
+        /// distinguir: `stopped:cap` y `stopped:timeout` son traza TRUNCADA, `armed:…` no es nada—.
+        /// Por eso `null` es un valor con significado, no un hueco.
+        /// </summary>
+        [TestMethod]
+        public void ElMotivoDeCierre_SoloSePublicaCuandoLaCapturaSeCerro()
+        {
+            var p = new FlareCapturePolicy();
+            Assert.IsNull(p.StopReason, "sin armar no hay cierre que contar");
+
+            // Armada y capturando: el motivo de armado existe, pero **no es un cierre**.
+            p.Update(T0, 900.0, 1400.0, false, null, true);
+            Assert.IsNull(p.StopReason, "capturando todavía no se ha cerrado nada");
+            Assert.AreEqual("armed:threshold", p.LastDecision.Reason,
+                "el motivo de armado está ahí, y no es el que se manda");
+
+            // El seguro de 45 s la cierra: ahora sí hay motivo, y es el que viaja.
+            p.Update(T0.AddSeconds(FlareCapturePolicy.MaxCaptureSec + 1.0), 900.0, 1400.0, false, null, true);
+            Assert.AreEqual("stopped:timeout", p.LastDecision.Reason);
+            Assert.AreEqual("stopped:timeout", p.StopReason,
+                "lo que se manda es el motivo del CIERRE, no el de armado");
+        }
+
+        /// <summary>
         /// El seguro del go-around: si nunca llega el toque, la captura no se queda abierta todo el
         /// descenso. Se cierra y **no se rearma**, porque el aterrizaje ya se intentó una vez.
         /// </summary>

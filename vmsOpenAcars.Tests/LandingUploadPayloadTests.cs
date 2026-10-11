@@ -185,6 +185,32 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
+        public void ElMotivoDeCierreDeLaTraza_ViajaY_SuAusenciaEsNull()
+        {
+            // phpVMS lo pidió y aceptó con este nombre el 11/10/2026, y no es decorativo: con él su IA
+            // y su gráfico distinguen un final normal (`stopped:post-touchdown`, `stopped:on-ground`)
+            // de una traza **truncada** (`stopped:cap`, `stopped:timeout`).
+            //
+            // **`null` es «la captura no llegó a cerrarse»**, no «no se sabe»: ese caso tiene que
+            // viajar como null para que no lo lean como un final.
+            var r = Vuelo44();
+
+            r.TraceStopReason = "stopped:post-touchdown 2.0s";
+            Assert.AreEqual("stopped:post-touchdown 2.0s",
+                            LandingUploadPayload.Build(r, Traza(), Version).metrics.trace_stop_reason,
+                            "el motivo va tal cual, con el número en formato invariante");
+
+            r.TraceStopReason = "stopped:cap";
+            Assert.AreEqual("stopped:cap",
+                            LandingUploadPayload.Build(r, Traza(), Version).metrics.trace_stop_reason,
+                            "el que marca traza truncada");
+
+            r.TraceStopReason = null;
+            Assert.IsNull(LandingUploadPayload.Build(r, Traza(), Version).metrics.trace_stop_reason,
+                          "sin cierre va null: es un valor, no un hueco");
+        }
+
+        [TestMethod]
         public void ElDesfaseDelUmbralViajaTalCual_PeroSinPistaEsNull()
         {
             // phpVMS lo pidió el 11/10/2026 para alinear la traza del flare con una **resta** en vez de
