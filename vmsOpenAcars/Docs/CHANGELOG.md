@@ -49,9 +49,53 @@
   con el simulador cargado (97 muestras en 12,1 s, medido en el vuelo 43), y el rótulo pasa a
   `~10 Hz` / `(~8 Hz reales…)`: el diseño es 100 ms nominales y el ciclo de telemetría corre a
   ~126 ms, así que prometer 10 Hz exactos era prometer lo que no se mide.
+- **Herramienta manual de relleno, para los vuelos anteriores a la ingesta** (`LandingBackfillToolTests`).
+  Convierte el análisis de un aterrizaje que **ya está** en el `landing_log.sqlite` en el cuerpo del
+  `POST`, reutilizando **el mismo `LandingUploadPayload` del cliente** en vez de una segunda
+  implementación de la regla de `null`/`0`, del detente y del corte de potencia. **No sale a la red
+  a propósito**: escribe un JSON por vuelo y el POST lo hace una persona con el `pirep_id` ya
+  comprobado —un test que escribe en producción se dispararía solo en cualquier corrida de la suite—.
+  Sin las variables de entorno (`VMSACARS_BACKFILL`, `VMSACARS_LANDING_DB`) se declara `Inconclusive`,
+  así que la suite sigue verde en cualquier equipo. Con ella se subieron los vuelos **43 y 44**.
+- **La marca de los rellenos y el tope del METAR, concretados con phpVMS (11/10/2026).** Ellos
+  verificaron los dos aterrizajes **contra su propio log ACARS** —no contra nuestra palabra— y de ese
+  intercambio salen dos ajustes:
+  - **`source_name = vmsOpenACars/0.9.37-relleno`** para los rellenos históricos
+    (`LandingUploadPayload.BackfillTag`), con una prueba que **fija la cadena** para que no se
+    cambie sin avisarles. Es la única marca de procedencia que guardan, y así pueden responder
+    «¿esto se voló o se rellenó?» sin adivinarlo por fechas.
+  - **El recorte del METAR sube de 400 a 500**, que es su nuevo tope, ya desplegado en su lado.
+  - El número se eligió **midiendo, no suponiendo**: sobre los 44 vuelos del log local el METAR más
+    largo son **81 caracteres** (vuelo 35, `SKPE`, con `RMK TCU/E`) y **ninguno** pasaba de 400. En la
+    ronda anterior habíamos dicho que no podíamos medirlo; teníamos el dato delante.
+  - **Los dos aterrizajes ya enviados se reenviaron con la marca** (iban sin ella porque se subieron
+    antes de que la pidieran): su ingesta es un **UPSERT** y el cuerpo va completo, así que el
+    reemplazo fue total y las 97 y 81 muestras siguen ahí.
 
 ### Fixed
 
+- **La tasa de descenso se publica siempre en negativo, aunque la captura la traiga en positivo.**
+  Medido en el log local: **3 de los 41 vuelos con dato (7%)** tienen la tasa en positivo —`+156` y
+  `+34` fpm entre ellos, los tres con el toque a **0 ft** y **sin captura de flare**, que es la firma
+  de las capturas antiguas—. Una tasa positiva en el toque es un artefacto del detector de contacto
+  (un rebote, el borde de una transición), **no una subida**. Nuestro scoring lo tolera
+  (`CalcLandingRateDeduction` usa `Math.Abs`, así que `+156` puntúa como `−156`: los dos vuelos dan
+  **95** y **100**, coherentes), pero **la mediana de la agregación de phpVMS se calcula sobre el
+  valor con signo**, así que un positivo se va al otro lado del cero y la arrastra hacia arriba. Se
+  normaliza en el borde, que es donde vive la convención, y **no se pierde nada de la medida**: la
+  magnitud es el dato y el signo no lo lleva. Los dos vuelos ya subidos se reenviaron corregidos.
+- **La marca de tiempo de la muestra viajaba con el huso cambiado al releerla del log: 5 horas antes.**
+  El `ts_utc` se guarda en UTC (`ToString("o")` sobre un `DateTime` UTC, con su `Z`), pero el lector lo
+  devolvía con **`DateTime.Parse` a secas**, que lo convierte a la hora **local** del equipo —así que
+  una propiedad llamada `TimestampUtc` dejaba de ser UTC—, y el compositor del cuerpo del análisis la
+  **reetiquetaba** como UTC en vez de convertirla. Lo destapó el **relleno de los vuelos 43 y 44** a
+  phpVMS: su primera muestra salía a las `06:26:39Z` cuando se capturó a las `11:26:39Z`. **El camino
+  en vivo nunca estuvo afectado** —recibe las marcas en UTC directamente del simulador— y **ningún
+  consumidor de la traza lo veía** porque todos (`PowerCut`, `ThresholdToTouchdown`) usan **diferencias**
+  entre muestras, donde un desplazamiento constante se cancela; el test de ida y vuelta tampoco, porque
+  **se adaptaba al fallo** comparando contra `TimestampUtc.ToUniversalTime()`. Arreglado en los dos
+  sitios —`LandingLogService.ParseUtcTimestamp` con `AdjustToUniversal`, y `LandingUploadPayload.ToUtcIso`
+  convirtiendo el `Kind.Local`— y **con una prueba que ahora fija el caso** en vez de esquivarlo.
 - **La traza del flare se guardaba sin posición en todo el tramo posterior al toque (`dist_ft = 0`).**
   Al salir de la fase Approach el `_approachThreshold` se suelta (`TelemetryCoordinator`), pero la captura
   **sigue viva los 2 s siguientes**, así que `CaptureFlareSample` escribía `distFt ?? 0.0`. En el vuelo 43
@@ -78,8 +122,13 @@
   mueve **±1 muestra ≈ 32 ft**, no los 25 ft que se deducían del «10 Hz». La documentación pasa a decir
   «~8 Hz con el simulador cargado» y el número de muestras deja de presentarse como si fuera fijo.
 
-**665/665** (655 + **los 10 del payload**) e idiomas simétricos (**463 claves**, +3 del envío del
-análisis). Recuento del contrato verificado contra el **vuelo 44** real, no contra geometría inventada.
+**669 pruebas: 668 correctas y 1 omitida** (665 + la de los tres husos + la de la marca del relleno + la
+del signo de la tasa + la herramienta, que se omite sola sin variables de entorno) e idiomas simétricos
+(**463 claves**). Y el contrato ya no está probado solo contra el fixture: **32 aterrizajes están subidos
+a phpVMS** —los dos con traza (`Me7BMgzvAwylvDan`, `kP9PDeXLPrNlY9me`) y **30 de la serie histórica**,
+todos como `-relleno`— y **releídos con su `GET`**, con **cero divergencias** y los `null` conservados.
+Ellos lo verificaron además **contra su log ACARS**, que se escribe en vivo por otro camino, y su IA ya
+analizó los dos vuelos con traza usando nuestras derivadas.
 
 ## [0.9.36] — 08/10/2026
 

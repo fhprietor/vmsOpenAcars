@@ -3,8 +3,9 @@
 > **De:** equipo de vmsOpenACars · **Para:** equipo de phpVMS
 > **Fecha:** 11/10/2026
 > **Respecto a:** vuestra respuesta a `PEDIDO-PHPVMS-ANALISIS-FLARE.md`
-> **Estado:** **implementado en el cliente** (v0.9.37, sin publicar todavía). Falta **un vuelo real**:
-> es lo único que no podemos hacer nosotros.
+> **Estado:** **implementado y probado contra dos aterrizajes reales.** Los dos vuelos con traza de
+> flare que quedaban sin subir están dentro y verificados campo por campo contra vuestra lectura.
+> Lo que falta ya no es nuestro: que lo miréis con vuestros ojos.
 
 ---
 
@@ -29,10 +30,39 @@ METAR largo no nos tumbe el envío entero. Si lo subís, avisad y subimos el rec
 del umbral (o 300 ft AGL como respaldo), se cierra 2 s después del toque y **corta a 400 muestras**;
 un vuelo normal deja 60–100 (nuestro récord son 97). Vuestros 346 son coherentes. **Sin riesgo.**
 
-**4. El PIREP real va en cuanto volemos.** La ingesta está escrita, pero **no hemos enviado ninguno
-todavía**; os pasaremos el `pirep_id`, la respuesta del endpoint y el recuento de muestras que
-esperábamos, para que la validación sea contra un vuelo y no contra un payload sintético — como
-pedisteis y como queremos nosotros.
+**4. El PIREP real: enviados dos, y verificados contra vuestra lectura.** No esperamos a un vuelo
+nuevo: subimos los **dos aterrizajes que ya teníamos capturados** con traza de flare y que no estaban
+en vuestra tabla —los últimos del log local, anteriores a que existiera la ingesta—.
+
+| | Vuelo 43 | Vuelo 44 |
+|---|---|---|
+| `pirep_id` | `Me7BMgzvAwylvDan` | `kP9PDeXLPrNlY9me` |
+| Ruta / pista | SKCL → SKCC, 16 | SKCC → SKBG, 17 |
+| Muestras enviadas | **97** | **81** |
+| Respuesta | `200 · Landing stored · count 97 · trace_samples 97` | `200 · Landing stored · count 81 · trace_samples 81` |
+| Recuento tras releerlo | **97** | **81** |
+| Campos divergentes al releer | **ninguno** | **ninguno** |
+
+La comprobación no fue «respondió 200»: se volvió a leer con vuestro `GET /api/pireps/{id}/landing` y
+se comparó **campo a campo y muestra a muestra** contra lo enviado. Cero divergencias más allá del
+redondeo a dos decimales de vuestras columnas `float`, y los huecos siguen siendo huecos —**194** y
+**162** valores `null` en las trazas, conservados; `n2_*_pct`, `radar_alt_ft` y `wind_gust_kt` incluidos—.
+
+**Y os tenemos que contar un fallo nuestro que destapó justo esto.** Para rellenar esos dos vuelos hay
+que releer la traza del log local, y ahí apareció que **nuestro lector devolvía la marca de tiempo en
+hora local** mientras la propiedad se llama `TimestampUtc`, y el cuerpo la escribía como si ya fuera
+UTC: cada muestra salía **5 horas antes** (el huso de Colombia). El camino en vivo **nunca estuvo
+afectado** —recibe las marcas en UTC directamente del simulador—, y por eso no lo habíamos visto: es el
+primer camino que lee la traza de la base en vez de recibirla en vuelo. Está corregido en los dos
+sitios (el lector y el compositor del cuerpo) **con una prueba que ahora fija el caso**, y lo que hay
+en vuestra tabla es la versión corregida: `2026-10-09T11:26:39.733Z` para la primera muestra del vuelo
+44, que es exactamente la hora de captura. Si algún día veis un `ts_utc` de un vuelo nuestro que no
+cuadra con su hora de salida, decidlo: sería esto.
+
+Una nota honesta sobre el **vuelo 43**: es **anterior** al arreglo del tramo de frenada del que os
+hablamos, así que sus **16 muestras en tierra llevan `dist_ft = 0`**. Va tal cual se capturó, sin
+retocar: es lo que el cliente midió ese día, y preferimos que el replay enseñe eso a inventarle una
+posición. Sus **métricas están perfectas** (la tasa, el toque y el eje no dependen de eso).
 
 **5. Sí: los campos sin dato llegan como `null`, y los escribimos explícitamente.** No usamos
 `NullValueHandling.Ignore`, así que el `null` **está en el cuerpo**, no ausente; y hay una prueba que
@@ -72,18 +102,27 @@ el caso que queríamos. Si más adelante alguien necesita comparar salidas, lo p
    o nada y un METAR de 420 caracteres no nos costaría el METAR: nos costaría **la traza entera del
    vuelo**. Preferimos perder los últimos caracteres de un texto informativo. Si subís los topes,
    subimos el recorte.
-2. **Vuestra respuesta trae `count`** y en el ejemplo coincide con `attrs.trace_samples`. Vamos a
-   usarlo como comprobación en el primer vuelo real: si `count` son las muestras **guardadas**,
-   compararemos con las que enviamos. **Confirmadnos que `count` es eso** y no, por ejemplo, el total
-   de filas de la tabla, para no sacar una conclusión equivocada de la primera prueba.
+2. **Vuestra `count`: ya no hace falta que la confirméis, la hemos medido.** En los dos envíos
+   `count` fue **97** y **81**, exactamente las muestras que mandamos, y coincidió con
+   `attrs.trace_samples`. Así que la tratamos como «muestras guardadas» y **la usaremos como
+   comprobación automática en cada envío**: si algún día `count` no cuadra con nuestro recuento, es
+   que se ha perdido algo por el camino y lo veremos en el log del piloto.
 
 ---
 
 ## 4. Lo que viene después, de nuestro lado
 
-- **El vuelo de prueba** y su resultado, con los números en la mano.
-- **La 0.9.37 se publica** con la subida activada por defecto; hasta entonces el interruptor ya está
-  encendido en nuestro `.config` de desarrollo, así que el primer vuelo que hagamos saldrá por ahí.
+- **La 0.9.37 se publica** con la subida activada por defecto, así que a partir de ahí **todos los
+  aterrizajes de nuestros pilotos llegan solos**, sin rellenos manuales. El interruptor ya está
+  encendido en nuestro `.config` de desarrollo.
+- **Los vuelos anteriores seguían sin subir**: ahora mismo solo hemos rellenado los dos que tenían
+  traza de flare. Si os interesa la serie histórica completa (métricas sin traza, que es lo que hay
+  en los vuelos anteriores a la 0.9.32), decidlo y la subimos: son ~40 vuelos por piloto y el cuerpo
+  es pequeño, pero **no lo hacemos por iniciativa propia** porque son datos que ya disteis por
+  cerrados en vuestros PIREPs.
+- **Dos preguntas que nos quedan, sin prisa:** si preferís que esos rellenos lleven un
+  `source_name` distinto para poder distinguirlos de los envíos en vivo, y si el tope de 400
+  caracteres del METAR lo subís o lo dejamos como está.
 
 Y una nota de agradecimiento con fundamento: habéis hecho las **fases 3 y 4** (IA y web) sin que las
 pidiéramos, y eso cambia el valor del dato —la traza deja de ser un PNG que un piloto comparte a mano
