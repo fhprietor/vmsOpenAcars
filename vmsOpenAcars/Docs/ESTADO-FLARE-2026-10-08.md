@@ -7,12 +7,14 @@ de verificación**, que es lo primero que se pierde al cambiar de sesión.
 
 Version al escribir esto: **v0.9.36** · suite **655/655** · idiomas simetricos **460 claves**.
 
-> **Actualizado el 11/10/2026 (v0.9.37).** Dos cosas de este documento ya **no** están abiertas y se
+> **Actualizado el 11/10/2026 (v0.9.37 y v0.9.38).** Dos cosas de este documento ya **no** están abiertas y se
 > dejan corregidas aquí para que no se relean como pendientes: el **cero del umbral legal** está
 > implementado (`OffsetThresholdFt` llega al umbral congelado y `FlareDistanceFt` lo suma) y la
 > **cadencia real de la traza es ~8 Hz, no 10** (97 muestras en 12,1 s). Lo que sigue abierto —
 > y es lo que importa— es su **verificación en vuelo** y el detalle de la sección 2. La entrada
-> canónica de las dos correcciones está en `Docs/CHANGELOG.md` → **0.9.37**.
+> canónica de las dos correcciones está en `Docs/CHANGELOG.md` → **0.9.37**, y la de la **§6** en
+> **0.9.38**: los dos campos nuevos suben versión porque la 0.9.37 **ya estaba publicada** cuando se
+> añadieron, y `source_name` es la única marca de procedencia que phpVMS guarda.
 
 ---
 
