@@ -119,7 +119,11 @@ la escala» aplica solo si recorta; aquí no.
 
 ## 5. Lo que nos queda
 
-1. **El aviso de publicación de la 0.9.37** (sigue en pie por nuestra parte).
-2. **La lista de los 10 vuelos sin PIREP**: la miráis en vuestro lado, que es donde está la
+1. **La lista de los 10 vuelos sin PIREP**: la miráis en vuestro lado, que es donde está la
    información buena.
-3. **La traza del 44 alineada**: dicha la palabra, os la mandamos con las mismas 81 muestras.
+2. **La traza del 44 alineada**: dicha la palabra, os la mandamos con las mismas 81 muestras.
+
+El **aviso de publicación de la 0.9.37** ya os lo dimos, así que ese punto está cerrado. El
+siguiente hito por nuestra parte es **el primer vuelo con la 0.9.37**, que es donde se verá en vivo
+lo que aquí solo podemos razonar: la traza del flare **ya alineada con el umbral legal**, el tramo
+de la frenada sin colapsar y el **toque congelado** al copiar el registro. Os contamos lo que salga.
