@@ -315,8 +315,14 @@ namespace vmsOpenAcars.Tests
             Assert.IsTrue(back[1].SpoilersDeployed.Value);
             Assert.IsTrue(back[2].OnGround);
 
-            // La marca de tiempo va en UTC con el mismo formato que `flight_date`.
+            // La marca de tiempo va en UTC con el mismo formato que `flight_date`, y **vuelve en UTC**:
+            // la columna se llama `TimestampUtc` y una propiedad con ese nombre no puede devolver la
+            // hora local del equipo. Esta prueba se adaptaba al fallo —comparaba contra
+            // `ToUniversalTime()`— así que el desplazamiento de huso vivió sin que nadie lo viera hasta
+            // que el relleno del análisis leyó la traza de la base en vez de recibirla en vivo.
             Assert.AreEqual(t0, back[0].TimestampUtc.ToUniversalTime());
+            Assert.AreEqual(DateTimeKind.Utc, back[0].TimestampUtc.Kind,
+                            "el lector del log tiene que devolver UTC, no la hora local");
         }
 
         /// <summary>

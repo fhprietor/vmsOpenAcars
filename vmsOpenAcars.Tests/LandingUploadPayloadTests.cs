@@ -165,6 +165,26 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
+        public void UnaTasaCapturadaEnPositivoSePublicaEnNegativo()
+        {
+            // Medido en el log real: **3 de los 41 vuelos con dato (7%)** tienen la tasa en positivo
+            // (+156 y +34 fpm entre ellos), que en un toque es un artefacto del detector de contacto
+            // —los tres con el toque a 0 ft y sin captura de flare, la firma de las capturas
+            // antiguas—, no una subida. El scoring lo tolera (`CalcLandingRateDeduction` usa
+            // `Math.Abs`), pero **la mediana de phpVMS se calcula sobre el valor con signo**: un
+            // positivo se va al otro lado del cero y la arrastra hacia arriba.
+            var r = Vuelo44();
+            r.LandingRateFpm = 156;
+
+            Assert.AreEqual(-156, LandingUploadPayload.Build(r, Traza(), Version).metrics.landing_rate_fpm,
+                            "una tasa positiva tiene que publicarse en negativo");
+
+            r.LandingRateFpm = -789;
+            Assert.AreEqual(-789, LandingUploadPayload.Build(r, Traza(), Version).metrics.landing_rate_fpm,
+                            "una tasa normal no se toca");
+        }
+
+        [TestMethod]
         public void ElCeroDeLaDistanciaDeTomaEsUnaMedida_YElDeLaDesviacionDeEjeNo()
         {
             // Tocar **justo en el umbral** es 0 ft de verdad, y ahí el 0 es el dato. En el eje, el
@@ -220,6 +240,29 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
+        public void ElHusoSeConvierteDeVerdad_NoSeReetiquetaLaHoraLocal()
+        {
+            // El fallo que destapó el relleno de los vuelos 43 y 44: al releer el log local, la marca
+            // vuelve en hora **local**, y aquí se reetiquetaba como UTC sin convertirla, así que cada
+            // muestra salía el huso entero antes (5 h en Colombia). Las tres formas de la MISMA marca
+            // tienen que acabar en el mismo instante.
+            var utc = new DateTime(2026, 10, 9, 11, 26, 39, 733, DateTimeKind.Utc);
+
+            var traza = Traza();
+            traza[0].TimestampUtc = utc;                                              // en vivo
+            traza[1].TimestampUtc = utc.ToLocalTime();                                // releída del log
+            traza[2].TimestampUtc = DateTime.SpecifyKind(utc, DateTimeKind.Unspecified); // sin huso
+
+            var p = LandingUploadPayload.Build(Vuelo44(), traza, Version);
+
+            Assert.AreEqual("2026-10-09T11:26:39.733Z", p.trace[0].ts_utc, "una marca UTC sale tal cual");
+            Assert.AreEqual("2026-10-09T11:26:39.733Z", p.trace[1].ts_utc,
+                            "una marca local se convierte, no se reetiqueta");
+            Assert.AreEqual("2026-10-09T11:26:39.733Z", p.trace[2].ts_utc,
+                            "sin huso se interpreta como UTC");
+        }
+
+        [TestMethod]
         public void UnValorNoFinitoSeConvierteEnHueco_YNoRompeElJson()
         {
             // `FlareTrackPoint` puede traer NaN (el propio `FlapTrackSummary` los filtra), y Newtonsoft
@@ -242,13 +285,28 @@ namespace vmsOpenAcars.Tests
         public void LosTopesDeLongitudSeRespetan_PorqueSuValidacionEsTodoONada()
         {
             var r = Vuelo44();
-            r.MetarRaw      = new string('M', 500);   // su tope para el METAR son 400
+            r.MetarRaw      = new string('M', 520);   // su tope son 500 (subido a petición nuestra el 11/10/2026)
             r.AircraftTitle = new string('T', 250);   // el suyo son 191
 
             var m = LandingUploadPayload.Build(r, Traza(), Version).metrics;
 
-            Assert.AreEqual(400, m.landing_metar.Length);
+            Assert.AreEqual(500, m.landing_metar.Length);
             Assert.AreEqual(191, m.aircraft_title.Length);
+        }
+
+        [TestMethod]
+        public void UnRellenoHistoricoSeMarcaComoTalEnElSourceName()
+        {
+            // phpVMS nos pidió poder distinguir un aterrizaje **volado** de uno **rellenado**, y el
+            // `source_name` es la única marca de procedencia que guardan. La cadena está concretada
+            // con ellos y no puede cambiar sin avisarles.
+            var vivo    = LandingUploadPayload.Build(Vuelo44(), Traza(), Version);
+            var relleno = LandingUploadPayload.Build(Vuelo44(), Traza(), Version, isBackfill: true);
+
+            Assert.AreEqual("vmsOpenACars/0.9.37", vivo.source_name);
+            Assert.AreEqual("vmsOpenACars/0.9.37-relleno", relleno.source_name);
+            Assert.IsTrue(relleno.source_name.Length <= LandingUploadPayload.MaxSourceName,
+                          "el source_name tiene que caber en su tope de 64");
         }
 
         [TestMethod]

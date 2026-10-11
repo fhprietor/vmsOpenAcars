@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
+using System.Globalization;
 using System.IO;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services.Interfaces;
@@ -605,7 +606,7 @@ namespace vmsOpenAcars.Services
                             {
                                 FlightId     = r.GetInt32(0),
                                 SeqNo        = r.GetInt32(1),
-                                TimestampUtc = r.IsDBNull(2) ? DateTime.MinValue : DateTime.Parse(r.GetString(2)),
+                                TimestampUtc = r.IsDBNull(2) ? DateTime.MinValue : ParseUtcTimestamp(r.GetString(2)),
                                 DistFt       = r.GetDouble(3),
                                 AglFt        = Nullable(r, 4),
                                 RadarAltFt   = Nullable(r, 5),
@@ -635,6 +636,36 @@ namespace vmsOpenAcars.Services
 
         private static double? Nullable(SQLiteDataReader r, int index) =>
             r.IsDBNull(index) ? (double?)null : r.GetDouble(index);
+
+        /// <summary>
+        /// **El `ts_utc` de una muestra vuelve en UTC, como dice su nombre.**
+        ///
+        /// Se escribe con `ToString("o")` sobre un `DateTime` UTC, así que el texto lleva la `Z`
+        /// (`2026-10-09T11:26:39.7335257Z`). Leerlo con **`DateTime.Parse` a secas lo convierte a la
+        /// hora LOCAL** del equipo (`Kind = Local`), y entonces una propiedad llamada `TimestampUtc`
+        /// deja de ser UTC: quien la use como instante absoluto se equivoca en el huso entero —en
+        /// Colombia, **5 horas**, y el vuelo 44 lo destapó: su primera muestra salía a las 06:26:39Z
+        /// cuando se capturó a las 11:26:39Z—.
+        ///
+        /// Ese fallo no lo veía **ningún** consumidor de la traza porque todos usan diferencias entre
+        /// muestras (`PowerCut` y `ThresholdToTouchdown`), donde un desplazamiento constante se
+        /// cancela. Y el test de ida y vuelta no lo veía porque comparaba contra
+        /// `TimestampUtc.ToUniversalTime()`, es decir **se adaptaba al fallo** en vez de fijarlo.
+        ///
+        /// Con `AdjustToUniversal` el valor vuelve en UTC; el texto sin huso (una base escrita a mano)
+        /// se interpreta como UTC, que es lo que esta columna siempre ha guardado, y lo ilegible cae a
+        /// `MinValue`, que **es el centinela que `PowerCut` y `ThresholdToTouchdown` ya ignoran**
+        /// (`== default(DateTime)`) en vez de lanzar en mitad de un gráfico.
+        /// </summary>
+        private static DateTime ParseUtcTimestamp(string text)
+        {
+            DateTime parsed;
+            if (DateTime.TryParse(text, CultureInfo.InvariantCulture,
+                                  DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                                  out parsed))
+                return parsed;
+            return DateTime.MinValue;
+        }
 
         public bool HasFlights()
         {

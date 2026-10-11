@@ -38,6 +38,16 @@ namespace vmsOpenAcars.Helpers
         /// <summary>La única versión de esquema que existe hoy. Entero 1–100 en su validación.</summary>
         internal const int SchemaVersion = 1;
 
+        /// <summary>
+        /// **La marca de los rellenos históricos**, concretada con phpVMS el 11/10/2026: un envío en
+        /// vivo va como `vmsOpenACars/0.9.37` y uno rellenado a mano como
+        /// `vmsOpenACars/0.9.37-relleno`. Nos lo pidieron para poder distinguir un aterrizaje
+        /// **volado** de uno **rellenado** —el `source_name` es la única marca de procedencia que
+        /// guardan— y para documentarlo en su lado. De las dos cadenas, esta es la que no admite
+        /// interpretación: el prefijo y la versión los pone el cliente.
+        /// </summary>
+        internal const string BackfillTag = "relleno";
+
         // Topes de longitud de su validación (`StoreLandingRequest`). Si alguno cambia allí, aquí
         // solo se recorta de más: el campo sigue llegando, entero hasta ese tope.
         internal const int MaxSourceName    = 64;
@@ -46,7 +56,14 @@ namespace vmsOpenAcars.Helpers
         internal const int MaxAircraftTitle = 191;
         internal const int MaxAircraftModel = 64;
         internal const int MaxFlapsLabel    = 32;
-        internal const int MaxMetar         = 400;
+
+        /// <summary>
+        /// **El tope del METAR: 500 desde el 11/10/2026.** phpVMS lo subió desde 400 a petición
+        /// nuestra y lo desplegó ese día, así que nuestro recorte en cliente se alinea con el suyo.
+        /// Sigue habiendo recorte porque su validación es **todo o nada**: un METAR de 520
+        /// caracteres no nos costaría el METAR, nos costaría **la traza entera del vuelo**.
+        /// </summary>
+        internal const int MaxMetar         = 500;
 
         /// <summary>
         /// Construye el cuerpo completo. **Siempre el análisis entero**, nunca parcial: su ingesta
@@ -56,9 +73,15 @@ namespace vmsOpenAcars.Helpers
         /// <param name="record">El registro del aterrizaje, ya con `Score` y `FlareCaptureArmed`.</param>
         /// <param name="trace">Las muestras de la traza fina, ya copiadas del buffer en vivo.</param>
         /// <param name="appVersion">`AppInfo.Version` — se compone como `vmsOpenACars/{versión}`.</param>
+        /// <param name="isBackfill">
+        /// `true` para un **relleno histórico**: añade el sufijo <see cref="BackfillTag"/> al
+        /// `source_name`. Lo pidió phpVMS para poder responder después «¿esto se voló o se
+        /// rellenó?» sin adivinarlo por fechas, y es la única marca de procedencia que guardan.
+        /// </param>
         internal static LandingUpload Build(FlightRecord record,
                                             IList<FlareTrackPoint> trace,
-                                            string appVersion)
+                                            string appVersion,
+                                            bool isBackfill = false)
         {
             if (record == null) throw new ArgumentNullException(nameof(record));
 
@@ -79,7 +102,23 @@ namespace vmsOpenAcars.Helpers
             double? centerlineFt = null;
             if (touchdownCaptured)
             {
-                landingRate  = record.LandingRateFpm;
+                // **La tasa va SIEMPRE en negativo, aunque la captura la traiga en positivo.**
+                //
+                // Una tasa de descenso positiva en el toque no existe: significa que el detector de
+                // contacto muestreó un instante de velocidad vertical hacia arriba (un rebote, el
+                // borde de una transición). Está medido: **3 de los 41 vuelos del log local con dato
+                // (7%) la tienen positiva** —+156 fpm y +34 fpm entre ellos—, y en los tres el toque
+                // quedó a 0 ft y sin captura de flare, que es la firma de las capturas antiguas.
+                //
+                // Nuestro scoring no se equivoca con eso (`CalcLandingRateDeduction` usa `Math.Abs`,
+                // así que +156 puntúa como −156), pero **la agregación de phpVMS sí**: su mediana de
+                // `landing_rate_fpm` se calcula sobre el valor con signo, y un positivo se va al otro
+                // lado del cero y la arrastra hacia arriba. Se normaliza en el borde, que es donde
+                // vive la convención, y contra su propio dato: para esos dos vuelos su
+                // `pireps.landing_rate` ya decía `−155` y `−26`.
+                //
+                // No se pierde nada de la medida: la magnitud es el dato y el signo no lo lleva.
+                landingRate  = -Math.Abs(record.LandingRateFpm);
                 // `> 0` porque la puntuación omite el criterio de G «si dato = 0»: en este modelo un
                 // 0 no es una medida de G, es que no hay medida.
                 gForce       = PositiveOrNull(record.GForce);
@@ -92,7 +131,8 @@ namespace vmsOpenAcars.Helpers
             return new LandingUpload
             {
                 schema_version = SchemaVersion,
-                source_name    = Clip("vmsOpenACars/" + (appVersion ?? ""), MaxSourceName),
+                source_name    = Clip("vmsOpenACars/" + (appVersion ?? "")
+                                      + (isBackfill ? "-" + BackfillTag : ""), MaxSourceName),
                 metrics = new LandingUploadMetrics
                 {
                     landing_rate_fpm  = landingRate,
@@ -185,15 +225,23 @@ namespace vmsOpenAcars.Helpers
         ///
         /// Se compone en vez de dejar que el serializador decida: el formato de un `DateTime` en
         /// JSON depende de su `Kind`, y un `Unspecified` viajaría **sin huso**, que un servidor
-        /// razonablemente leería como su hora local y colocaría el flare a las tantas. Un
-        /// `Unspecified` se interpreta como UTC porque es lo que nuestras marcas son
-        /// (`DateTime.UtcNow` en toda la telemetría); convertirlo desde «local» lo desplazaría.
+        /// razonablemente leería como su hora local y colocaría el flare a las tantas.
+        ///
+        /// **Los tres `Kind` se tratan distinto, y el `Local` se CONVIERTE, no se reetiqueta.** Ese
+        /// reetiquetado era un fallo real: al releer el log local, el `ts_utc` vuelve en hora local y
+        /// aquí se escribía como si ya fuera UTC, así que cada muestra salía **el huso entero antes**
+        /// —5 horas en Colombia—. Lo destapó el relleno de los vuelos 43 y 44, que es el primer
+        /// camino que lee la traza de la base en vez de recibirla en vivo (donde ya viene en UTC y
+        /// nunca hubo problema). El `Unspecified` sí se interpreta como UTC, porque es lo que son
+        /// nuestras marcas (`DateTime.UtcNow` en toda la telemetría).
         /// </summary>
         private static string ToUtcIso(DateTime value)
         {
-            var utc = value.Kind == DateTimeKind.Utc
-                          ? value
-                          : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+            DateTime utc;
+            if (value.Kind == DateTimeKind.Local)    utc = value.ToUniversalTime();
+            else if (value.Kind == DateTimeKind.Utc) utc = value;
+            else                                     utc = DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
             return utc.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
         }
 
