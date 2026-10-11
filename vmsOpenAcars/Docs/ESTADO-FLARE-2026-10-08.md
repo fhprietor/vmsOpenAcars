@@ -7,6 +7,13 @@ de verificación**, que es lo primero que se pierde al cambiar de sesión.
 
 Version al escribir esto: **v0.9.36** · suite **655/655** · idiomas simetricos **460 claves**.
 
+> **Actualizado el 11/10/2026 (v0.9.37).** Dos cosas de este documento ya **no** están abiertas y se
+> dejan corregidas aquí para que no se relean como pendientes: el **cero del umbral legal** está
+> implementado (`OffsetThresholdFt` llega al umbral congelado y `FlareDistanceFt` lo suma) y la
+> **cadencia real de la traza es ~8 Hz, no 10** (97 muestras en 12,1 s). Lo que sigue abierto —
+> y es lo que importa— es su **verificación en vuelo** y el detalle de la sección 2. La entrada
+> canónica de las dos correcciones está en `Docs/CHANGELOG.md` → **0.9.37**.
+
 ---
 
 ## 1. Qué está entregado, y dónde leerlo
@@ -82,9 +89,12 @@ Punto por punto (antes de esto, todo era una hipótesis):
   desajuste de referencia que ya existía. **Consecuencia**: en el gráfico del flare la marca `TD`
   y las bandas de la TDZ (umbral legal) quedan ~496 ft corridas respecto a la traza (umbral
   físico); y en el dato para el servidor, las dos «distancias al umbral» no serían comparables tal
-  cual. **Decisión pendiente**: alinear el flare al umbral legal (restar el offset en
-  `FlareDistanceFt`, exige propagar `OffsetThresholdFt` al umbral congelado) o documentar las dos
-  referencias y dejar el gráfico como está.
+  cual. **Decidido y hecho (0.9.37)**: se alinea el flare al umbral legal —`OffsetThresholdFt` viaja del
+  dataset de NavData al umbral congelado y `FlareDistanceFt` suma el offset a la proyección sobre el
+  extremo físico—, así que la marca `TD`, las bandas de la TDZ y la traza comparten cero.
+  **Sin verificar en vuelo**: los datos que lo destaparon son del vuelo 44, **anterior** al cambio, y
+  la aritmética solo está contrastada contra ese caso (202,3 + 496 ≈ 698). **Sin test propio tampoco**:
+  la suma vive dentro de `FlareDistanceFt`, que es privado y con estado.
 
 **Sigue pendiente** (este vuelo no lo cubre):
 

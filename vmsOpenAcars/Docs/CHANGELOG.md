@@ -2,6 +2,39 @@
 
 ---
 
+## [0.9.37] — 11/10/2026
+
+### Fixed
+
+- **La traza del flare se guardaba sin posición en todo el tramo posterior al toque (`dist_ft = 0`).**
+  Al salir de la fase Approach el `_approachThreshold` se suelta (`TelemetryCoordinator`), pero la captura
+  **sigue viva los 2 s siguientes**, así que `CaptureFlareSample` escribía `distFt ?? 0.0`. En el vuelo 43
+  las **16 muestras en tierra** (seq 81–96) llevaban `dist_ft = 0,0` y `agl_ft = 0,0`: el margen que captura
+  «la frenada y el morro bajando» caía entero en x=0 del gráfico, sin poder posicionarse en la pista.
+  `FreezeFlareThreshold` congela las coordenadas del umbral **al armarse la captura** y la distancia se mide
+  contra ese umbral aunque la fase ya no sea Approach. **Verificado en vuelo real (vuelo 44, SKCC→SKBG):** las
+  15 muestras en tierra ya **no** colapsan; `dist_ft` sigue negativa de **−698 a −1196 ft** (~500 ft de rodaje
+  en ~1,9 s, coherente con 145 kt frenando).
+- **El flare y el touchdown medían desde umbrales distintos: 496 ft de desfase en la pista 17 de SKBG.**
+  `ProjectOnRunway` (touchdown, desde v0.7.2) mide desde el **umbral legal** restando `OffsetThresholdFt`,
+  mientras `ComputeApproachMetrics` —el que alimenta la traza del flare— proyecta sobre el **extremo físico**
+  del pavimento sin restar nada. En el vuelo 44 eso es `touchdown_dist_ft = 202,3 ft` contra los **~698 ft**
+  que situaba la traza: la marca `TD` y las bandas de la TDZ quedaban corridas respecto a la traza, y las dos
+  «distancias al umbral» **no eran comparables** —justo el dato que se quiere subir al servidor—. Ahora
+  `OffsetThresholdFt` viaja del dataset de NavData al umbral congelado y `FlareDistanceFt` **suma el offset**
+  a la proyección sobre el extremo físico, de modo que las dos comparten el mismo cero.
+  **Sin verificar en vuelo**: los datos que lo destaparon son del vuelo 44, **anterior** a este cambio, y la
+  aritmética solo está contrastada contra ese caso (202,3 + 496 ≈ 698). **Sin test propio tampoco**: la suma
+  vive dentro de `FlareDistanceFt`, que es privado y con estado; convertirlo en helper puro queda pendiente.
+- **La cadencia real de la traza fina es ~8 Hz, no 10.** `FlareInterval` son 100 ms **nominales**, pero el
+  ciclo de telemetría corre a ~126 ms con el simulador cargado: el vuelo 43 capturó **97 muestras en 12,1 s**
+  (112–154 ms entre muestras). La consecuencia es práctica, no cosmética: a 151 kt la distancia de toma se
+  mueve **±1 muestra ≈ 32 ft**, no los 25 ft que se deducían del «10 Hz». La documentación pasa a decir
+  «~8 Hz con el simulador cargado» y el número de muestras deja de presentarse como si fuera fijo.
+
+**655/655** (sin tests nuevos: los dos fixes son de captura y su verificación es de vuelo real) e idiomas
+simétricos sin cambios (**460 claves**).
+
 ## [0.9.36] — 08/10/2026
 
 ### Added

@@ -83,3 +83,35 @@ vstest.console.exe vmsOpenAcars.Tests\bin\Debug\vmsOpenAcars.Tests.dll
 Las carpetas `%TEMP%\dsh-*` (`dsh-spill-*`, `dsh-subprocess-*`, `dsh-workspace-changes-*`,
 `dsh-acl-skill-*`) son restos de sesiones anteriores; el arnés no las reutiliza. Se pueden borrar
 cuando no haya ninguna sesión viva de `dsh`.
+
+---
+
+## 6. Errata del 11/10/2026 — el mismo síntoma, **otra causa**: es el portátil, no el PC de casa
+
+Reproducido en el **portátil** (`D:\Desarrollo\Projects\vmsOpenAcars`) tras un `git pull`, y **la
+causa no era la de arriba**. Cualquier comando fallaba, pero el mensaje **nombra otra ruta**:
+
+```
+SetNamedSecurityInfoW failed (Win32 5): grantWrite(D:\Desarrollo\Projects\vmsOpenAcars)
+```
+
+No dice `temp grant materialization failed`: dice **`grantWrite` sobre la raíz del workspace**. Y aquí
+el script `diagnose-windows-sandbox-acl` **sí tenía algo que reparar**: dictaminó **`PRECONDITION`**
+sobre esa carpeta, con `WRITE_DAC = true` pero **`WRITE_OWNER = false`** (el dueño ya era el usuario;
+lo que faltaba era el derecho de propietario). El script concedió control total al usuario en la raíz
+del workspace, lo **verificó** releyendo la carpeta y dejó su respaldo y su comando de vuelta atrás en
+`D:\Desarrollo\Projects\dsh-acl-recovery\`.
+
+**El shell confinado volvió a funcionar sin elevar nada.** Es decir: en este segundo caso la
+reparación de permisos **sí** resuelve el problema, y arrancar `dsh` como administrador no habría
+hecho falta.
+
+| | PC de casa (§1–§4) | Portátil (§6) |
+|---|---|---|
+| Qué nombra el error | el directorio **temporal** de la sesión | la **raíz del workspace** |
+| Qué dice el script de diagnóstico | `NOT_THIS_CLASS` (los permisos están bien) | **`PRECONDITION`** (falta `WRITE_OWNER`) |
+| Reparación | arrancar `dsh` **elevado** (`SeSecurityPrivilege`) | **la propia reparación del script**, sin elevar |
+
+**Cómo distinguirlos sin adivinar:** lanzar el script de diagnóstico una vez y leer su veredicto — es
+barato y decide entre los dos caminos. Si dice `NOT_THIS_CLASS`, es el privilegio del token y toca
+relanzar el servidor elevado; si dice `PRECONDITION`, repara él y no hay que elevar nada.

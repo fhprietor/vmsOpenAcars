@@ -4,6 +4,12 @@ Checklist para pasar el desarrollo a un equipo nuevo (por ejemplo el portátil),
 **DeepSeek Harness (`dsh`)** en lugar de Claude Code. Verificado sobre el equipo actual
 (`master` en **v0.9.12**, Node v24.21.0, `dsh` 0.1.5-rc.3).
 
+> **Recorrido entero en el portátil el 11/10/2026 (`master` en v0.9.37, VS2017 Professional,
+> `dsh` en el navegador).** Los tres tropiezos que aparecieron y que ya están incorporados abajo:
+> el shell del agente no ejecutaba **nada** (era un permiso que faltaba en la raíz del workspace, ver
+> `2026-10-08-DSH-SHELL-BLOQUEADO-WINDOWS.md` §6), faltaba `App.config` y faltaban los dos paquetes
+> de MSTest en `packages\`. Con eso resuelto: **Debug y Release compilan y la suite da 655/655**.
+
 > **Lo que no está en el repositorio, no viaja.** El repo es la única memoria que sobrevive al
 > cambio de máquina: el historial de conversación del agente se queda en el equipo viejo, y las
 > reglas de trabajo, el changelog y las decisiones están en archivos justamente por eso.
@@ -35,9 +41,9 @@ decisión pendiente del mantenedor (ver `CLAUDE.md` → Próximas áreas).
 |---|---|
 | **.NET Framework 4.8** | Developer Pack (y 4.8.1, que es lo que declara `App.Release.config` en `supportedRuntime`) |
 | **Visual Studio 2017** (15.x) | El proyecto es C# 7.3 / net48. Con el IDE se compila y depura; las rutas documentadas abajo son las de VS2017 |
-| **MSBuild 15.0** | `…\Microsoft Visual Studio\2017\Professional\MSBuild\15.0\Bin\MSBuild.exe`. La guía dice compilar desde el IDE; la verificación automatizada usa este `MSBuild.exe` (mismo toolchain, sin interfaz) |
+| **MSBuild 15.0** | `…\Microsoft Visual Studio\2017\Professional\MSBuild\15.0\Bin\MSBuild.exe`. La guía dice compilar desde el IDE; la verificación automatizada usa este `MSBuild.exe` (mismo toolchain, sin interfaz). **Hay que pasarle también `/p:Platform="Any CPU"`**: sin la plataforma, MSBuild no coge la de la solución y falla con `MSB4126 … la configuración "Debug|MCD" no es válida` (comprobado en el portátil el 11/10/2026) |
 | **`vstest.console.exe`** | `…\Common7\IDE\CommonExtensions\Microsoft\TestWindow\vstest.console.exe`. Es el runner de la suite |
-| **NuGet** | Los paquetes se referencian desde `..\packages\…` (`packages.config`): **sin restaurar, no compila** |
+| **NuGet** | Los paquetes se referencian desde `..\packages\…` (`packages.config`): **sin restaurar, no compila**. Ojo: **`nuget.exe` no está en el `PATH`** ni dentro de VS2017; si falta, se baja de `https://dist.nuget.org/win-x86-commandline/v5.11.6/nuget.exe` y se ejecuta desde donde se guarde. Y una carpeta `packages\` copiada a mano puede estar **incompleta**: el proyecto de tests necesita `MSTest.TestAdapter` y `MSTest.TestFramework` **1.3.2**, que son los dos que no usa nadie más — si faltan, el error es `This project references NuGet package(s) that are missing on this computer` |
 | **Simulador + FSUIPC/XUIPC** | Solo para **volar**; compilar y correr los tests no lo necesita |
 
 Dependencias principales que trae el restore: `FSUIPCClientDLL 3.3.16`, `NAudio 2.3.0`,
@@ -84,21 +90,26 @@ Por eso las reglas viven ahí y no en el hilo de conversación.
 git clone https://github.com/fhprietor/vmsOpenAcars.git   # o git pull si ya está clonado
 ```
 
-1. **Copiar `vmsOpenAcars/App.config`** (y `Updater/App.config`) desde el equipo viejo.
+1. **Copiar `vmsOpenAcars/App.config`** (y `Updater/App.config`) desde el equipo viejo. Sin el
+   principal, el build **no falla por código**: falla con `MSB3249 … El archivo de configuración de
+   la aplicación "App.config" no es válido`, que se lee como un problema del proyecto y no lo es.
 2. **Restaurar NuGet**: `nuget restore vmsOpenAcars.sln` (o dejar que VS2017 lo haga al abrir).
 3. **Build Debug y Release** y pasar la suite:
    ```bash
-   msbuild vmsOpenAcars.sln /p:Configuration=Debug
+   msbuild vmsOpenAcars.sln /p:Configuration=Debug /p:Platform="Any CPU"
    vstest.console.exe vmsOpenAcars.Tests\bin\Debug\vmsOpenAcars.Tests.dll
    ```
-   Esperado: **229/229**. En Release el proyecto de tests no se compila (es a propósito).
+   Esperado: **655/655** (a 11/10/2026, en el portátil). En Release el proyecto de tests no se
+   compila (es a propósito).
 4. **Comprobar la versión**, que es el error que ya nos mordió una vez:
-   `(Get-Item bin\Release\vmsOpenAcars.exe).VersionInfo` → **`ProductVersion` = 0.9.12**. Si el
+   `(Get-Item bin\Release\vmsOpenAcars.exe).VersionInfo` → **`ProductVersion` = 0.9.37**. Si el
    título de la ventana dice una versión anterior, falta subir `AssemblyInformationalVersion`
    (ver `CLAUDE.md` → **Versionado**, los tres atributos van juntos).
-5. **Abrir la app y revisar Settings**: con `App.config` presente deben aparecer la URL y la API
-   Key de NavData y la sección con las cinco líneas (separador, URL, Key, resultado del test,
-   botones **REFRESH** y **TEST**).
+5. **Abrir la app y revisar Settings**: con `App.config` presente la app arranca con la URL y la
+   clave de phpVMS. **La sección *NavData API* ya no existe**: desde v0.9.27 no hay campos de URL ni
+   de clave de NavData —la clave llega **cifrada en el sobre de phpVMS** y vive solo en memoria—,
+   así que **no** es un fallo que no aparezcan. Lo que sí conviene mirar es `carto_api_key` en el
+   `.config`: vacía, el mapa sale con la marca de agua `API KEY REQUIRED`.
 6. **Lanzar el agente desde la raíz del repo** para que el workspace sea el proyecto:
    `npx @deepseek-ai/dsh@0.1.5-rc.3 web`.
 
