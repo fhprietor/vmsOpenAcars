@@ -184,4 +184,36 @@ un rearme posterior del detector **ya no puede sobrescribir**. Tres detalles del
 que ya iba en el payload), y lo que deja de pasar es que el logbook diga otro. Los tres vuelos
 históricos del cuadro siguen con su valor viejo en el log local —son datos ya escritos—, así que la
 divergencia con `pireps.landing_rate` en esos tres se queda como está, documentada. Fijado con
-`TouchdownStateTests` (5 pruebas, con los números del vuelo 20).
+`TouchdownStateTests` (6 pruebas, con los números del vuelo 20).
+
+## 6. Los dos campos que pidió phpVMS, y el cero que se disfrazaba de medida (11/10/2026)
+
+phpVMS pidió dos campos el 11/10/2026 (`Docs/RESPUESTA7-PHPVMS-ANALISIS-FLARE-2026-10-11.md`) para
+dejar de **deducir** la alineación de la traza y para poder juzgar la velocidad del umbral. Los dos
+están ya en el payload: `metrics.offset_threshold_ft` (pies) y `metrics.vref_kt` (nudos), opcionales
+y **sin subir `schema_version`**.
+
+**`offset_threshold_ft` es el único campo del contrato donde el `0` mide** —significa «el umbral legal
+está pegado al extremo físico»—, y esa frase no es un adorno: al implementarlo apareció el fallo más
+silencioso de todo el bloque. El dato lo publicaba **solo** `SelectApproachThreshold`;
+**`FindTouchdownRunway`**, que es el que alimenta la geometría de la toma, **no lo rellenaba**, así
+que su `RunwayTouchdownResult` salía con el **0 por defecto** y ese cero se habría leído como
+«alineado»: en la 17 de SKBG (**496 ft**) phpVMS habría corrido la traza medio millar de pies **sin
+que nada fallara**. La asignación pasa a vivir dentro de `ProjectOnRunway`, así que **los dos caminos
+la heredan**, y el campo es **anulable de punta a punta** (`double?`) para que un olvido futuro caiga
+en `null` —«dedúcelo tú»— y no en un 0 que parece medido.
+
+**`vref_kt` sale del TLR del OFP de SimBrief** (`tlr.landing.distance_dry.speeds_vref`; medido: **148
+kt** en el plan del 11/10), al **peso de planeo**, no al real. Sin TLR va `null` y **no se estima**:
+la ventana de Vapp por tipo que usa el gate de aproximación **no es un Vref**, y mandarla con ese
+nombre sería una etiqueta donde hay un valor.
+
+**Verificado, con datos reales:** el payload (0 medido contra `null`), el viaje de ida y vuelta a
+`landing_log.sqlite` con su migración, la semántica del `TouchdownState` (0 / `null` / sin pista) y el
+parseo del TLR con un trozo del OFP de verdad (`SimbriefVrefTests`, que además impide que mover esa
+ruta deje el campo en `null` en silencio).
+
+**Sin verificar:** el vuelo. Ningún PIREP ha llevado todavía los dos campos —es el mismo punto de
+control de la §2—, así que falta ver que **lleguen y se guarden** en su lado. Y el tramo
+`NavData → geometría del toque` no tiene test propio (necesita la caché de NavData): lo verificado
+ahí es la lectura de **los dos** caminos de construcción, que ya están en `ProjectOnRunway`.

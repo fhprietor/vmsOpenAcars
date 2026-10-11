@@ -144,6 +144,16 @@ namespace vmsOpenAcars.Helpers
                     runway_name      = ClipOrNull(record.RunwayName, MaxRunwayName),
                     runway_length_ft = FiniteOrNull(record.RunwayLengthFt),
                     runway_true_deg  = FiniteOrNull(record.LandingRunwayTrueDeg),
+                    // **El umbral desplazado**: `FiniteOrNull` aquí **no** convierte el 0 en null (solo
+                    // mata NaN/Inf), y eso es justo lo que hay que preservar. Sus vecinos usan el mismo
+                    // helper sin problema porque su 0 no mide; aquí **0 sí mide** (umbral legal pegado
+                    // al extremo físico), así que un 0 tiene que llegar como 0. `null` sale solo si la
+                    // pista no se resolvió —la señal para que phpVMS siga deduciendo, como con el
+                    // histórico—. Lo que **no** se hace nunca es `> 0 ? valor : null`, que es la regla
+                    // de `runway_length_ft` y aquí borraría el caso «esta pista no tiene desfase».
+                    offset_threshold_ft = FiniteOrNull(record.OffsetThresholdFt),
+                    // El Vref del plan: entero, y `null` sin TLR.
+                    vref_kt          = record.VrefKt,
                     landing_weight_lbs = FiniteOrNull(record.LandingWeightLbs),
 
                     aircraft_icao  = ClipOrNull(record.AircraftIcao,  MaxAircraftIcao),

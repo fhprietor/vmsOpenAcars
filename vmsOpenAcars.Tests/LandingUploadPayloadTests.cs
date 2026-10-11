@@ -185,6 +185,48 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
+        public void ElDesfaseDelUmbralViajaTalCual_PeroSinPistaEsNull()
+        {
+            // phpVMS lo pidió el 11/10/2026 para alinear la traza del flare con una **resta** en vez de
+            // deducirla (los 496 ft de la 17 de SKBG, que hasta ahora deducían y con guardas).
+            //
+            // **Aquí el 0 NO es «sin dato»**: es «el umbral legal está pegado al extremo físico», así
+            // que tiene que llegar como 0. Quien dice «no lo sé» —y por tanto «dedúcelo tú»— es null.
+            var r = Vuelo44();
+
+            r.OffsetThresholdFt = 496.0;
+            Assert.AreEqual(496.0,
+                            LandingUploadPayload.Build(r, Traza(), Version).metrics.offset_threshold_ft.Value, 1e-9,
+                            "el desfase real de la 17 de SKBG");
+
+            r.OffsetThresholdFt = 0.0;
+            Assert.AreEqual(0.0,
+                            LandingUploadPayload.Build(r, Traza(), Version).metrics.offset_threshold_ft.Value, 1e-9,
+                            "un 0 es una medida: la pista no tiene umbral desplazado");
+
+            r.OffsetThresholdFt = null;
+            Assert.IsNull(LandingUploadPayload.Build(r, Traza(), Version).metrics.offset_threshold_ft,
+                          "sin pista resuelta va null, que es la señal para que ellos sigan deduciendo");
+        }
+
+        [TestMethod]
+        public void ElVrefDelPlanViajaEntero_Y_SinPlanVaNull()
+        {
+            // El Vref sale del TLR de SimBrief, al **peso de planeo**. No se estima por tipo de avión:
+            // la ventana de Vapp que usa el gate de aproximación no es un Vref, y mandarla con este
+            // nombre sería una etiqueta donde hay un valor.
+            var r = Vuelo44();
+
+            r.VrefKt = 148;
+            Assert.AreEqual(148, LandingUploadPayload.Build(r, Traza(), Version).metrics.vref_kt,
+                            "el Vref del plan de ese vuelo");
+
+            r.VrefKt = null;
+            Assert.IsNull(LandingUploadPayload.Build(r, Traza(), Version).metrics.vref_kt,
+                          "sin TLR no se inventa un Vref");
+        }
+
+        [TestMethod]
         public void ElCeroDeLaDistanciaDeTomaEsUnaMedida_YElDeLaDesviacionDeEjeNo()
         {
             // Tocar **justo en el umbral** es 0 ft de verdad, y ahí el 0 es el dato. En el eje, el

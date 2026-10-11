@@ -42,9 +42,33 @@
     apagado «hasta que vuestro endpoint exista», y ya existe). Si contesta 400/401/403/404 o el
     piloto vuela sin red, **el vuelo se filea igual** y el análisis se queda en su
     `landing_log.sqlite`: es un extra del análisis, **nunca** un requisito para acreditar el vuelo.
+  - **Los dos campos que phpVMS pidió el 11/10/2026, ya en el payload** (respuesta en
+    `Docs/RESPUESTA7-PHPVMS-ANALISIS-FLARE-2026-10-11.md`): el **desfase del umbral**
+    (`metrics.offset_threshold_ft`, pies) y el **Vref del plan** (`metrics.vref_kt`, nudos). Los dos
+    son opcionales y aditivos, así que **no se sube `schema_version`**. El desfase sale del
+    `offset_threshold_ft` de NavData —el mismo dato con el que la traza se alinea desde v0.9.37— y el
+    Vref del **análisis de aterrizaje (TLR) del OFP de SimBrief**
+    (`tlr.landing.distance_dry.speeds_vref`; medido en el plan real: **148 kt**).
+  - **`offset_threshold_ft` es el único campo del contrato donde el `0` mide**, y por eso su tipo es
+    anulable **de punta a punta** (NavData →`RunwayTouchdownResult` → geometría del toque → registro →
+    payload). El fallo que eso cierra es el más silencioso de todo el cambio: **`FindTouchdownRunway`
+    no rellenaba el offset** —solo lo hacía `SelectApproachThreshold`—, así que su resultado salía con
+    el **0 por defecto**, un cero que *parece* medido, y en la 17 de SKBG (496 ft) phpVMS habría
+    alineado la traza **496 ft mal** sin que nada fallara. La asignación pasa a vivir dentro de
+    `ProjectOnRunway`, así que **los dos caminos la heredan** y un olvido futuro degrada a «dedúcelo
+    tú» (`null`) en vez de mentir con un 0. Lo fijan `TouchdownStateTests` (0 medido / `null` no se
+    sabe / sin pista) y los dos tests nuevos del payload.
+  - **El Vref no se estima si el plan no lo trae.** El OFP lo publica **como texto** dentro de `tlr`,
+    así que la ruta se prueba con un trozo del **OFP real** (`SimbriefVrefTests`): si alguien la mueve,
+    el campo se quedaría en `null` **en silencio** —es opcional y no falla nada—. Va `null`, **nunca
+    `0`**, y **no se deriva del tipo de avión**: la ventana de Vapp por tipo que usa el gate de
+    aproximación **no es un Vref**. Corresponde al **peso de planeo** del plan, no al real (ese ya va
+    en `landing_weight_lbs`, que es una lectura del simulador).
   - **Sin verificar en vuelo**: no se ha enviado ni un PIREP real todavía (phpVMS lo pidió y es el
-    siguiente paso). Lo verificado es el contrato contra los **números reales del vuelo 44** en 10
-    pruebas, no la ingesta de extremo a extremo.
+    siguiente paso). Lo verificado es el contrato contra los **números reales del vuelo 44**, no la
+    ingesta de extremo a extremo. **Los dos campos nuevos tampoco se han visto llegar**: lo probado es
+    el payload (el 0 medido contra `null`), el viaje de ida y vuelta a `landing_log.sqlite` con su
+    migración, y el parseo del TLR; el primer vuelo con esta versión es el que los manda de verdad.
 - **El log de la traza y la leyenda del gráfico dejan de decir «10 Hz» a secas.** Son **~8 Hz reales**
   con el simulador cargado (97 muestras en 12,1 s, medido en el vuelo 43), y el rótulo pasa a
   `~10 Hz` / `(~8 Hz reales…)`: el diseño es 100 ms nominales y el ciclo de telemetría corre a

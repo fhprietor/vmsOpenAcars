@@ -505,6 +505,16 @@ namespace vmsOpenAcars.ViewModels
                 // El LTOW, capturado en el contacto (ver `CaptureLandingWeight`). Null si el
                 // simulador no lo publicó, que es un hueco y no un cero.
                 LandingWeightLbs     = _landingWeightLbs,
+
+                // El umbral desplazado de esa pista, para que phpVMS alinee la traza del flare sin
+                // deducirlo. **Aquí NO se aplica el `> 0 ? valor : null` de la longitud de pista**: en
+                // este dato `0` es una medida (umbral legal y extremo físico coinciden) y quien dice
+                // «no lo sé» es `null`, que es lo que devuelve `TouchdownState` sin pista resuelta.
+                OffsetThresholdFt    = fm.TouchdownOffsetThresholdFt,
+
+                // El Vref del plan (SimBrief, TLR del aterrizaje). Es una lectura del plan al peso de
+                // planeo; sin TLR se queda null y no se deriva del tipo de avión.
+                VrefKt               = plan?.VrefKt,
             };
         }
 

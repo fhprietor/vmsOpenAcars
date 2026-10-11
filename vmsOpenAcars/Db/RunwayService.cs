@@ -14,7 +14,13 @@ namespace vmsOpenAcars.Db
         /// <summary>
         /// Desplazamiento del umbral (`offset_threshold_ft` de NavData): la distancia entre el
         /// extremo **físico** del pavimento (`threshold_lat/lon`) y el umbral **legal** de
-        /// aterrizaje, en pies. **Cero = sin umbral desplazado** (o sin dato).
+        /// aterrizaje, en pies.
+        ///
+        /// **`null` es «este camino no lo sabe» y `0` es una medida** (la pista no tiene umbral
+        /// desplazado). La distinción no es teórica: `FindTouchdownRunway` no lo miraba, así que su
+        /// resultado salía con el 0 por defecto —un cero que *parece* medido— y eso es exactamente lo
+        /// que phpVMS iba a leer como «alineado» al recibir `offset_threshold_ft` (11/10/2026). Con el
+        /// campo anulable, un olvido así degrada a «dedúcelo tú» en vez de mentir.
         ///
         /// `ThresholdLat/Lon` son el extremo físico, así que quien mida «distancia al umbral»
         /// proyectando sobre ellos obtiene la distancia al inicio del pavimento. Para que sea
@@ -23,7 +29,7 @@ namespace vmsOpenAcars.Db
         /// `TelemetryCoordinator.FlareDistanceFt`. Sin esta resta, en una pista con umbral
         /// desplazado la marca de toque y la traza quedan corridas exactamente este offset.
         /// </summary>
-        public double OffsetThresholdFt     { get; set; }
+        public double? OffsetThresholdFt    { get; set; }
 
         /// <summary>
         /// Rumbo **VERDADERO** del eje de la pista, calculado desde las coordenadas WGS-84 del umbral

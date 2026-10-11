@@ -91,5 +91,33 @@ namespace vmsOpenAcars.Tests
             Assert.IsFalse(congelado.Captured);
             Assert.IsNull(congelado.Fpm);
         }
+
+        [TestMethod]
+        public void ElUmbralDesplazado_DistingueElCeroMedidoDelQueNoSeSabe()
+        {
+            // `offset_threshold_ft` (phpVMS, 11/10/2026) es el único dato del toque donde **el 0 mide**:
+            // significa «el umbral legal está pegado al extremo físico». Y aquí está el fallo que este
+            // test impide volver a cometer: **`FindTouchdownRunway` no lo rellenaba**, así que el campo
+            // salía con el 0 por defecto —un cero que *parece* medido— y phpVMS habría alineado la traza
+            // del flare 496 ft mal en la 17 de SKBG sin que nada fallara. Por eso el campo es anulable:
+            // quien no lo sepa devuelve null y ellos deducen, en vez de mentir con un 0.
+            var td = new TouchdownState();
+
+            // Sin pista resuelta no hay nada que decir.
+            Assert.IsNull(td.OffsetThresholdFt, "sin geometría de pista no puede haber un 0");
+
+            // Los 496 ft reales de la 17 de SKBG.
+            td.SetRunwayData(698.0, 24.4, "17", 12500.0, 159.5, 496.0);
+            Assert.AreEqual(496.0, td.OffsetThresholdFt.Value, 1e-9);
+
+            // Pista sin umbral desplazado: **es un dato**, no un hueco.
+            td.SetRunwayData(202.3, 24.4, "32", 12467.0, 159.5, 0.0);
+            Assert.AreEqual(0.0, td.OffsetThresholdFt.Value, 1e-9,
+                            "un 0 aquí significa alineado, y tiene que llegar como 0");
+
+            // Y el camino que no lo sabe lo dice con null, no con un 0.
+            td.SetRunwayData(202.3, 24.4, "32", 12467.0, 159.5, null);
+            Assert.IsNull(td.OffsetThresholdFt, "«no lo sé» es null; el que deduce es phpVMS");
+        }
     }
 }

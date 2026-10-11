@@ -181,6 +181,13 @@ namespace vmsOpenAcars.Core.Flight
         /// <summary>Rumbo **VERDADERO** del eje de la pista de la toma; **null = sin dato**. Es el
         /// eje contra el que se descomponen las componentes del viento del aterrizaje.</summary>
         public double? TouchdownRunwayTrueHeadingDeg => _td.RunwayTrueHeadingDeg;
+
+        /// <summary>
+        /// Umbral desplazado de la pista de la toma, en pies: **`0` es un valor** (alineado) y
+        /// **`null` es «no se resolvió la pista»**. Va al payload como `offset_threshold_ft` para
+        /// que phpVMS alinee la traza del flare con una **resta** en vez de deduciéndolo.
+        /// </summary>
+        public double? TouchdownOffsetThresholdFt => _td.OffsetThresholdFt;
         public double TouchdownGForce       => _td.GForce;
 
         /// <summary>
@@ -579,9 +586,9 @@ namespace vmsOpenAcars.Core.Flight
 
         public void SetRunwayTouchdownData(double thresholdDistFt, double centerlineDeviationFt,
                                            string runwayName, double runwayLengthFt,
-                                           double? runwayTrueHeadingDeg)
+                                           double? runwayTrueHeadingDeg, double? offsetThresholdFt)
             => _td.SetRunwayData(thresholdDistFt, centerlineDeviationFt, runwayName, runwayLengthFt,
-                                 runwayTrueHeadingDeg);
+                                 runwayTrueHeadingDeg, offsetThresholdFt);
 
         public void SetProcedureSpdViolations(int count)
             => _pen.ProcedureSpdViolations = count;

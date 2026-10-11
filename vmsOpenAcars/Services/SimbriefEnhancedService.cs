@@ -163,6 +163,11 @@ namespace vmsOpenAcars.Services
                         AvgWindSpd = json["general"]?["avg_wind_spd"]?.Value<int>() ?? 0,
                         AvgIsaDev  = ParseIsaDev(json["general"]?["avg_temp_dev"]?.ToString()),
 
+                        // El Vref del análisis de aterrizaje (TLR) del OFP, que es el que phpVMS pidió
+                        // el 11/10/2026 para poder juzgar la velocidad del umbral. Sin TLR se queda
+                        // null y no se estima: ver `VrefFromOfp`.
+                        VrefKt = VrefFromOfp(json),
+
                         // Tiempos - CORREGIDO: usar times.est_time_enroute
                         EstTimeEnroute = json["times"]?["est_time_enroute"]?.Value<int>() ?? 0,
 
@@ -326,6 +331,45 @@ namespace vmsOpenAcars.Services
                 return int.TryParse(raw.Substring(1), out int v2) ? -v2 : 0;
             return int.TryParse(raw, out int v3) ? v3 : 0;
         }
+
+        /// <summary>
+        /// **El Vref del análisis de aterrizaje (TLR) del OFP**, o `null` si el plan no lo trae.
+        ///
+        /// Es un helper puro y aparte porque el mapeo del plan vive dentro de un método que **sale a
+        /// la red** (`FetchAndParseOFP`), y una ruta mal escrita ahí se queda en `null` **en
+        /// silencio**: el campo es opcional, así que nada falla. Aquí se puede fijar con un trozo del
+        /// OFP real, que es lo que hace `SimbriefVrefTests`.
+        ///
+        /// Va **como texto** en el JSON (`"speeds_vref": "148"`) y es el de la pista seca; el valor
+        /// corresponde al peso de planeo. Ver `SimbriefPlan.VrefKt`.
+        /// </summary>
+        internal static int? VrefFromOfp(JObject json)
+            => ParseIntOrNull(json?["tlr"]?["landing"]?["distance_dry"]?["speeds_vref"]?.ToString());
+
+        /// <summary>
+        /// El mismo dato, pero desde el **texto** del OFP: es la forma en la que entra de verdad (la
+        /// respuesta de red) y la que usa `SimbriefVrefTests`, que así prueba la ruta completa sin
+        /// necesitar el `JObject`.
+        ///
+        /// Un OFP ilegible devuelve `null` en vez de reventar: **degradar sin datos**, que es la regla
+        /// de la casa — el Vref es opcional y su ausencia no puede tumbar la carga de un plan.
+        /// </summary>
+        internal static int? VrefFromOfpJson(string ofpJson)
+        {
+            if (string.IsNullOrWhiteSpace(ofpJson)) return null;
+            try { return VrefFromOfp(JObject.Parse(ofpJson)); }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Un entero del OFP **que puede faltar**, o `null` si no está o no se puede leer.
+        ///
+        /// Existe separado de <see cref="ParseIsaDev"/> a propósito: aquél devuelve 0 cuando no hay
+        /// dato, y aquí un 0 sería un valor con significado. Es el mismo criterio del resto del
+        /// proyecto: `null` es «no lo sé», y **no se rellena con un número que parezca medido**.
+        /// </summary>
+        private static int? ParseIntOrNull(string raw)
+            => int.TryParse((raw ?? "").Trim(), out int value) ? (int?)value : null;
 
         private static string ExtractProcedureFromRoute(string route, bool isFirst)
         {

@@ -36,14 +36,31 @@ namespace vmsOpenAcars.Core.Flight
             /// </summary>
             public readonly double? TrueHeadingDeg;
 
+            /// <summary>
+            /// **Umbral desplazado** de la pista de la toma, en pies, tal y como lo publica NavData
+            /// (`offset_threshold_ft`): cuánto está el umbral **legal** pasado el extremo físico, que
+            /// es el cero sobre el que se proyecta la traza del flare. phpVMS lo pidió el 11/10/2026
+            /// para alinear sin deducir —los **496 ft** de la 17 de SKBG—.
+            ///
+            /// **Aquí el 0 SÍ es una medida** (umbral legal y extremo físico coinciden), al revés que
+            /// en <see cref="RunwayLengthFt"/>, donde 0 es «no la sé». Por eso el campo es
+            /// **anulable**: `null` es «este camino no lo sabe», y así el accesor de
+            /// <see cref="TouchdownState.OffsetThresholdFt"/> puede devolver `null` tanto sin pista
+            /// resuelta como con la pista resuelta y el dato ausente. Que `FindTouchdownRunway` no lo
+            /// rellenara salía como un 0 por defecto que *parecía* medido.
+            /// </summary>
+            public readonly double? OffsetThresholdFt;
+
             public RunwayGeometry(double distanceFt, double centerlineDeviationFt, string runwayName,
-                                  double runwayLengthFt, double? trueHeadingDeg)
+                                  double runwayLengthFt, double? trueHeadingDeg,
+                                  double? offsetThresholdFt)
             {
                 DistanceFt            = distanceFt;
                 CenterlineDeviationFt = centerlineDeviationFt;
                 RunwayName            = runwayName;
                 RunwayLengthFt        = runwayLengthFt;
                 TrueHeadingDeg        = trueHeadingDeg;
+                OffsetThresholdFt     = offsetThresholdFt;
             }
         }
 
@@ -118,6 +135,14 @@ namespace vmsOpenAcars.Core.Flight
         /// <summary>Rumbo **verdadero** del eje de la pista de la toma; **null = sin dato**.</summary>
         public double? RunwayTrueHeadingDeg => _geometry?.TrueHeadingDeg;
 
+        /// <summary>
+        /// Umbral desplazado de la pista de la toma, en pies (`offset_threshold_ft` de NavData).
+        /// **`0` es un valor** —el umbral legal está justo en el extremo físico— y **`null` es «no se
+        /// resolvió la pista»**, que es la señal para que phpVMS siga deduciéndolo, como con el
+        /// histórico. Es lo contrario que <see cref="RunwayLengthFt"/>, donde vacío y 0 son lo mismo.
+        /// </summary>
+        public double? OffsetThresholdFt => _geometry?.OffsetThresholdFt;
+
         public void Capture(int fpm, double pitch, double bank, double gforce,
                             double lat, double lon, double heading)
         {
@@ -133,9 +158,10 @@ namespace vmsOpenAcars.Core.Flight
         }
 
         public void SetRunwayData(double distFt, double deviationFt, string runwayName,
-                                  double runwayLengthFt, double? trueHeadingDeg)
+                                  double runwayLengthFt, double? trueHeadingDeg,
+                                  double? offsetThresholdFt)
             => _geometry = new RunwayGeometry(distFt, deviationFt, runwayName, runwayLengthFt,
-                                              trueHeadingDeg);
+                                              trueHeadingDeg, offsetThresholdFt);
 
         // Partial reset on touch-and-go: keep Fpm/GForce for scoring, clear runway data
         public void ResetRunwayData()

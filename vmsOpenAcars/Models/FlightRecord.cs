@@ -66,6 +66,30 @@ namespace vmsOpenAcars.Models
         public double?   RunwayLengthFt { get; set; }
 
         /// <summary>
+        /// **Umbral desplazado** de la pista de la toma, en pies (`offset_threshold_ft` de NavData).
+        /// Es cuánto está el umbral **legal** pasado el extremo físico, que es el cero sobre el que
+        /// se proyecta la traza del flare: los **496 ft** de la 17 de SKBG.
+        ///
+        /// **`0` es una medida** (alineado) y **`null` es «no se resolvió la pista»** — lo contrario
+        /// que <see cref="RunwayLengthFt"/>, donde 0 y «no la sé» son lo mismo. Esa distinción es el
+        /// contrato: al mandarlo, phpVMS alinea la traza con una **resta** y, si llega `null`, sigue
+        /// deduciéndolo como hace con el histórico (que no tiene esta columna).
+        /// </summary>
+        public double?   OffsetThresholdFt { get; set; }
+
+        /// <summary>
+        /// **El Vref del plan**, en nudos, tal y como lo publica SimBrief en el análisis de
+        /// aterrizaje del OFP (`tlr.landing.distance_dry.speeds_vref`).
+        ///
+        /// Es una **lectura del plan**, no una estimación nuestra: corresponde al **peso de planeo**
+        /// (`tlr.landing.conditions.planned_weight`), no al peso real de la toma —que va aparte en
+        /// `LandingWeightLbs` y es una lectura del simulador—. Sin TLR en el OFP (o sin plan) va
+        /// `null`: **no se deriva del tipo de avión**, porque la ventana de Vapp por tipo que usa el
+        /// gate de aproximación **no es un Vref**.
+        /// </summary>
+        public int?      VrefKt { get; set; }
+
+        /// <summary>
         /// **¿La captura de la traza fina del flare llegó a armarse en este aterrizaje?**
         /// (`TelemetryCoordinator.FlareCaptureStarted`, leído al persistir, antes de que el reset del
         /// vuelo se llevara el estado en vivo.)

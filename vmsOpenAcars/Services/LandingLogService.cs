@@ -177,6 +177,18 @@ namespace vmsOpenAcars.Services
                     // línea**: un 0 ahí sería un avión sin peso.
                     EnsureColumn(conn, "flights", "landing_weight_lbs", "REAL");
 
+                    // ── Los dos campos que pidió phpVMS el 11/10/2026 ────────────────
+                    // **Umbral desplazado de la pista de la toma** (los 496 ft de la 17 de SKBG):
+                    // con él alinean la traza del flare con una resta en vez de deducirla. NULL en
+                    // las filas anteriores a esta columna = «no se sabe», que es justo la señal para
+                    // que sigan deduciendo; **0 es una medida** (umbral legal = extremo físico).
+                    EnsureColumn(conn, "flights", "offset_threshold_ft", "REAL");
+
+                    // **El Vref del plan**, del TLR de SimBrief. NULL sin plan o sin TLR: no se
+                    // deriva del tipo de avión, porque la ventana de Vapp por tipo que usa el gate de
+                    // aproximación no es un Vref.
+                    EnsureColumn(conn, "flights", "vref_kt", "INTEGER");
+
                     // La traza del flare también se migra por si la tabla viene de una versión
                     // anterior con menos columnas: `CREATE TABLE IF NOT EXISTS` no toca una tabla que
                     // ya está, exactamente el mismo caso que el de `flights`.
@@ -403,7 +415,8 @@ namespace vmsOpenAcars.Services
                          landing_wind_gust_kt, landing_headwind_kt, landing_crosswind_kt,
                          landing_runway_true_deg, runway_length_ft,
                          flare_capture_armed, aircraft_icao,
-                         aircraft_title, aircraft_model, landing_weight_lbs)
+                         aircraft_title, aircraft_model, landing_weight_lbs,
+                         offset_threshold_ft, vref_kt)
                     VALUES
                         (@fn, @org, @dest, @rwy, @dt,
                          @rate, @gf, @dist, @cl,
@@ -411,7 +424,8 @@ namespace vmsOpenAcars.Services
                          @obs, @wdir, @wspd,
                          @wgst, @hw, @xw,
                          @rwytrue, @rlen, @flareArmed, @acft,
-                         @acftTitle, @acftModel, @lw)";
+                         @acftTitle, @acftModel, @lw,
+                         @offset, @vref)";
 
                 cmd.Parameters.AddWithValue("@fn",    r.FlightNumber ?? "");
                 cmd.Parameters.AddWithValue("@org",   r.Origin ?? "");
@@ -452,6 +466,12 @@ namespace vmsOpenAcars.Services
                 // El LTOW, en libras. Sin lectura va NULL: el bloque de datos omite la línea en vez
                 // de enseñar un cero, que sería un avión sin peso.
                 cmd.Parameters.AddWithValue("@lw", (object)r.LandingWeightLbs ?? DBNull.Value);
+                // El umbral desplazado, **tal cual**: aquí 0 es una medida (alineado) y `null` es
+                // «no se resolvió la pista». Convertir el 0 en NULL —como se hace con la longitud unos
+                // renglones más arriba— borraría el caso «esta pista no tiene umbral desplazado».
+                cmd.Parameters.AddWithValue("@offset", (object)r.OffsetThresholdFt ?? DBNull.Value);
+                // El Vref del plan. Sin TLR va NULL, y no se estima.
+                cmd.Parameters.AddWithValue("@vref",   (object)r.VrefKt            ?? DBNull.Value);
                 cmd.ExecuteNonQuery();
             }
             using (var cmd2 = conn.CreateCommand())
@@ -480,7 +500,8 @@ namespace vmsOpenAcars.Services
                                landing_wind_gust_kt, landing_headwind_kt, landing_crosswind_kt,
                                landing_runway_true_deg, runway_length_ft,
                                flare_capture_armed, aircraft_icao,
-                               aircraft_title, aircraft_model, landing_weight_lbs
+                               aircraft_title, aircraft_model, landing_weight_lbs,
+                               offset_threshold_ft, vref_kt
                         FROM flights
                         ORDER BY flight_date DESC";
 
@@ -522,7 +543,13 @@ namespace vmsOpenAcars.Services
                                 // anteriores a las columnas: el bloque del gráfico enseña lo que hay.
                                 AircraftTitle       = r.IsDBNull(22) ? null : r.GetString(22),
                                 AircraftModel       = r.IsDBNull(23) ? null : r.GetString(23),
-                                LandingWeightLbs    = r.IsDBNull(24) ? (double?)null : r.GetDouble(24)
+                                LandingWeightLbs    = r.IsDBNull(24) ? (double?)null : r.GetDouble(24),
+                                // Los dos campos que pidió phpVMS, al final para no mover índices.
+                                // `offset_threshold_ft`: NULL = fila anterior a la columna, o pista sin
+                                // resolver — y **0 es una medida**, así que no se filtra como la
+                                // longitud de pista de arriba.
+                                OffsetThresholdFt   = r.IsDBNull(25) ? (double?)null : r.GetDouble(25),
+                                VrefKt              = r.IsDBNull(26) ? (int?)null    : r.GetInt32(26)
                             });
                         }
                     }

@@ -182,6 +182,59 @@ namespace vmsOpenAcars.Tests
         /// salían con cero filas, así que la ventana contaba lo primero como lo segundo.
         /// </summary>
         [TestMethod]
+        public void ElDesfaseDelUmbralYElVref_ViajanDeIdaYVuelta_SinConvertirElCeroEnNull()
+        {
+            // Los dos campos que phpVMS pidió el 11/10/2026. Lo que hay que fijar aquí es **la
+            // excepción**: a su vecina `runway_length_ft` se le convierte el 0 en NULL porque ahí un 0
+            // es «no la sé», pero en `offset_threshold_ft` **0 es una medida** —el umbral legal está
+            // pegado al extremo físico— y tiene que volver como 0. Filtrarlo como la longitud
+            // borraría el caso «esta pista no tiene desfase» y phpVMS deduciría un desplazamiento que
+            // no existe.
+            var svc = new LandingLogService(_dbPath);
+
+            int conDesfase = svc.SaveFlight(new FlightRecord
+            {
+                FlightNumber = "9060", Origin = "SKCC", Destination = "SKBG", RunwayName = "17",
+                FlightDate = new DateTime(2026, 10, 9, 11, 26, 49, DateTimeKind.Utc),
+                LandingRateFpm = -789,
+                // Los 496 ft reales de la 17 de SKBG, y el Vref del TLR de ese plan.
+                OffsetThresholdFt = 496.0,
+                VrefKt = 148,
+            }, null);
+
+            var guardado = svc.GetFlights().Find(f => f.Id == conDesfase);
+            Assert.AreEqual(496.0, guardado.OffsetThresholdFt.Value, 1e-9);
+            Assert.AreEqual(148, guardado.VrefKt.Value, "el Vref del plan viaja entero");
+
+            // Las dos formas de «no hay dato», que son cosas distintas de un 0.
+            int sinDesfase = svc.SaveFlight(new FlightRecord
+            {
+                FlightNumber = "1114", Origin = "SKBO", Destination = "SKCL", RunwayName = "32",
+                FlightDate = new DateTime(2026, 10, 10, 12, 0, 0, DateTimeKind.Utc),
+                LandingRateFpm = -110,
+                OffsetThresholdFt = 0.0,   // pista sin umbral desplazado: es un dato
+                VrefKt = null,             // el plan no traía TLR
+            }, null);
+
+            int sinPista = svc.SaveFlight(new FlightRecord
+            {
+                FlightNumber = "9440", Origin = "SKCL", Destination = "SKRG", RunwayName = "",
+                FlightDate = new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc),
+                LandingRateFpm = -187,
+                OffsetThresholdFt = null,  // no se resolvió la pista → que lo deduzcan ellos
+            }, null);
+
+            var alineado = svc.GetFlights().Find(f => f.Id == sinDesfase);
+            Assert.AreEqual(0.0, alineado.OffsetThresholdFt.Value, 1e-9,
+                            "un 0 aquí es una medida y no se puede convertir en NULL");
+            Assert.IsNull(alineado.VrefKt, "sin TLR no se guarda un Vref inventado");
+
+            var desconocido = svc.GetFlights().Find(f => f.Id == sinPista);
+            Assert.IsNull(desconocido.OffsetThresholdFt,
+                          "sin pista resuelta queda NULL, que es la señal para deducir");
+        }
+
+        [TestMethod]
         public void LaCapturaArmadaDelFlare_ViajaDeIdaYVuelta()
         {
             var svc = new LandingLogService(_dbPath);
@@ -484,6 +537,11 @@ namespace vmsOpenAcars.Tests
             // El peso en la toma (LTOW), en libras, **leído** del simulador en el contacto. NULL en
             // las filas viejas y en las que no hubo lectura: el bloque omite la línea.
             "landing_weight_lbs",
+            // Los dos campos que pidió phpVMS el 11/10/2026. En `offset_threshold_ft` **0 es una
+            // medida** (el umbral legal está pegado al extremo físico) y NULL es «no se resolvió la
+            // pista»; en `vref_kt`, NULL es «el plan no traía TLR» y **no se estima**.
+            "offset_threshold_ft",
+            "vref_kt",
         };
 
         /// <summary>

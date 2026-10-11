@@ -53,6 +53,27 @@ namespace vmsOpenAcars.Models
         public string  runway_name       { get; set; }
         public double? runway_length_ft  { get; set; }
         public double? runway_true_deg   { get; set; }
+
+        /// <summary>
+        /// **Umbral desplazado** de la pista de la toma, en pies (`offset_threshold_ft` de NavData):
+        /// cuánto está el umbral legal pasado el extremo físico, que es el cero de la traza.
+        /// Pedido por phpVMS el 11/10/2026 para alinear la traza con una **resta** en vez de deducirla
+        /// —los 496 ft de la 17 de SKBG—.
+        ///
+        /// **`0` es un valor**: significa que el umbral legal está justo en el extremo físico. `null`
+        /// es «no se resolvió la pista», y es la señal para que ellos sigan deduciéndolo. Es la
+        /// trampa al revés del resto del contrato, donde un 0 suele ser «sin dato».
+        /// </summary>
+        public double? offset_threshold_ft { get; set; }
+
+        /// <summary>
+        /// **Vref**, en nudos, del análisis de aterrizaje del OFP de SimBrief
+        /// (`tlr.landing.distance_dry.speeds_vref`). Corresponde al **peso de planeo** declarado en el
+        /// plan, no al peso real de la toma —que va en `landing_weight_lbs`, una lectura del
+        /// simulador—. `null` si el plan no traía TLR: **no se deriva del tipo de avión**, porque la
+        /// ventana de Vapp por tipo que usa el gate de aproximación no es un Vref.
+        /// </summary>
+        public int?    vref_kt           { get; set; }
         public double? landing_weight_lbs{ get; set; }
         public string  aircraft_icao     { get; set; }
         public string  aircraft_title    { get; set; }

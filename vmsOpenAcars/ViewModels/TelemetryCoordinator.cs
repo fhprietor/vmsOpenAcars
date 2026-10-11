@@ -285,7 +285,7 @@ namespace vmsOpenAcars.ViewModels
                 lat = _approachThreshold.ThresholdLat;
                 lon = _approachThreshold.ThresholdLon;
                 heading = _approachThreshold.ThresholdHeading;
-                offset = _approachThreshold.OffsetThresholdFt;
+                offset = _approachThreshold.OffsetThresholdFt ?? 0.0;
             }
             else
             {
@@ -310,7 +310,7 @@ namespace vmsOpenAcars.ViewModels
             _flareThresholdLat = _approachThreshold.ThresholdLat;
             _flareThresholdLon = _approachThreshold.ThresholdLon;
             _flareThresholdHeading = _approachThreshold.ThresholdHeading;
-            _flareThresholdOffsetFt = _approachThreshold.OffsetThresholdFt;
+            _flareThresholdOffsetFt = _approachThreshold.OffsetThresholdFt ?? 0.0;
         }
 
         // ── UI delta tracking ─────────────────────────────────────────────────────
@@ -1911,7 +1911,7 @@ namespace vmsOpenAcars.ViewModels
 
             _flightManager.SetRunwayTouchdownData(
                 result.ThresholdDistanceFt, result.CenterlineDeviationFt, result.RunwayName,
-                result.RunwayLengthFt, result.TrueHeadingDeg);
+                result.RunwayLengthFt, result.TrueHeadingDeg, result.OffsetThresholdFt);
 
             _cb.Log?.Invoke(
                 string.Format(_("Lnm_TouchdownInfo"),

@@ -632,6 +632,12 @@ namespace vmsOpenAcars.Services
                     // lo que sea menor). Si NavData no la trae vale 0 y la puntuación degrada a la
                     // regla de siempre.
                     RunwayLengthFt        = best.LengthFt,
+                    // El offset del umbral desplazado, que **este camino no publicaba** y es el que
+                    // alimenta la geometría de la toma. Sin él, `RunwayTouchdownResult` salía con el 0
+                    // por defecto y el `offset_threshold_ft` que phpVMS pidió el 11/10/2026 habría
+                    // viajado como «alineado» en **todos** los vuelos, corriendo la traza del flare
+                    // 496 ft en la 17 de SKBG sin que nada fallara. Ver `RunwayTouchdownResult`.
+                    OffsetThresholdFt     = best.OffsetThresholdFt,
                     // El eje en rumbo **verdadero** (el que se acaba de usar para proyectar): es el
                     // que necesitan las componentes del viento del aterrizaje. `ThresholdHeading` de
                     // este camino es el magnético y no sirve para eso.
