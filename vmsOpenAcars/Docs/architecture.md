@@ -2525,6 +2525,21 @@ Al añadir un criterio a `ScoringService` hay que tocar cuatro sitios: el cálcu
 
 ---
 
+## El orden de la copia de las trazas (v0.9.34)
+
+Movido aquí desde `CLAUDE.md` el 11/10/2026, cuando ese archivo llegó a **5 bytes** de su techo de
+instrucciones; allí queda el resumen y el puntero a esta sección.
+
+**Las dos trazas se copian antes del `await`, y no es cosmético.** El reset del vuelo corre
+`ClearFlareBuffer()` y el guardado va **después**, así que leer el buffer del flare en vivo dejaba
+`flare_track` con **0 filas en todos los vuelos** desde que existe la tabla —medido: **196 muestras
+capturadas en el vuelo 42 y cero filas en la base**—. El buffer de aproximación se libraba porque
+`Reset()` no lo vacía, y por eso el fallo parecía selectivo.
+
+`flights.flare_capture_armed` guarda «la captura se armó», leído también antes del reset: **no** es
+«hay filas en `flare_track`», y es lo que distingue una captura perdida de un vuelo anterior a la
+traza.
+
 ## El grafo de rodaje: identidad por `node_id`, empalmes y las mediciones del 29/09/2026
 
 > Movido aquí desde `CLAUDE.md` el 29/09/2026. El bloque creció con las mediciones del día hasta
