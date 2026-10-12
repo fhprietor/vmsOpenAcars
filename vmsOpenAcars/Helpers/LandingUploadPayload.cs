@@ -58,11 +58,21 @@ namespace vmsOpenAcars.Helpers
         internal const int MaxFlapsLabel    = 32;
 
         /// <summary>
-        /// Tope del motivo de cierre de la captura. El vocabulario real ronda los 30 caracteres
-        /// (`stopped:post-touchdown 2.0s`), y phpVMS **no valida contra lista cerrada**, así que el
-        /// margen es para que un motivo nuevo no cueste el envío entero (su validación es todo o nada).
+        /// Tope del motivo de cierre de la captura: **32 caracteres, que es la validación de phpVMS**
+        /// (publicada el 11/10/2026), y no un margen nuestro más holgado.
+        ///
+        /// **El razonamiento importa porque el evidente es el equivocado.** Aquí ponía 64 «para que un
+        /// motivo nuevo no costara el envío entero», y es justo al revés: su validación es **todo o
+        /// nada**, así que un motivo de 33–64 caracteres **no se recorta en su lado, tumba el envío
+        /// completo** —traza y métricas incluidas—. Recortando nosotros a 32, un motivo nuevo y largo
+        /// degrada a una cadena cortada en vez de costar el análisis del vuelo, y **el prefijo
+        /// sobrevive**: lo que ellos parsean es hasta el primer espacio, y el prefijo más largo del
+        /// vocabulario (`stopped:post-touchdown`) son 22.
+        ///
+        /// La cadena completa más larga que producimos hoy son **27** (`stopped:post-touchdown 2.0s`),
+        /// así que entra sin recorte; el tope solo actúa si el vocabulario crece.
         /// </summary>
-        internal const int MaxTraceStopReason = 64;
+        internal const int MaxTraceStopReason = 32;
 
         /// <summary>
         /// **El tope del METAR: 500 desde el 11/10/2026.** phpVMS lo subió desde 400 a petición

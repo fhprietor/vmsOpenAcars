@@ -211,6 +211,31 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
+        public void ElMotivoDemasiadoLargo_SeRecortaAlTopeDeSuValidacion()
+        {
+            // **El tope es el suyo (32), no uno nuestro más holgado, y este test existe por eso:** su
+            // validación es todo o nada, así que un motivo que se pase **no se recorta en su lado:
+            // tumba el envío entero**, traza y métricas incluidas. Recortando nosotros, un motivo nuevo
+            // y largo cuesta una cadena cortada en vez de costar el análisis del vuelo.
+            //
+            // Y el recorte tiene que **conservar el prefijo**, que es lo que ellos parsean (hasta el
+            // primer espacio): el prefijo más largo del vocabulario son 22 caracteres, así que en 32
+            // entra entero siempre.
+            var r = Vuelo44();
+
+            r.TraceStopReason = "stopped:post-touchdown 1234.5s";   // 31: entra sin recorte
+            Assert.AreEqual("stopped:post-touchdown 1234.5s",
+                            LandingUploadPayload.Build(r, Traza(), Version).metrics.trace_stop_reason);
+
+            r.TraceStopReason = "stopped:un-motivo-nuevo-y-larguisimo-que-nadie-habia-previsto";
+            var recortado = LandingUploadPayload.Build(r, Traza(), Version).metrics.trace_stop_reason;
+            Assert.AreEqual(LandingUploadPayload.MaxTraceStopReason, recortado.Length,
+                            "se recorta a SU tope, que es lo que su validación admite");
+            Assert.IsTrue(recortado.StartsWith("stopped:"),
+                          "y el prefijo sobrevive, que es lo que su parser mira");
+        }
+
+        [TestMethod]
         public void ElDesfaseDelUmbralViajaTalCual_PeroSinPistaEsNull()
         {
             // phpVMS lo pidió el 11/10/2026 para alinear la traza del flare con una **resta** en vez de

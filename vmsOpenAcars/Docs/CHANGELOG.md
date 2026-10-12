@@ -62,6 +62,14 @@
   así que el número es `2.0s` y no `2,0s` según el idioma del equipo del piloto. Se guarda también en
   `landing_log.sqlite` (`flights.trace_stop_reason`), que es lo que deja distinguir al releer el
   vuelo semanas después una traza completa de una truncada.
+  - **Y el tope del motivo son 32 caracteres, que es SU validación, no un margen nuestro.** phpVMS lo
+    publicó el 11/10/2026 al confirmar que `stopped:post-touchdown 2.0s` (27) entraba, y aquí ponía
+    **64** con un razonamiento **al revés**: «para que un motivo nuevo no cueste el envío entero». Su
+    validación es **todo o nada**, así que un motivo de 33–64 caracteres **no se recorta en su lado:
+    tumba el envío completo**, traza y métricas incluidas. Recortando nosotros a 32, un motivo nuevo y
+    largo degrada a una cadena cortada en vez de costar el análisis del vuelo, y **el prefijo
+    sobrevive** —es lo que ellos parsean, hasta el primer espacio, y el más largo
+    (`stopped:post-touchdown`) son 22—. Fijado con `ElMotivoDemasiadoLargo_SeRecortaAlTopeDeSuValidacion`.
 - **Sin verificar en vuelo**: **ninguna versión con estos tres campos ha volado todavía**. Lo probado
   es el payload (el 0 medido contra `null`), el viaje de ida y vuelta a `landing_log.sqlite` con su
   migración, la semántica del toque (`TouchdownStateTests`) y el parseo del TLR contra el OFP real.
