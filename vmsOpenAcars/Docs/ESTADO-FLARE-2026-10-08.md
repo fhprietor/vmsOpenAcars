@@ -206,6 +206,27 @@ pista se resolvió, el Vref no se deriva del tipo de avión, y el motivo solo se
 `Finish` selló la captura (`armed:threshold` sin cerrar **no** es un motivo de cierre, y mandarlo
 diría que la traza se cortó cuando lo que pasó es que el vuelo se acabó antes).
 
+### Y el offset NO es el desplazamiento que hay que aplicar (11/10/2026, medido en vuelo)
+
+Es la trampa de este bloque, y hay que dejarla escrita **para que nadie la «arregle» en la dirección
+contraria**. El offset es la distancia entre el extremo físico y el umbral legal, sí, pero **desde
+v0.9.37 el cliente ya alinea la traza**, así que en las trazas nuevas el cero **es** el umbral legal y
+volver a aplicar el offset las correría **dos veces** (en la 17 de SKBG, 496 ft, sobre una traza que
+ya estaba perfecta).
+
+La regla que funciona sin distinguir convenciones es **desplazamiento = −residual**, con
+`residual = dist_toma_en_la_traza + touchdown_dist_ft`: ≈**0** en las trazas alineadas (0.9.37+) y
+≈**−offset** en las históricas. El offset sigue haciendo falta para **dos** cosas: **red de
+seguridad** cuando la traza no se puede validar —el flag `on_ground` llega tarde o el tramo de tierra
+es discontinuo, que es el caso del vuelo 43— y **validación**, porque el residual *debe* ser 0 o
+−offset y cualquier otro valor avisa de que la traza y `touchdown_dist_ft` no hablan del mismo punto.
+
+**Medido en el primer vuelo real de la 0.9.37** (`mdXr7GYgEp1GwN3o`, SKBO→SKVV pista 23, 6365 ft,
+−314 fpm, 1,85 g, **166 muestras** en 20,7 s = 8,0 Hz): el primer `on_ground` está en **−218,8 ft** y
+`touchdown_dist_ft` es **218,82** → residual **+0,003**. La alineación en cliente queda **confirmada
+con el dato**, no con la promesa, y no es casualidad: los dos caminos comparten el cero **por
+construcción** (`ProjectOnRunway` resta el offset; `FlareDistanceFt` lo suma).
+
 **`offset_threshold_ft` es el único campo del contrato donde el `0` mide** —significa «el umbral legal
 está pegado al extremo físico»—, y esa frase no es un adorno: al implementarlo apareció el fallo más
 silencioso de todo el bloque. El dato lo publicaba **solo** `SelectApproachThreshold`;

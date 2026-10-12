@@ -27,6 +27,22 @@
   `ProjectOnRunway`, así que **los dos caminos la heredan** y un olvido futuro degrada a «dedúcelo
   tú» (`null`) en vez de mentir con un 0. Lo fijan `TouchdownStateTests` (0 medido / `null` no se
   sabe / sin pista) y los dos tests nuevos del payload.
+  - **Y una corrección de semántica verificada en vuelo, que NO hay que «arreglar» en la dirección
+    contraria**: el offset **no es el desplazamiento que hay que aplicar a la traza**. Lo era para las
+    trazas históricas —las que tienen el **extremo físico** como cero—, pero desde v0.9.37 **el
+    cliente alinea**, así que la traza nueva ya viene al umbral legal y volver a aplicarlo la correría
+    **dos veces** (en la 17 de SKBG, 496 ft, con la traza que ya estaba perfecta). La regla que lo
+    cubre todo sin distinguir convenciones es **desplazamiento = −residual**, con
+    `residual = dist_toma_en_la_traza + touchdown_dist_ft`: ≈0 en las alineadas y ≈−offset en las
+    históricas. Medido por phpVMS en el primer vuelo con la 0.9.37 (`mdXr7GYgEp1GwN3o`, SKBO→SKVV
+    pista 23): primer `on_ground` en **−218,8 ft** contra un `touchdown_dist_ft` de **218,82** →
+    residual **+0,003**, o sea la alineación en cliente **confirmada con el dato**. El offset sigue
+    siendo imprescindible para **dos** cosas: **red de seguridad** cuando la traza no se puede validar
+    (el flag `on_ground` llega tarde, el tramo de tierra es discontinuo —el vuelo 43—) y
+    **validación**, porque el residual *debe* ser 0 o −offset y cualquier otro valor significa que la
+    traza y la distancia de toma no hablan del mismo punto. Los dos caminos de nuestro cliente
+    comparten ese cero **por construcción** (`ProjectOnRunway` resta el offset y `FlareDistanceFt` lo
+    suma), que es por lo que el residual sale ~0 y no por casualidad.
 - **El Vref no se estima si el plan no lo trae.** El OFP lo publica **como texto** dentro de `tlr`,
   así que la ruta se prueba con un trozo del **OFP real** (`SimbriefVrefTests`): si alguien la mueve,
   el campo se quedaría en `null` **en silencio** —es opcional y no falla nada—. Va `null`, **nunca
