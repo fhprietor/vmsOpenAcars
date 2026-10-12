@@ -130,6 +130,14 @@ Tres cosas más de las que coincidimos:
 1. **Vosotros:** la consulta por ventana de la §1 y, con los tres campos ya en camino, la
    verificación del **siguiente vuelo** —que el offset no mueva una traza alineada y que
    `trace_stop_reason` llegue poblado—.
+   - **Y un aviso sobre esa comprobación, porque solo muerde en un caso**: si el vuelo aterriza en
+     una pista **sin umbral desplazado**, el offset llega **`0`** y verificar que no mueve la traza
+     **no prueba nada** —un cero no puede mover nada, y las dos convenciones coinciden—. El caso que
+     sí lo prueba es una pista **desplazada**, y tenemos una identificada: la **17 de SKBG, 496 ft**.
+     Ahí el offset es ≠ 0, el residual tiene que seguir saliendo ≈0, y **se vería el doble
+     desplazamiento** si alguien lo aplicara: el toque de la traza aparecería ~496 ft más allá de lo
+     que dice `touchdown_dist_ft`. No hace falta ir a buscarla —el campo llega igual y vuestra
+     validación `{0, −offset}` lo cubre—, pero es el vuelo en el que la comprobación tiene contenido.
 2. **Nosotros:** nada pendiente. Los tres campos están implementados con su columna, su validación y
    sus pruebas —**683 en la suite**, tres nuevas para el motivo de cierre—, y el pie forzado no lo
    hemos tocado.
