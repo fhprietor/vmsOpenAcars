@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.38  
+**Versión actual:** v0.9.41  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -514,6 +514,25 @@ ventana se ajusta al texto (`FitToMessage`). `EcamDialogTests` lo mide sin ense�
 | Descent → Approach | dist<10% totalDist o AGL<aglThreshold | inmediato |
 | Approach → Go-around | VS>600 fpm + AGL 100–3000 ft + ≥30 s en Approach | 10 s |
 | TaxiOut → TakeoffRoll | GS>30 kt + Pitch<1.0° | 5 s (v0.9.2) |
+| Pushback → TaxiOut | **(freno de parqueo puesto —fin del empuje— o 300 s en la fase) + GS>5 kt** | 3 s (v0.9.40; tope 300 s desde v0.9.41) |
+
+**Gracia de entrada de fase (v0.9.40).** El −5 de «Luces TAXI APAGADAS durante el rodaje» del PIREP
+real `XPNkY9jDneZ6ByGQ` se cobró a las 01:58:56, en el mismo tick en que se declaró el (falso) rodaje
+con el avión aún **remolcado** y los motores apagados: al ser una entrada de fase, era irreversible.
+Desde v0.9.40 `ApproachValidator.CheckPhaseEntryLights(TaxiOut)` **no evalúa: arma**
+(`ArmTaxiOutLightsCheck`), y `TickDeferredTaxiOutLights` —desde el ciclo de telemetría— decide
+`TaxiOutLightsGraceSec = 5` s después, con el estado de luces **vivo**; si la fase dejó de ser
+`TaxiOut`, se cancela sin cobrar. El **−5 de IVAO se difiere con la misma gracia**
+(`MainViewModel.CheckIvaoAtBlocksOffWithGrace`). Rodar >5 s con el taxi light apagado **sigue
+penalizando**. El helper puro es `Helpers/PhaseEntryGrace.cs` (reloj inyectable, con test).
+**El tope de `PushbackMaxSec` son 300 s desde v0.9.41, no 90**: con 90 s se disparaba a mitad de
+**todos** los pushbacks reales medidos —**142 s** en `XPNkY9jDneZ6ByGQ`, **148 s** en
+`wk0896ajpxKalPrp`—, así que **el timeout no es la puerta habitual, solo el rescate** del piloto que
+nunca pone el freno; la puerta normal es el **freno de parqueo**, que es la señal semántica correcta.
+**El estado de motores NO es puerta de `Pushback → TaxiOut`, y es una decisión**: `Eng1Running`/
+`Eng2Running` se derivan de N1/RPM/torque, así que «cero motores» y «el addon no lo publica» son
+indistinguibles; una puerta así dejaría atrapado en `Pushback` al que no publica motores, y en este
+caso no habría ayudado (a las 01:58:56 no había arrancado ninguno: arrancaron a las 01:59:06).
 
 Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia leve (~100 fpm).
 
@@ -573,7 +592,7 @@ anterior).
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **688 tests** (1 se omite sola: la herramienta de relleno):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **700 tests** (1 se omite sola: la herramienta de relleno):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y

@@ -346,7 +346,7 @@ namespace vmsOpenAcars.ViewModels
 
         private void OnFlightManagerLog(string msg, Color color) => OnLog?.Invoke(msg, color);
         private void OnFlightManagerOsd(string msg, OsdSeverity sev) => OnOsdMessage?.Invoke(msg, sev);
-        private async void OnFlightPhaseChanged(FlightPhase phase)
+        private void OnFlightPhaseChanged(FlightPhase phase)
         {
             // Cadencia de reporte de posición a phpVMS según la fase (5 s en despegue y
             // aproximación, 30 s en crucero; **1 s en rodaje mientras la guía está activa**, que es
@@ -355,7 +355,7 @@ namespace vmsOpenAcars.ViewModels
             // App.config era código muerto.
             _fsuipc?.SetUpdateIntervalForPhase(phase, _tc != null && _tc.IsTaxiGuidanceActive);
 
-            if (phase == FlightPhase.TaxiOut) await CheckIvaoAtBlocksOffAsync();
+            if (phase == FlightPhase.TaxiOut) CheckIvaoAtBlocksOffWithGrace();
 
             _tc?.OnPhaseChanged(phase, _prevPhase);
 
@@ -379,6 +379,23 @@ namespace vmsOpenAcars.ViewModels
             if ((phase == FlightPhase.OnBlock || phase == FlightPhase.Completed)
                 && !string.IsNullOrEmpty(_flightManager.ActivePirepId))
                 OnButtonStateChanged?.Invoke("SEND PIREP", Color.Green, true);
+        }
+
+        /// <summary>
+        /// El −5 de IVAO se decide con **la misma gracia** que las luces de `TaxiOut` (v0.9.40): el
+        /// PIREP real `XPNkY9jDneZ6ByGQ` declaró el rodaje a las **01:58:56** con el avión aún en el
+        /// pushback y el piloto se conectó **1 segundo después** (01:58:57): el cargo estuvo a un
+        /// pelo. Se espera <see cref="ApproachValidator.TaxiOutLightsGraceSec"/> y solo se consulta
+        /// si la fase sigue siendo `TaxiOut`; un falso rodaje que revirtió a `Pushback` no cuesta
+        /// nada. Y como la consulta es **después** de la gracia, al piloto que se conecta tarde le
+        /// sigue contando como conectado.
+        /// </summary>
+        private async void CheckIvaoAtBlocksOffWithGrace()
+        {
+            await Task.Delay(TimeSpan.FromSeconds(ApproachValidator.TaxiOutLightsGraceSec));
+            if (_flightManager == null) return;
+            if (!PhaseEntryGrace.PhaseHeld(_flightManager.CurrentPhase, FlightPhase.TaxiOut)) return;
+            await CheckIvaoAtBlocksOffAsync();
         }
 
         private async Task CheckIvaoAtBlocksOffAsync()

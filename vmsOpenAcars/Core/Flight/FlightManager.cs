@@ -667,6 +667,12 @@ namespace vmsOpenAcars.Core.Flight
             CheckEngineEvents(data);
             UpdateSingleEngineTaxi(data);
             UpdateFlightTracking(data);
+
+            // Gracia del check de luces de `TaxiOut` (v0.9.40): la entrada en la fase **armó** el
+            // check, y es este ciclo —que ve la fase viva— el que lo evalúa 5 s después, o lo
+            // cancela si el rodaje no se sostuvo. Va fuera de `UpdateFlightTracking` a propósito:
+            // aquel sale antes de tiempo cuando no hay PIREP activo.
+            _approachValidator.TickDeferredTaxiOutLights(CurrentPhase, _isNavOn, _isTaxiLightOn);
         }
 
         public async Task UpdateFlightProgress()

@@ -2,6 +2,148 @@
 
 ---
 
+## [0.9.41] — 13/10/2026
+
+### Fixed
+
+- **La 0.9.40 no bastó: el tope de `PushbackMaxSec = 90` declaraba el `TaxiOut` falso a mitad de
+  pushback.** PIREP real `wk0896ajpxKalPrp` (SKBQ→SKCL, `vmsOpenACars/0.9.40`, **en curso** cuando se
+  informó), con estas cifras (UTC del 13/10/2026):
+
+  ```
+  03:19:25  🅿️ Freno de parqueo: LIBERADO
+  03:19:42  ── PUSHBACK ──
+  03:21:12  (90 s de fase: aquí se abría el tope de la 0.9.40)
+  03:21:34  ── TAXI OUT ──        <-- 112 s después de entrar en Pushback, avión aún remolcado
+  03:21:39  ⚠️ PENALIZACIÓN: Luces TAXI APAGADAS durante el rodaje (−5 pts)
+  03:21:40  ✅ Conectado en IVAO    <-- la gracia de IVAO sí funcionó: no se cobró
+  03:22:04  🔄 Motores iniciados    <-- 30 s DESPUÉS del TAXI OUT
+  03:22:10  🅿️ Freno de parqueo: PUESTO  <-- aquí terminó de verdad el pushback (148 s)
+  ```
+
+  **Causa raíz:** no falló el detector de la 0.9.40 —el freno de parqueo y la velocidad sostenida
+  siguen siendo las señales correctas—, falló su **tope**: era demasiado corto. A los **90 s**
+  (03:21:12) el avión **seguía remolcado** —motores sin arrancar (arrancaron a las 03:22:04) y freno
+  sin poner— y el remolque lo movía por encima de 5 kt, así que la segunda puerta se abría en pleno
+  empuje; como el avión siguió moviéndose, la gracia de 5 s de la 0.9.40 tampoco canceló el −5.
+  **Confirmado con dos vuelos reales del mismo piloto**, y en los dos el tope caía antes del fin
+  real del empuje:
+
+  | PIREP | pushback real | `PushbackMaxSec` |
+  |---|---|---|
+  | `XPNkY9jDneZ6ByGQ` | 01:57:12 → 01:59:34 = **142 s** | 90 s ✗ |
+  | `wk0896ajpxKalPrp` | 03:19:42 → 03:22:10 = **148 s** | 90 s ✗ |
+
+  **El cambio, y nada más que el cambio** (`Core/Flight/FlightPhaseStateMachine.cs`): `PushbackMaxSec`
+  de **90 a 300 s**. El porqué queda en el comentario de la constante: **el timeout no puede ser la
+  puerta habitual, solo el rescate** del piloto que nunca pone el freno. Con 90 s se disparaba a mitad
+  de **todos** los pushbacks reales medidos (~145 s); con 300 s la puerta habitual pasa a ser el
+  **freno de parqueo** —la señal semántica correcta— y el rescate sigue existiendo para quien no lo
+  ponga (a los 112 s del caso de hoy quedaban 188 s de margen).
+
+  **Lo que NO se añadió, y por qué:** ninguna señal nueva. Una heurística de «se ha detenido» a mitad
+  del empuje reabriría el falso positivo (una pausa del remolque no es el fin del pushback), y el
+  estado de motores es indistinguible de «el addon no lo publica» (ya documentado en `CLAUDE.md`).
+  Es una constante y su comentario: ni una línea más de la máquina de fases.
+
+  **Tests** (699 → **700**; 699 pasan, 1 se omite sola):
+  `SinFreno_PeroPasadosLosTrescientosSegundos_DeclaraTaxiOut` (el tope que ya existía, renombrado y
+  recorrido con el valor nuevo: 303/308/311 s, porque a los 90 s del caso real el empuje seguía)
+  y `RemolqueDe112SegundosSinFrenoNiMotores_NoDeclaraTaxiOut` (nuevo, con las horas reales del PIREP
+  `wk0896ajpxKalPrp`: a los 112 s —03:21:34—, sin freno y sin motores pero por encima de 5 kt, **no**
+  se declara `TaxiOut` y no hay violación de luces; con los 90 s de la 0.9.40 sí se declaraba, que es
+  el fallo que el test fija; el rodaje entra a las 03:22:34, con el empuje ya terminado).
+
+---
+
+## [0.9.40] — 12/10/2026
+
+> **Por qué sube la versión.** El número **0.9.39 existió unas horas hoy** en una copia de trabajo
+> que se revirtió; por el mismo motivo por el que 0.9.37 saltó a 0.9.38 —`source_name`
+> (`vmsOpenACars/<versión>`) es la única marca de procedencia que phpVMS guarda—, **un número que ha
+> existido en una build no se reutiliza**: un PIREP con `0.9.39` sería indistinguible de aquella.
+
+### Fixed
+
+- **−5 inmerecido por «Luces TAXI APAGADAS durante el rodaje» en pleno pushback.** PIREP real
+  `XPNkY9jDneZ6ByGQ` (SKCG→SKBQ, `vmsOpenACars/0.9.38`), con el avión **en curso** y estas cifras
+  (UTC del 13/10/2026):
+
+  ```
+  01:56:55  🅿️ Freno de parqueo: LIBERADO
+  01:57:12  ── PUSHBACK ──
+  01:57:42..01:58:43  posiciones: GS 2, 2, 4 kt · rumbo 323° → 2° → 66°  (el remolque girándolo)
+  01:58:56  ⚠️ PENALIZACIÓN: Luces TAXI APAGADAS durante el rodaje (−5 pts)
+  01:58:56  ── TAXI OUT ──        <-- mismo tick que la penalización
+  01:58:57  ✅ Conectado en IVAO  <-- el −5 por IVAO estuvo a 1 segundo
+  01:59:06  🔄 Motores iniciados  <-- DIEZ SEGUNDOS después del TAXI OUT
+  01:59:13  posición: GS 5 kt, rumbo 93°
+  01:59:34  🅿️ Freno de parqueo: PUESTO  <-- aquí terminó de verdad el pushback
+  ```
+
+  **Causa raíz:** `FlightPhaseStateMachine`, `case FlightPhase.Pushback`, hacía
+  `if (inp.GroundSpeed > TaxiOutMinSpeed) TransitionTo(TaxiOut, prev)` con `TaxiOutMinSpeed = 5.0`:
+  **una sola muestra** por encima de 5 kt —y el remolque la rozó— declaraba el rodaje. Al entrar en
+  `TaxiOut`, `ApproachValidator.CheckPhaseEntryLights` comprobaba NAV y TAXI y sumaba una violación
+  por cada una que faltara (**−5 cada una, tope 10**). Con los motores apagados y el avión todavía
+  remolcado, el taxi light apagado **es lo correcto**: el cargo era inmerecido, y como el check se
+  cobraba en el tick de entrada, **no se revirtió** aunque la fase sí.
+
+  **Los cuatro cambios** (ninguno toca las demás transiciones ni los demás checks):
+
+  1. **Freno de parqueo puesto = fin del empuje** (`Core/Flight/FlightPhaseStateMachine.cs`). Nuevo
+     `PhaseInput.ParkingBrakeSet`, alimentado desde `RawTelemetryData.ParkingBrakeOn` en
+     `BuildPhaseInput()`; bandera `_pushbackEndedByBrake`, que se enciende **solo** estando en
+     `Pushback` (y se limpia al entrar en la fase y en `Reset()`). **Tope de seguridad** con la
+     constante nueva `PushbackMaxSec = 90` para el piloto que nunca pone el freno: sin él se quedaría
+     atrapado en `Pushback` para siempre —un fallo peor que el que se arregla—. Con los datos reales,
+     el `TaxiOut` se habría declarado a las **01:59:34** y no a las 01:58:56.
+  2. **Velocidad sostenida, no una muestra** (mismo fichero). Constante nueva
+     `PushbackToTaxiSustainSec = 3` y temporizador `_pushbackAboveSpeedStart` que se rearma cuando la
+     GS cae a 5 kt o menos: el mismo patrón de los demás antirrebotes del fichero
+     (`_takeoffRollStart`/`TakeoffRollConfirmSec`, `_climbStableStart`…). La máquina de fases pasa a
+     tener **reloj inyectable** (`FlightPhaseStateMachine(Func<DateTime>)`) para poder fijar la
+     secuencia real en los tests sin esperar 90 s de reloj de pared.
+  3. **Gracia de 5 s en el check de luces de `TaxiOut`** (`Core/Flight/ApproachValidator.cs` +
+     `Helpers/PhaseEntryGrace.cs`, nuevo). Al entrar en la fase **no** se evalúa: se **arma**
+     (`ArmTaxiOutLightsCheck`) y lo decide `TickDeferredTaxiOutLights` desde el ciclo de telemetría
+     (`FlightManager.UpdateTelemetry`) con la constante nueva `TaxiOutLightsGraceSec = 5`. Si la fase
+     deja de ser `TaxiOut` antes (el falso positivo volvió a `Pushback`, o ya pasó a otra cosa) **el
+     check se cancela y no se cobra nada**. Se evalúa con el estado **vivo**, que es el del piloto que
+     enciende el taxi light justo al soltarse el remolque. **El caso normal sigue penalizando**: rodar
+     con el taxi light apagado más de 5 s sigue costando su −5.
+  4. **La misma gracia para el −5 de IVAO** (`ViewModels/MainViewModel.cs`): el check «desconectado al
+     iniciar `TaxiOut`» se difiere `TaxiOutLightsGraceSec` y solo se lanza si la fase sigue siendo
+     `TaxiOut` (`PhaseEntryGrace.PhaseHeld`). En el caso real el piloto se conectó **1 segundo**
+     después del falso `TaxiOut` (01:58:56 → 01:58:57), así que el cargo estuvo a un pelo; además, al
+     consultar **después** de la gracia, al que se conecta tarde le cuenta como conectado.
+
+  **Lo que NO se hizo, y por qué (era el primer cambio del encargo):** exigir **al menos un motor en
+  marcha** para declarar `TaxiOut`. La regla de la casa es degradar sin datos —solo bloquear si el
+  dato **existe y dice cero motores**—, y con lo que hay **no se puede distinguir «cero motores» de
+  «sin dato»**: `RawTelemetryData.Eng1Running/Eng2Running` se derivan de N1/RPM/torque en
+  `FsuipcService` (umbrales por categoría), así que un addon que no publique esos offsets devuelve
+  exactamente lo mismo que un motor parado. El propio código ya asume esa ambigüedad en otro sitio
+  (`ThrustReverserMonitor.CheckAddonSupport`: «el addon puede no soportar este offset»). Una puerta
+  así dejaría a ese piloto **atrapado en `Pushback` para siempre**, y **tampoco habría ayudado en este
+  caso**: a las 01:58:56 —la hora del −5— **no había arrancado ningún motor todavía** (arrancaron a
+  las 01:59:06), así que cualquier inferencia por historial habría degradado y dejado pasar la muestra
+  igual. Se prefieren ②+③+④ a una puerta frágil, que es lo que pidió el encargo.
+
+  **Tests** (11 nuevos, con los valores reales del caso y reloj inyectable; 688 → **699**):
+  `PushbackToTaxiOutTests.Pushback_FrenadoSinMotores_YVelocidadDeRemolque_NoDeclaraTaxiOut` (el caso
+  real: motores apagados, sin freno, la muestra de 5–6 kt del remolque → **no** transiciona y **no**
+  hay violación de luces), `ConMotorEnMarcha_VelocidadSostenidaTresSegundos_YFreno_FinalmenteDeclaraTaxiOut`,
+  `MotoresApagadosONoSinDato_NoBloqueanElRodaje` (la decisión de dejar fuera el ①),
+  `SinFreno_PeroPasadosLosNoventaSegundos_DeclaraTaxiOut` (el tope no exime de sostener la velocidad),
+  `LaVelocidadDeRemolqueQueSeCae_ReiniciaLaVentanaDeTresSegundos`, `Reset_LimpiaElFrenoYLaVentanaDeVelocidad`,
+  y en `TaxiOutLightsGraceTests`: `LaGraciaDeLuces_CancelaSiLaFaseNoSeSostiene`,
+  `RodarMasDeCincoSegundosConElTaxiLightApagado_SiguePenalizando` (el caso normal no se pierde),
+  `ElTaxiLightEncendidoDentroDeLaGracia_NoCuestaPuntos`, `LaGraciaDeIvao_SoloSeCobraSiElRodajeSeSostiene`
+  y `LaGracia_SinArmar_NoEvaluaNada`.
+
+---
+
 ## [0.9.38] — 11/10/2026
 
 > **Por qué sube la versión, aunque solo sean dos campos opcionales**: la **0.9.37 ya estaba

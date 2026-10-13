@@ -86,6 +86,12 @@
     <Compile Include="PirepFieldsTests.cs" />
     <Compile Include="PirepMassUnitsTests.cs" />
     <Compile Include="PolylineResamplerTests.cs" />
+    <!-- El fin del pushback (freno puesto) y la velocidad sostenida: el falso TaxiOut de las
+         01:58:56 del PIREP XPNkY9jDneZ6ByGQ, con las horas y las cifras reales. -->
+    <Compile Include="PushbackToTaxiOutTests.cs" />
+    <!-- La gracia de 5 s del check de luces de TaxiOut (y del −5 de IVAO): cancela si la fase no
+         se sostiene, y sigue penalizando el rodaje real con el taxi light apagado. -->
+    <Compile Include="TaxiOutLightsGraceTests.cs" />
     <Compile Include="MapAttributionTests.cs" />
     <Compile Include="RouteCorridorTests.cs" />
     <Compile Include="RaasTests.cs" />

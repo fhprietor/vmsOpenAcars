@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Threading.Tasks;
 using vmsOpenAcars.Core.Helpers;
 using vmsOpenAcars.Db;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.Services.Interfaces;
@@ -79,6 +80,11 @@ namespace vmsOpenAcars.Core.Flight
         private bool   _taOsdSent, _tlOsdSent;
         private bool   _originQnhChecked, _destQnhChecked;
         private bool   _departureQnhChecked, _takeoffLightsChecked;
+        // Gracia del check de luces de `TaxiOut` (v0.9.40): al entrar en la fase **no** se evalúa,
+        // se arma y se decide `TaxiOutLightsGraceSec` después desde el ciclo de telemetría. Si la
+        // fase no se sostiene (era un falso `TaxiOut` y volvió a `Pushback`, o ya pasó a otra cosa)
+        // el armado se cancela y **no se cobra nada**.
+        private readonly PhaseEntryGrace _taxiOutLightsGrace;
         private bool   _arrivalQnhFinalized;
         private bool?  _provisionalArrivalQnhViolation;  // null=indeterminate, true=flagged, false=OK
         private bool   _approachGateEvaluated;
@@ -92,10 +98,20 @@ namespace vmsOpenAcars.Core.Flight
         private bool   _ilsGateChecked;
         private double _daAltitudeFt;
 
-        public ApproachValidator(HashSet<string> beaconStrobeSharedAircraft)
+        public ApproachValidator(HashSet<string> beaconStrobeSharedAircraft, Func<DateTime> clock = null)
         {
             _beaconStrobeSharedAircraft = beaconStrobeSharedAircraft;
+            _taxiOutLightsGrace         = new PhaseEntryGrace(TaxiOutLightsGraceSec, clock);
         }
+
+        /// <summary>
+        /// **Gracia del check de luces de `TaxiOut`**: 5 s. El −5 inmerecido del PIREP
+        /// `XPNkY9jDneZ6ByGQ` se cobró en el mismo tick en que se declaró el (falso) rodaje de
+        /// 01:58:56, con el avión aún remolcado y los motores apagados; el piloto enciende el taxi
+        /// light justo al soltarse el remolque. Rodar con el taxi light apagado **más de 5 s** sigue
+        /// costando su −5 — la gracia acota el daño del falso positivo, no perdona la regla.
+        /// </summary>
+        internal const int TaxiOutLightsGraceSec = 5;
 
         // ── Public setup ──────────────────────────────────────────────────────────
 
@@ -124,6 +140,44 @@ namespace vmsOpenAcars.Core.Flight
 
         public void AddLightsViolation() => LightsViolationCount++;
 
+        /// <summary>Arma la gracia del check de luces de `TaxiOut` (v0.9.40).</summary>
+        internal void ArmTaxiOutLightsCheck() => _taxiOutLightsGrace.Arm();
+
+        /// <summary>
+        /// Evalúa el check de luces de `TaxiOut` cuando la gracia ya transcurrió, **si la fase se
+        /// sostuvo**. Lo llama el ciclo de telemetría (`FlightManager.UpdateTelemetry`), que es el
+        /// que ve la fase viva: si el rodaje fue un falso positivo y ya no es `TaxiOut`, la gracia se
+        /// cancela y no se cobra nada.
+        /// </summary>
+        /// <returns>`true` solo en el ciclo en que el check se evaluó de verdad.</returns>
+        internal bool TickDeferredTaxiOutLights(FlightPhase phase, bool navOn, bool taxiOn)
+        {
+            if (!_taxiOutLightsGrace.IsArmed) return false;
+
+            if (!PhaseEntryGrace.PhaseHeld(phase, FlightPhase.TaxiOut))
+            {
+                _taxiOutLightsGrace.Cancel();
+                return false;
+            }
+            if (!_taxiOutLightsGrace.TryConsume()) return false;
+
+            // Se evalúa con el estado **vivo**: el piloto enciende el taxi light al soltarse el
+            // remolque, y ese encendido dentro de la gracia no debe costar puntos.
+            if (!navOn)
+            {
+                LightsViolationCount++;
+                OnLog?.Invoke(_("Log_PenaltyNavTaxi"), Theme.Warning);
+                OnOsdMessage?.Invoke("PENALTY  NAV LIGHTS  −5 PTS", OsdSeverity.Warning);
+            }
+            if (!taxiOn)
+            {
+                LightsViolationCount++;
+                OnLog?.Invoke(_("Log_PenaltyTaxi"), Theme.Warning);
+                OnOsdMessage?.Invoke("PENALTY  TAXI LIGHTS  −5 PTS", OsdSeverity.Warning);
+            }
+            return true;
+        }
+
         // Checks light compliance at phase transitions. Returns false if violation detected.
         internal void CheckPhaseEntryLights(
             FlightPhase phase, bool navOn, bool taxiOn, bool strobeOn, bool landingOn)
@@ -140,18 +194,12 @@ namespace vmsOpenAcars.Core.Flight
                     break;
 
                 case FlightPhase.TaxiOut:
-                    if (!navOn)
-                    {
-                        LightsViolationCount++;
-                        OnLog?.Invoke(_("Log_PenaltyNavTaxi"), Theme.Warning);
-                        OnOsdMessage?.Invoke("PENALTY  NAV LIGHTS  −5 PTS", OsdSeverity.Warning);
-                    }
-                    if (!taxiOn)
-                    {
-                        LightsViolationCount++;
-                        OnLog?.Invoke(_("Log_PenaltyTaxi"), Theme.Warning);
-                        OnOsdMessage?.Invoke("PENALTY  TAXI LIGHTS  −5 PTS", OsdSeverity.Warning);
-                    }
+                    // **No se evalúa aquí (v0.9.40)**: se arma y se decide 5 s después desde el ciclo
+                    // de telemetría (`TickDeferredTaxiOutLights`). Evaluarlo en el tick de entrada es
+                    // lo que cobró los −5 del PIREP `XPNkY9jDneZ6ByGQ` a las 01:58:56, con el avión
+                    // todavía en el pushback: el check era irreversible y el punto no se revirtió
+                    // aunque la fase lo hiciera.
+                    ArmTaxiOutLightsCheck();
                     break;
 
                 case FlightPhase.TakeoffRoll:
@@ -224,6 +272,7 @@ namespace vmsOpenAcars.Core.Flight
             _arrivalQnhFinalized  = false;
             _departureQnhChecked  = false;
             _takeoffLightsChecked = false;
+            _taxiOutLightsGrace.Cancel();
             ResetApproachData();
         }
 

@@ -274,6 +274,8 @@ namespace vmsOpenAcars.Core.Flight
             Destination             = _activePlan?.Destination ?? _currentAirport,
             AreEnginesOn            = _areEnginesOn,
             HotelModeActive         = _hotelModeActive,
+            // El freno de parqueo es la señal de fin del empuje estando en `Pushback` (v0.9.40).
+            ParkingBrakeSet         = _isParkingBrakeSet,
             SecondsSinceTouchdown   = _td.Timestamp != DateTime.MinValue
                                         ? (DateTime.UtcNow - _td.Timestamp).TotalSeconds
                                         : double.MaxValue,

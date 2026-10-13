@@ -190,6 +190,8 @@
     <Compile Include="Helpers\SimbriefDispatchPolicy.cs" />
     <Compile Include="Helpers\MapAttribution.cs" />
     <Compile Include="Helpers\PolylineResampler.cs" />
+    <!-- Gracia de entrada de fase (v0.9.40): el falso TaxiOut de 01:58:56 ya no cobra el −5. -->
+    <Compile Include="Helpers\PhaseEntryGrace.cs" />
     <Compile Include="Helpers\RouteCorridor.cs" />
     <Compile Include="Helpers\TaxiGraph.cs" />
     <Compile Include="Helpers\TaxiRouteObservation.cs" />

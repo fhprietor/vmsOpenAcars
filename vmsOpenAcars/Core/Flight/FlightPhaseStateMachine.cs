@@ -26,6 +26,10 @@ namespace vmsOpenAcars.Core.Flight
         // Engine / hotel mode
         public bool AreEnginesOn, HotelModeActive;
 
+        // Freno de parqueo puesto: es la señal de **fin del empuje** estando en `Pushback`
+        // (`TelemetryCoordinator.OnParkingBrakeChanged` ya la usa para el popup de ruta).
+        public bool ParkingBrakeSet;
+
         // Touch-and-go: seconds since last touchdown (double.MaxValue = no touchdown)
         public double SecondsSinceTouchdown;
     }
@@ -35,8 +39,14 @@ namespace vmsOpenAcars.Core.Flight
     // All side-effects are delegated via events; no direct API or logging dependencies.
     internal sealed class FlightPhaseStateMachine
     {
+        // ── Reloj ─────────────────────────────────────────────────────────────
+        // Inyectable para que los tests puedan fijar la secuencia real del pushback
+        // (01:57:12 → 01:59:34) sin esperar 90 s de reloj de pared. En vuelo es `DateTime.UtcNow`.
+        private readonly Func<DateTime> _now;
+        private DateTime Now() => _now();
+
         // ── Phase timer state ─────────────────────────────────────────────────
-        private DateTime _phaseStartTime       = DateTime.UtcNow;
+        private DateTime _phaseStartTime;
         private DateTime _lastTaxiPosEvent     = DateTime.MinValue;
         private DateTime _climbStableStart     = DateTime.MinValue;
         private DateTime _descentStart         = DateTime.MinValue;
@@ -53,6 +63,14 @@ namespace vmsOpenAcars.Core.Flight
         // so that pre-existing movement at StartFlight does not trigger an immediate false positive.
         private bool     _boardingStationaryConfirmed;
 
+        // ── Fin del pushback (v0.9.40) ────────────────────────────────────────
+        // Se enciende cuando, **estando en `Pushback`**, se pone el freno de parqueo: es el fin
+        // real del empuje, la señal que ya usa el popup de ruta (`OnParkingBrakeChanged`).
+        private bool     _pushbackEndedByBrake;
+        // Instante en que la GS pasó de 5 kt estando en `Pushback`, para exigir que la velocidad
+        // se **sostenga** (no una sola muestra como la que disparó el falso `TaxiOut` de 01:58:56).
+        private DateTime _pushbackAboveSpeedStart = DateTime.MinValue;
+
         // ── Constants ─────────────────────────────────────────────────────────
         private const double PushbackMaxSpeed       = 6.0;
         private const int    PushbackMinSec         = 8;
@@ -60,6 +78,23 @@ namespace vmsOpenAcars.Core.Flight
         private const int    TaxiOutMinSec          = 2;
         private const double SingleEngineMinRatio   = 0.5;
         private const int    TakeoffRollConfirmSec  = 5;
+        /// <summary>Tope de seguridad en `Pushback`: pasado este tiempo sin freno, el rodaje se
+        /// declara igual. Sin él, el piloto que nunca pone el freno se queda atrapado en `Pushback`
+        /// para siempre — un fallo peor que el que se arregla aquí.
+        /// Eran **90 s** (v0.9.40) y **se disparaban a mitad de *todos* los pushbacks reales
+        /// medidos** —**142 s** en `XPNkY9jDneZ6ByGQ` (01:57:12→01:59:34) y **148 s** en
+        /// `wk0896ajpxKalPrp` (03:19:42→03:22:10)—: a los 90 s el avión seguía **remolcado**, con
+        /// los motores sin arrancar y el freno sin poner, y el remolque lo movía por encima de 5 kt,
+        /// así que esta puerta abría el `TaxiOut` en pleno empuje (en `wk0896ajpxKalPrp` a las
+        /// 03:21:12, y la gracia de 5 s no lo canceló porque el avión siguió moviéndose).
+        /// **El timeout no puede ser la puerta habitual, solo el rescate** del piloto que nunca pone
+        /// el freno: con **300 s** la puerta habitual pasa a ser el **freno de parqueo** —la señal
+        /// semántica correcta, que llega a los ~145 s reales— y el rescate sigue existiendo (a los
+        /// 112 s del caso de hoy quedaban 188 s de margen).</summary>
+        internal const int    PushbackMaxSec            = 300;
+        /// <summary>Segundos que la GS debe superar <see cref="TaxiOutMinSpeed"/> para declarar
+        /// `TaxiOut`: el remolque rozó los 5 kt con una sola muestra (01:58:56).</summary>
+        internal const int    PushbackToTaxiSustainSec  = 3;
 
         // ── Public state ──────────────────────────────────────────────────────
         public FlightPhase CurrentPhase { get; private set; } = FlightPhase.Idle;
@@ -94,16 +129,23 @@ namespace vmsOpenAcars.Core.Flight
         public event Action<string, OsdSeverity> OnOsdMessage;
 
         // ── API ───────────────────────────────────────────────────────────────
+        /// <param name="clock">Reloj inyectable; `null` = reloj del sistema (vuelo real).</param>
+        internal FlightPhaseStateMachine(Func<DateTime> clock = null)
+        {
+            _now            = clock ?? (() => DateTime.UtcNow);
+            _phaseStartTime = Now();
+        }
+
         public void SetPhase(FlightPhase phase)
         {
             CurrentPhase   = phase;
-            _phaseStartTime = DateTime.UtcNow;
+            _phaseStartTime = Now();
         }
 
         public void Reset()
         {
             CurrentPhase          = FlightPhase.Idle;
-            _phaseStartTime       = DateTime.UtcNow;
+            _phaseStartTime       = Now();
             _lastTaxiPosEvent     = DateTime.MinValue;
             _climbStableStart     = DateTime.MinValue;
             _descentStart         = DateTime.MinValue;
@@ -117,6 +159,8 @@ namespace vmsOpenAcars.Core.Flight
             _wasOnGround                 = true;
             _hasLandedThisFlight         = false;
             _boardingStationaryConfirmed = false;
+            _pushbackEndedByBrake        = false;
+            _pushbackAboveSpeedStart     = DateTime.MinValue;
         }
 
         // ── Core update ───────────────────────────────────────────────────────
@@ -132,7 +176,7 @@ namespace vmsOpenAcars.Core.Flight
             double approachThr  = Math.Min(totalDist * 0.1, 20);
             double aglThr       = Math.Min(5000, cruiseAlt * 0.2);
             bool   isClimbing   = inp.VerticalSpeed > 100;
-            bool   canChange    = (DateTime.UtcNow - _phaseStartTime).TotalSeconds >= 5;
+            bool   canChange    = (Now() - _phaseStartTime).TotalSeconds >= 5;
 
             // ── Rotation detection (while still on ground per _wasOnGround) ──
             if (_wasOnGround && inp.GroundSpeed > 60 && inp.Pitch > 2.0 && inp.Pitch < 20
@@ -198,13 +242,17 @@ namespace vmsOpenAcars.Core.Flight
                     {
                         // Movement detected after a confirmed stop — now safe to evaluate pushback/taxi.
                         if (_pushbackStartTime == DateTime.MinValue)
-                            _pushbackStartTime = DateTime.UtcNow;
+                            _pushbackStartTime = Now();
 
-                        double secMoving = (DateTime.UtcNow - _pushbackStartTime).TotalSeconds;
+                        double secMoving = (Now() - _pushbackStartTime).TotalSeconds;
 
                         if (inp.GroundSpeed <= PushbackMaxSpeed && secMoving >= PushbackMinSec)
                         {
                             _pushbackStartTime = DateTime.MinValue;
+                            // Entrada limpia en `Pushback`: el freno puesto de antes de empezar
+                            // el empuje no puede contar como «fin del pushback».
+                            _pushbackEndedByBrake    = false;
+                            _pushbackAboveSpeedStart = DateTime.MinValue;
                             TransitionTo(FlightPhase.Pushback, prev);
                             OnBlockOffNeeded?.Invoke();
                         }
@@ -219,16 +267,50 @@ namespace vmsOpenAcars.Core.Flight
                     break;
 
                 case FlightPhase.Pushback:
+                {
+                    // ── Fin del pushback (v0.9.40) ────────────────────────────────
+                    // PIREP real `XPNkY9jDneZ6ByGQ` (SKCG→SKBQ, 13/10/2026 UTC): a las 01:58:56 se
+                    // declaró `TaxiOut` con el avión **aún remolcado** —empuje de 01:57:12 a
+                    // 01:59:34, motores apagados, freno liberado hasta el final— porque el
+                    // remolque rozó los 5 kt con **una sola muestra**. `CheckPhaseEntryLights`
+                    // cobró entonces «TAXI APAGADAS» (−5) y el punto no se revirtió.
+                    // Ahora `TaxiOut` exige **tres** cosas: que el empuje haya terminado (freno
+                    // puesto, o el tope de `PushbackMaxSec` para el piloto que nunca lo pone) y
+                    // que la GS supere 5 kt **sostenidos** `PushbackToTaxiSustainSec`. Con los
+                    // datos reales, el rodaje se habría declarado a las **01:59:34**, cuando el
+                    // avión ya estaba libre, y no a las 01:58:56.
+                    if (inp.ParkingBrakeSet)
+                        _pushbackEndedByBrake = true;
+
+                    // Ventana de velocidad sostenida: se rearma sola al caer a 5 kt o menos.
                     if (inp.GroundSpeed > TaxiOutMinSpeed)
+                    {
+                        if (_pushbackAboveSpeedStart == DateTime.MinValue)
+                            _pushbackAboveSpeedStart = Now();
+                    }
+                    else
+                        _pushbackAboveSpeedStart = DateTime.MinValue;
+
+                    bool pushbackEnded = _pushbackEndedByBrake
+                                      || (Now() - _phaseStartTime).TotalSeconds >= PushbackMaxSec;
+                    bool speedSustained = _pushbackAboveSpeedStart != DateTime.MinValue
+                        && (Now() - _pushbackAboveSpeedStart).TotalSeconds >= PushbackToTaxiSustainSec;
+
+                    if (pushbackEnded && speedSustained)
+                    {
+                        _pushbackAboveSpeedStart = DateTime.MinValue;
+                        _pushbackEndedByBrake    = false;
                         TransitionTo(FlightPhase.TaxiOut, prev);
+                    }
                     break;
+                }
 
                 case FlightPhase.TaxiOut:
                     EmitTaxiPosition(inp.Lat, inp.Lon, inp.Heading, inp.Origin, false);
                     if (inp.GroundSpeed > 30 && inp.Pitch < 1.0)
                     {
-                        if (_takeoffRollStart == DateTime.MinValue) _takeoffRollStart = DateTime.UtcNow;
-                        else if ((DateTime.UtcNow - _takeoffRollStart).TotalSeconds >= TakeoffRollConfirmSec)
+                        if (_takeoffRollStart == DateTime.MinValue) _takeoffRollStart = Now();
+                        else if ((Now() - _takeoffRollStart).TotalSeconds >= TakeoffRollConfirmSec)
                         {
                             _takeoffRollStart = DateTime.MinValue;
                             TransitionTo(FlightPhase.TakeoffRoll, prev);
@@ -274,9 +356,9 @@ namespace vmsOpenAcars.Core.Flight
             if (inp.GroundSpeed < 1)
             {
                 if (_stoppedStartTime == DateTime.MinValue)
-                    _stoppedStartTime = DateTime.UtcNow;
+                    _stoppedStartTime = Now();
 
-                if ((DateTime.UtcNow - _stoppedStartTime).TotalSeconds >= 90 &&
+                if ((Now() - _stoppedStartTime).TotalSeconds >= 90 &&
                     (!inp.AreEnginesOn || inp.HotelModeActive))
                 {
                     _stoppedStartTime = DateTime.MinValue;
@@ -309,14 +391,14 @@ namespace vmsOpenAcars.Core.Flight
                     double altDiff    = Math.Abs(inp.Altitude - cruiseAlt);
                     bool   nearCruise = altDiff < 500;
                     bool   lowVs      = Math.Abs(inp.VerticalSpeed) < 200;
-                    bool   timeout    = (DateTime.UtcNow - _phaseStartTime).TotalMinutes >= 5;
+                    bool   timeout    = (Now() - _phaseStartTime).TotalMinutes >= 5;
                     bool   veryLowVs  = Math.Abs(inp.VerticalSpeed) < 100;
 
                     if ((nearCruise && lowVs) || (timeout && veryLowVs))
                     {
                         if (_climbStableStart == DateTime.MinValue)
-                            _climbStableStart = DateTime.UtcNow;
-                        else if ((DateTime.UtcNow - _climbStableStart).TotalSeconds >= 10)
+                            _climbStableStart = Now();
+                        else if ((Now() - _climbStableStart).TotalSeconds >= 10)
                         {
                             _climbStableStart = DateTime.MinValue;
                             TransitionTo(FlightPhase.Enroute, prev);
@@ -325,10 +407,10 @@ namespace vmsOpenAcars.Core.Flight
                     else { _climbStableStart = DateTime.MinValue; }
 
                     if (inp.VerticalSpeed < -500 && inp.Altitude < _maxAltitudeReached - 500
-                        && (DateTime.UtcNow - _phaseStartTime).TotalSeconds >= 5)
+                        && (Now() - _phaseStartTime).TotalSeconds >= 5)
                     {
-                        if (_descentStart == DateTime.MinValue) _descentStart = DateTime.UtcNow;
-                        else if ((DateTime.UtcNow - _descentStart).TotalSeconds >= 20)
+                        if (_descentStart == DateTime.MinValue) _descentStart = Now();
+                        else if ((Now() - _descentStart).TotalSeconds >= 20)
                         {
                             _descentStart = DateTime.MinValue;
                             TransitionTo(FlightPhase.Descent, prev);
@@ -342,8 +424,8 @@ namespace vmsOpenAcars.Core.Flight
                 {
                     if (inp.VerticalSpeed > 500 && inp.Altitude < cruiseAlt - 500)
                     {
-                        if (_stepClimbStart == DateTime.MinValue) _stepClimbStart = DateTime.UtcNow;
-                        else if ((DateTime.UtcNow - _stepClimbStart).TotalSeconds >= 10)
+                        if (_stepClimbStart == DateTime.MinValue) _stepClimbStart = Now();
+                        else if ((Now() - _stepClimbStart).TotalSeconds >= 10)
                         {
                             _stepClimbStart = DateTime.MinValue;
                             TransitionTo(FlightPhase.Climb, prev);
@@ -353,8 +435,8 @@ namespace vmsOpenAcars.Core.Flight
 
                     if (inp.VerticalSpeed < -500 && inp.Altitude < _maxAltitudeReached - 500)
                     {
-                        if (_descentStart == DateTime.MinValue) _descentStart = DateTime.UtcNow;
-                        else if ((DateTime.UtcNow - _descentStart).TotalSeconds >= 20)
+                        if (_descentStart == DateTime.MinValue) _descentStart = Now();
+                        else if ((Now() - _descentStart).TotalSeconds >= 20)
                         {
                             _descentStart = DateTime.MinValue;
                             TransitionTo(FlightPhase.Descent, prev);
@@ -382,8 +464,8 @@ namespace vmsOpenAcars.Core.Flight
                     else if (inp.VerticalSpeed > 500)
                     {
                         if (_descentToClimbStart == DateTime.MinValue)
-                            _descentToClimbStart = DateTime.UtcNow;
-                        else if ((DateTime.UtcNow - _descentToClimbStart).TotalSeconds >= 20)
+                            _descentToClimbStart = Now();
+                        else if ((Now() - _descentToClimbStart).TotalSeconds >= 20)
                         {
                             _descentToClimbStart = DateTime.MinValue;
                             OnLog?.Invoke(_("Log_ResumingClimb", inp.Altitude), Theme.MainText);
@@ -398,13 +480,13 @@ namespace vmsOpenAcars.Core.Flight
                 {
                     bool goAround = inp.VerticalSpeed > 600
                                  && altAboveDest > 100 && altAboveDest < 3000
-                                 && (DateTime.UtcNow - _phaseStartTime).TotalSeconds >= 30;
+                                 && (Now() - _phaseStartTime).TotalSeconds >= 30;
 
                     if (goAround)
                     {
                         if (_goAroundStart == DateTime.MinValue)
-                            _goAroundStart = DateTime.UtcNow;
-                        else if ((DateTime.UtcNow - _goAroundStart).TotalSeconds >= 8)
+                            _goAroundStart = Now();
+                        else if ((Now() - _goAroundStart).TotalSeconds >= 8)
                         {
                             _goAroundStart = DateTime.MinValue;
                             OnLog?.Invoke(_("Log_GoAround", (int)altAboveDest, inp.VerticalSpeed), Theme.Warning);
@@ -442,15 +524,15 @@ namespace vmsOpenAcars.Core.Flight
             if (from == FlightPhase.Approach && to == FlightPhase.Climb)
                 OnApproachGateReset?.Invoke();
             CurrentPhase    = to;
-            _phaseStartTime = DateTime.UtcNow;
+            _phaseStartTime = Now();
             OnTransitioned?.Invoke(from, to);
         }
 
         private void EmitTaxiPosition(double lat, double lon, double heading, string airport, bool isTaxiIn)
         {
-            if ((DateTime.UtcNow - _lastTaxiPosEvent).TotalSeconds >= 2.0)
+            if ((Now() - _lastTaxiPosEvent).TotalSeconds >= 2.0)
             {
-                _lastTaxiPosEvent = DateTime.UtcNow;
+                _lastTaxiPosEvent = Now();
                 OnTaxiPositionUpdate?.Invoke(lat, lon, heading, airport, isTaxiIn);
             }
         }
