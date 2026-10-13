@@ -1021,7 +1021,7 @@ SendPirep()
 > el criterio Stabilized Approach completo (hasta 15 pts) no se evalúa en este
 > escenario (omisión neutra).
 
-## Aeropuerto de llegada distinto al planeado — v0.8.8–v0.9.9
+## Aeropuerto de llegada distinto al planeado — v0.8.8–v0.9.42
 
 Corrige el caso donde el avión aterriza en un aeropuerto distinto al destino planeado (emergencia, regreso a origen, desvío real) sin que el PIREP quede registrado con el `arr_airport_id`/`diversion-airport` correctos en phpVMS, y sin penalizar QNH/Localizer/Minimums contra el METAR de un destino nunca alcanzado.
 
@@ -1109,6 +1109,36 @@ comprobación contra el propio plan de vuelo:
    además de ≤2 NM laterales y rumbo dentro de 15°).
 6. **Persistencia** — `DiversionConfirmPolls` (2) sondeos consecutivos nombrando el mismo
    alterno, para que una sola muestra no dispare el OSD ni reoriente el destino efectivo.
+
+### La puerta de la consulta: altitud MSL, no el AGL del destino planeado (v0.9.42)
+
+Vuelo real **`wk0896ajpxKalPrp`** (SKBQ→SKCL, `vmsOpenACars/0.9.40`, UTC del 11/10/2026): el avión
+**alternó a SKMR** y el cliente **no lo detectó**.
+
+- **Aterrizó en SKMR** (41 ft de elevación): los dos toques quedaron a **0,08 NM** y **0,38 NM** del
+  ARP y los rumbos **316°/136°** son los de su pista **14/32**; SKCZ queda a 44 NM y SKCL a 319 NM.
+- **Causa raíz:** la puerta que antecede a la consulta exigía `computedAgl > 1000`, y `CurrentAGL` se
+  mide contra **`_activePlan.DestinationElevation`** = **SKCL (3162 ft)**. El avión a **3181 ft MSL**
+  sobre SKMR daba `3181 − 3162 = 19 ft` de «AGL» — **la prueba literal está en el log del vuelo**: a
+  las 04:11:12, con el avión a 3181 ft MSL, el cliente escribió *"COMPUERTA DE APROXIMACIÓN (18 ft
+  AGL)"*. Con esa referencia el AGL fue **negativo en el 100 % de los sondeos** de las dos finales
+  (de **−43** a **−3111 ft**), la puerta no abrió **ni una vez** y **SKMR nunca llegó a ser
+  candidato**. Los descartes que sí se loguean —SKCB, SKCZ— ocurrieron en descenso, cuando la
+  referencia todavía era el origen **SKBQ (95 ft)**.
+- **No era culpa de los filtros:** llamando **en vivo al endpoint con las posiciones reales**, el
+  servidor devolvió SKMR en **todos** los sondeos y **los seis filtros pasaban**: lateral
+  **0,001–0,081 NM** en la final de la 32, cono de 4°, gradiente **318 ft/NM**, alterno **8,2 NM
+  frente a 313**, `along ≤ 0`, persistencia, y **285 NM fuera** del corredor de la llegada ULQ4E de
+  SKCL.
+- **El cambio:** la puerta pasa a `Helpers/DiversionQueryGate` (puro, con test, usado en
+  `ViewModels/TelemetryCoordinator.cs:659`) y pregunta por la **altitud MSL** del avión con techo de
+  **10 000 ft**, sin depender del destino; **sin dato de MSL degrada a la condición de siempre**
+  (`AGL > 1000`). **`CurrentAGL` NO se toca**: sin desvío confirmado no hay otra referencia de
+  elevación posible, y ese es justamente el círculo que la puerta rompe.
+- **La consecuencia que queda:** como el aeropuerto de llegada nunca cambió, ese PIREP quedó con
+  `arr_airport_id = SKCL` (y el QNH se puntuó contra el METAR de SKCL: **1018 hPa** del METAR frente
+  a los **1013** del avión). Hay que **corregirlo del lado de phpVMS**; el cliente no puede
+  enmendarlo solo.
 
 ### La llegada del propio plan: "¿estoy donde debería?" (v0.9.9)
 
@@ -2113,7 +2143,7 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 | `vmsOpenAcars.Tests/GeoMathTests.cs` | 44 tests de geometría flat-earth (incluida `DistanceToSegmentNm` y su recorte en los extremos), del respaldo regional de TA/TL y de la lectura de `NavAirportInfo` (v0.9.8, v0.9.9) |
 | `vmsOpenAcars.Tests/RouteCorridorTests.cs` | 7 tests de `RouteCorridor` sobre el **navlog real de SimBrief** del vuelo SKRG→SKBQ: la llegada son los últimos tramos por distancia y no los marcados `is_sid_star` (LOLUD llegó sin bandera), los puntos de la llegada dan 0 NM, el corredor aguanta 3 NM al lado y suelta a 7, un punto en crucero no cuenta como llegada, las posiciones reales del falso SKTL están a más de 20 NM del plan, y sin navlog no se suprime nada (v0.9.9) |
 | `vmsOpenAcars.Tests/AtcPanelTests.cs` | 6 tests del orden de posiciones ATC (v0.9.8) |
-| `vmsOpenAcars.Tests/ApproachThresholdTests.cs` | 26 tests de "está en final" (`SelectApproachThreshold`), del cono angular (`IsWithinFinalCone`), del gradiente de descenso (`IsPlausibleDiversionDescent`) y de la regla de distancia (`IsPlausibleDiversionDistance`). Nueve usan las **coordenadas y altitudes exactas de dos vuelos reales**: el falso SKTL (sus seis sondeos, todos rechazados por el gradiente) y el SKCG legítimo; más los tres falsos de la aproximación a KBOS —28M, 1B9 y KOWD, que **pasan** el gradiente porque su perfil era normal— y la final correcta de Logan 04R. Además comprueban que el eje devuelto es el **verdadero** (340.58° SKTL rwy 35, 2.31° SKCG rwy 01) y no el magnético, el límite y el suelo del cono, la frontera exacta y el suelo del gradiente, que el AGL se mide contra la elevación del campo emparejado, 1 NM pasado el umbral, 3 NM laterales, rumbo fuera de 15°, la recíproca y el desempate de paralelas (v0.9.9) |
+| `vmsOpenAcars.Tests/ApproachThresholdTests.cs` | 28 tests de "está en final" (`SelectApproachThreshold`), del cono angular (`IsWithinFinalCone`), del gradiente de descenso (`IsPlausibleDiversionDescent`) y de la regla de distancia (`IsPlausibleDiversionDistance`). Nueve usan las **coordenadas y altitudes exactas de dos vuelos reales**: el falso SKTL (sus seis sondeos, todos rechazados por el gradiente) y el SKCG legítimo; más los tres falsos de la aproximación a KBOS —28M, 1B9 y KOWD, que **pasan** el gradiente porque su perfil era normal— y la final correcta de Logan 04R. Además comprueban que el eje devuelto es el **verdadero** (340.58° SKTL rwy 35, 2.31° SKCG rwy 01) y no el magnético, el límite y el suelo del cono, la frontera exacta y el suelo del gradiente, que el AGL se mide contra la elevación del campo emparejado, 1 NM pasado el umbral, 3 NM laterales, rumbo fuera de 15°, la recíproca y el desempate de paralelas (v0.9.9) |
 | `Helpers/GeoMath.cs` | Único punto de verdad de la geometría flat-earth: `Project`, `ProjectPoint`, `DistanceNm/Km`, `BearingDeg`, `BearingDiffDeg`, `ToMeters`, `CosLat` con guarda polar, y `DistanceToSegmentNm` — recta **recortada** a los extremos, que es lo que hace falta para medir desviación de traza (v0.9.8, v0.9.9) |
 | `Helpers/RouteCorridor.cs` | Corredor de la llegada planificada: `ArrivalFixes` (los últimos `ArrivalWindowNm` 40 NM de la traza del navlog, por distancia y no por `IsSidStar`), `DistanceFromArrivalNm`, `IsOnArrival` (5 NM). Sin navlog no opina (v0.9.9) |
 | `Helpers/FireAndForget.cs` | `Run(work, onError, operationName)` — trabajo en segundo plano sin esperar, con la excepción **observada** y reportada al log (v0.9.8) |

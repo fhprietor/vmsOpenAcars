@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.41  
+**Versión actual:** v0.9.42  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -408,32 +408,15 @@ FsuipcService offsets: `0x0350 INT16` NAV1 freq BCD (`100+d3×10+d2+d1×0.1+d0×
 
 ---
 
-## Aeropuerto de llegada distinto al planeado — v0.8.8–v0.9.9
+## Aeropuerto de llegada distinto al planeado — v0.8.8–v0.9.42
 
-Resuelve el aterrizaje en un aeropuerto distinto al planeado (emergencia, regreso a origen,
-desvío real) sin que el PIREP quede con el `arr_airport_id`/`diversion-airport` equivocados y sin
-puntuar QNH/Localizer/Minimums contra el METAR de un destino nunca alcanzado.
+Aterrizar en un aeropuerto distinto al planeado se detecta con `NavDataService.FindApproachAirport`
+tras seis filtros y fuera del corredor de la llegada del plan; el PIREP se corrige al filear.
+**v0.9.42**: la puerta previa a la consulta (`Helpers/DiversionQueryGate`) pregunta por la **altitud
+MSL** (techo 10 000 ft), no por el AGL del destino planeado; `CurrentAGL` no se toca.
 
-- **Detección**: `NavDataService.FindApproachAirport` (`GET /nearest/approach-airport/`) durante
-  Descent y Approach, cada 5 s.
-- **Un desvío se marca solo si pasa seis filtros** —lateral 3 NM, cono angular 4°, gradiente de
-  descenso ≤700 ft/NM contra la elevación del campo emparejado, alterno más cerca que el destino,
-  establecido en final (`along ≤ 0`) y persistencia de 2 sondeos— **y** no está dentro del corredor
-  de la llegada del propio plan (`Helpers/RouteCorridor.IsOnArrival`: 5 NM a cada lado de los
-  últimos 40 NM de la traza del navlog).
-- **QNH de llegada**: provisional durante el vuelo, se decide una sola vez al filear
-  (`FinalizeArrivalQnhAsync`), con el destino final y el QNH actual del avión.
-- **Al filear**: `UpdatePirep(arr_airport_id)` + `diversion-airport` en el payload; la reubicación
-  del piloto la hace phpVMS. La elevación de referencia (AGL) se corrige con el campo real.
-- **Ayudas puras, cada una con su test**: `SelectApproachThreshold`, `IsWithinFinalCone`,
-  `IsPlausibleDiversionDescent`, `IsPlausibleDiversionDistance`, `RouteCorridor` y
-  `GeoMath.DistanceToSegmentNm`.
-
-> El detalle —causa raíz, cifras medidas y los casos reales (falso SKTL, SKGY, los tres falsos de
-> KBOS y SKCL→SKBO)— está en **`Docs/architecture.md` → "Aeropuerto de llegada distinto al
-> planeado"**. Se movió allí en **v0.9.13** porque `CLAUDE.md` superaba el presupuesto de
-> instrucciones del agente (65 536 bytes) y el harness lo truncaba, perdiendo justo el final de
-> "Próximas áreas".
+> Causa raíz, cifras y los casos reales (`wk0896ajpxKalPrp` a SKMR, falso SKTL/SKGY, KBOS, SKBO) en
+> **`Docs/architecture.md` → "Aeropuerto de llegada distinto al planeado"**: lo largo va allí.
 
 ## RAAS y guía de rodaje — v0.9.14–v0.9.15
 
@@ -592,13 +575,18 @@ anterior).
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **700 tests** (1 se omite sola: la herramienta de relleno):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **713 tests** (1 se omite sola: la herramienta de relleno):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
 el respaldo regional de TA/TL, el orden de posiciones ATC, la definición de "está en final"
 (`SelectApproachThreshold` + `IsWithinFinalCone` + `IsPlausibleDiversionDescent` +
-`IsPlausibleDiversionDistance`), el corredor de la llegada planificada (`RouteCorridor`), la
+`IsPlausibleDiversionDistance`), el corredor de la llegada planificada (`RouteCorridor`), la puerta
+de la consulta de aeropuerto de aproximación (`DiversionQueryGateTests`, con el caso real
+`wk0896ajpxKalPrp`) y la cadena que decide el desvío en ese mismo vuelo
+(`SkrmRealDiversionChainTests`: los cuatro filtros geométricos reproducibles offline, el cono que
+para a SKCZ y el corredor ULQ4E a 285 NM; el filtro 5 —`along ≤ 0`, pediría las pistas de SKMR— y el
+6 —persistencia, privada— no se pueden re-ejecutar sin red), la
 comparación entre la aeronave del simulador y la del OFP (`AircraftTypeMatchTests`), la pintura del
 título (`AircraftLiveryTests`), la URL de teselas de CARTO con su clave (`CartoTileUrlTests`), el
 muestreo de la ruta para espacios aéreos (`AirspaceRouteSamplerTests`, con el SKCG→KBOS real), el
@@ -806,3 +794,8 @@ Deuda estructural restante, sin impacto funcional conocido:
   caso de desvío severo, mitigada por la re-confirmación en `Descent`.
 - **`ProjectOnRunway` / `WithinFootprint`** siguen siendo la única parte de la geometría que
   no pasa por `Helpers/GeoMath.cs` (tiene su propia escala y desambiguación de paralelas).
+- **La cadena de desvío solo se prueba offline hasta el filtro 4** (v0.9.42): el 5 (`along ≤ 0`,
+  vía `SelectApproachThreshold`) pediría las pistas de SKMR y la posición del sondeo, que no están
+  en lo grabado de `/nearest/approach-airport/`, y el 6 (`ConfirmPendingDiversion`) es privado. El
+  corredor tampoco: el navlog ULQ4E de SKCL no viaja en esa respuesta. Lo que sí pasa el test son
+  el lateral, el cono, el gradiente y la distancia, en las dos finales del `wk0896ajpxKalPrp`.

@@ -135,6 +135,7 @@
     <Compile Include="TaxiRouteObservationTests.cs" />
     <Compile Include="TaxiPlannedObservationPolicyTests.cs" />
     <Compile Include="UpdateIntervalPolicyTests.cs" />
+    <Compile Include="DiversionQueryGateTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

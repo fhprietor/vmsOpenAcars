@@ -636,17 +636,30 @@ namespace vmsOpenAcars.ViewModels
             if (currentPhase == FlightPhase.Approach || currentPhase == FlightPhase.Descent)
             {
                 // Keep re-confirming the approaching airport/runway via NavData's
-                // nearest/approach-airport match — not just resolving once — until the
-                // 1000 ft AGL stabilized-approach gate fires. Parallel runways sharing an
+                // nearest/approach-airport match — not just resolving once — subject to the
+                // gate in Helpers/DiversionQueryGate (MSL ceiling; see below). Parallel runways sharing an
                 // initial fix (e.g. SKBO 14L/14R via AMVES) are geometrically ambiguous
                 // right at that fix; the match only becomes reliable once the aircraft
                 // diverges onto a specific final course, so a single early resolution can
                 // lock in the wrong runway for the rest of the approach. The endpoint's
                 // score is cross-track-dominated (validated by NavData for SKBO 14L/14R,
                 // ~355 m separation) — trusted directly, no local tie-break needed.
-                if (_navDataService.IsAvailable && !_reconfirmingApproachAirport
-                    && computedAgl > 1000
-                    && (DateTime.UtcNow - _lastApproachAirportQuery).TotalSeconds >= 5.0)
+                // La puerta es un helper puro (`Helpers/DiversionQueryGate`, con test) porque la
+                // condición de antes —`computedAgl > 1000`— colgaba de la elevación del destino
+                // PLANEADO y se rompía justo en el caso que más importa: el vuelo real
+                // `wk0896ajpxKalPrp` (SKBQ→SKCL) alternó a SKMR (41 ft) y, a 3 181 ft MSL sobre
+                // SKCL (3 162 ft), el AGL salió 19 ft —y negativo, de −43 a −3 111 ft, en el 100 %
+                // de los sondeos de las dos finales—, así que la consulta no se hizo NI UNA VEZ y
+                // SKMR nunca llegó a ser candidato (con la posición real el servidor lo devuelve en
+                // todos los sondeos y los seis filtros pasan con holgura). La referencia pasa a ser
+                // el avión (**altitud MSL**, 10 000 ft de techo) y sin ese dato la puerta se comporta
+                // como hoy. NO se toca `CurrentAGL`: que siga usando la elevación del destino hasta
+                // que haya desvío confirmado es deliberado —mientras no sepas sobre qué campo estás
+                // no hay otra referencia— y es el círculo que esta puerta rompe.
+                if (DiversionQueryGate.ShouldQuery(
+                        _navDataService.IsAvailable, _reconfirmingApproachAirport,
+                        computedAgl, e.AltitudeFeet,
+                        (DateTime.UtcNow - _lastApproachAirportQuery).TotalSeconds))
                 {
                     _lastApproachAirportQuery = DateTime.UtcNow;
                     Task.Run(() => ReconfirmApproachRunway(

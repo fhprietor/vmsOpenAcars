@@ -193,6 +193,9 @@
     <!-- Gracia de entrada de fase (v0.9.40): el falso TaxiOut de 01:58:56 ya no cobra el −5. -->
     <Compile Include="Helpers\PhaseEntryGrace.cs" />
     <Compile Include="Helpers\RouteCorridor.cs" />
+    <!-- Puerta de la consulta de aeropuerto de aproximación (v0.9.42): el techo pasa a ser la
+         altitud MSL del avión y no la elevación del destino planeado. -->
+    <Compile Include="Helpers\DiversionQueryGate.cs" />
     <Compile Include="Helpers\TaxiGraph.cs" />
     <Compile Include="Helpers\TaxiRouteObservation.cs" />
     <Compile Include="Helpers\TaxiPlannedObservationPolicy.cs" />

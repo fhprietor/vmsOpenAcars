@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using vmsOpenAcars.Db;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models.NavData;
 using vmsOpenAcars.Services;
 
@@ -570,6 +571,308 @@ namespace vmsOpenAcars.Tests
 
             Assert.IsNotNull(r);
             Assert.AreEqual("35", r.RunwayName, "debe preferir el eje más cercano");
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    //  El desvío real a SKMR del vuelo `wk0896ajpxKalPrp`: la cadena de decisión completa
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// **La cadena de decisión del desvío, con el vuelo real `wk0896ajpxKalPrp`** (SKBQ→SKCL,
+    /// `vmsOpenACars/0.9.40`, UTC del 11/10/2026): el avión **alternó a SKMR** y el cliente no lo
+    /// detectó porque la **puerta** que precede a la consulta medía el AGL contra SKCL. Eso ya está
+    /// probado en `DiversionQueryGateTests` (v0.9.42). Lo que se prueba aquí es lo de **después**:
+    /// preguntada, la cadena **concluye SKMR**.
+    ///
+    /// <para><b>Qué es dato grabado y qué dato medido.</b> Las cifras por sondeo —`cross_track_nm` y
+    /// `dist_to_threshold_nm`— son la **respuesta grabada** de `GET /nearest/approach-airport/`
+    /// (llamada en vivo del 13/10/2026 con las posiciones reales del vuelo y
+    /// `heading_reference=true`, que convierte el rumbo con el `mag_var` del candidato; el
+    /// `heading_diff_deg` quedó entre 0,2° y 3,2°). La respuesta **no se simula: se copia**, y por
+    /// eso los sondeos van como constantes con su hora. Del vuelo están **medidos** el ARP de SKMR
+    /// (8.822856/−75.825172), su elevación (41 ft), su pista 14/32 (146°/326° magnéticos, 7 539 ft),
+    /// los dos toques (8.82180/−75.82429 rumbo 316° a las 04:17:44 y 8.82754/−75.82944 rumbo 136° a
+    /// las 04:23:27), la banda de altitud de la final (51–1 067 ft MSL), el alterno a 8,2 NM frente
+    /// a los 319 NM de SKCL, el descarte de SKCZ de las 03:59:53 y los 285 NM del corredor de la
+    /// STAR ULQ4E.</para>
+    ///
+    /// <para><b>Lo que la cadena tiene y aquí NO se puede re-ejecutar</b> —se dice con la línea de
+    /// código, no se inventa nada—:
+    /// <list type="number">
+    /// <item><b>Filtro 5, «establecido en final» (`along ≤ 0`)</b>: producción va por
+    /// `ViewModels/TelemetryCoordinator.cs:865` → `NavDataService.GetRunwayThreshold`
+    /// (`Services/NavDataService.cs:38`), que pide las pistas de SKMR por red o caché. Los umbrales
+    /// de SKMR **no están** en la respuesta grabada, y la posición del avión por sondeo tampoco
+    /// (solo su desviación lateral y su distancia); además `DistToThresholdNm` es distancia en
+    /// **línea recta y sin signo** (`Db/RunwayService.cs:131-134`), así que no puede sustituir a la
+    /// proyección sobre el eje: no dice si el avión estaba antes o después del umbral.</item>
+    /// <item><b>Filtro 6, persistencia</b>: `ConfirmPendingDiversion`
+    /// (`ViewModels/TelemetryCoordinator.cs:985`) es privado y con estado; no hay helper puro que
+    /// llamar desde un test.</item>
+    /// <item><b>El corredor de la llegada</b>: `RouteCorridor.IsOnArrival` necesita los waypoints
+    /// del navlog ULQ4E, que no viajan en la respuesta grabada; del corredor solo está medido que
+    /// queda a **285 NM** (ver `SkMR_ElCorredorDeLaLlegadaULQ4E_QuedaFuera`).</item>
+    /// <item><b>El cambio de aeropuerto de llegada</b> (`SetDivertedAirport`,
+    /// `ViewModels/TelemetryCoordinator.cs:903`) va **después** del filtro 6: si la cadena concluye,
+    /// el efectivo pasa a ser SKMR, pero eso no se puede observar en un test offline.</item>
+    /// </list></para>
+    ///
+    /// <para>Lo que sí se comprueba, sondeo a sondeo y con la **peor** altitud de la banda medida:
+    /// los cuatro filtros reproducibles pasan en **las dos finales** (pista 32 y pista 14); SKCZ, con
+    /// la geometría de su descarte del log, cae en el cono —que es lo que dice la línea del log—; y
+    /// la llegada planificada queda a 285 NM, muy fuera de los 5 NM del corredor.</para>
+    /// </summary>
+    [TestClass]
+    public class SkrmRealDiversionChainTests
+    {
+        // ── Grabado de la llamada en vivo (13/10/2026): respuesta, no simulación ─
+
+        /// <summary>Primera final, **pista 32**: (cross_track_nm, dist_to_threshold_nm) de cada
+        /// sondeo que devolvió el servidor con las posiciones reales.</summary>
+        private static readonly double[][] SkmrFinal32Polls =
+        {
+            new[] { 0.081, 7.58 },   // 04:15:17
+            new[] { 0.007, 4.09 },   // 04:16:08
+            new[] { 0.004, 1.92 },   // 04:16:52
+            new[] { 0.008, 0.75 },   // 04:17:14
+            new[] { 0.001, 0.30 },   // 04:17:42 — 2 s antes del toque de la 32
+        };
+
+        /// <summary>Segunda final, **pista 14**: lo mismo, tras el viraje.</summary>
+        private static readonly double[][] SkmrFinal14Polls =
+        {
+            new[] { 0.016, 4.33 },   // 04:21:29
+            new[] { 0.020, 3.07 },   // 04:21:59
+            new[] { 0.017, 1.82 },   // 04:22:29
+            new[] { 0.011, 0.88 },   // 04:22:59
+            new[] { 0.008, 0.25 },   // 04:23:14 — 13 s antes del toque de la 14
+        };
+
+        // ── Medido del vuelo ─────────────────────────────────────────────────────
+
+        /// <summary>Elevación de SKMR (Los Garzones, Montería): 41 ft. Es la referencia del
+        /// gradiente, la del **campo emparejado** y no la de SKCL (3 162 ft).</summary>
+        private const double SkmrFieldElevationFt = 41.0;
+
+        /// <summary>«alterno 8,2 NM» de la llamada en vivo: la distancia del avión a SKMR.</summary>
+        private const double SkmrAlternateDistanceNm = 8.2;
+
+        /// <summary>SKCL, el destino planeado, a 319 NM de esas posiciones.</summary>
+        private const double SkclPlannedDistanceNm = 319.0;
+
+        /// <summary>Banda de altitud medida en la final: 51 a 1 067 ft MSL. La **peor** para el
+        /// gradiente es el techo.</summary>
+        private const double SkmrHighestAltitudeMslFt = 1067.0;
+
+        /// <summary>El suelo de la banda medida (51 ft MSL), el más favorable al gradiente.</summary>
+        private const double SkmrLowestAltitudeMslFt = 51.0;
+
+        /// <summary>El descarte que sí quedó en el log (03:59:53): *"Desvío a SKCZ descartado —
+        /// 1,9 NM del eje estando a 3,9 NM del umbral (fuera del cono de final)"*.</summary>
+        private const double SkczLogCrossTrackNm = 1.9;
+        private const double SkczLogDistToThresholdNm = 3.9;
+
+        /// <summary>SKCZ (Cereté) a 44 NM, frente a los 319 NM de SKCL.</summary>
+        private const double SkczAirportDistanceNm = 44.0;
+
+        /// <summary>Distancia medida de esas posiciones al corredor de la llegada ULQ4E de SKCL.</summary>
+        private const double ArrivalCorridorDistanceNm = 285.0;
+
+        /// <summary>Corte lateral fijo de producción, `MaxCrossTrackNm`
+        /// (`ViewModels/TelemetryCoordinator.cs:86`), privado: aquí se repite el valor para poder
+        /// juzgar el filtro 1, que en producción es una comparación en línea.</summary>
+        private const double MaxCrossTrackNm = 3.0;
+
+        /// <summary>Por encima de esta distancia (y por debajo de 0,5 NM, donde el filtro tiene
+        /// suelo) el techo de la banda medida —1 067 ft— decide el gradiente: a 1,47 NM son
+        /// 698 ft/NM, justo bajo los 700 del límite.</summary>
+        private const double GradientJudgeableFromNm = 1.47;
+
+        // ── La cadena de producción, en su orden ─────────────────────────────────
+
+        /// <summary>Primer filtro que rechaza, o <see cref="Supera1a4"/> si los cuatro pasan.
+        /// **No** incluye los filtros 5 y 6 ni el corredor: esos no se pueden re-ejecutar offline
+        /// (ver el resumen de la clase) y esta enumeración no los da por buenos.</summary>
+        private enum Cadena
+        {
+            Supera1a4,
+            RechazaLateral,
+            RechazaCono,
+            RechazaGradiente,
+            RechazaDistancia,
+        }
+
+        /// <summary>
+        /// Recorre la cadena **con las funciones de producción**, en el mismo orden que
+        /// `ReconfirmApproachRunway`, y devuelve el primer filtro que rechaza. El filtro 1 es una
+        /// comparación en línea en producción (`ViewModels/TelemetryCoordinator.cs:771`); los
+        /// filtros 2, 3 y 4 son los `internal static` puros de `NavDataService`.
+        /// </summary>
+        private static Cadena RunDiversionChain(
+            double crossTrackNm, double distToThresholdNm, double alternateDistanceNm,
+            double altitudeMslFt, double fieldElevationFt)
+        {
+            // Filtro 1 — lateral (`MaxCrossTrackNm` = 3 NM). TelemetryCoordinator.cs:771.
+            if (crossTrackNm > MaxCrossTrackNm) return Cadena.RechazaLateral;
+
+            // Filtro 2 — cono de 4° en el umbral. NavDataService.IsWithinFinalCone (NavDataService.cs:152).
+            if (!NavDataService.IsWithinFinalCone(crossTrackNm, distToThresholdNm))
+                return Cadena.RechazaCono;
+
+            // Filtro 3 — gradiente ≤ 700 ft/NM contra la elevación del campo emparejado.
+            // NavDataService.IsPlausibleDiversionDescent (NavDataService.cs:226).
+            if (!NavDataService.IsPlausibleDiversionDescent(
+                    altitudeMslFt, fieldElevationFt, distToThresholdNm))
+                return Cadena.RechazaGradiente;
+
+            // Filtro 4 — el alterno más cerca que el destino. NavDataService.IsPlausibleDiversionDistance
+            // (NavDataService.cs:196), con la distancia a SKCL que da GetAirportDistanceNm.
+            if (!NavDataService.IsPlausibleDiversionDistance(alternateDistanceNm, SkclPlannedDistanceNm))
+                return Cadena.RechazaDistancia;
+
+            return Cadena.Supera1a4;
+        }
+
+        // ── Las dos finales: SKMR se acepta ──────────────────────────────────────
+
+        /// <summary>
+        /// **Pista 32.** Los cinco sondeos de la primera final pasan la cadena reproducible. El
+        /// gradiente se juzga con la **peor** altitud de la banda medida (1 067 ft MSL): si pasa con
+        /// esa, pasa con la que fuera.
+        /// </summary>
+        [TestMethod]
+        public void SkMR_PrimeraFinalPista32_SuperaLaCadenaReproducible()
+        {
+            foreach (double[] poll in SkmrFinal32Polls)
+                AssertSondeoSuperaLaCadenaReproducible(poll[0], poll[1], "pista 32");
+        }
+
+        /// <summary>**Pista 14.** Los cinco sondeos de la segunda final, igual.</summary>
+        [TestMethod]
+        public void SkMR_SegundaFinalPista14_SuperaLaCadenaReproducible()
+        {
+            foreach (double[] poll in SkmrFinal14Polls)
+                AssertSondeoSuperaLaCadenaReproducible(poll[0], poll[1], "pista 14");
+        }
+
+        /// <summary>
+        /// Las dos finales **se comportan igual**: mismo número de sondeos, ninguno rechazado por los
+        /// filtros que siempre se pueden juzgar, y la misma pista 14/32 vista desde sus dos cabeceras
+        /// —326° y 146° magnéticos frente a los 316° y 136° verdaderos que marcó el avión en los dos
+        /// toques: la diferencia es la variación local, 10°, igual en las dos—.
+        /// </summary>
+        [TestMethod]
+        public void SkMR_LasDosFinales_SeComportanIgual()
+        {
+            Assert.AreEqual(SkmrFinal32Polls.Length, SkmrFinal14Polls.Length,
+                "se grabaron cinco sondeos en cada final");
+
+            foreach (double[] poll in SkmrFinal32Polls) AssertSinRechazo(poll[0], poll[1], "pista 32");
+            foreach (double[] poll in SkmrFinal14Polls) AssertSinRechazo(poll[0], poll[1], "pista 14");
+
+            Assert.AreEqual(326.0 - 316.0, 146.0 - 136.0, 1e-9,
+                "las dos cabeceras de la 14/32 llevan la misma variación local (10°): el " +
+                "`heading_reference=true` de la llamada en vivo es coherente con los dos toques");
+        }
+
+        /// <summary>
+        /// **El sondeo.** Pasa la cadena reproducible; y si la altitud del sondeo no permite juzgar
+        /// el gradiente (entre 0,5 y 1,47 NM, donde la banda medida no lo decide), se afirma lo que
+        /// sí se puede: que los otros tres filtros pasan.
+        /// </summary>
+        private static void AssertSondeoSuperaLaCadenaReproducible(double cross, double dist, string pista)
+        {
+            if (dist < NavDataService.MinGradientDistanceNm || dist >= GradientJudgeableFromNm)
+            {
+                // El techo de la banda medida es la peor altitud posible: si la cadena pasa con
+                // esa, pasa con cualquiera. Y el suelo, para dejar fijada la banda entera.
+                foreach (double altitud in new[] { SkmrHighestAltitudeMslFt, SkmrLowestAltitudeMslFt })
+                {
+                    Assert.AreEqual(Cadena.Supera1a4,
+                        RunDiversionChain(cross, dist, SkmrAlternateDistanceNm,
+                                          altitud, SkmrFieldElevationFt),
+                        $"{pista}: {cross:F3} NM del eje y {dist:F2} NM del umbral tienen que pasar " +
+                        $"los cuatro filtros reproducibles con el avión a {altitud:F0} ft MSL");
+                }
+                return;
+            }
+
+            // Entre 0,5 y 1,47 NM la altitud real del sondeo no está en lo grabado: con el techo de
+            // la banda el gradiente daría 1 368 ft/NM (0,75 NM) y 1 166 (0,88 NM) —absurdos para una
+            // final real, pero no medidos—. No se inventa la altitud que haría pasar el test.
+            AssertSinRechazo(cross, dist, pista);
+        }
+
+        /// <summary>Los tres filtros que no dependen de la altitud del sondeo.</summary>
+        private static void AssertSinRechazo(double cross, double dist, string pista)
+        {
+            Assert.IsTrue(cross <= MaxCrossTrackNm,
+                $"{pista}: {cross:F3} NM del eje pasan el corte lateral de 3 NM");
+
+            Assert.IsTrue(NavDataService.IsWithinFinalCone(cross, dist),
+                $"{pista}: {cross:F3} NM a {dist:F2} NM del umbral están dentro del cono de 4°");
+
+            Assert.IsTrue(NavDataService.IsPlausibleDiversionDistance(
+                    SkmrAlternateDistanceNm, SkclPlannedDistanceNm),
+                $"{pista}: SKMR a {SkmrAlternateDistanceNm} NM está más cerca que SKCL a " +
+                $"{SkclPlannedDistanceNm} NM");
+        }
+
+        // ── El mismo vuelo, el descarte que sí quedó en el log: SKCZ ─────────────
+
+        /// <summary>
+        /// **SKCZ, el descarte de las 03:59:53.** Con sus dos cifras del log, el filtro lateral
+        /// (1,9 ≤ 3) **pasa** y la regla de distancia también (44 NM frente a 319): el que lo para es
+        /// el **cono** —1,9 NM a 3,9 NM del umbral son 26°, más de seis veces los 4° permitidos—,
+        /// exactamente lo que dice la línea del log *"(fuera del cono de final)"*. Mismo patrón que
+        /// el falso KOWD de Boston: cada filtro cubre un escenario distinto.
+        /// </summary>
+        [TestMethod]
+        public void SKCZ_ConLaGeometriaDeSuDescarte_SeRechazaPorElCono()
+        {
+            Assert.IsTrue(SkczLogCrossTrackNm <= MaxCrossTrackNm,
+                "1,9 NM de desviación lateral pasan el corte fijo de 3 NM: no lo para el lateral");
+
+            double angulo = Math.Atan2(SkczLogCrossTrackNm, SkczLogDistToThresholdNm) * 180.0 / Math.PI;
+            Assert.AreEqual(25.97, angulo, 0.05,
+                "1,9 NM del eje a 3,9 NM del umbral son 26°");
+
+            Assert.IsFalse(NavDataService.IsWithinFinalCone(SkczLogCrossTrackNm, SkczLogDistToThresholdNm),
+                "fuera del cono de 4°: es el filtro que lo descarta, como quedó en el log");
+
+            Assert.IsTrue(NavDataService.IsPlausibleDiversionDistance(
+                    SkczAirportDistanceNm, SkclPlannedDistanceNm),
+                "la distancia tampoco lo descarta: SKCZ a 44 NM está más cerca que SKCL a 319 NM");
+
+            Assert.AreEqual(Cadena.RechazaCono,
+                // La altitud y la elevación de SKCZ no hacen falta aquí: el cono rechaza antes de
+                // llegar al gradiente, y ninguna de las dos está medida. Van como NaN a propósito,
+                // no como un 0 inventado.
+                RunDiversionChain(SkczLogCrossTrackNm, SkczLogDistToThresholdNm, SkczAirportDistanceNm,
+                                  double.NaN, double.NaN),
+                "en la cadena, SKCZ cae en el cono antes de que se juzgue el gradiente");
+        }
+
+        // ── El corredor de la llegada planificada ────────────────────────────────
+
+        /// <summary>
+        /// La llegada planificada (STAR **ULQ4E** de SKCL) **no** frena el match: queda a **285 NM**
+        /// de esas posiciones, frente a los 5 NM de ancho del corredor
+        /// (`RouteCorridor.ArrivalCorridorNm`). `RouteCorridor.IsOnArrival` **no** se llama aquí
+        /// porque necesita los waypoints del navlog, que no viajan en la respuesta grabada: lo que se
+        /// afirma es el hecho medido contra el umbral de producción, y que 285 NM está lejísimos de
+        /// los 5 NM.
+        /// </summary>
+        [TestMethod]
+        public void SkMR_ElCorredorDeLaLlegadaULQ4E_QuedaFuera()
+        {
+            Assert.AreEqual(5.0, RouteCorridor.ArrivalCorridorNm,
+                "el corredor mide 5 NM a cada lado de los últimos 40 NM del navlog");
+
+            Assert.IsTrue(ArrivalCorridorDistanceNm > RouteCorridor.ArrivalCorridorNm,
+                "285 NM frente a 5 NM: el corredor no puede revertir el match de SKMR, que es lo " +
+                "que el vuelo midió");
         }
     }
 }

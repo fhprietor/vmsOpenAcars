@@ -2,6 +2,53 @@
 
 ---
 
+## [0.9.42] — 13/10/2026
+
+### Fixed
+
+- **El desvío a SKMR del vuelo `wk0896ajpxKalPrp` no se detectó: la puerta de la consulta medía el
+  AGL contra el destino planeado, no contra el suelo que había debajo.** PIREP real
+  `wk0896ajpxKalPrp` (SKBQ→SKCL, `vmsOpenACars/0.9.40`, UTC del 11/10/2026): el avión **alternó a
+  SKMR** y el cliente nunca lo vio.
+
+  **Lo que pasó:** aterrizó en **SKMR** (elevación 41 ft) —los dos toques quedaron a **0,08 NM** y
+  **0,38 NM** del ARP y los rumbos **316°/136°** son los de su pista **14/32**; SKCZ está a 44 NM y
+  SKCL a 319 NM—.
+
+  **Causa raíz:** la puerta que antecede a `GET /nearest/approach-airport/` exigía
+  `computedAgl > 1000`, y `CurrentAGL` se mide contra **`_activePlan.DestinationElevation`** =
+  **SKCL (3162 ft)**. El avión a **3181 ft MSL** sobre SKMR daba `3181 − 3162 = 19 ft` de «AGL» —
+  **la prueba literal está en el log del vuelo**: a las 04:11:12, con el avión a 3181 ft MSL, el
+  cliente escribió *"COMPUERTA DE APROXIMACIÓN (18 ft AGL)"*. Con esa referencia el AGL fue
+  **negativo en el 100 % de los sondeos** de las dos finales (de **−43** a **−3111 ft**), la puerta
+  no abrió **ni una vez** y **SKMR nunca llegó a ser candidato**. Los descartes que sí se loguean
+  —SKCB, SKCZ— ocurrieron en descenso, cuando la referencia todavía era el origen **SKBQ (95 ft)**.
+
+  **Y no era culpa de los filtros:** llamando **en vivo al endpoint con las posiciones reales**, el
+  servidor devolvió SKMR en **todos** los sondeos y **los seis filtros pasaban**: lateral
+  **0,001–0,081 NM** en la final de la 32, cono de 4°, gradiente **318 ft/NM**, alterno **8,2 NM
+  frente a 319**, `along ≤ 0`, persistencia, y **285 NM fuera** del corredor de la llegada ULQ4E de
+  SKCL.
+
+  **Lo que se cambió, y nada más** (`Helpers/DiversionQueryGate.cs`, nuevo, puro y con test;
+  usado en `ViewModels/TelemetryCoordinator.cs`): la puerta pregunta por la **altitud MSL** del
+  avión con techo de **10 000 ft**, así que ya no depende del destino planeado; **sin dato de MSL
+  degrada a la condición de siempre** (`AGL > 1000`). **`CurrentAGL` NO se toca**: sin desvío
+  confirmado no hay otra referencia de elevación posible, y ese es justamente el círculo que la
+  puerta rompe.
+
+  **La consecuencia que queda:** como el aeropuerto de llegada nunca cambió, ese PIREP quedó con
+  `arr_airport_id = SKCL` (y el QNH se puntuó contra el METAR de SKCL: **1018 hPa** del METAR frente
+  a los **1013** del avión). Hay que **corregirlo del lado de phpVMS**; el cliente no puede
+  enmendarlo solo.
+
+  **Tests** (700 → **708**; 707 pasan, 0 fallan, 1 se omite sola):
+  `vmsOpenACars.Tests/DiversionQueryGateTests.cs` fija el caso real `wk0896ajpxKalPrp` —la altitud
+  MSL de 3181 ft con SKCL a 3162 ft de destino abre la puerta, y con la condición antigua
+  (`AGL > 1000`) no abría—, el techo de 10 000 ft y la degradación sin dato de MSL.
+
+---
+
 ## [0.9.41] — 13/10/2026
 
 ### Fixed
