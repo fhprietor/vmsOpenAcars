@@ -8,7 +8,7 @@ Checklist para pasar el desarrollo a un equipo nuevo (por ejemplo el portátil),
 > `dsh` en el navegador).** Los tres tropiezos que aparecieron y que ya están incorporados abajo:
 > el shell del agente no ejecutaba **nada** (era un permiso que faltaba en la raíz del workspace, ver
 > `2026-10-08-DSH-SHELL-BLOQUEADO-WINDOWS.md` §6), faltaba `App.config` y faltaban los dos paquetes
-> de MSTest en `packages\`. Con eso resuelto: **Debug y Release compilan y la suite da 655/655**.
+> de MSTest en `packages\`. Con eso resuelto: **Debug y Release compilan y la suite da 688/688**.
 
 > **Lo que no está en el repositorio, no viaja.** El repo es la única memoria que sobrevive al
 > cambio de máquina: el historial de conversación del agente se queda en el equipo viejo, y las
@@ -126,7 +126,7 @@ git clone https://github.com/fhprietor/vmsOpenAcars.git   # o git pull si ya est
    msbuild vmsOpenAcars.sln /p:Configuration=Debug /p:Platform="Any CPU"
    vstest.console.exe vmsOpenAcars.Tests\bin\Debug\vmsOpenAcars.Tests.dll
    ```
-   Esperado: **655/655** (a 11/10/2026, en el portátil). En Release el proyecto de tests no se
+   Esperado: **688/688** (medido el 12/10/2026 en este equipo: 687 pasan y **1 se omite sola**, `ExportaElCuerpoDelAnalisisDeUnVuelo`). En Release el proyecto de tests no se
    compila (es a propósito).
 4. **Comprobar la versión**, que es el error que ya nos mordió una vez:
    `(Get-Item bin\Release\vmsOpenAcars.exe).VersionInfo` → **`ProductVersion` = 0.9.37**. Si el
