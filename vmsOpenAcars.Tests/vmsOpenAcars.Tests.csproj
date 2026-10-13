@@ -73,6 +73,8 @@
     <Compile Include="AircraftTypeMatchTests.cs" />
     <Compile Include="AirspaceRouteSamplerTests.cs" />
     <Compile Include="ApproachThresholdTests.cs" />
+    <!-- La regla de mínimos del validador + el toque: el marcador que solo sobrevive sin aterrizar. -->
+    <Compile Include="ApproachValidatorMinimumsTests.cs" />
     <Compile Include="AtcPanelTests.cs" />
     <Compile Include="CartoTileUrlTests.cs" />
     <Compile Include="EcamDialogTests.cs" />
