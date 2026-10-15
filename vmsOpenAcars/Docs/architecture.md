@@ -2485,7 +2485,7 @@ Meterlo en el zip lo pisaría en cada update, y además arrastraría lo que hubi
 construyó el paquete: **`bin\Release\vmsOpenACars.exe.config` tiene la `vms_api_key` real del
 desarrollador**, así que **zipear `bin\Release` en bloque filtra la clave**. Se excluye a mano, y por eso
 el `.config` no aparece en ningún paquete publicado (comprobado en los de 0.9.42 y 0.9.43: los dos con
-**72 ficheros** y sin él).
+**68 ficheros** y sin él).
 
 Por eso `Helpers/AppConfig.cs` **no** debe tener credenciales
 como valor por defecto: un default en código sobrevive aunque el despliegue limpie su `.config`.
