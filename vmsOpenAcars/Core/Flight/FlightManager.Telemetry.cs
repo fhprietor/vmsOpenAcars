@@ -198,7 +198,16 @@ namespace vmsOpenAcars.Core.Flight
             _hotelModeActive = data.HotelModeActive;
         }
 
-        private void UpdateSingleEngineTaxi(RawTelemetryData data)
+        /// <summary>
+        /// Contador del rodaje con un solo motor. Acumula **tiempo**, no ciclos de sondeo: el ciclo es
+        /// una unidad interna que no se le puede enseñar al piloto ni comparar entre versiones, y
+        /// cambiar la frecuencia de sondeo habría movido el veredicto sin tocar la regla.
+        /// </summary>
+        /// <param name="dtSeconds">
+        /// Segundos creíbles desde el ciclo anterior, ya filtrados por
+        /// <see cref="SampleClock.CountableSeconds"/> en el llamante.
+        /// </param>
+        private void UpdateSingleEngineTaxi(RawTelemetryData data, double dtSeconds)
         {
             if (data.Eng1Running && data.Eng2Running)
                 _pen.BothEnginesRunning = true;
@@ -207,16 +216,60 @@ namespace vmsOpenAcars.Core.Flight
 
             bool oneEngineOnly = data.Eng1Running ^ data.Eng2Running;
             bool moving        = CurrentGroundSpeed > 3;
+
             if (CurrentPhase == FlightPhase.TaxiOut)
             {
-                if (moving)               _pen.TaxiOutMovingCycles++;
-                if (moving && oneEngineOnly) _pen.TaxiOutSingleEngineCycles++;
+                if (moving)
+                {
+                    _pen.TaxiOutMovingSeconds += dtSeconds;
+                    if (oneEngineOnly) _pen.TaxiOutSingleEngineSeconds += dtSeconds;
+                }
             }
             else if (CurrentPhase == FlightPhase.TaxiIn)
             {
-                if (moving)               _pen.TaxiInMovingCycles++;
-                if (moving && oneEngineOnly) _pen.TaxiInSingleEngineCycles++;
+                if (moving)
+                {
+                    _pen.TaxiInMovingSeconds += dtSeconds;
+                    if (oneEngineOnly) _pen.TaxiInSingleEngineSeconds += dtSeconds;
+                }
             }
+        }
+
+        /// <summary>Segundos que el avión lleva parado en tierra con una fase de vuelo.</summary>
+        private double _stuckAirPhaseSeconds;
+        /// <summary>Ya se avisó de esta racha, para no repetir la línea en cada ciclo.</summary>
+        private bool _stuckAirPhaseWarned;
+
+        /// <summary>
+        /// **Dice en voz alta que la fase no se corresponde con el avión**, cuando lleva un rato así.
+        ///
+        /// El caso que lo obliga es el PIREP real `RBmrBApLOjWlYmO2`: su BE58 se quedó clasificado en
+        /// `Climb` desde el falso touch-and-go de las 03:36:02 y **nunca volvió al suelo**, así que
+        /// `OnBlock` —al que sólo se llega desde `TaxiIn`— fue inalcanzable y el piloto se quedó **sin
+        /// poder enviar el PIREP**: lo único que le ofrecía la aplicación era cancelar, que lo borra.
+        /// La traza del vuelo lo enseña en crudo: de **03:36:06 a 03:39:19**, `ICL` con **GS 6–21 kt** y
+        /// el **MSL clavado en 873–880 ft**.
+        ///
+        /// De momento esto **sólo lo dice**; el rescate de la fase es el paso siguiente de esta misma
+        /// lista y reutiliza <see cref="StuckAirPhasePolicy.ShouldWarn"/>, que es por lo que la regla
+        /// vive en un helper puro y no aquí dentro.
+        /// </summary>
+        private void UpdateStuckAirPhase(double dtSeconds)
+        {
+            if (string.IsNullOrEmpty(ActivePirepId) ||
+                !StuckAirPhasePolicy.IsStuck(CurrentPhase, CurrentGroundSpeed, CurrentVerticalSpeed))
+            {
+                // Se rearma sola: si vuelve a pasar, vuelve a avisar.
+                _stuckAirPhaseSeconds = 0.0;
+                _stuckAirPhaseWarned  = false;
+                return;
+            }
+
+            _stuckAirPhaseSeconds += dtSeconds;
+            if (_stuckAirPhaseWarned || !StuckAirPhasePolicy.ShouldWarn(_stuckAirPhaseSeconds)) return;
+
+            _stuckAirPhaseWarned = true;
+            OnLog?.Invoke(_("Log_AirPhaseOnGround", CurrentGroundSpeed, CurrentVerticalSpeed), Theme.Warning);
         }
 
         private void UpdateFlightTracking(RawTelemetryData data)

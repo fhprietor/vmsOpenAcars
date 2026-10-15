@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.42  
+**Versión actual:** v0.9.43  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -125,7 +125,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
 | Minimums Compliance | 5 | −5 si `BelowMinimums=true`. Omitido si Localizer fue omitido |
 | Procedure Speed | 10 | 3 pts/violación de restricción SID/STAR al pasar el fix, cap 10 |
 | Engine Stabilization | 5 | −5 si algún motor en marcha no establecido (aceite/N2) al entrar en pista |
-| **Single Engine Taxi** | **+5** | Multi-motor ≥50% de movimiento con un motor en TaxiOut o TaxiIn |
+| **Single Engine Taxi** | **+5** | ≥50 % del **tiempo** en movimiento con un motor, por fase (salida **o** llegada). El rodaje completo se publica en el log, pero **no relaja nada**: `(a+b)/(w1+w2) ≥ 0,5` con las dos fases por debajo es imposible (`SingleEngineTaxiPolicyTests`) |
 
 ---
 
@@ -523,46 +523,35 @@ Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia le
 
 ## Falso "TAKEOFF ROLL" durante taxi rápido — v0.9.2
 
-PIREP real (`E7DK47e88XdabzoL`, SKRG rwy01→SKBQ) reveló que un pico breve de velocidad en
-tierra durante el rodaje (GS>30 kt por 1-2 s en la calle A, paralela a la pista 01/19) disparaba
-`FlightPhase.TakeoffRoll` — la única transición de `FlightPhaseStateMachine.cs` sin debounce
-(todas las demás usan el patrón "temporizador pendiente, confirmar tras N s sostenidos", ver
-tabla de arriba). La fase revertía a `TaxiOut` segundos después (GS volvía a caer bajo 30 kt),
-pero para entonces `FlightManager.CheckProcedureAtPhaseEntry` ya había disparado, de forma
-**irreversible**, penalizaciones pensadas para un despegue real: luces strobe/landing apagadas
-(`ApproachValidator.CheckPhaseEntryLights`, caso `TakeoffRoll`) y el QNH de salida
-(`ApproachValidator.CheckQnhAsync`) — ninguna es razonable mientras el avión sigue rodando, aún
-sin autorización a pista.
-
-Evidencia adicional del mismo bug: `NavDataService.ProjectOnRunway` (usada por
-`FindTakeoffRunway`/`FindTouchdownRunway`) seleccionaba la pista "más cercana" solo por **rumbo**
-(tolerancia 45°, sin validar posición) y, si ninguna pista pasaba `WithinFootprint`, devolvía
-igual el mejor candidato por rumbo en vez de `null` — por eso el log mostró
-`🛫️ PISTA 19 | ALINEACIÓN: 6325 ft desde umbral | CL: 614 ft de desviación`, un resultado
-geométricamente imposible (614 ft de desviación excede varias veces el ancho real de cualquier
-pista) que delataba que el avión estaba en la calle paralela, no en la pista.
-
-**Fix, tres partes:**
-1. `FlightPhaseStateMachine.cs` — `TaxiOut → TakeoffRoll` ahora exige `GS>30 kt` sostenido
-   **5 s** (nuevo `_takeoffRollStart`/`TakeoffRollConfirmSec`), mismo patrón que
-   `_climbStableStart`/`_stepClimbStart`/`_descentStart`.
-2. `NavDataService.ProjectOnRunway` — si ninguna pista pasa `WithinFootprint` tras la
-   desambiguación de pistas paralelas, retorna `null` (antes devolvía el mejor match por rumbo
-   sin validar posición) — mismo criterio que ya usaba `GetRunwayThreshold` para el caso
-   análogo. Los callers (`TelemetryCoordinator.LookupRunwayData`/`LookupTakeoffRunwayData`) ya
-   manejan `null` correctamente.
-3. **Defensa en profundidad** — ni el QNH de salida ni las luces de `TakeoffRoll` tenían guard
-   de "ya evaluado este vuelo" (a diferencia del STD de climb `_originQnhChecked` o el QNH de
-   llegada `_destQnhChecked`/`_arrivalQnhFinalized`): un rebote repetido de fase, o un rechazo
-   de despegue real seguido de un segundo intento, habría penalizado dos veces. Nuevos
-   `ApproachValidator._departureQnhChecked`/`_takeoffLightsChecked` (reset en `Reset()`, un
-   solo intento por vuelo — mismo comportamiento ya aceptado en este codebase para los demás
-   checks de un solo disparo, sin reintento si el METAR no está disponible).
-
-No se agregó heurística de posición/pista al propio state machine — es "pure state machine" por
-diseño, sin acceso a NavData; el debounce de 5 s resuelve el caso real sin ese acoplamiento.
+La regla que quedó: **`TaxiOut → TakeoffRoll` exige `GS > 30 kt` sostenido 5 s**
+(`TakeoffRollConfirmSec`), porque un pico breve durante el rodaje declaraba un despegue que ya no se
+revertía y cobraba luces y QNH de salida de forma irreversible. La causa raíz completa —el
+`ProjectOnRunway` que devolvía la pista por rumbo sin validar posición, y los dos guards de un solo
+intento por vuelo— está en **`Docs/architecture.md` → "El falso «TAKEOFF ROLL» durante el rodaje"**.
 
 ---
+
+## Fase de vuelo con el avión en el suelo — v0.9.43
+
+Del PIREP real **`RBmrBApLOjWlYmO2`** (BE58, `vmsOpenACars/0.9.38`): un rebote en la toma declaró un
+touch-and-go **inexistente** 5 s después del toque (88 kt, **−178 fpm**), la fase se fue a `Climb` y no
+volvió —`OnBlock` sólo se alcanza desde `TaxiIn`—, así que el piloto se quedó **sin poder enviar el
+PIREP** y lo único que le quedaba era cancelar, que lo borra. Cuatro reglas nuevas, cada una con su
+helper puro y su test:
+
+- **`Helpers/TouchAndGoPolicy.cs`**: además de `GS > 60` y ≥5 s del toque, exige **ascenso sostenido**
+  (+200 fpm, 3 s). La velocidad no distingue rodar de despegar; la tasa vertical sí.
+- **`Helpers/GroundContactGate.cs`**: la bandera de suelo se confirma **en las dos direcciones** (3
+  frames). El código ya sabía que el sim publica `OnGround=0` brevemente tras el primer contacto.
+- **`Helpers/StuckAirPhasePolicy.cs`**: el reparto suelo/aire **no se fía sólo de esa bandera** (<40 kt
+  y sin tasa vertical no se vuela) y una fase de vuelo con el avión rodando **vuelve al suelo** a los
+  15 s, a `AfterLanding` si ya aterrizó. Es la garantía de que `OnBlock` siempre es alcanzable.
+- **Referencia de elevación**: con un toque capturado es el campo de **llegada** en cualquier fase. Sin
+  eso la fase equivocada medía el AGL contra el **origen** y daba **264 ft** con el avión aparcado.
+
+Y **`ON BLOCK` manual** (`FlightManager.ForceOnBlock`) en la bandeja y en el diálogo de `CANCEL`, que
+ahora avisa de que cancela **eliminando** el PIREP. Hace el **mismo** cierre que la detección y
+**publica la transición**: sin eso `MainViewModel` no habilita `SEND PIREP`.
 
 ## Referencias de archivos clave
 
@@ -575,7 +564,7 @@ anterior).
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **713 tests** (1 se omite sola: la herramienta de relleno):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **804 tests** (1 se omite sola: la herramienta de relleno):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
@@ -598,6 +587,12 @@ RAAS con la guía de rodaje (`RaasTests`: grafo, ruta editable y avisos; `RaasRe
 rodaje real del `MNjR664PBAr25RbD` entero contra el motor de avisos, volcado a
 `%TEMP%\raas_replay_MNjR664.txt`; `TaxiRouteCaseTests`: el caso G74 → A3 de la 14L con 237 segmentos
 reales de SKBO en `Fixtures/SKBO-taxi-2026-09-29.csv`).
+Y desde v0.9.43, las reglas de la fase con el avión en el suelo y del motor único:
+`TouchAndGoTests` (la carrera de aterrizaje del BE58 contra la máquina), `AirPhaseRescueTests`,
+`GroundContactGateTests`, `StuckAirPhasePolicyTests`, `SampleClockTests`,
+`SingleEngineTaxiPolicyTests` (el 46 % real, el umbral exacto, el truncado y la propiedad de que la
+suma no puede aprobar lo que una fase no apruebe), `TerrainReferenceTests` (**264 ft** fantasma contra
+**3 ft** reales), `ManualOnBlockTests` y `MainButtonBarTests`.
 Los casos centrales usan **coordenadas, altitudes y navlogs de vuelos reales**, no geometría
 inventada: el falso SKTL, el SKCG legítimo, los tres falsos de KBOS y el rodaje completo del
 `MNjR664PBAr25RbD` (106 segmentos reales de SKBO y las posiciones del pushback y del rodaje).

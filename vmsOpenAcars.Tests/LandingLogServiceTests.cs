@@ -305,6 +305,74 @@ namespace vmsOpenAcars.Tests
         }
 
         /// <summary>
+        /// **El rodaje con un solo motor viaja de ida y vuelta**, con el caso real del PIREP
+        /// `lA4ZVAzgxYzlG4vD` —SCEL→SKBO, `vmsOpenACars/0.9.42`— como cifra: **290 s de 630 en la
+        /// salida**, el 46 % que no llegó al umbral. Es justo el número que hubo que reconstruir de la
+        /// traza de 30 s porque no quedaba escrito en ningún sitio, y el mapeo por ordinal del `SELECT`
+        /// es lo único que lo sostiene: si las columnas nuevas se desalinean, esto lo dice.
+        ///
+        /// La ausencia también viaja: un vuelo sin motor único guarda sus segundos (rodó y no lo hizo
+        /// con uno) y uno anterior a las columnas guarda NULL, que no es lo mismo que un cero.
+        /// </summary>
+        [TestMethod]
+        public void ElRodajeConUnSoloMotor_ViajaDeIdaYVueltaYConservaSuAusencia()
+        {
+            var svc = new LandingLogService(_dbPath);
+
+            int conBonificacion = svc.SaveFlight(new FlightRecord
+            {
+                FlightNumber = "116", Origin = "SCEL", Destination = "SKBO", RunwayName = "14R",
+                FlightDate = new DateTime(2026, 10, 14, 21, 35, 52, DateTimeKind.Utc),
+                LandingRateFpm = -222, GForce = 1.48, TouchdownDistFt = 1466.0,
+                // El caso real: 290 de 630 en la salida (46 %, sin bonificación) y la llegada con los
+                // dos motores todo el rato.
+                TaxiOutMovingSeconds = 630.0, TaxiOutSingleEngineSeconds = 290.0,
+                TaxiInMovingSeconds  = 455.0, TaxiInSingleEngineSeconds  = 0.0,
+                SingleEngineBonus    = false,
+            }, null);
+
+            int conBonus = svc.SaveFlight(new FlightRecord
+            {
+                FlightNumber = "117", Origin = "SKBO", Destination = "SKCL", RunwayName = "14L",
+                FlightDate = new DateTime(2026, 10, 15, 15, 0, 0, DateTimeKind.Utc),
+                TaxiOutMovingSeconds = 600.0, TaxiOutSingleEngineSeconds = 330.0,
+                TaxiInMovingSeconds  = 200.0, TaxiInSingleEngineSeconds  = 180.0,
+                SingleEngineBonus    = true,
+            }, null);
+
+            // Y uno anterior a las columnas: sin dato, no un cero.
+            int anterior = svc.SaveFlight(new FlightRecord
+            {
+                FlightNumber = "10", Origin = "SKRG", Destination = "SKBO", RunwayName = "01",
+                FlightDate = new DateTime(2026, 9, 19, 12, 39, 41, DateTimeKind.Utc),
+            }, null);
+
+            Assert.IsTrue(conBonificacion > 0 && conBonus > 0 && anterior > 0);
+
+            var vuelos = svc.GetFlights();
+
+            var real = vuelos.Find(f => f.Id == conBonificacion);
+            Assert.AreEqual(630.0, real.TaxiOutMovingSeconds.Value,       1e-6);
+            Assert.AreEqual(290.0, real.TaxiOutSingleEngineSeconds.Value, 1e-6, "los 290 s del caso real");
+            Assert.AreEqual(455.0, real.TaxiInMovingSeconds.Value,        1e-6);
+            Assert.AreEqual(0.0,   real.TaxiInSingleEngineSeconds.Value,  1e-6);
+            Assert.IsFalse(real.SingleEngineBonus, "el 46 % del caso real no llegó al umbral");
+
+            var cobrado = vuelos.Find(f => f.Id == conBonus);
+            Assert.IsTrue(cobrado.SingleEngineBonus);
+            Assert.AreEqual(330.0, cobrado.TaxiOutSingleEngineSeconds.Value, 1e-6);
+            Assert.AreEqual(180.0, cobrado.TaxiInSingleEngineSeconds.Value,  1e-6,
+                "la bonificación puede venir de la llegada: las dos fases se guardan");
+
+            var viejo = vuelos.Find(f => f.Id == anterior);
+            Assert.IsNull(viejo.TaxiOutMovingSeconds,       "sin dato es NULL, no 0");
+            Assert.IsNull(viejo.TaxiOutSingleEngineSeconds);
+            Assert.IsNull(viejo.TaxiInMovingSeconds);
+            Assert.IsNull(viejo.TaxiInSingleEngineSeconds);
+            Assert.IsFalse(viejo.SingleEngineBonus, "en la duda, no cobrada");
+        }
+
+        /// <summary>
         /// **La tabla del flare nace al abrir la base**, también en una base vieja: `CREATE TABLE IF
         /// NOT EXISTS` la crea sin tocar nada de lo que ya había. Y va aparte de `approach_track` a
         /// propósito —esa es de 2 s y la usan los cuatro gráficos del análisis—, así que la

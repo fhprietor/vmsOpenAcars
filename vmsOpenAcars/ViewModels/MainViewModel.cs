@@ -642,13 +642,19 @@ namespace vmsOpenAcars.ViewModels
             OnRegistrationChanged?.Invoke(p != null ? $"REG: {p.Registration}"                  : "REG: ----");
         }
 
-        public async Task HandleStartStopButton(string buttonText)
+        /// <summary>
+        /// Despacha el botón START/ABORT/ENVIAR. **El argumento es el comando, no el rótulo**: el
+        /// comando es estable (`START`/`ABORT`/`SEND PIREP`) y el rótulo se traduce en `MainForm`.
+        /// Hasta v0.9.42 llegaba el texto visible y esta comparación dependía del idioma: traducir el
+        /// botón lo habría dejado mudo.
+        /// </summary>
+        public async Task HandleStartStopButton(string command)
         {
-            switch (buttonText)
+            switch (command)
             {
-                case "START": await StartFlight(); break;
-                case "ABORT": await AbortFlight(); break;
-                case "SEND PIREP": await SendPirep(); break;
+                case "START":      await StartFlight(); break;
+                case "ABORT":      await AbortFlight(); break;
+                case "SEND PIREP": await SendPirep();   break;
             }
         }
 
@@ -829,6 +835,22 @@ namespace vmsOpenAcars.ViewModels
 
         public Task SendPirep() => _reporter.SendPirep();
 
+        /// <summary>
+        /// ¿Se le puede ofrecer al piloto **cerrar el vuelo a mano**? Vuelo abierto y fase todavía sin
+        /// llegar a `OnBlock`: en ese estado `SEND PIREP` no existe y cancelar —que borra el PIREP— es
+        /// la única salida de la interfaz. Ver `FlightManager.CanForceOnBlock`.
+        /// </summary>
+        public bool CanCloseFlightManually => _flightManager?.CanForceOnBlock ?? false;
+
+        /// <summary>
+        /// **Cierre manual del vuelo**: hace el mismo cierre que la detección automática y deja la fase
+        /// en `OnBlock`, que es lo que habilita `SEND PIREP`. Es la salida del PIREP real
+        /// `RBmrBApLOjWlYmO2`, donde un falso touch-and-go dejó la máquina en `Climb` para siempre y al
+        /// piloto sin más opción que cancelar (que borra el PIREP).
+        /// </summary>
+        /// <returns><c>true</c> si llegó a cerrar el vuelo.</returns>
+        public bool CloseFlightManually() => _flightManager?.ForceOnBlock() ?? false;
+
         public Task<bool> CheckAndCleanActivePireps() => _reporter.CheckAndCleanActivePireps();
 
         public async Task<bool> Login()
@@ -927,8 +949,6 @@ namespace vmsOpenAcars.ViewModels
             plan.LocalPdfPath = tempPath;
             return tempPath;
         }
-
-        public void LogButtonPress(string buttonText) => OnLog?.Invoke(_("Log_ButtonPress", buttonText), Theme.MainText);
 
         public Task<string> TestCabinAnnouncementAsync(string phase)
             => _cabinAnnouncements.TestAnnouncementAsync(phase, "en");

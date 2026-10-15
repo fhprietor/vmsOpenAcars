@@ -68,10 +68,9 @@ namespace vmsOpenAcars.UI.Forms
         public Label lblValidationStatus;
         public Label lblCurrentAirport;
         public Label lblSimName;
-        private Button btnMenu;
         private Button btnLogin;
         private Button btnOfp;
-        private Button btnMsg;
+        private Button btnMap;
         private MapForm _mapForm;
         private Button btnWeather;
         private Button btnSimbrief;
@@ -385,24 +384,55 @@ namespace vmsOpenAcars.UI.Forms
 
         #region Métodos de UI
 
-        private void UpdateButtonState(string buttonText, Color backColor, bool enabled)
+        /// <summary>
+        /// Comando que **hace** el botón START/ABORT/ENVIAR ahora mismo. Va aparte del rótulo a
+        /// propósito: hasta v0.9.42 el despacho se hacía comparando el **texto visible**
+        /// (`HandleStartStopButton(btnStartStop.Text)` contra `"START"`/`"ABORT"`/`"SEND PIREP"`), de
+        /// modo que traducir el rótulo habría dejado el botón sin hacer nada —y en inglés funcionaba
+        /// solo porque el literal coincidía—. El comando lo fija <see cref="UpdateButtonState"/>.
+        /// </summary>
+        private string _startStopCommand = "START";
+
+        private void UpdateButtonState(string command, Color backColor, bool enabled)
         {
             if (InvokeRequired)
             {
-                Invoke(new Action(() => UpdateButtonState(buttonText, backColor, enabled)));
+                Invoke(new Action(() => UpdateButtonState(command, backColor, enabled)));
                 return;
             }
 
-            btnStartStop.Text = buttonText;
+            _startStopCommand     = command;
+            btnStartStop.Text     = ButtonCommandLabel(command);
             btnStartStop.BackColor = backColor;
-            btnStartStop.Enabled = enabled;
+            btnStartStop.Enabled  = enabled;
+        }
+
+        /// <summary>
+        /// Rótulo del botón para un comando estable. El comando no se traduce —es lo que despacha
+        /// `MainViewModel.HandleStartStopButton`—; lo que se traduce es lo que se ve.
+        /// </summary>
+        private static string ButtonCommandLabel(string command)
+        {
+            switch (command)
+            {
+                case "START":      return _("BtnStartStop");
+                case "ABORT":      return _("BtnAbort");
+                case "SEND PIREP": return _("BtnSendPirep");
+                default:           return command;   // comando desconocido: se enseña tal cual
+            }
         }
 
         private void RefreshUILanguage()
         {
-            btnLogin.Text = _("BtnLogin");
-            btnSimbrief.Text = _("BtnSimbrief");
-            btnStartStop.Text = _("BtnStartStop");
+            btnLogin.Text     = _("BtnLogin");
+            btnOfp.Text       = _("BtnOfp");
+            btnMap.Text       = _("BtnMap");
+            btnWeather.Text   = _("BtnWeather");
+            btnSimbrief.Text  = _("BtnSimbrief");
+            btnLogbook.Text   = _("BtnLogbook");
+            // Desde el comando, no con la clave fija: si el vuelo ya está en vuelo el botón dice
+            // ABORT, y ponerle «INICIAR» a la fuerza lo dejaba mintiendo.
+            btnStartStop.Text = ButtonCommandLabel(_startStopCommand);
             btnCancel.Text = _viewModel?.ActivePilot == null ? _("BtnExit") : _("BtnCancel");
         }
 
@@ -432,7 +462,10 @@ namespace vmsOpenAcars.UI.Forms
 
             this.Text = "vmsOpenAcars - ACARS Flight Deck";
             this.Size = new Size(1024, 768);
-            this.MinimumSize = new Size(800, 600);
+            // El ancho mínimo sale de la barra de botones: es ella la que no puede recortarse, porque
+            // el panel no tiene `AutoScroll` y lo que no quepa no se puede pulsar. Con una sola
+            // fuente, mover uno de los dos números no puede desalinearlos (MainButtonBarTests).
+            this.MinimumSize = new Size(MainButtonBar.MinWindowWidth, 600);
             this.BackColor = Color.FromArgb(10, 10, 20);
             this.Font = new Font("Consolas", 10, FontStyle.Regular);
             this.FormBorderStyle = FormBorderStyle.None;
@@ -537,6 +570,15 @@ namespace vmsOpenAcars.UI.Forms
             // a la del grafo.
             trayMenu.Items.Add("Cambiar ruta de rodaje (ATC)", null,
                                (s, ev) => _viewModel.RequestTaxiRouteChange());
+
+            trayMenu.Items.Add(new ToolStripSeparator());
+
+            // **Cerrar el vuelo a mano.** Si la detección de `OnBlock` no llega —el PIREP real
+            // `RBmrBApLOjWlYmO2` se quedó en `Climb` tras un falso touch-and-go y nunca volvió al
+            // suelo—, `SEND PIREP` no aparece nunca y al piloto sólo le queda cancelar, que **borra**
+            // el PIREP. Esta es la salida que no borra nada: cierra el vuelo con el mismo cierre que
+            // habría hecho la detección.
+            trayMenu.Items.Add(_("Tray_CloseFlight"), null, (s, ev) => CloseFlightManuallyFromTray());
 
             // **Borrar la caché del mapa a mano.** La obligación de CARTO no es solo el TTL: si se deja
             // de usar el servicio, la caché del dispositivo tiene que poder borrarse. Y de paso sirve
@@ -1370,39 +1412,25 @@ namespace vmsOpenAcars.UI.Forms
                 Padding = new Padding(4)
             };
 
-            string[] buttonNames = { "MENU", "LOGIN", "ATIS", "OFP", "MAP", "WEATHER", "DISPATCH", "LOGBOOK", "START", "CANCEL" };
-            Color[] buttonColors = {
-                Color.FromArgb(60, 70, 80),
-                Color.FromArgb(0, 120, 200),
-                Color.FromArgb(60, 70, 80),
-                Color.FromArgb(0, 100, 200),
-                Color.FromArgb(60, 70, 80),
-                Color.FromArgb(60, 70, 80),
-                Color.FromArgb(0, 150, 0),
-                Color.FromArgb(60, 90, 110),
-                Color.FromArgb(200, 100, 0),
-                Color.FromArgb(150, 0, 0)
-            };
+            // La barra sale de `MainButtonBar` (nombres, claves de rótulo y colores en una sola
+            // lista, para que no puedan desalinearse) y tiene que caber en el ancho mínimo de la
+            // ventana: el panel no tiene `AutoScroll` y los botones van con `Location` absoluta.
+            int xPos = MainButtonBar.StartX;
 
-            int xPos = 6;
-            int buttonWidth = 90;
-            int buttonHeight = 34;
-            int spacing = 4;
-
-            for (int i = 0; i < buttonNames.Length; i++)
+            foreach (var spec in MainButtonBar.Specs)
             {
                 Button btn = new Button
                 {
-                    Text = buttonNames[i],
-                    Location = new Point(xPos, 6),
-                    Size = new Size(buttonWidth, buttonHeight),
-                    BackColor = buttonColors[i],
+                    Text      = _(spec.LabelKey),
+                    Location  = new Point(xPos, 6),
+                    Size      = new Size(MainButtonBar.ButtonWidth, MainButtonBar.ButtonHeight),
+                    BackColor = spec.BackColor,
                     ForeColor = Color.White,
                     FlatStyle = FlatStyle.Flat,
-                    Font = new Font("Consolas", 10, FontStyle.Bold)
+                    Font      = new Font("Consolas", 10, FontStyle.Bold)
                 };
 
-                switch (buttonNames[i])
+                switch (spec.Name)
                 {
                     case "LOGIN":
                         btnLogin = btn;
@@ -1434,22 +1462,23 @@ namespace vmsOpenAcars.UI.Forms
                         btnWeather = btn;
                         btn.Click += BtnWeather_Click;
                         break;
-                    case "MENU":
-                        btnMenu = btn;
-                        btn.Click += BtnMenu_Click;
-                        break;
                     case "MAP":
-                        btnMsg = btn;
+                        btnMap = btn;
                         btn.Enabled = false;
                         btn.Click += BtnMap_Click;
                         break;
                     default:
-                        btn.Click += GenericButton_Click;
+                        // Un botón declarado en `MainButtonBar` y sin `case` aquí **no hace nada**:
+                        // es exactamente lo que le pasó a `ATIS`, que estuvo versiones en la barra
+                        // cayendo en un manejador genérico que solo escribía la pulsación en el log.
+                        // Antes se callaba; ahora se queja, porque un botón muerto ocupa sitio en una
+                        // barra cuyo ancho está medido contra el mínimo de la ventana.
+                        _uiService?.AddLog($"⚠️ Botón sin acción en la barra: {spec.Name}", Theme.Warning);
                         break;
                 }
 
                 pnlButtons.Controls.Add(btn);
-                xPos += buttonWidth + spacing;
+                xPos += MainButtonBar.ButtonWidth + MainButtonBar.Spacing;
             }
 
             mainLayout.Controls.Add(pnlButtons, 0, 4);
@@ -1897,7 +1926,7 @@ namespace vmsOpenAcars.UI.Forms
                 var pilot = _viewModel.ActivePilot;
                 if (pilot != null)
                 {
-                    btnMsg.Enabled = true;
+                    btnMap.Enabled = true;
                     _mapForm?.CenterOnAirport(pilot.CurrentAirport);
                 }
             }
@@ -1973,21 +2002,43 @@ namespace vmsOpenAcars.UI.Forms
         }
         private async void BtnStartStop_Click(object sender, EventArgs e)
         {
-            await _viewModel?.HandleStartStopButton(btnStartStop.Text);
+            // Por el comando, no por el rótulo: ver `_startStopCommand`.
+            await _viewModel?.HandleStartStopButton(_startStopCommand);
         }
 
         private async void BtnCancel_Click(object sender, EventArgs e)
         {
             if (_isFlightActive)
             {
-                // Hay vuelo activo -> cancelar vuelo
+                // Hay vuelo activo. Si **además** la fase no ha llegado a `OnBlock`, `SEND PIREP` no
+                // está disponible y cancelar sería la única salida de la aplicación… borrando el
+                // PIREP. En ese caso se ofrece primero el cierre manual, que es el mismo cierre que
+                // hace la detección (PIREP real `RBmrBApLOjWlYmO2`).
+                bool canClose = _viewModel?.CanCloseFlightManually == true;
+
                 var result = EcamDialog.Show(this,
-                    _("ConfirmCancelFlight"),
-                    _("CancelTitle"),
-                    EcamDialogButtons.YesNo);
+                    _(canClose ? "ConfirmCancelFlightOrClose" : "ConfirmCancelFlight"),
+                    _(canClose ? "FlightNotClosedTitle"      : "CancelTitle"),
+                    canClose ? EcamDialogButtons.YesNoCancel : EcamDialogButtons.YesNo);
 
                 if (result == DialogResult.Yes)
                 {
+                    // Con la tercera opción en pantalla: YES = cerrar el vuelo (y poder enviar).
+                    // Sin ella: YES = cancelar, que es lo que pregunta el diálogo de siempre.
+                    if (canClose)
+                    {
+                        _viewModel.CloseFlightManually();
+                        _osd?.ShowMessage(_("Osd_ManualOnBlock"), OsdSeverity.Success,
+                                          AppConfig.OsdDurationSeconds * 1000);
+                    }
+                    else
+                    {
+                        await _viewModel?.CancelFlight();
+                    }
+                }
+                else if (result == DialogResult.No && canClose)
+                {
+                    // NO = cancelar de verdad (se elimina el PIREP). CANCEL = volver sin hacer nada.
                     await _viewModel?.CancelFlight();
                 }
             }
@@ -2004,6 +2055,27 @@ namespace vmsOpenAcars.UI.Forms
                     Close();
                 }
             }
+        }
+
+        /// <summary>
+        /// **Cerrar el vuelo a mano desde la bandeja**, para el piloto que ya no encuentra el botón de
+        /// enviar. Cierra con el mismo cierre que la detección y deja la fase en `OnBlock`, que es lo
+        /// que habilita `SEND PIREP`; si no había nada que cerrar lo dice en el log en vez de quedarse
+        /// mudo —el piloto ha ido a buscar esta opción porque algo no cuadraba—.
+        /// </summary>
+        private void CloseFlightManuallyFromTray()
+        {
+            if (_viewModel == null) return;
+
+            if (!_viewModel.CloseFlightManually())
+            {
+                _uiService?.AddLog(_("Log_NothingToClose"), Theme.Warning);
+                return;
+            }
+
+            _uiService?.AddLog(_("Log_FlightClosedManually"), Theme.Success);
+            _osd?.ShowMessage(_("Osd_ManualOnBlock"), OsdSeverity.Success,
+                              AppConfig.OsdDurationSeconds * 1000);
         }
 
         private void BtnMap_Click(object sender, EventArgs e)
@@ -2079,31 +2151,6 @@ namespace vmsOpenAcars.UI.Forms
             {
                 btnOfp.Enabled = true;
             }
-        }
-
-        private void GenericButton_Click(object sender, EventArgs e)
-        {
-            var btn = sender as Button;
-            _viewModel?.LogButtonPress(btn?.Text);
-        }
-
-        private void BtnMenu_Click(object sender, EventArgs e)
-        {
-            var menu = new ContextMenuStrip();
-            menu.Items.Add("Settings", null, (s, ev) => BtnSettings_Click(s, ev));
-
-            if (_osd != null)
-            {
-                menu.Items.Add(new ToolStripSeparator());
-                var osdSub = new ToolStripMenuItem("Test OSD");
-                osdSub.DropDownItems.Add("Info",     null, (s, ev) => { OsdAudio.Play(OsdSeverity.Info);     _osd.ShowMessage("OSD TEST  —  INFO",     OsdSeverity.Info,     5000); });
-                osdSub.DropDownItems.Add("Success",  null, (s, ev) => { OsdAudio.Play(OsdSeverity.Success);  _osd.ShowMessage("OSD TEST  —  SUCCESS",  OsdSeverity.Success,  5000); });
-                osdSub.DropDownItems.Add("Warning",  null, (s, ev) => { OsdAudio.Play(OsdSeverity.Warning);  _osd.ShowMessage("OSD TEST  —  WARNING",  OsdSeverity.Warning,  5000); });
-                osdSub.DropDownItems.Add("Critical", null, (s, ev) => { OsdAudio.Play(OsdSeverity.Critical); _osd.ShowMessage("OSD TEST  —  CRITICAL", OsdSeverity.Critical, 5000); });
-                menu.Items.Add(osdSub);
-            }
-
-            menu.Show(btnMenu, new Point(0, btnMenu.Height));
         }
 
         private void BtnLogbook_Click(object sender, EventArgs e)

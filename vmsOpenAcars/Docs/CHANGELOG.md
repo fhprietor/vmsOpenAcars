@@ -2,6 +2,107 @@
 
 ---
 
+## [0.9.43] — 15/10/2026
+
+> Verificado con build **Debug y Release** y la suite completa: **804 tests**, 803 pasan, 0 fallan,
+> 1 se omite sola.
+
+### Fixed
+
+**Un vuelo que se quedaba sin poder enviarse: el falso touch-and-go del `RBmrBApLOjWlYmO2`.**
+
+PIREP real `RBmrBApLOjWlYmO2` (SKSJ→SKSV, BE58 de Carenado en X-Plane, `vmsOpenACars/0.9.38`, UTC del
+14/10/2026). El piloto tomó a las **03:35:57** (−104 fpm, **96 kt**), llevó el avión al parking y lo
+apagó, y **nunca pudo enviar el PIREP**: lo único que le ofrecía la aplicación era cancelar, que lo
+borra. El vuelo lo cerró a mano un administrador, y la fila que existe hoy lo delata —**`score` y
+`notes` vacíos**—, porque `PirepBuilder.BuildPayload` manda los dos siempre.
+
+**Causa raíz, en cuatro eslabones:**
+
+1. **El touch-and-go se declaró 5 s después del toque**, con la condición
+   `GS > 60 && SecondsSinceTouchdown >= 5` y el avión en **plena carrera de aterrizaje**: a las
+   03:36:02 iba a **88 kt** y **−178 fpm**. La velocidad no distingue rodar de despegar.
+2. La fase saltó a **`Climb`** y **nunca volvió**: `OnBlock` sólo se alcanza desde `TaxiIn`, y desde
+   `Climb` no hay camino al suelo.
+3. El simulador publicaba «en el aire» con el avión **rodando y aparcado** —de **03:36:06 a 03:39:19**,
+   `ICL` con **GS 6–21 kt** y el `msl` clavado en **873–880 ft**—, y el reparto entre el camino del
+   suelo y el del aire colgaba entero de esa bandera: `GROUND_CONFIRM_FRAMES = 1` no confirmaba nada y
+   el paso a «aire» no tenía comprobación alguna.
+4. La referencia de elevación se elige por fase, así que pasó a ser la del **origen** (SKSJ, **611 ft**)
+   y el AGL publicado salió de **264 ft** (`875 − 611`) con el avión en el suelo: el número falso que
+   hacía que la fase equivocada **pareciera coherente**.
+
+**Lo que se cambió**, cada regla en un helper puro con su test:
+
+- `Helpers/TouchAndGoPolicy.cs` — exige **ascenso sostenido** (+200 fpm durante 3 s) además de lo que ya
+  había. La tasa vertical es lo que separa las dos cosas.
+- `Helpers/GroundContactGate.cs` — confirma la bandera de suelo **en las dos direcciones** (3 frames,
+  150 ms a 20 Hz). El propio código ya decía que *«el sim reporta OnGround=0 brevemente tras el primer
+  contacto»* y había un debounce de 10 s para el toque; lo que faltaba era la otra mitad.
+- `Helpers/StuckAirPhasePolicy.cs` — el reparto de fases **no se fía sólo de la bandera** (por debajo de
+  40 kt y sin tasa vertical no se vuela), y una fase de vuelo con el avión rodando **vuelve al camino
+  del suelo** a los 15 s, a `AfterLanding` si el vuelo ya aterrizó. Es la garantía de que `OnBlock`
+  siempre es alcanzable.
+- **La referencia de elevación**: con un toque capturado es el campo de **llegada** en cualquier fase
+  (`FlightPhaseHelper.GetTerrainElevation` y `FlightManager.ReferenceAirportElevation`).
+- **`ON BLOCK` manual** (`FlightManager.ForceOnBlock` + `FlightPhaseStateMachine.ForceOnBlock`): en el
+  menú de la bandeja y en el diálogo de `CANCEL`, que ahora avisa de que cancelar **elimina** el PIREP.
+  El cierre manual hace **el mismo** cierre que la detección (`CompleteBlockOn`) y **publica la
+  transición** —sin eso `MainViewModel` no habilitaría `SEND PIREP`—.
+
+Con las cuatro, el vuelo **se habría cerrado solo**: `AfterLanding` → `TaxiIn` → `OnBlock`.
+
+### Added
+
+**El veredicto del motor único se publica siempre, con sus cifras.** El PIREP real
+`lA4ZVAzgxYzlG4vD` (SCEL→SKBO, `vmsOpenACars/0.9.42`) rodó **290 s de 630** con un solo motor
+(**46 %**) y **no tuvo forma de saber por qué no cobró**: hasta ahora sólo se escribía algo cuando la
+bonificación se concedía. La regla vive en un solo sitio (`Helpers/SingleEngineTaxiPolicy.cs`), se mide
+en **segundos** en vez de ciclos de sondeo —que no se le pueden enseñar a nadie— y el log dice:
+
+```
+🚶 Motor único en salida: 290 de 630 s con un solo motor (46 %) · mínimo 50 % · sin bonificación
+```
+
+Además: el **rodaje completo** (las dos fases sumadas en un porcentaje) se publica al cerrar el vuelo,
+el porcentaje se **trunca** en vez de redondearse —con redondeo un 49,6 % se leía «50 % · mínimo 50 % ·
+sin bonificación»— y los contadores se guardan en **`landing_log.sqlite`** (cinco columnas nuevas en
+`flights`, con su migración defensiva).
+
+**Aviso cuando la fase de vuelo no se corresponde con el avión** (`Log_AirPhaseOnGround`), a los 15 s de
+verlo: la racha del BE58 habría aparecido en el log en **una línea**.
+
+**La suma de las dos fases no relaja el criterio, y queda demostrado.** `(a+b)/(w1+w2) ≥ 0,5` con
+`a/w1 < 0,5` y `b/w2 < 0,5` es imposible; así que el porcentaje total **informa** —da el 26 % del vuelo
+real, que es la cifra que explica el veredicto— pero no puede aprobar lo que ninguna fase apruebe. El
+aprobado por fase se queda, además, porque una fase que aprueba sola **puede no llegar sumada**
+(51,7 % de salida y una llegada con los dos motores dan 19 %): si la suma fuera la única regla, ese
+piloto perdería la bonificación que hoy cobra.
+
+### Changed
+
+- **La barra de botones pierde los dos que no hacían nada** y gana sitio: `MENU` (su desplegable sólo
+  repetía «Settings» y «Test OSD», que ya están en el engranaje de la cabecera y en `SettingsForm`) y
+  `ATIS` (no tenía `case` y caía en un manejador genérico que sólo escribía la pulsación en el log; el
+  ATIS se pinta en `AtcPanel`). La barra pasa de **942 a 754 px** y **cabe en el ancho mínimo de la
+  ventana** (800): hasta ahora, a poco que el piloto la encogiera, `START` y `CANCEL` quedaban fuera del
+  panel y **no se podían pulsar**.
+- **Los rótulos de la barra se traducen** (`MAPA`, `METEO`, `BITÁCORA`, `INICIAR`…): salían de un literal
+  en inglés y sólo cuatro se traducían después.
+- **El botón `START`/`ABORT`/`ENVIAR` despacha por un comando estable**, no por su texto visible:
+  comparaba el rótulo contra `"START"`, así que traducirlo lo habría dejado mudo.
+- Se retiran las claves muertas `BtnMenu`, `BtnAtis`, `BtnMsg`, `Log_ButtonPress` y
+  `Log_SingleEngineTaxiOut`/`In`.
+
+**Tests** (713 → **804**; 803 pasan, 0 fallan, 1 se omite sola). Los casos nuevos usan las cifras reales
+de los dos vuelos: `TouchAndGoTests` (la carrera de aterrizaje del BE58 contra la máquina),
+`AirPhaseRescueTests` (el estado atascado y el rescate), `GroundContactGateTests`, `SampleClockTests`,
+`StuckAirPhasePolicyTests`, `SingleEngineTaxiPolicyTests` (el 46 %, el umbral exacto, el truncado y la
+propiedad de la suma), `TerrainReferenceTests` (**264 ft** fantasma contra **3 ft** reales),
+`ManualOnBlockTests` y `MainButtonBarTests`.
+
+---
+
 ## [0.9.42] — 13/10/2026
 
 ### Fixed

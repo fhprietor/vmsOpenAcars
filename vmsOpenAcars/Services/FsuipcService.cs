@@ -266,7 +266,12 @@ namespace vmsOpenAcars.Services
         private static readonly HashSet<string> _singleSwitchBeaconStrobeAircraft = new HashSet<string> { "DH8D" };
 
         // -- Debounce liftoff / touchdown --
-        private int _groundConsecutiveCounter;
+        /// <summary>
+        /// Confirmación de la bandera de suelo: ver <see cref="Helpers.GroundContactGate"/>. Sustituye a
+        /// `GROUND_CONFIRM_FRAMES = 1` (que no confirmaba nada) y añade la confirmación del **despegue**,
+        /// que no existía.
+        /// </summary>
+        private readonly Helpers.GroundContactGate _groundContactGate = new Helpers.GroundContactGate();
         private DateTime _lastTakeoffTime = DateTime.MinValue;
         private DateTime _lastTouchdownTime = DateTime.MinValue;
 
@@ -285,7 +290,10 @@ namespace vmsOpenAcars.Services
         private double _peakGforceApproach = 1.0;
 
         // -- Constantes de detección --
-        private const int GROUND_CONFIRM_FRAMES = 1;
+        // La confirmación de la bandera de suelo vive en `Helpers/GroundContactGate.cs`, que la exige
+        // en **las dos** direcciones: aquí estaba en `GROUND_CONFIRM_FRAMES = 1` (o sea, ninguna) y el
+        // paso a «aire» no tenía comprobación alguna, que es de donde salió el falso touch-and-go del
+        // PIREP `RBmrBApLOjWlYmO2`.
         private const double EVENT_DEBOUNCE_SECONDS = 2.0;
         // Debounce largo para touchdown: evita doble disparo por rebote del avión en los
         // primeros segundos de rodadura (sim reporta OnGround=0 brevemente tras el primer contacto)
@@ -1195,25 +1203,23 @@ namespace vmsOpenAcars.Services
             DetectTaxiLightChange(taxiOn);
         }
 
+        /// <summary>
+        /// Traduce la bandera de suelo del simulador a toque / despegue **confirmados**
+        /// (<see cref="Helpers.GroundContactGate"/>). Hasta v0.9.42 el paso a «aire» no tenía
+        /// confirmación ninguna: un solo frame con la bandera en falso ponía `_lastOnGround` en falso, y
+        /// esa bandera es la que llega a la máquina de fases. El PIREP real `RBmrBApLOjWlYmO2` se fue a
+        /// `Climb` por eso y el piloto se quedó sin poder enviar el vuelo.
+        /// </summary>
         private void DetectGroundTransition()
         {
-            bool isOnGroundNow = _onGroundOffset.Value == 1;
+            switch (_groundContactGate.Update(_onGroundOffset.Value == 1))
+            {
+                case Helpers.GroundContactStep.Touchdown: HandleTouchdown(); break;
+                case Helpers.GroundContactStep.Liftoff:   HandleTakeoff();   break;
+            }
 
-            if (isOnGroundNow)
-            {
-                _groundConsecutiveCounter++;
-                if (_groundConsecutiveCounter >= GROUND_CONFIRM_FRAMES)
-                {
-                    if (!_lastOnGround) HandleTouchdown();
-                    _lastOnGround = true;
-                }
-            }
-            else
-            {
-                _groundConsecutiveCounter = 0;
-                if (_lastOnGround) HandleTakeoff();
-                _lastOnGround = false;
-            }
+            // El estado de la telemetría es el **confirmado**, no el del último frame.
+            _lastOnGround = _groundContactGate.IsOnGround;
         }
 
         private void DetectGearChange()

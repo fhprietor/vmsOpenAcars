@@ -84,9 +84,30 @@ namespace vmsOpenAcars.Helpers
             }
         }
 
-        public static double GetTerrainElevation(FlightPhase phase, SimbriefPlan plan)
+        /// <summary>
+        /// **La elevación del terreno que hay debajo, para medir el AGL.** Se elige por fase —el origen
+        /// mientras se sale, el destino desde el descenso— y con una excepción que es la que faltaba:
+        /// **si el vuelo ya ha tocado tierra, la referencia es el destino en cualquier fase**.
+        ///
+        /// Esa excepción nace del PIREP real `RBmrBApLOjWlYmO2`: su BE58 se quedó clasificado en
+        /// `Climb` con el avión **rodando y aparcado** en el destino, así que la referencia pasó a ser
+        /// la elevación del **origen** —SKSJ, **611 ft**— y el AGL publicado salió de **264 ft**
+        /// (`875 − 611`) con el avión en el suelo y a 0 kt. Un avión no puede estar a 264 ft y parado a
+        /// la vez, y ese número falso es lo que hacía que la fase equivocada pareciera coherente.
+        /// </summary>
+        /// <param name="hasTouchedDownThisFlight">
+        /// Si ya se capturó algún toque en este vuelo (`FlightManager.HasTouchedDownThisFlight`), que
+        /// **sobrevive al touch-and-go** —éste sólo rearma la geometría de pista— y se limpia con el
+        /// vuelo.
+        /// </param>
+        public static double GetTerrainElevation(FlightPhase phase, SimbriefPlan plan,
+                                                 bool hasTouchedDownThisFlight = false)
         {
             if (plan == null) return 0.0;
+
+            // Ya aterrizó: el campo que hay debajo es el de llegada, diga lo que diga la fase.
+            if (hasTouchedDownThisFlight) return plan.DestinationElevation;
+
             switch (phase)
             {
                 case FlightPhase.Boarding:

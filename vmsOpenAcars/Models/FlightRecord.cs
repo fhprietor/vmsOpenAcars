@@ -119,6 +119,33 @@ namespace vmsOpenAcars.Models
         /// </summary>
         public string TraceStopReason { get; set; }
 
+        // ── El rodaje con un solo motor, en SEGUNDOS ──────────────────────────────
+        // Las cifras que deciden la bonificación de `Helpers/SingleEngineTaxiPolicy`, persistidas
+        // para poder volver a mirar un vuelo semanas después sin depender de la traza de 30 s: el
+        // PIREP real `lA4ZVAzgxYzlG4vD` hizo **290 s de 630 (46 %)** en la salida y hubo que
+        // reconstruirlo a mano porque el cliente no guardaba ni publicaba el número.
+        //
+        // `null` = fila anterior a las columnas (la base local de un piloto que no ha volado desde
+        // esta versión), no un cero: un 0 es «rodó y no lo hizo con un motor».
+
+        /// <summary>Segundos en movimiento durante el rodaje de salida (con uno o con dos motores).</summary>
+        public double? TaxiOutMovingSeconds       { get; set; }
+
+        /// <summary>De los segundos de la salida, los hechos con un solo motor.</summary>
+        public double? TaxiOutSingleEngineSeconds { get; set; }
+
+        /// <summary>Segundos en movimiento durante el rodaje de llegada.</summary>
+        public double? TaxiInMovingSeconds        { get; set; }
+
+        /// <summary>De los segundos de la llegada, los hechos con un solo motor.</summary>
+        public double? TaxiInSingleEngineSeconds  { get; set; }
+
+        /// <summary>
+        /// ¿Se otorgó la bonificación de motor único en este vuelo? Falso también en las filas
+        /// anteriores a la columna: en la duda, «no cobrada» es lo conservador.
+        /// </summary>
+        public bool SingleEngineBonus { get; set; }
+
         /// <summary>
         /// **La familia de la aeronave que voló este aterrizaje**, tal como la publicaba el simulador
         /// en el **modelo ATC** (`FsuipcService.AircraftIcao`, offset `0x0618`): `B737`, `B777`,

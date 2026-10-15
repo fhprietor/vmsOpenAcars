@@ -2719,3 +2719,47 @@ traza.
 *(Movido aqui desde `CLAUDE.md` el 12/10/2026 para liberar presupuesto de instrucciones del agente; alli queda un resumen con puntero. La deuda de verificacion vive en `Docs/ESTADO-FLARE-2026-10-08.md`.)*
 
 **Y desde v0.9.32 hay traza fina del flare**: `approach_track` es de **2 s** (≈550 ft a 148 kt), asi que una captura dedicada **a 10 Hz nominales** (~8 reales, v0.9.37) **se arma a 1.500 ft del umbral y se desarma 2 s tras el toque** (`Helpers/FlareCapturePolicy.cs`), con cap de 400 muestras, a la tabla nueva **`flare_track`**, y se ve en una **ventana propia** (`FlareAnalysisForm`, boton FLARE) con altitud, IAS, pitch, la pista, el umbral, las bandas de la TDZ y el punto de toque. El **eje X del closeup** va en pies enteros con marca THR (`Helpers/CloseupAxis.cs`) y **la Y se autoescala** al tramo visible (`Helpers/CloseupVerticalAxis.cs`: recorrido minimo 100 ft, cero del terreno dentro, pasos 25/50/100/250/500). **El closeup pinta la traza fina del flare cuando existe** (`flare_track`, 10 Hz, con escala extra de +-1.000 ft) y **si no la hay, la de 2 s es el fallback**, avisando de cual usa (`Helpers/CloseupTrackSource.cs`) — v0.9.33. **Y desde v0.9.35 se analizan tambien los FLAPS y la POTENCIA**: los flaps guardados son el **porcentaje del recorrido del mando** (`0x0BDC`), que **no es un detent** —la etiqueta se deduce por bandas de familia, solo si el valor cae claro en una, y va marcada aproximada (`~FLAPS 30`); familia desconocida o dudosa → porcentaje sin etiqueta—, y **desde 0.9.35 se persiste el detent real** (`flare_track.flaps_index`, de `0x0BFC`, que se leia y se tiraba), que da la etiqueta **sin** el `~`; la **potencia por N1** (`0x2000`/`0x2100`, en por ciento) da el **corte** como la primera caida sostenida >=5 puntos durante >=0,3 s, **relativa al pico** de la aproximacion y en segundos antes de la toma. **Un grafico no puede reventar al pintarse** (`Helpers/ChartAxisSafety.cs`: area sin datos = marco fijo + rotulo SIN DATOS; el automatico se respeta cuando hay datos), porque `DrawToBitmap` sobre un `Chart` pasa por `WM_PRINTCLIENT` y lanza `Axis Object - Auto interval does not have proper value`: las sondas de PNG usan **`Chart.SaveImage`**. **Y desde v0.9.36 la ventana del FLARE lleva una CABECERA DE DATOS para compartir el grafico** (aeronave, fabricante deducido del ICAO, LTOW, vuelo, toma, flaps, corte, viento y version) mas un boton **PNG** (`SaveFileDialog` + `Chart.SaveImage`); LTOW es una **lectura medida** (`PayloadServices.GrossWeightLbs`, lb, `RefreshData()` una vez por vuelo) y sin lectura va `NULL` sin derivarla del plan. La **identidad de aeronave es una sola** (`AircraftIdentity.Resolve/Compose/LogLine`, v0.9.36): hasta entonces el log publicaba la **familia** ATC y el grafico la **variante** (con un PMDG 777 el log decia `B777 [PMDG]` y el grafico `B77L`; en los pilotos que publican la variante coincidian, por eso estaba latente). **Y desde v0.9.37 las dos trazas comparten un solo cero** (`FlareDistanceFt` suma `OffsetThresholdFt`: **496 ft** de desfase en la 17 de SKBG) **y el tramo en tierra ya no colapsa a `dist_ft = 0`**; lo verificado y lo que falta, en `Docs/ESTADO-FLARE-2026-10-08.md`. **Y el análisis se sube a phpVMS** (`POST /pireps/{id}/landing`, tras filear, con el `pirep_id` copiado **antes** del `await`): lo arma `Helpers/LandingUploadPayload`, con `null` donde no hay medida, mas `offset_threshold_ft` (`0` mide; **no** es el desplazamiento a aplicar: la traza de 0.9.37 ya viene alineada), `vref_kt` y `trace_stop_reason` (v0.9.38). **Y `TimestampUtc` tiene que volver en UTC**: el lector devolvia hora local y el cuerpo la reetiquetaba (5 h), y no lo veia nadie porque todos los consumidores usan diferencias. **Y el toque se congela al copiar el registro** (`FreezeTouchdownForReport`): payload y puntuacion leen esa lectura y no la viva, asi que el logbook no puede discrepar del PIREP (vuelo 20: `+156` contra `-155`).
+
+---
+
+## El falso «TAKEOFF ROLL» durante el rodaje — v0.9.2
+
+*(Movido aqui desde `CLAUDE.md` el 14/10/2026 para liberar presupuesto de instrucciones del agente; alli queda la regla —el debounce de 5 s— con un puntero. La causa raiz y las cifras estan tambien en `Docs/CHANGELOG.md` -> 0.9.2.)*
+
+PIREP real (`E7DK47e88XdabzoL`, SKRG rwy01->SKBQ) revelo que un pico breve de velocidad en tierra
+durante el rodaje (GS>30 kt por 1-2 s en la calle A, paralela a la pista 01/19) disparaba
+`FlightPhase.TakeoffRoll` — la unica transicion de `FlightPhaseStateMachine.cs` sin debounce (todas
+las demas usan el patron "temporizador pendiente, confirmar tras N s sostenidos"). La fase revertia a
+`TaxiOut` segundos despues (GS volvia a caer bajo 30 kt), pero para entonces
+`FlightManager.CheckProcedureAtPhaseEntry` ya habia disparado, de forma **irreversible**,
+penalizaciones pensadas para un despegue real: luces strobe/landing apagadas
+(`ApproachValidator.CheckPhaseEntryLights`, caso `TakeoffRoll`) y el QNH de salida
+(`ApproachValidator.CheckQnhAsync`) — ninguna es razonable mientras el avion sigue rodando, aun sin
+autorizacion a pista.
+
+Evidencia adicional del mismo bug: `NavDataService.ProjectOnRunway` (usada por
+`FindTakeoffRunway`/`FindTouchdownRunway`) seleccionaba la pista "mas cercana" solo por **rumbo**
+(tolerancia 45 grados, sin validar posicion) y, si ninguna pista pasaba `WithinFootprint`, devolvia
+igual el mejor candidato por rumbo en vez de `null` — por eso el log mostro
+`PISTA 19 | ALINEACION: 6325 ft desde umbral | CL: 614 ft de desviacion`, un resultado
+geometricamente imposible (614 ft de desviacion excede varias veces el ancho real de cualquier pista)
+que delataba que el avion estaba en la calle paralela, no en la pista.
+
+**Fix, tres partes:**
+
+1. `FlightPhaseStateMachine.cs` — `TaxiOut -> TakeoffRoll` ahora exige `GS>30 kt` sostenido **5 s**
+   (`_takeoffRollStart`/`TakeoffRollConfirmSec`), mismo patron que
+   `_climbStableStart`/`_stepClimbStart`/`_descentStart`.
+2. `NavDataService.ProjectOnRunway` — si ninguna pista pasa `WithinFootprint` tras la desambiguacion
+   de pistas paralelas, retorna `null` (antes devolvia el mejor match por rumbo sin validar
+   posicion) — mismo criterio que ya usaba `GetRunwayThreshold` para el caso analogo. Los callers
+   (`TelemetryCoordinator.LookupRunwayData`/`LookupTakeoffRunwayData`) ya manejan `null`.
+3. **Defensa en profundidad** — ni el QNH de salida ni las luces de `TakeoffRoll` tenian guard de
+   "ya evaluado este vuelo" (a diferencia del STD de climb `_originQnhChecked` o el QNH de llegada
+   `_destQnhChecked`/`_arrivalQnhFinalized`): un rebote repetido de fase, o un rechazo de despegue
+   real seguido de un segundo intento, habria penalizado dos veces. Nuevos
+   `ApproachValidator._departureQnhChecked`/`_takeoffLightsChecked` (reset en `Reset()`, un solo
+   intento por vuelo).
+
+No se agrego heuristica de posicion/pista al propio state machine — es "pure state machine" por
+diseno, sin acceso a NavData; el debounce de 5 s resuelve el caso real sin ese acoplamiento.

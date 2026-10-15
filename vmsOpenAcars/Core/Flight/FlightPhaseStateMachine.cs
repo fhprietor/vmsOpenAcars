@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.UI;
 using vmsOpenAcars.UI.Forms;
@@ -56,6 +57,17 @@ namespace vmsOpenAcars.Core.Flight
         private DateTime _pushbackStartTime    = DateTime.MinValue;
         private DateTime _stoppedStartTime     = DateTime.MinValue;
         private DateTime _takeoffRollStart     = DateTime.MinValue;
+        /// <summary>
+        /// Desde cuándo el avión parece estar volviendo a volar tras el toque
+        /// (<see cref="TouchAndGoPolicy.Indicates"/>). El touch-and-go ya no se decide con un ciclo
+        /// suelto: ver `TouchAndGoPolicy`.
+        /// </summary>
+        private DateTime _touchAndGoStart      = DateTime.MinValue;
+        /// <summary>
+        /// Desde cuándo el avión está en el suelo con una fase de vuelo. A los 15 s sostenidos
+        /// (<see cref="StuckAirPhasePolicy.ShouldWarn"/>) la máquina vuelve al camino del suelo.
+        /// </summary>
+        private DateTime _stuckAirPhaseStart   = DateTime.MinValue;
         private double   _maxAltitudeReached;
         private bool     _wasOnGround          = true;
         private bool     _hasLandedThisFlight;
@@ -142,6 +154,33 @@ namespace vmsOpenAcars.Core.Flight
             _phaseStartTime = Now();
         }
 
+        /// <summary>
+        /// **Cierra el vuelo a mano**: pone la fase en `OnBlock` y **publica la transición**, saltándose
+        /// las condiciones de `HandleTaxiIn` (parado 90 s con los motores apagados o en hotel mode).
+        ///
+        /// Existe por el PIREP real **`RBmrBApLOjWlYmO2`**: su BE58 se quedó clasificado en `Climb`
+        /// desde el falso touch-and-go de las 03:36:02 y **nunca volvió al suelo**, así que `OnBlock`
+        /// —al que sólo se llega desde `TaxiIn`— fue inalcanzable, `SEND PIREP` (que `MainViewModel`
+        /// habilita sólo en `OnBlock` o `Completed`) no apareció nunca y al piloto **sólo le quedaba
+        /// cancelar, que borra el PIREP**. El vuelo se salvó porque un administrador lo cerró a mano
+        /// desde phpVMS.
+        ///
+        /// **Es un override y se llama desde la UI, no desde la telemetría**: no sustituye a la
+        /// detección —eso es el rescate de `StuckAirPhasePolicy`— sino que da al piloto una salida
+        /// cuando la detección ya falló. Si la fase ya es `OnBlock`/`Completed` no hace nada y no
+        /// publica nada: repetirlo no puede duplicar el cierre.
+        /// </summary>
+        public bool ForceOnBlock()
+        {
+            var prev = CurrentPhase;
+            if (prev == FlightPhase.OnBlock || prev == FlightPhase.Completed) return false;
+
+            CurrentPhase    = FlightPhase.OnBlock;
+            _phaseStartTime = Now();
+            OnTransitioned?.Invoke(prev, FlightPhase.OnBlock);
+            return true;
+        }
+
         public void Reset()
         {
             CurrentPhase          = FlightPhase.Idle;
@@ -155,6 +194,8 @@ namespace vmsOpenAcars.Core.Flight
             _pushbackStartTime           = DateTime.MinValue;
             _stoppedStartTime            = DateTime.MinValue;
             _takeoffRollStart            = DateTime.MinValue;
+            _touchAndGoStart             = DateTime.MinValue;
+            _stuckAirPhaseStart          = DateTime.MinValue;
             _maxAltitudeReached          = 0;
             _wasOnGround                 = true;
             _hasLandedThisFlight         = false;
@@ -218,7 +259,21 @@ namespace vmsOpenAcars.Core.Flight
                 }
             }
 
-            if (inp.IsOnGround)
+            // ── ¿En el suelo? Lo dice la bandera **o** lo que hace el avión ─────────
+            // La bandera del simulador no puede ser la única fuente: en el PIREP real
+            // `RBmrBApLOjWlYmO2` publicó «en el aire» con el avión **rodando y aparcado** durante casi
+            // tres minutos —`msl` clavado en 873-880 ft, GS 6-21 kt, freno de parqueo puesto—, y con el
+            // reparto de tareas colgado de esa bandera el camino del suelo quedaba muerto: `OnBlock`
+            // sólo se alcanza desde `TaxiIn`, así que el piloto se quedó sin poder enviar el PIREP.
+            //
+            // La evidencia no sustituye a la bandera, la **complementa**: por debajo de 40 kt y sin
+            // tasa vertical no se vuela, diga lo que diga el simulador. `_wasOnGround` en cambio sigue
+            // siendo la bandera **cruda**: es el detector de flancos del toque y del despegue, y
+            // mezclarle la evidencia cambiaría cuándo se registra un aterrizaje.
+            bool onGroundEvidence = inp.IsOnGround
+                                 || StuckAirPhasePolicy.LooksOnGround(inp.GroundSpeed, inp.VerticalSpeed);
+
+            if (onGroundEvidence)
                 HandleGroundPhases(inp, prev);
             else
                 HandleAirPhases(inp, prev, cruiseAlt, approachThr, aglThr, canChange, isClimbing);
@@ -231,6 +286,39 @@ namespace vmsOpenAcars.Core.Flight
         {
             switch (CurrentPhase)
             {
+                // ── Fase de vuelo con el avión en el suelo: se vuelve al camino del suelo ─────
+                // Es la **garantía** de que `OnBlock` siempre es alcanzable. `OnBlock` sólo se llega
+                // desde `TaxiIn`, y `TaxiIn` sólo desde `AfterLanding`, así que una fase de vuelo con
+                // el avión rodando es un callejón sin salida del que el piloto no puede salir: es
+                // exactamente el estado en que quedó el PIREP real `RBmrBApLOjWlYmO2` —clasificado en
+                // `Climb` desde el falso touch-and-go de las 03:36:02 hasta que se cerró la
+                // aplicación— y por lo que se quedó **sin poder enviar el vuelo**.
+                //
+                // Espera los mismos 15 s sostenidos que el aviso (`StuckAirPhasePolicy.ShouldWarn`) y
+                // por el mismo motivo: no reaccionar a un rebote. El cambio de fase se ve en el log por
+                // el camino de siempre (`── AFTER LANDING ──`), así que el rescate no añade línea
+                // propia; el aviso del `FlightManager` es el que explica el porqué.
+                case FlightPhase.Takeoff:
+                case FlightPhase.Climb:
+                case FlightPhase.Enroute:
+                case FlightPhase.Descent:
+                    if (StuckAirPhasePolicy.IsStuck(CurrentPhase, inp.GroundSpeed, inp.VerticalSpeed))
+                    {
+                        if (_stuckAirPhaseStart == DateTime.MinValue)
+                            _stuckAirPhaseStart = Now();
+                        else if (StuckAirPhasePolicy.ShouldWarn((Now() - _stuckAirPhaseStart).TotalSeconds))
+                        {
+                            _stuckAirPhaseStart = DateTime.MinValue;
+                            // Si el vuelo ya aterrizó, `AfterLanding` es la fase que le toca —y de ahí
+                            // sale sola hacia `TaxiIn`—; si no llegó a aterrizar, el avión está en el
+                            // suelo y su sitio es el rodaje.
+                            TransitionTo(_hasLandedThisFlight ? FlightPhase.AfterLanding : FlightPhase.TaxiIn,
+                                         prev);
+                        }
+                    }
+                    else { _stuckAirPhaseStart = DateTime.MinValue; }
+                    break;
+
                 case FlightPhase.Boarding:
                     if (inp.GroundSpeed <= 0.5)
                     {
@@ -500,20 +588,35 @@ namespace vmsOpenAcars.Core.Flight
 
                 case FlightPhase.AfterLanding:
                 case FlightPhase.TaxiIn:
-                    // Touch-and-go / stop-and-go: the aircraft went airborne again after
-                    // landing. TaxiIn is handled here too because a slow landing lets the
-                    // AfterLanding→TaxiIn transition (GS<40) fire before the pilot applies
-                    // power — without this the machine would stay in TaxiIn for the whole
-                    // second flight and never reach OnBlock.
-                    if (inp.GroundSpeed > 60 && inp.SecondsSinceTouchdown >= 5.0)
+                    // Touch-and-go / stop-and-go: el avión volvió a volar después de aterrizar.
+                    // `TaxiIn` se mira aquí también porque un aterrizaje lento deja que la transición
+                    // `AfterLanding → TaxiIn` (GS<40) se dispare antes de que el piloto aplique
+                    // potencia: sin esto la máquina se quedaría en `TaxiIn` todo el segundo vuelo y no
+                    // llegaría nunca a `OnBlock`.
+                    //
+                    // **La decisión es de `TouchAndGoPolicy` y exige ascenso sostenido**, no un ciclo
+                    // suelto: con `GS > 60 && SecondsSinceTouchdown >= 5` el BE58 del PIREP real
+                    // `RBmrBApLOjWlYmO2` declaró un touch-and-go **inexistente** en plena carrera de
+                    // aterrizaje (96 kt al tocar, 88 kt cinco segundos después, VS **−178 fpm**) y la
+                    // fase se fue a `Climb` para no volver: `OnBlock` sólo se alcanza desde `TaxiIn`, y
+                    // el piloto se quedó sin poder enviar el PIREP.
+                    if (TouchAndGoPolicy.Indicates(CurrentPhase, inp.IsOnGround, inp.GroundSpeed,
+                                                   inp.VerticalSpeed, inp.SecondsSinceTouchdown))
                     {
-                        OnLog?.Invoke(_("Log_TouchAndGo", inp.GroundSpeed), Theme.Warning);
-                        _hasLandedThisFlight = false;
-                        _takeoffRollStart   = DateTime.MinValue;
-                        OnTouchAndGo?.Invoke();
-                        OnApproachGateReset?.Invoke();
-                        TransitionTo(FlightPhase.Climb, prev);
+                        if (_touchAndGoStart == DateTime.MinValue)
+                            _touchAndGoStart = Now();
+                        else if (TouchAndGoPolicy.Confirmed((Now() - _touchAndGoStart).TotalSeconds))
+                        {
+                            _touchAndGoStart     = DateTime.MinValue;
+                            _hasLandedThisFlight = false;
+                            _takeoffRollStart    = DateTime.MinValue;
+                            OnLog?.Invoke(_("Log_TouchAndGo", inp.GroundSpeed), Theme.Warning);
+                            OnTouchAndGo?.Invoke();
+                            OnApproachGateReset?.Invoke();
+                            TransitionTo(FlightPhase.Climb, prev);
+                        }
                     }
+                    else { _touchAndGoStart = DateTime.MinValue; }
                     break;
             }
         }

@@ -93,6 +93,32 @@
          se sostiene, y sigue penalizando el rodaje real con el taxi light apagado. -->
     <Compile Include="TaxiOutLightsGraceTests.cs" />
     <Compile Include="MapAttributionTests.cs" />
+    <!-- La barra de botones del ACARS: que quepa en el ancho mínimo de la ventana (con diez botones
+         no cabía y START/CANCEL quedaban sin poder pulsarse) y que cada botón tenga su rótulo en los
+         dos idiomas. -->
+    <Compile Include="MainButtonBarTests.cs" />
+    <!-- El criterio de la bonificación de motor único: el 46 % del PIREP real lA4ZVAzgxYzlG4vD, el
+         umbral justo, el truncado del porcentaje y el hueco de reloj que no se suma. -->
+    <Compile Include="SingleEngineTaxiPolicyTests.cs" />
+    <!-- Qué hueco entre dos ciclos de telemetría se puede sumar (lo comparten los dos contadores de
+         tiempo) y la fase de vuelo con el avión parado, con la racha real del BE58 RBmrBApLOjWlYmO2. -->
+    <Compile Include="SampleClockTests.cs" />
+    <Compile Include="StuckAirPhasePolicyTests.cs" />
+    <!-- El cierre manual del vuelo (ON BLOCK a petición del piloto): publica la transición —que es lo
+         que habilita SEND PIREP— y no se puede duplicar. El caso real RBmrBApLOjWlYmO2. -->
+    <Compile Include="ManualOnBlockTests.cs" />
+    <!-- El touch-and-go exige ascenso sostenido: la carrera de aterrizaje del BE58 RBmrBApLOjWlYmO2
+         (88 kt y −178 fpm) ya no declara un despegue inexistente que dejaba la fase sin salida. -->
+    <Compile Include="TouchAndGoTests.cs" />
+    <!-- El rescate de la fase y la evidencia de suelo: la garantía de que OnBlock es alcanzable aunque
+         la bandera de «en el suelo» del simulador se quede en falso, como en RBmrBApLOjWlYmO2. -->
+    <Compile Include="AirPhaseRescueTests.cs" />
+    <!-- El AGL fantasma del PIREP RBmrBApLOjWlYmO2: 264 ft con el avión aparcado, por medir contra la
+         elevación del origen. Con un toque capturado la referencia es el campo de llegada. -->
+    <Compile Include="TerrainReferenceTests.cs" />
+    <!-- La confirmación de la bandera de suelo en las dos direcciones: el parpadeo breve del simulador
+         ya no declara un despegue (PIREP RBmrBApLOjWlYmO2). -->
+    <Compile Include="GroundContactGateTests.cs" />
     <Compile Include="RouteCorridorTests.cs" />
     <Compile Include="RaasTests.cs" />
     <Compile Include="RaasReplayTests.cs" />

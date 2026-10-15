@@ -45,7 +45,12 @@ namespace vmsOpenAcars.Services
                             touchdown_dist_ft REAL,
                             centerline_dev_ft REAL,
                             score             INTEGER,
-                            metar_raw         TEXT
+                            metar_raw         TEXT,
+                            taxi_out_moving_sec      REAL,
+                            taxi_out_single_sec      REAL,
+                            taxi_in_moving_sec       REAL,
+                            taxi_in_single_sec       REAL,
+                            single_engine_bonus      INTEGER
                         )");
 
                     Exec(conn, @"
@@ -195,6 +200,17 @@ namespace vmsOpenAcars.Services
                     // vivo de la política ya no existe— y porque phpVMS lo pidió para su IA y su
                     // gráfico el 11/10/2026. NULL = la captura no llegó a cerrarse (o fila anterior).
                     EnsureColumn(conn, "flights", "trace_stop_reason", "TEXT");
+
+                    // ── El rodaje con un solo motor, en segundos ─────────────────────
+                    // Las cifras que deciden la bonificación, para poder revisar un vuelo semanas
+                    // después sin reconstruirlo de la traza de 30 s. Van las cuatro medidas y el
+                    // veredicto: el PIREP real `lA4ZVAzgxYzlG4vD` hizo **290 s de 630 (46 %)** y hubo
+                    // que deducirlo a mano porque no quedaba el número en ningún sitio.
+                    EnsureColumn(conn, "flights", "taxi_out_moving_sec",  "REAL");
+                    EnsureColumn(conn, "flights", "taxi_out_single_sec",  "REAL");
+                    EnsureColumn(conn, "flights", "taxi_in_moving_sec",   "REAL");
+                    EnsureColumn(conn, "flights", "taxi_in_single_sec",   "REAL");
+                    EnsureColumn(conn, "flights", "single_engine_bonus",  "INTEGER");
 
                     // La traza del flare también se migra por si la tabla viene de una versión
                     // anterior con menos columnas: `CREATE TABLE IF NOT EXISTS` no toca una tabla que
@@ -423,7 +439,9 @@ namespace vmsOpenAcars.Services
                          landing_runway_true_deg, runway_length_ft,
                          flare_capture_armed, aircraft_icao,
                          aircraft_title, aircraft_model, landing_weight_lbs,
-                         offset_threshold_ft, vref_kt, trace_stop_reason)
+                         offset_threshold_ft, vref_kt, trace_stop_reason,
+                         taxi_out_moving_sec, taxi_out_single_sec,
+                         taxi_in_moving_sec, taxi_in_single_sec, single_engine_bonus)
                     VALUES
                         (@fn, @org, @dest, @rwy, @dt,
                          @rate, @gf, @dist, @cl,
@@ -432,7 +450,9 @@ namespace vmsOpenAcars.Services
                          @wgst, @hw, @xw,
                          @rwytrue, @rlen, @flareArmed, @acft,
                          @acftTitle, @acftModel, @lw,
-                         @offset, @vref, @stopReason)";
+                         @offset, @vref, @stopReason,
+                         @taxiOutMoving, @taxiOutSingle,
+                         @taxiInMoving, @taxiInSingle, @seBonus)";
 
                 cmd.Parameters.AddWithValue("@fn",    r.FlightNumber ?? "");
                 cmd.Parameters.AddWithValue("@org",   r.Origin ?? "");
@@ -484,6 +504,14 @@ namespace vmsOpenAcars.Services
                 cmd.Parameters.AddWithValue("@stopReason",
                     string.IsNullOrWhiteSpace(r.TraceStopReason) ? (object)DBNull.Value
                                                                  : r.TraceStopReason.Trim());
+                // El rodaje con un solo motor. Nullable de verdad: `null` es «fila anterior a las
+                // columnas» y se guarda NULL — un 0 sería «rodó y no lo hizo con un motor», que es
+                // otra cosa.
+                cmd.Parameters.AddWithValue("@taxiOutMoving", (object)r.TaxiOutMovingSeconds       ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@taxiOutSingle", (object)r.TaxiOutSingleEngineSeconds ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@taxiInMoving",  (object)r.TaxiInMovingSeconds        ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@taxiInSingle",  (object)r.TaxiInSingleEngineSeconds  ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@seBonus",       r.SingleEngineBonus ? 1 : 0);
                 cmd.ExecuteNonQuery();
             }
             using (var cmd2 = conn.CreateCommand())
@@ -513,7 +541,9 @@ namespace vmsOpenAcars.Services
                                landing_runway_true_deg, runway_length_ft,
                                flare_capture_armed, aircraft_icao,
                                aircraft_title, aircraft_model, landing_weight_lbs,
-                               offset_threshold_ft, vref_kt, trace_stop_reason
+                               offset_threshold_ft, vref_kt, trace_stop_reason,
+                               taxi_out_moving_sec, taxi_out_single_sec,
+                               taxi_in_moving_sec, taxi_in_single_sec, single_engine_bonus
                         FROM flights
                         ORDER BY flight_date DESC";
 
@@ -564,7 +594,16 @@ namespace vmsOpenAcars.Services
                                 VrefKt              = r.IsDBNull(26) ? (int?)null    : r.GetInt32(26),
                                 // El motivo del cierre de la captura. NULL en las filas anteriores a la
                                 // columna y en los vuelos donde la captura no llegó a cerrarse.
-                                TraceStopReason     = r.IsDBNull(27) ? null : r.GetString(27)
+                                TraceStopReason     = r.IsDBNull(27) ? null : r.GetString(27),
+                                // El rodaje con un solo motor, al final para no mover índices. NULL en
+                                // las filas anteriores: la base local de un piloto que aún no ha
+                                // volado con esta versión.
+                                TaxiOutMovingSeconds       = r.IsDBNull(28) ? (double?)null : r.GetDouble(28),
+                                TaxiOutSingleEngineSeconds = r.IsDBNull(29) ? (double?)null : r.GetDouble(29),
+                                TaxiInMovingSeconds        = r.IsDBNull(30) ? (double?)null : r.GetDouble(30),
+                                TaxiInSingleEngineSeconds  = r.IsDBNull(31) ? (double?)null : r.GetDouble(31),
+                                // En la duda, «no cobrada»: es lo conservador.
+                                SingleEngineBonus          = !r.IsDBNull(32) && r.GetInt32(32) != 0
                             });
                         }
                     }

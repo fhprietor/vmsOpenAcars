@@ -52,7 +52,8 @@ namespace vmsOpenAcars.Core.Flight
         public int LastFlightScore { get; private set; } = 0;
         private int _apEngagedCounter = 0;
         private const int ApEngageDebounce = 6;
-        private const double SingleEngineTaxiMinRatio = 0.5;
+        // El umbral del motor único vive en `Helpers/SingleEngineTaxiPolicy.MinPercent`: estaba aquí
+        // y duplicado en la comparación del rodaje de llegada, y ahora la regla está en un solo sitio.
         // Escritos desde Task.Run (TelemetryCoordinator.ReconfirmApproachRunway /
         // LookupRunwayData) y leídos desde el hilo de polling (BuildPhaseInput,
         // BuildScoreData) y desde el de UI (FilePirep). volatile garantiza que el hilo
@@ -107,11 +108,34 @@ namespace vmsOpenAcars.Core.Flight
             private set { _currentAirport = value; OnAirportChanged?.Invoke(value); }
         }
         public double PlannedDistanceNm => _activePlan?.Distance ?? 0;
+        /// <summary>
+        /// **¿Se ha capturado algún toque en este vuelo?** Es la marca de «este avión ya está en el campo
+        /// de llegada», y tiene dos propiedades que la hacen la buena: **sobrevive al touch-and-go** —que
+        /// sólo rearma la geometría de pista y deja el `Fpm` para la puntuación— y se limpia con el
+        /// vuelo.
+        ///
+        /// Hace falta porque la fase sí puede mentir: en el PIREP real `RBmrBApLOjWlYmO2` se quedó en
+        /// `Climb` con el avión aparcado en el destino, y con la referencia colgada de la fase el AGL
+        /// publicado salió de **264 ft** con el avión en el suelo.
+        /// </summary>
+        public bool HasTouchedDownThisFlight => _td.Fpm.HasValue;
+
+        /// <summary>Elevación del campo de llegada: la real si el desvío ya se confirmó, si no la planeada.</summary>
+        private double ArrivalElevationOrPlanned
+            => double.IsNaN(ArrivalAirportElevationRaw) ? _activePlan.DestinationElevation
+                                                        : ArrivalAirportElevationRaw;
+
         public double ReferenceAirportElevation
         {
             get
             {
                 if (_activePlan == null) return 0;
+
+                // **Ya aterrizó: el campo de debajo es el de llegada, diga lo que diga la fase.** Sin
+                // esto, una fase equivocada (el `Climb` del PIREP `RBmrBApLOjWlYmO2`) devolvía la
+                // elevación del **origen** y fabricaba un AGL de 264 ft con el avión aparcado.
+                if (HasTouchedDownThisFlight) return ArrivalElevationOrPlanned;
+
                 switch (CurrentPhase)
                 {
                     case FlightPhase.Descent:
@@ -124,9 +148,7 @@ namespace vmsOpenAcars.Core.Flight
                     case FlightPhase.Completed:
                         // Elevación real del aeropuerto de llegada si el desvío ya se
                         // confirmó; si no, la planeada del destino.
-                        return double.IsNaN(ArrivalAirportElevationRaw)
-                                   ? _activePlan.DestinationElevation
-                                   : ArrivalAirportElevationRaw;
+                        return ArrivalElevationOrPlanned;
                     default:
                         return _activePlan.OriginElevation;
                 }
@@ -243,6 +265,21 @@ namespace vmsOpenAcars.Core.Flight
         public bool IsParkingBrakeSet => _isParkingBrakeSet;
         public bool AreEnginesOn => _areEnginesOn;
 
+        /// <summary>
+        /// El veredicto del rodaje **de salida**, con sus cifras. Lo consume el registro del
+        /// aterrizaje (`AcarsReporter.SnapshotLandingRecord`) para que la base local guarde lo mismo
+        /// que decidió la bonificación: la regla se evalúa en un solo sitio
+        /// (<see cref="SingleEngineTaxiPolicy"/>) y aquí no se recalcula nada.
+        /// </summary>
+        internal SingleEngineTaxiVerdict TaxiOutSingleEngineVerdict()
+            => SingleEngineTaxiPolicy.Evaluate(
+                _pen.TaxiOutMovingSeconds, _pen.TaxiOutSingleEngineSeconds, _pen.BothEnginesRunning);
+
+        /// <summary>El veredicto del rodaje **de llegada**, con sus cifras. Ver el de salida.</summary>
+        internal SingleEngineTaxiVerdict TaxiInSingleEngineVerdict()
+            => SingleEngineTaxiPolicy.Evaluate(
+                _pen.TaxiInMovingSeconds, _pen.TaxiInSingleEngineSeconds, _pen.BothEnginesRunning);
+
         public bool HasSimulatorData { get; private set; }
 
         public double CurrentAGL
@@ -341,28 +378,11 @@ namespace vmsOpenAcars.Core.Flight
 
             _phaseMachine.OnBlockOffNeeded += () => Task.Run(() => UpdateBlockOffTime());
 
-            _phaseMachine.OnBlockOnDetected += () =>
-            {
-                // Taxi-in fuel log
-                if (_fuelAtTaxiInStart > 0)
-                {
-                    double taxiInFuel = _fuelAtTaxiInStart - CurrentFuel;
-                    if (taxiInFuel > 0)
-                        OnLog?.Invoke(_("Log_FuelTaxiIn", (int)Math.Round(taxiInFuel)), Theme.MainText);
-                }
-                // Single-engine TaxiIn evaluation
-                if (!_pen.SingleEngineTaxiDetected && _pen.BothEnginesRunning &&
-                    _pen.TaxiInMovingCycles > 0 &&
-                    (double)_pen.TaxiInSingleEngineCycles / _pen.TaxiInMovingCycles >= SingleEngineTaxiMinRatio)
-                {
-                    _pen.SingleEngineTaxiDetected = true;
-                    OnLog?.Invoke(_("Log_SingleEngineTaxiIn"), Theme.MainText);
-                    OnOsdMessage?.Invoke("SINGLE ENGINE TAXI  +5 PTS", OsdSeverity.Success);
-                }
-                _timer.RecordBlockOn(DateTime.UtcNow);
-                OnLog?.Invoke(_("Log_BlockOn", _timer.ServerBlockOnTime.ToString("HH:mm:ss")), Theme.MainText);
-                OnBlockDetected?.Invoke();
-            };
+            // El cierre del vuelo vive en un método y no en la lambda porque **hay dos caminos** que
+            // tienen que hacer exactamente lo mismo: la detección (parado 90 s con los motores
+            // apagados) y el cierre manual del piloto (`ForceOnBlock`, ver la Ola 0 y el PIREP
+            // `RBmrBApLOjWlYmO2`).
+            _phaseMachine.OnBlockOnDetected += CompleteBlockOn;
 
             _phaseMachine.OnApproachGateReset += () => _approachValidator.ResetGate();
 
@@ -448,12 +468,15 @@ namespace vmsOpenAcars.Core.Flight
                 double taxiOutFuel = _initialFuel - CurrentFuel;
                 if (taxiOutFuel > 0)
                     OnLog?.Invoke(_("Log_FuelTaxiOut", (int)Math.Round(taxiOutFuel)), Theme.MainText);
-                if (!_pen.SingleEngineTaxiDetected && _pen.BothEnginesRunning &&
-                    _pen.TaxiOutMovingCycles > 0 &&
-                    (double)_pen.TaxiOutSingleEngineCycles / _pen.TaxiOutMovingCycles >= SingleEngineTaxiMinRatio)
+                // Veredicto del criterio de motor único, **se otorgue o no**. Hasta v0.9.42 el piloto
+                // que rodaba con un motor y no llegaba al 50 % no veía ni una línea: el PIREP real
+                // `lA4ZVAzgxYzlG4vD` hizo 290 s de 630 (46 %) en la salida y el log quedó mudo. Ver
+                // `Helpers/SingleEngineTaxiPolicy.cs`.
+                var singleEngineOut = EvaluateAndPublishSingleEngineTaxi(
+                    "TaxiPhaseOut", _pen.TaxiOutMovingSeconds, _pen.TaxiOutSingleEngineSeconds);
+                if (!_pen.SingleEngineTaxiDetected && singleEngineOut.Awarded)
                 {
                     _pen.SingleEngineTaxiDetected = true;
-                    OnLog?.Invoke(_("Log_SingleEngineTaxiOut"), Theme.MainText);
                     OnOsdMessage?.Invoke("SINGLE ENGINE TAXI  +5 PTS", OsdSeverity.Success);
                 }
                 if (!string.IsNullOrEmpty(_activePlan?.Origin))
@@ -469,6 +492,58 @@ namespace vmsOpenAcars.Core.Flight
             }
         }
 
+
+        /// <summary>
+        /// Publica el veredicto del criterio de motor único y lo devuelve, para que el llamante decida
+        /// con él la bonificación y el OSD.
+        ///
+        /// **Se publica se otorgue o no, y ahí está el cambio**: hasta v0.9.42 sólo se escribía algo
+        /// cuando la bonificación se concedía, así que un rodaje con un motor por debajo del umbral era
+        /// indistinguible de no haber rodado nunca con uno. El caso real `lA4ZVAzgxYzlG4vD` —**290 s
+        /// de 630 (46 %)** en la salida— se quedó sin una sola línea en el log.
+        ///
+        /// Las cifras que salen son las mismas que deciden (`SingleEngineTaxiPolicy.Evaluate`), no una
+        /// segunda cuenta que pudiera decir otra cosa.
+        /// </summary>
+        private SingleEngineTaxiVerdict EvaluateAndPublishSingleEngineTaxi(
+            string phaseLabelKey, double movingSeconds, double singleEngineSeconds)
+        {
+            var verdict = SingleEngineTaxiPolicy.Evaluate(
+                movingSeconds, singleEngineSeconds, _pen.BothEnginesRunning);
+            PublishSingleEngineTaxiVerdict(phaseLabelKey, verdict);
+            return verdict;
+        }
+
+        /// <summary>
+        /// Publica el veredicto del **rodaje completo** —las dos fases sumadas en un solo porcentaje— y lo
+        /// devuelve. Va aparte de <see cref="EvaluateAndPublishSingleEngineTaxi"/> porque el porcentaje
+        /// total no es un camino a la bonificación, sino la cifra que la explica: ver el comentario del
+        /// llamante y `SingleEngineTaxiPolicy.EvaluateWholeTaxi`.
+        /// </summary>
+        private SingleEngineTaxiVerdict EvaluateAndPublishWholeTaxi()
+        {
+            var verdict = SingleEngineTaxiPolicy.EvaluateWholeTaxi(
+                _pen.TaxiOutMovingSeconds, _pen.TaxiOutSingleEngineSeconds,
+                _pen.TaxiInMovingSeconds,  _pen.TaxiInSingleEngineSeconds,
+                _pen.BothEnginesRunning);
+            PublishSingleEngineTaxiVerdict("TaxiPhaseTotal", verdict);
+            return verdict;
+        }
+
+        /// <summary>
+        /// Escribe la línea del veredicto, **se otorgue o no**: las cifras que salen son las mismas que
+        /// deciden, no una segunda cuenta que pudiera decir otra cosa.
+        /// </summary>
+        private void PublishSingleEngineTaxiVerdict(string phaseLabelKey, SingleEngineTaxiVerdict verdict)
+        {
+            OnLog?.Invoke(_("Log_SingleEngineTaxiVerdict",
+                _(phaseLabelKey),
+                (int)Math.Round(verdict.SingleEngineSeconds),
+                (int)Math.Round(verdict.MovingSeconds),
+                verdict.Percent,
+                SingleEngineTaxiPolicy.MinPercent,
+                _(SingleEngineTaxiPolicy.OutcomeKey(verdict.Outcome))), Theme.MainText);
+        }
 
         private void ValidateAirportMatch()
         {
@@ -652,6 +727,77 @@ namespace vmsOpenAcars.Core.Flight
             Interlocked.Exchange(ref _arrivalAirportElevationBits, BitConverter.DoubleToInt64Bits(UnknownElevation));
         }
 
+        /// <summary>
+        /// ¿Tiene sentido ofrecerle al piloto el cierre manual? Hay vuelo abierto y la fase todavía no
+        /// es `OnBlock`: exactamente la situación en la que `SEND PIREP` no está disponible y
+        /// **cancelar es la única salida que ofrece la aplicación** — y borra el PIREP.
+        /// </summary>
+        public bool CanForceOnBlock
+            => !string.IsNullOrEmpty(ActivePirepId)
+            && CurrentPhase != FlightPhase.OnBlock
+            && CurrentPhase != FlightPhase.Completed;
+
+        /// <summary>
+        /// **Cierra el vuelo a mano**, por si la detección no llegó. Hace lo mismo que el camino
+        /// automático —el mismo <see cref="CompleteBlockOn"/>, no una copia— y mueve la fase a
+        /// `OnBlock`, que es lo que habilita `SEND PIREP` en `MainViewModel`.
+        ///
+        /// Nace del PIREP real **`RBmrBApLOjWlYmO2`**: su BE58 se quedó clasificado en `Climb` desde el
+        /// falso touch-and-go de las 03:36:02, `OnBlock` fue inalcanzable y al piloto **sólo le quedaba
+        /// cancelar**, que borra el PIREP. Aquel vuelo lo tuvo que cerrar un administrador desde
+        /// phpVMS.
+        /// </summary>
+        /// <returns><c>true</c> si cerró el vuelo; <c>false</c> si no había nada que cerrar.</returns>
+        public bool ForceOnBlock()
+        {
+            if (!CanForceOnBlock) return false;
+
+            OnLog?.Invoke(_("Log_ManualOnBlock"), Theme.Warning);
+            _phaseMachine.ForceOnBlock();
+            CompleteBlockOn();
+            return true;
+        }
+
+        /// <summary>
+        /// El cierre del vuelo, **idéntico por los dos caminos**: lo llama `HandleTaxiIn` a través de
+        /// `OnBlockOnDetected` cuando se cumple la condición (parado 90 s con los motores apagados), o
+        /// <see cref="ForceOnBlock"/> cuando el piloto lo pide desde la interfaz. Que sea el mismo
+        /// método es el contrato: el cierre manual no puede cerrar «a medias».
+        /// </summary>
+        private void CompleteBlockOn()
+        {
+            // Taxi-in fuel log
+            if (_fuelAtTaxiInStart > 0)
+            {
+                double taxiInFuel = _fuelAtTaxiInStart - CurrentFuel;
+                if (taxiInFuel > 0)
+                    OnLog?.Invoke(_("Log_FuelTaxiIn", (int)Math.Round(taxiInFuel)), Theme.MainText);
+            }
+            // Mismo veredicto para el rodaje de llegada, con sus propias cifras.
+            var singleEngineIn = EvaluateAndPublishSingleEngineTaxi(
+                "TaxiPhaseIn", _pen.TaxiInMovingSeconds, _pen.TaxiInSingleEngineSeconds);
+            if (!_pen.SingleEngineTaxiDetected && singleEngineIn.Awarded)
+            {
+                _pen.SingleEngineTaxiDetected = true;
+                OnOsdMessage?.Invoke("SINGLE ENGINE TAXI  +5 PTS", OsdSeverity.Success);
+            }
+
+            // Y el **rodaje completo**, con las dos fases sumadas en un solo porcentaje (Ola 4). Se
+            // publica como **información**, no como un tercer camino a la bonificación, y no por
+            // prudencia: es **matemáticamente imposible** que la suma apruebe lo que las fases no
+            // aprueben. Con `a/w1 < 0,5` y `b/w2 < 0,5` se tiene `a + b < 0,5·(w1 + w2)`, así que
+            // `(a+b)/(w1+w2) ≥ 0,5` obliga a que **alguna** fase llegue sola al umbral — y ésa ya habría
+            // premiado arriba. Lo que sí aporta el número es el diagnóstico: el vuelo real
+            // `lA4ZVAzgxYzlG4vD` hizo **290 s de 630** en la salida (46 %) y **26 %** en el rodaje
+            // completo, que es la cifra que explica por qué no cobró. Ver `SingleEngineTaxiPolicyTests`.
+            if (!_pen.SingleEngineTaxiDetected)
+                EvaluateAndPublishWholeTaxi();
+
+            _timer.RecordBlockOn(DateTime.UtcNow);
+            OnLog?.Invoke(_("Log_BlockOn", _timer.ServerBlockOnTime.ToString("HH:mm:ss")), Theme.MainText);
+            OnBlockDetected?.Invoke();
+        }
+
         public bool CanStartFlight()
         {
             if (_activePilot == null) return false;
@@ -660,12 +806,39 @@ namespace vmsOpenAcars.Core.Flight
             return true;
         }
 
+        /// <summary>
+        /// Marca del ciclo de telemetría anterior. **Un solo reloj para todos los contadores de tiempo
+        /// del vuelo** —el rodaje con un motor y la fase atascada—: si cada regla llevara el suyo, dos
+        /// reglas distintas podrían estar midiendo huecos distintos del mismo ciclo.
+        /// </summary>
+        private DateTime _lastTelemetrySampleUtc = DateTime.MinValue;
+
+        /// <summary>
+        /// Segundos creíbles desde el ciclo anterior. Un hueco negativo (reloj movido hacia atrás) o
+        /// mayor que <see cref="SampleClock.MaxGapSeconds"/> —equipo suspendido a mitad de vuelo— vale
+        /// cero: contar ese salto regalaría minutos de rodaje que no se volaron.
+        /// </summary>
+        private double ConsumeTelemetryDeltaSeconds()
+        {
+            double dt = SampleClock.CountableSeconds(
+                _lastTelemetrySampleUtc == DateTime.MinValue
+                    ? 0.0
+                    : (DateTime.UtcNow - _lastTelemetrySampleUtc).TotalSeconds);
+            _lastTelemetrySampleUtc = DateTime.UtcNow;
+            return dt;
+        }
+
         public void UpdateTelemetry(RawTelemetryData data)
         {
             if (data == null) return;
             ApplyRawData(data);
             CheckEngineEvents(data);
-            UpdateSingleEngineTaxi(data);
+
+            // Los dos contadores de tiempo del vuelo comparten el mismo delta creíble.
+            double dt = ConsumeTelemetryDeltaSeconds();
+            UpdateSingleEngineTaxi(data, dt);
+            UpdateStuckAirPhase(dt);
+
             UpdateFlightTracking(data);
 
             // Gracia del check de luces de `TaxiOut` (v0.9.40): la entrada en la fase **armó** el

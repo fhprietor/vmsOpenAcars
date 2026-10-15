@@ -1022,8 +1022,14 @@ namespace vmsOpenAcars.ViewModels
         {
             if (string.IsNullOrEmpty(_flightManager?.ActivePirepId)) return;
 
+            // La referencia sale con la marca de «ya aterrizó»: si el vuelo tocó tierra, el campo de
+            // debajo es el de llegada **en cualquier fase**. Sin eso, la fase equivocada del PIREP
+            // `RBmrBApLOjWlYmO2` (en `Climb` con el avión aparcado) medía el AGL contra la elevación del
+            // **origen** y publicaba 264 ft con el avión en el suelo.
             double refElevation = _flightManager.ArrivalAirportElevationFt
-                ?? FlightPhaseHelper.GetTerrainElevation(_flightManager.CurrentPhase, _flightManager.ActivePlan);
+                ?? FlightPhaseHelper.GetTerrainElevation(_flightManager.CurrentPhase,
+                                                         _flightManager.ActivePlan,
+                                                         _flightManager.HasTouchedDownThisFlight);
             double aglRelative  = e.AltitudeFeet - refElevation;
             bool radarAvailable = !e.IsOnGround && e.RadarAltitudeFeet > 0.0;
             double aglFinal     = radarAvailable ? e.RadarAltitudeFeet : Math.Max(0.0, aglRelative);

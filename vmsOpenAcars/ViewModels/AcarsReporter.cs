@@ -458,6 +458,12 @@ namespace vmsOpenAcars.ViewModels
                                               _landingWx?.WindGustKt,
                                               fm.TouchdownRunwayTrueHeadingDeg);
 
+            // El rodaje con un solo motor: se pide **el veredicto** —que trae las cifras y la
+            // decisión— en vez de recalcular el porcentaje aquí. Así la base local dice exactamente
+            // lo mismo que la bonificación, y el número que se guarda es el que decidió.
+            var singleEngineOut = fm.TaxiOutSingleEngineVerdict();
+            var singleEngineIn  = fm.TaxiInSingleEngineVerdict();
+
             return new FlightRecord
             {
                 FlightNumber    = plan?.FlightNumber     ?? "",
@@ -518,6 +524,16 @@ namespace vmsOpenAcars.ViewModels
                 // El Vref del plan (SimBrief, TLR del aterrizaje). Es una lectura del plan al peso de
                 // planeo; sin TLR se queda null y no se deriva del tipo de avión.
                 VrefKt               = plan?.VrefKt,
+
+                // El rodaje con un solo motor, con las cifras que decidieron la bonificación. Se
+                // guardan siempre —se cobre o no—: el vuelo real `lA4ZVAzgxYzlG4vD` se quedó en 46 %
+                // sin dejar ni un número en ningún sitio, y hubo que reconstruirlo de la traza.
+                TaxiOutMovingSeconds       = singleEngineOut.MovingSeconds,
+                TaxiOutSingleEngineSeconds = singleEngineOut.SingleEngineSeconds,
+                TaxiInMovingSeconds        = singleEngineIn.MovingSeconds,
+                TaxiInSingleEngineSeconds  = singleEngineIn.SingleEngineSeconds,
+                // La bonificación se otorga una sola vez y en la primera fase que la gane.
+                SingleEngineBonus          = singleEngineOut.Awarded || singleEngineIn.Awarded,
             };
         }
 

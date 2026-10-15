@@ -189,6 +189,25 @@
     <Compile Include="Helpers\PirepMassUnits.cs" />
     <Compile Include="Helpers\SimbriefDispatchPolicy.cs" />
     <Compile Include="Helpers\MapAttribution.cs" />
+    <!-- La barra de botones del ACARS y el ancho que necesita: con diez botones no cabía en el
+         `MinimumSize` de la ventana y `START`/`CANCEL` quedaban sin poder pulsarse. -->
+    <Compile Include="Helpers\MainButtonBar.cs" />
+    <!-- El criterio de la bonificación de motor único, en un solo sitio y medido en segundos: la
+         regla estaba escrita dos veces sobre ciclos de sondeo y el veredicto negativo no se publicaba. -->
+    <Compile Include="Helpers\SingleEngineTaxiPolicy.cs" />
+    <!-- Qué hueco de reloj entre dos ciclos de telemetría es creíble: lo comparten los dos contadores
+         de tiempo (motor único y fase atascada). -->
+    <Compile Include="Helpers\SampleClock.cs" />
+    <!-- «Fase de vuelo con el avión parado»: el BE58 del PIREP RBmrBApLOjWlYmO2 se quedó en Climb y
+         OnBlock fue inalcanzable, así que el piloto no pudo enviar el PIREP. -->
+    <Compile Include="Helpers\StuckAirPhasePolicy.cs" />
+    <!-- Cuándo un avión que acaba de tomar está volviendo a volar y cuándo sólo rueda: la velocidad
+         no los distingue y la tasa vertical sí. El falso touch-and-go del PIREP RBmrBApLOjWlYmO2. -->
+    <Compile Include="Helpers\TouchAndGoPolicy.cs" />
+    <!-- La confirmación de la bandera de suelo en las dos direcciones: el código ya sabía que el sim
+         publica OnGround=0 brevemente tras el primer contacto, pero el paso a «aire» no se confirmaba
+         y esa bandera llegaba a la máquina de fases (PIREP RBmrBApLOjWlYmO2). -->
+    <Compile Include="Helpers\GroundContactGate.cs" />
     <Compile Include="Helpers\PolylineResampler.cs" />
     <!-- Gracia de entrada de fase (v0.9.40): el falso TaxiOut de 01:58:56 ya no cobra el −5. -->
     <Compile Include="Helpers\PhaseEntryGrace.cs" />
