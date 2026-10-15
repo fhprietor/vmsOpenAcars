@@ -2,6 +2,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using static vmsOpenAcars.Helpers.L;
 
 namespace vmsOpenAcars.UI.Forms
 {
@@ -36,6 +37,13 @@ namespace vmsOpenAcars.UI.Forms
         // rectángulos están en coordenadas de `contentPanel`, así que son comparables.
         internal Rectangle MessageHostBounds => pnlMessage.Bounds;
         internal Rectangle ButtonsBounds     => panelBotones.Bounds;
+
+        // Rótulos de los botones, para poder comprobar sin enseñar la ventana que salen del fichero
+        // de idioma y no escritos a mano (tests). El popup es el de toda la aplicación: hasta la
+        // 0.9.43 decía YES / NO / CANCEL en inglés aunque el mensaje sí estuviera traducido.
+        internal string Button1Text => btn1?.Text;
+        internal string Button2Text => btn2?.Text;
+        internal string Button3Text => btn3?.Text;
 
         /// <summary>Alto que pide el texto ya envuelto: si no cabe en su panel, hay que desplazar.</summary>
         internal int MessagePreferredHeight  => lblMessage.PreferredHeight;
@@ -166,41 +174,41 @@ namespace vmsOpenAcars.UI.Forms
             switch (_buttons)
             {
                 case EcamDialogButtons.OK:
-                    btn1 = CreateButton("OK", Color.FromArgb(0, 100, 0));
+                    btn1 = CreateButton(_("BtnOk"), Color.FromArgb(0, 100, 0));
                     btn1.Click += (s, e) => { this.DialogResult = DialogResult.OK; Close(); };
                     panelBotones.Controls.Add(btn1);
                     break;
 
                 case EcamDialogButtons.OKCancel:
-                    btn1 = CreateButton("OK", Color.FromArgb(0, 100, 0));
+                    btn1 = CreateButton(_("BtnOk"), Color.FromArgb(0, 100, 0));
                     btn1.Click += (s, e) => { this.DialogResult = DialogResult.OK; Close(); };
                     panelBotones.Controls.Add(btn1);
 
-                    btn2 = CreateButton("CANCEL", Color.FromArgb(100, 0, 0));
+                    btn2 = CreateButton(_("BtnCancel"), Color.FromArgb(100, 0, 0));
                     btn2.Click += (s, e) => { this.DialogResult = DialogResult.Cancel; Close(); };
                     panelBotones.Controls.Add(btn2);
                     break;
 
                 case EcamDialogButtons.YesNo:
-                    btn1 = CreateButton("YES", Color.FromArgb(0, 100, 0));
+                    btn1 = CreateButton(_("BtnYes"), Color.FromArgb(0, 100, 0));
                     btn1.Click += (s, e) => { this.DialogResult = DialogResult.Yes; Close(); };
                     panelBotones.Controls.Add(btn1);
 
-                    btn2 = CreateButton("NO", Color.FromArgb(100, 0, 0));
+                    btn2 = CreateButton(_("BtnNo"), Color.FromArgb(100, 0, 0));
                     btn2.Click += (s, e) => { this.DialogResult = DialogResult.No; Close(); };
                     panelBotones.Controls.Add(btn2);
                     break;
 
                 case EcamDialogButtons.YesNoCancel:
-                    btn1 = CreateButton("YES", Color.FromArgb(0, 100, 0));
+                    btn1 = CreateButton(_("BtnYes"), Color.FromArgb(0, 100, 0));
                     btn1.Click += (s, e) => { this.DialogResult = DialogResult.Yes; Close(); };
                     panelBotones.Controls.Add(btn1);
 
-                    btn2 = CreateButton("NO", Color.FromArgb(100, 0, 0));
+                    btn2 = CreateButton(_("BtnNo"), Color.FromArgb(100, 0, 0));
                     btn2.Click += (s, e) => { this.DialogResult = DialogResult.No; Close(); };
                     panelBotones.Controls.Add(btn2);
 
-                    btn3 = CreateButton("CANCEL", Color.FromArgb(100, 100, 100));
+                    btn3 = CreateButton(_("BtnCancel"), Color.FromArgb(100, 100, 100));
                     btn3.Click += (s, e) => { this.DialogResult = DialogResult.Cancel; Close(); };
                     panelBotones.Controls.Add(btn3);
                     break;

@@ -2,6 +2,29 @@
 
 ---
 
+## [0.9.44] — 15/10/2026
+
+### Fixed
+
+**El popup de confirmación tenía los botones en inglés.** Reportado por el mantenedor en el modal de
+salir de la aplicación: se leía «¿Salir de la aplicación?» con **YES** y **NO** debajo. El mensaje sí
+estaba traducido (`ConfirmExit`); los rótulos estaban **escritos a mano** dentro de `EcamDialog`
+(`"OK"`, `"YES"`, `"NO"`, `"CANCEL"`), que es el diálogo de confirmación de **toda** la aplicación, así
+que el fallo no era de ese modal sino de todos los que usan el popup —incluido el aviso de
+discrepancia de aeronave—. Ahora salen de `Languages/{es,en}.json` (`BtnOk`, `BtnYes`, `BtnNo`, más el
+`BtnCancel` que ya existía) y se leen **ACEPTAR / SÍ / NO / CANCELAR**.
+
+Se corrige además el mensaje de `ConfirmCancelFlightOrClose`, que **nombra los botones en su texto**
+(«YES    · Cerrar el vuelo…») y habría dejado de coincidir con ellos.
+
+### Tests
+
+`EcamDialogTests.ButtonLabels_ComeFromTheLanguageFile`: los rótulos con el idioma en español y en
+inglés, comprobando que no vuelven a salir los de antes (el literal inglés se colaba con el mensaje ya
+traducido). **805 tests** en total: 804 pasan, 0 fallan, 1 se omite sola.
+
+---
+
 ## [0.9.43] — 15/10/2026
 
 > Verificado con build **Debug y Release** y la suite completa: **804 tests**, 803 pasan, 0 fallan,

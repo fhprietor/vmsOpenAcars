@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.43  
+**Versión actual:** v0.9.44  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -16,8 +16,11 @@ Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simula
 > **Credenciales — dev vs. distribución:**
 > - `App.config` es la **configuración local de desarrollo**: contiene las claves del
 >   entorno propio para no reconfigurar la app en cada compilación. No se distribuye.
-> - `App.Release.config` es la **plantilla que se publica a los pilotos**: nunca debe
->   llevar credenciales, URLs de aerolínea ni rutas de máquina, solo placeholders.
+> - `App.Release.config` es la **plantilla de la configuración que el piloto descarga una sola vez**
+>   desde la web, **aparte** del cliente: nunca debe llevar credenciales, URLs de aerolínea ni rutas
+>   de máquina, solo placeholders. **El zip nunca incluye `vmsOpenACars.exe.config`**: el `Updater`
+>   copia sin borrar nada, así que el config del piloto sobrevive a las actualizaciones; meterlo lo
+>   pisaría, y zipear `bin\Release` en bloque filtraría la `vms_api_key`.
 > - `Helpers/AppConfig.cs` no debe tener credenciales como valor por defecto: un default
 >   en código sobrevive aunque el despliegue limpie su `.config`.
 

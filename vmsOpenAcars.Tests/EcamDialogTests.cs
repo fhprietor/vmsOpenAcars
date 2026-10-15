@@ -1,5 +1,6 @@
 using System.Drawing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using vmsOpenAcars.Services;
 using vmsOpenAcars.UI.Forms;
 
 namespace vmsOpenAcars.Tests
@@ -51,6 +52,54 @@ namespace vmsOpenAcars.Tests
                 Assert.IsTrue(dlg.ClientSize.Height <= 250,
                     $"un aviso de una línea no debe crecer la ventana (dio {dlg.ClientSize.Height})");
                 Assert.IsTrue(dlg.MessageHostBounds.Bottom <= dlg.ButtonsBounds.Top);
+            }
+        }
+
+        /// <summary>
+        /// Los rótulos de los botones salen del fichero de idioma.
+        ///
+        /// Regresión reportada por el mantenedor: el modal de salir de la aplicación se leía
+        /// «¿Salir de la aplicación?» con **YES** y **NO** debajo. El mensaje sí estaba traducido
+        /// (`ConfirmExit`), pero los rótulos estaban escritos a mano en inglés dentro de
+        /// `EcamDialog`, que es el diálogo de confirmación de **toda** la aplicación: el fallo no
+        /// era de ese modal, era de todos los que usan este popup.
+        /// </summary>
+        [TestMethod]
+        public void ButtonLabels_ComeFromTheLanguageFile()
+        {
+            string original = LocalizationService.Instance.CurrentLanguage;
+            try
+            {
+                LocalizationService.Instance.LoadLanguage("es");
+                using (var dlg = new EcamDialog("mensaje", "TITULO", EcamDialogButtons.YesNoCancel))
+                {
+                    // El contrato: el rótulo es el que da el idioma cargado.
+                    Assert.AreEqual(LocalizationService.Instance.GetString("BtnYes"), dlg.Button1Text);
+                    Assert.AreEqual(LocalizationService.Instance.GetString("BtnNo"), dlg.Button2Text);
+                    Assert.AreEqual(LocalizationService.Instance.GetString("BtnCancel"), dlg.Button3Text);
+
+                    // Y la regresión concreta: con el idioma en español no puede salir el inglés
+                    // escrito a mano. Con «NO» no se comprueba porque coincide en los dos idiomas.
+                    Assert.AreNotEqual("YES", dlg.Button1Text, "el botón de afirmar sigue en inglés");
+                    Assert.AreNotEqual("CANCEL", dlg.Button3Text, "el botón de cancelar sigue en inglés");
+                }
+
+                // El OK del aviso de una línea, que era el otro rótulo escrito a mano.
+                using (var dlg = new EcamDialog("mensaje", "TITULO", EcamDialogButtons.OK))
+                    Assert.AreEqual(LocalizationService.Instance.GetString("BtnOk"), dlg.Button1Text);
+
+                // Y que el idioma manda de verdad: en inglés vuelve a ser YES.
+                LocalizationService.Instance.LoadLanguage("en");
+                using (var dlg = new EcamDialog("message", "TITLE", EcamDialogButtons.YesNo))
+                {
+                    Assert.AreEqual("YES", dlg.Button1Text);
+                    Assert.AreEqual("NO", dlg.Button2Text);
+                }
+            }
+            finally
+            {
+                // El servicio es un singleton y lo comparten otros tests: se deja como estaba.
+                LocalizationService.Instance.LoadLanguage(original);
             }
         }
     }

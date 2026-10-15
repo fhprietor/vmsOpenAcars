@@ -2472,18 +2472,22 @@ Los dos archivos de configuración tienen roles **distintos y deliberados**:
 | Archivo | Rol | ¿Lleva credenciales? |
 |---|---|---|
 | `App.config` | Configuración local del desarrollador. MSBuild la copia al `exe.config` de Debug. | **Sí** — es el entorno propio, para no reconfigurar la app en cada compilación |
-| `App.Release.config` | Plantilla que se publica a los pilotos (ver `Docs/PRIMEROS_PASOS.md`). | **No** — solo placeholders |
+| `App.Release.config` | Plantilla de la **configuración por defecto que el piloto descarga una sola vez** desde la web (`Docs/PRIMEROS_PASOS.md` §3.2), **aparte** del cliente. **No viaja en el zip.** | **No** — solo placeholders |
 
 `App.Release.config` **no se aplica automáticamente** en ningún build (`<AppConfig></AppConfig>`
-en Release impide que `App.config` lo pise). Al preparar un paquete para publicar hay que
-copiarlo sobre el `vmsOpenAcars.exe.config` del paquete:
+en Release impide que `App.config` lo pise).
 
-```
-copy App.Release.config  <carpeta-del-paquete>\vmsOpenAcars.exe.config
-```
+**El paquete del cliente NUNCA lleva `vmsOpenACars.exe.config`** (decisión del mantenedor, y la razón
+está en el propio `Updater`): copia **fichero a fichero** lo que trae el paquete y **no borra nada** que
+no venga dentro (`Updater/Program.cs`, `File.Copy(..., overwrite: true)`), así que el config del piloto
+—sus ajustes, su aerolínea, sus datos— **sobrevive a cada actualización precisamente porque no viaja**.
+Meterlo en el zip lo pisaría en cada update, y además arrastraría lo que hubiera en el equipo que
+construyó el paquete: **`bin\Release\vmsOpenACars.exe.config` tiene la `vms_api_key` real del
+desarrollador**, así que **zipear `bin\Release` en bloque filtra la clave**. Se excluye a mano, y por eso
+el `.config` no aparece en ningún paquete publicado (comprobado en los de 0.9.42 y 0.9.43: los dos con
+**72 ficheros** y sin él).
 
-Sin ese paso, el paquete hereda la configuración del equipo que lo construyó — es decir, las
-credenciales del desarrollador. Por eso `Helpers/AppConfig.cs` **no** debe tener credenciales
+Por eso `Helpers/AppConfig.cs` **no** debe tener credenciales
 como valor por defecto: un default en código sobrevive aunque el despliegue limpie su `.config`.
 
 ### Binding Redirects y SQLite (v0.6.3)
