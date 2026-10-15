@@ -102,6 +102,10 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
 - La versión del proyecto de tests se alinea a la del cliente. En **Release ese proyecto no se
   compila**, así que es fácil que se quede atrás sin que nadie lo note (estuvo en 0.9.4.0 hasta
   v0.9.10).
+- **Publicar una release («PUBLICA RELEASE»)**: la receta completa —versión, notas del piloto, zip
+  sin el `.config`, etiqueta, Release con el binario y verificación— está en
+  **`Docs/PUBLICA-RELEASE.md`**, con las dos trampas de esta sesión de agente: `git add <ruta>` no
+  stagea —solo `git add -A`— y el caso `vmsOpenACars` (namespace) contra `vmsOpenACars` (directorio).
 
 ---
 
