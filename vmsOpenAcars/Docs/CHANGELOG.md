@@ -1,4 +1,4 @@
-﻿# CHANGELOG — vmsOpenAcars
+# CHANGELOG — vmsOpenAcars
 
 ---
 
@@ -44,6 +44,20 @@ botones de `SettingsForm`, `MapForm`, `FlightPlannerForm`, `FlightSelectorForm`,
 apagado sobre un cuerpo negro deja de leerse, y la diferencia ya la dice el rótulo (CANCELAR contra SALIR).
 
 ### Fixed
+
+**La tinta del plástico se usó dentro de las pantallas, y el OFP y el METAR desaparecieron.** Lo destapó el
+mantenedor nada más publicarse la primera 0.9.45 —«no se visualizan bien los mensajes del ofp y el metar»—
+y la release se **despublicó** (quedó en borrador) hasta arreglarlo. La causa es una sola: `McduPalette.Ink`
+(`#1F2933`) es la **tinta grabada para el plástico claro** —**5,1:1** sobre `ChassisHigh`— y se usó como
+color de texto en rótulos que viven **dentro de un `McduDisplayPanel`**, cuyo cristal es `#1B1D20`:
+**1,14:1**, o sea invisible. Los cinco sitios eran las dos líneas del plan del FMA (`planFore1`/`planFore2`,
+antes `rgb(190,210,230)` y `rgb(160,185,205)`) y los tres rótulos del METAR (el valor, el recibido y
+«fetching…», antes `rgb(160,175,195)` y `rgb(100,120,140)`). Ahora usan los colores del cristal —**blanco**
+la primera línea del plan y **gris de lectura** (5,44:1) la segunda y el METAR— y **dos pruebas nuevas lo
+vigilan**: `LaTintaGrabadaNoLlegaAlUmbralSobreElLcd` mide que la tinta no sirva para el LCD, y
+`LaTintaGrabadaSoloSeUsaDondeHayPlastico` recorre `UI/` y exige que cada `McduPalette.Ink` tenga un color de
+carcasa al lado. Comprobada al revés: con la tinta puesta a propósito, la prueba señala los dos rótulos del
+METAR por su posición. **824 pruebas** (823 pasan, 0 fallan, 1 se omite sola).
 
 **La leyenda se pinta con GDI, no con GDI+, y recorriendo elementos de texto.** Dos fallos que el arnés de
 previsualización destapó antes de que llegaran a un piloto: **GDI+ no hace enlace de fuentes**, así que los

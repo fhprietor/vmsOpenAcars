@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Windows.Forms;
@@ -104,6 +105,73 @@ namespace vmsOpenAcars.Tests
                 $"la tinta grabada se queda en {tinta:F2}:1 sobre el plástico");
             Assert.IsTrue(blanco < ColorContrast.MinimumForText,
                 $"el blanco da {blanco:F2}:1 sobre el plástico: si ya se leyera, la tinta no haría falta");
+        }
+
+        /// <summary>
+        /// La misma tinta, al revés: **sobre el cristal no llega al umbral, y por eso usarla ahí es un
+        /// error**. Es el que se coló en la v0.9.45 —las líneas del plan del FMA y los rótulos del METAR,
+        /// que viven dentro de un `McduDisplayPanel` y se pintaron con `Ink`— y el mantenedor lo vio en
+        /// pantalla: el texto desaparecía. El número se comprueba para que la regla no dependa de la memoria
+        /// de nadie.
+        /// </summary>
+        [TestMethod]
+        public void LaTintaGrabadaNoLlegaAlUmbralSobreElLcd()
+        {
+            double tinta = ColorContrast.Ratio(McduPalette.Ink, McduPalette.LcdBackground);
+
+            Assert.IsTrue(tinta < ColorContrast.MinimumForText,
+                $"la tinta da {tinta:F2}:1 sobre el LCD: si llegara al umbral, usarla dentro de una pantalla " +
+                "no sería un error y la prueba de abajo no protegería de nada");
+        }
+
+        /// <summary>
+        /// **La tinta grabada solo vale donde hay plástico, y esto lo vigila en el código.**
+        ///
+        /// La regla: cada uso de `McduPalette.Ink` tiene que tener un color de carcasa (`Chassis*`) al lado,
+        /// que es el fondo para el que está pensada (los tres rótulos de la cabecera lo cumplen). Si lo que
+        /// hay al lado es el cristal —o no hay nada— el rótulo no se va a leer: es exactamente el fallo de
+        /// la v0.9.45, y así no puede volver sin que salte una prueba.
+        /// </summary>
+        [TestMethod]
+        public void LaTintaGrabadaSoloSeUsaDondeHayPlastico()
+        {
+            string app = RaizDelCodigo();
+            Assert.IsNotNull(app, "no se encontró la raíz del código desde el binario de pruebas");
+
+            var sospechosos = new List<string>();
+            foreach (string file in Directory.GetFiles(Path.Combine(app, "UI"), "*.cs", SearchOption.AllDirectories))
+            {
+                string texto = File.ReadAllText(file);
+                int i = texto.IndexOf("McduPalette.Ink", StringComparison.Ordinal);
+                while (i >= 0)
+                {
+                    int desde = Math.Max(0, i - 400);
+                    string alrededor = texto.Substring(desde, Math.Min(texto.Length, i + 400) - desde);
+                    if (alrededor.IndexOf("McduPalette.Chassis", StringComparison.Ordinal) < 0)
+                        sospechosos.Add($"{Path.GetFileName(file)} (posición {i})");
+                    i = texto.IndexOf("McduPalette.Ink", i + 1, StringComparison.Ordinal);
+                }
+            }
+
+            Assert.AreEqual(0, sospechosos.Count,
+                "hay `McduPalette.Ink` sin un color de carcasa al lado, y la tinta grabada no se lee sobre " +
+                "el cristal del `McduDisplayPanel`: " + string.Join(", ", sospechosos));
+        }
+
+        /// <summary>La raíz del código fuente, subiendo desde el binario de pruebas hasta la solución.</summary>
+        private static string RaizDelCodigo()
+        {
+            var dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+            while (dir != null)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, "vmsOpenAcars.sln")))
+                {
+                    string app = Path.Combine(dir.FullName, "vmsOpenAcars");
+                    return Directory.Exists(Path.Combine(app, "UI")) ? app : null;
+                }
+                dir = dir.Parent;
+            }
+            return null;
         }
 
         /// <summary>

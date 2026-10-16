@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
@@ -1245,8 +1245,11 @@ namespace vmsOpenAcars.UI.Forms
                 planLines.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33f));
 
             var monoFont = new Font("Consolas", 12.25f, FontStyle.Regular, GraphicsUnit.Point);
-            var planFore1 = McduPalette.Ink;
-            var planFore2 = McduPalette.Ink;
+            // Dentro del cristal la tinta grabada es invisible, así que estos dos colores son los del LCD: la
+            // línea 1 en blanco (antes `rgb(190,210,230)`, la más clara de las dos) y la 2 en el gris de
+            // lectura (antes `rgb(160,185,205)`). Con `Ink` sobre `LcdBackground` no se leía ninguna.
+            var planFore1 = McduPalette.LcdWhite;
+            var planFore2 = McduPalette.LcdDim;
 
             _lblFmaPlanLine1 = new Label
             {
@@ -2247,7 +2250,7 @@ namespace vmsOpenAcars.UI.Forms
                 {
                     Text         = "---",
                     Font         = monoFont,
-                    ForeColor    = McduPalette.Ink,
+                    ForeColor    = McduPalette.LcdDim,
                     Dock         = DockStyle.Fill,
                     TextAlign    = ContentAlignment.MiddleLeft,
                     AutoEllipsis = true,
@@ -2285,7 +2288,9 @@ private void UpdateMetarPanel(MetarData[] metars)
                 _metarDataArray[i] = metars?[i];
                 if (_metarLabels[i] == null) continue;
                 _metarLabels[i].Text      = _metarDataArray[i]?.Raw ?? "---";
-                _metarLabels[i].ForeColor = McduPalette.Ink;
+                // Gris de lectura del LCD, no `Ink`: este rótulo vive dentro de un `McduDisplayPanel`, que
+                // pinta el cristal casi negro, y la tinta grabada (la del plástico) ahí no se lee.
+                _metarLabels[i].ForeColor = McduPalette.LcdDim;
                 _metarConditionColors[i]  = ConditionToColor(_metarDataArray[i]?.Condition ?? MetarCondition.Unknown);
                 _metarPanels[i]?.Invalidate();
             }
@@ -2304,7 +2309,7 @@ private void UpdateMetarPanel(MetarData[] metars)
             {
                 if (_metarLabels[i] == null || _metarDataArray[i] != null) continue;
                 _metarLabels[i].Text      = "fetching...";
-                _metarLabels[i].ForeColor = McduPalette.Ink;
+                _metarLabels[i].ForeColor = McduPalette.LcdDim;
             }
         }
 

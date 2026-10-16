@@ -34,7 +34,10 @@ este último porque el rojo puro de la aplicación se queda en 4,0:1 sobre el LC
 2. **Sobre el plástico el texto va grabado en oscuro** (`Ink #1F2933`). No es estética: el blanco sobre
    `#859AB2` da **2,9:1** y el cian que usaba la aplicación **1,5:1**, los dos por debajo del 4,5:1 de WCAG.
    La tinta grabada da **5,1:1** y es lo que hace un panel de verdad. La información viva (AIRAC, METAR,
-   estado) vive **dentro** de las pantallas, que es donde vive en un MCDU.
+   estado) vive **dentro** de las pantallas, que es donde vive en un MCDU. **Y ahí la tinta no vale**: sobre
+   el cristal (`#1B1D20`) da **1,14:1**, o sea invisible. Es el fallo que se coló en la primera 0.9.45 —las
+   líneas del plan del FMA y los rótulos del METAR se pintaron con `Ink`— y que obligó a despublicar la
+   release; ahora lo vigilan dos pruebas de `McduPaletteTests` (ver `Docs/CHANGELOG.md` → 0.9.45).
 3. **El verde medido para los valores y uno rebajado para el cuerpo del log** (`#3FCB55`, 8,0:1). El del
    aparato (8,9:1) es auténtico pero cansa en un párrafo, y el log se lee durante minutos.
 
