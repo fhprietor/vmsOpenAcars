@@ -1,10 +1,10 @@
-﻿# vmsOpenAcars — Guía para Claude
+# vmsOpenAcars — Guía para Claude
 
 ## Proyecto
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.45  
+**Versión actual:** v0.9.46  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -583,7 +583,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **822 tests** (1 se omite sola: la herramienta de relleno):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **824 tests** (1 se omite sola: la herramienta de relleno):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y

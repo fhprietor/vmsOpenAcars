@@ -2,6 +2,20 @@
 
 ---
 
+## [0.9.46] — 15/10/2026
+
+### Fixed
+
+**Número nuevo para el arreglo que quedó dentro de la 0.9.45.** La 0.9.45 se publicó, se **despublicó** al
+encontrar el fallo de visualización del OFP y el METAR, y se volvió a publicar **con el mismo número** (el
+tag se movió al commit del arreglo). Eso deja un agujero real: **el Updater compara números de versión**,
+así que un piloto que hubiera actualizado en esa primera ventana —la 0.9.45 con la tinta del plástico dentro
+de las pantallas— **no habría recibido el arreglo nunca**: su cliente ya se cree al día y no vuelve a bajar
+la misma versión. Esta versión es **el mismo contenido que la 0.9.45 corregida, con número nuevo**, y su
+único cometido es que ese piloto lo reciba. **Sin cambios de comportamiento** respecto a la 0.9.45 buena.
+
+---
+
 ## [0.9.45] — 15/10/2026
 
 ### Changed
