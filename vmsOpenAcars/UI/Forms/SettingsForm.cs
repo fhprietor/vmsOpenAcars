@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
+using vmsOpenAcars.Controls;
 using System.Threading.Tasks;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Services;
@@ -126,18 +127,15 @@ namespace vmsOpenAcars.UI.Forms
                 Location  = new Point(10, 8),
                 AutoSize  = true
             };
-            btnClose = new Button
+            btnClose = new McduKeyButton
             {
-                Text      = "✕",
-                Font      = new Font("Arial", 12, FontStyle.Bold),
-                Size      = new Size(30, 25),
-                Location  = new Point(this.ClientSize.Width - 35, 5),
-                BackColor = Color.FromArgb(150, 0, 0),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Anchor    = AnchorStyles.Top | AnchorStyles.Right
+                Text        = "✕",
+                Font        = new Font("Arial", 12, FontStyle.Bold),
+                Size        = new Size(30, 25),
+                Location    = new Point(this.ClientSize.Width - 35, 5),
+                LegendColor = McduLegend.Danger,
+                Anchor      = AnchorStyles.Top | AnchorStyles.Right
             };
-            btnClose.FlatAppearance.BorderSize = 0;
             btnClose.Click += (s, e) => DialogResult = DialogResult.Cancel;
             pnlTitleBar.Controls.Add(lblTitle);
             pnlTitleBar.Controls.Add(btnClose);
@@ -167,27 +165,21 @@ namespace vmsOpenAcars.UI.Forms
                 Height    = 44,
                 BackColor = Color.Transparent
             };
-            btnSave = new Button
+            btnSave = new McduKeyButton
             {
-                Text      = _("Save"),
-                Size      = new Size(110, 30),
-                BackColor = Color.FromArgb(0, 100, 0),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Consolas", 10, FontStyle.Bold)
+                Text        = _("Save"),
+                Size        = new Size(110, 30),
+                LegendColor = McduLegend.Confirm,
+                Font        = new Font("Consolas", 10, FontStyle.Bold)
             };
-            btnSave.FlatAppearance.BorderSize = 0;
             btnSave.Click += BtnSave_Click;
-            btnCancel = new Button
+            btnCancel = new McduKeyButton
             {
-                Text      = _("Cancel"),
-                Size      = new Size(110, 30),
-                BackColor = Color.FromArgb(100, 0, 0),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Consolas", 10, FontStyle.Bold)
+                Text        = _("Cancel"),
+                Size        = new Size(110, 30),
+                LegendColor = McduLegend.Danger,
+                Font        = new Font("Consolas", 10, FontStyle.Bold)
             };
-            btnCancel.FlatAppearance.BorderSize = 0;
             btnCancel.Click += (s, e) => DialogResult = DialogResult.Cancel;
             pnlButtons.Controls.Add(btnSave);
             pnlButtons.Controls.Add(btnCancel);
@@ -326,18 +318,15 @@ namespace vmsOpenAcars.UI.Forms
             // Antes compartían celda con el resultado del test y se repartían el ancho a mano en un
             // Resize handler: el texto de estado quedaba recortado al ancho sobrante y los botones
             // se comían el sitio del mensaje.
-            var btnTestApi = new Button
+            var btnTestApi = new McduKeyButton
             {
-                Text      = "TEST",
-                Width     = 46,
-                Height    = 22,
-                Margin    = new Padding(0, 6, 0, 0),
-                BackColor = Color.FromArgb(50, 70, 90),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Consolas", 8)
+                Text        = _("TEST"),
+                Width       = 46,
+                Height      = 22,
+                Margin      = new Padding(0, 6, 0, 0),
+                LegendColor = McduLegend.Info,
+                Font        = new Font("Consolas", 8)
             };
-            btnTestApi.FlatAppearance.BorderSize = 0;
             btnTestApi.Click += async (s, ev) =>
             {
                 btnTestApi.Enabled  = false;
@@ -376,18 +365,15 @@ namespace vmsOpenAcars.UI.Forms
                 }
                 btnTestApi.Enabled = true;
             };
-            var btnRefreshCache = new Button
+            var btnRefreshCache = new McduKeyButton
             {
-                Text      = "REFRESH",
-                Width     = 60,
-                Height    = 22,
-                Margin    = new Padding(0, 6, 4, 0),
-                BackColor = Color.FromArgb(50, 70, 50),
-                ForeColor = Color.FromArgb(140, 220, 140),
-                FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Consolas", 8)
+                Text        = _("REFRESH"),
+                Width       = 60,
+                Height      = 22,
+                Margin      = new Padding(0, 6, 4, 0),
+                LegendColor = McduLegend.Confirm,
+                Font        = new Font("Consolas", 8)
             };
-            btnRefreshCache.FlatAppearance.BorderSize = 0;
             btnRefreshCache.Click += (s, ev) =>
             {
                 NavDataCache.PurgeAirportData();
@@ -441,18 +427,15 @@ namespace vmsOpenAcars.UI.Forms
                 Left        = 0,
                 Height      = 22
             };
-            var btnBrowseLog = new Button
+            var btnBrowseLog = new McduKeyButton
             {
-                Text      = "...",
-                Width     = 28,
-                Height    = 22,
-                Anchor    = AnchorStyles.Right | AnchorStyles.Top,
-                BackColor = Color.FromArgb(50, 70, 90),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Consolas", 9)
+                Text        = "...",
+                Width       = 28,
+                Height      = 22,
+                Anchor      = AnchorStyles.Right | AnchorStyles.Top,
+                LegendColor = McduLegend.Info,
+                Font        = new Font("Consolas", 9)
             };
-            btnBrowseLog.FlatAppearance.BorderSize = 0;
             btnBrowseLog.Click += (s, ev) =>
             {
                 using (var ofd = new OpenFileDialog
@@ -490,7 +473,7 @@ namespace vmsOpenAcars.UI.Forms
             chkOsdEnabled = new CheckBox
             {
                 Dock      = DockStyle.Fill,
-                Text      = "Enabled",
+                Text      = _("Enabled"),
                 ForeColor = Color.White,
                 Font      = new Font("Consolas", 10)
             };
@@ -551,7 +534,7 @@ namespace vmsOpenAcars.UI.Forms
             };
             chkOsdSound = new CheckBox
             {
-                Text      = "Play cockpit chimes",
+                Text      = _("Play cockpit chimes"),
                 ForeColor = Color.White,
                 Font      = new Font("Consolas", 10),
                 AutoSize  = true,
@@ -563,17 +546,14 @@ namespace vmsOpenAcars.UI.Forms
                 AppConfig.OsdSoundEnabled = chkOsdSound.Checked;
                 SaveConfigKey("osd_sound_enabled", chkOsdSound.Checked.ToString().ToLower());
             };
-            btnTestOsd = new Button
+            btnTestOsd = new McduKeyButton
             {
-                Text      = "TEST ▾",
-                Font      = new Font("Consolas", 9, FontStyle.Bold),
-                BackColor = Color.FromArgb(30, 60, 90),
-                ForeColor = Color.Cyan,
-                FlatStyle = FlatStyle.Flat,
-                Size      = new Size(72, 24),
-                Margin    = new Padding(0, 4, 0, 0)
+                Text        = _("TEST") + " ▾",
+                Font        = new Font("Consolas", 9, FontStyle.Bold),
+                LegendColor = McduLegend.Info,
+                Size        = new Size(72, 24),
+                Margin      = new Padding(0, 4, 0, 0)
             };
-            btnTestOsd.FlatAppearance.BorderColor = Color.FromArgb(60, 120, 180);
             btnTestOsd.Click += BtnTestOsd_Click;
             chimesPanel.Controls.Add(chkOsdSound);
             chimesPanel.Controls.Add(btnTestOsd);
@@ -611,7 +591,7 @@ namespace vmsOpenAcars.UI.Forms
             };
             chkCabinAnnouncements = new CheckBox
             {
-                Text      = "Enabled",
+                Text      = _("Enabled"),
                 ForeColor = Color.White,
                 Font      = new Font("Consolas", 10),
                 AutoSize  = true,
@@ -623,17 +603,14 @@ namespace vmsOpenAcars.UI.Forms
                 SaveConfigKey("cabin_announcements_enabled",
                     chkCabinAnnouncements.Checked.ToString().ToLower());
             };
-            btnTestCabin = new Button
+            btnTestCabin = new McduKeyButton
             {
-                Text      = "TEST ▾",
-                Font      = new Font("Consolas", 9, FontStyle.Bold),
-                BackColor = Color.FromArgb(30, 60, 90),
-                ForeColor = Color.Cyan,
-                FlatStyle = FlatStyle.Flat,
-                Size      = new Size(72, 24),
-                Margin    = new Padding(0, 4, 0, 0)
+                Text        = _("TEST") + " ▾",
+                Font        = new Font("Consolas", 9, FontStyle.Bold),
+                LegendColor = McduLegend.Info,
+                Size        = new Size(72, 24),
+                Margin      = new Padding(0, 4, 0, 0)
             };
-            btnTestCabin.FlatAppearance.BorderColor = Color.FromArgb(60, 120, 180);
             btnTestCabin.Click += BtnTestCabin_Click;
             cabinPanel.Controls.Add(chkCabinAnnouncements);
             cabinPanel.Controls.Add(btnTestCabin);
@@ -696,7 +673,7 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Name      = "chkTaxiGuidance",
                 Dock      = DockStyle.Fill,
-                Text      = "Enabled",
+                Text      = _("Enabled"),
                 ForeColor = Color.White,
                 Font      = new Font("Consolas", 10)
             };

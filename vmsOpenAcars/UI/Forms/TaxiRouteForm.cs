@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
+using vmsOpenAcars.Controls;
 using vmsOpenAcars.ViewModels;
 using static vmsOpenAcars.Helpers.L;
 
@@ -78,13 +79,12 @@ namespace vmsOpenAcars.UI.Forms
             foreach (string r in _prompt.Runways) cmbRunway.Items.Add(r);
             cmbRunway.SelectedIndexChanged += (s, e) => RecomputeRoute();
 
-            btnRecompute = new Button
+            btnRecompute = new McduKeyButton
             {
                 Text = _("Raas_Recompute"), Left = 322, Top = 13, Width = 110, Height = 26,
-                BackColor = Color.FromArgb(30, 60, 90), ForeColor = Color.Cyan,
-                FlatStyle = FlatStyle.Flat, Font = new Font("Consolas", 8)
+                LegendColor = McduLegend.Info,
+                Font = new Font("Consolas", 8)
             };
-            btnRecompute.FlatAppearance.BorderSize = 0;
             btnRecompute.Click += (s, e) => RecomputeRoute();
 
             // ── Ruta editable ─────────────────────────────────────────────────────
@@ -142,23 +142,21 @@ namespace vmsOpenAcars.UI.Forms
             };
 
             // ── Botones ───────────────────────────────────────────────────────────
-            var btnStart = new Button
+            var btnStart = new McduKeyButton
             {
                 Text = _("Raas_Start"), Left = 300, Top = 216, Width = 156, Height = 32,
                 DialogResult = DialogResult.OK,
-                BackColor = Color.FromArgb(30, 90, 50), ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat, Font = new Font("Consolas", 9, FontStyle.Bold)
+                LegendColor = McduLegend.Confirm,
+                Font = new Font("Consolas", 9, FontStyle.Bold)
             };
-            btnStart.FlatAppearance.BorderSize = 0;
 
-            var btnLater = new Button
+            var btnLater = new McduKeyButton
             {
                 Text = _("Raas_Later"), Left = 464, Top = 216, Width = 82, Height = 32,
                 DialogResult = DialogResult.Cancel,
-                BackColor = Color.FromArgb(60, 40, 40), ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat, Font = new Font("Consolas", 9)
+                LegendColor = McduLegend.Neutral,
+                Font = new Font("Consolas", 9)
             };
-            btnLater.FlatAppearance.BorderSize = 0;
 
             AcceptButton = btnStart;
             CancelButton = btnLater;

@@ -5,6 +5,8 @@ using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
+using static vmsOpenAcars.Helpers.L;
+using vmsOpenAcars.Controls;
 using GMap.NET;
 using GMap.NET.MapProviders;
 using GMap.NET.Projections;
@@ -121,9 +123,9 @@ namespace vmsOpenAcars.UI.Forms
                 Location  = new Point(10, 9),
                 AutoSize  = true,
             };
-            var btnClose = MakeTitleBtn("✕", Color.FromArgb(110, 20, 20));
-            var btnMax   = MakeTitleBtn("□", Color.FromArgb(40, 55, 70));
-            var btnMin   = MakeTitleBtn("─", Color.FromArgb(40, 55, 70));
+            var btnClose = MakeTitleBtn("✕", McduLegend.Danger);
+            var btnMax   = MakeTitleBtn("□", McduLegend.Neutral);
+            var btnMin   = MakeTitleBtn("─", McduLegend.Neutral);
 
             btnClose.Click += (s, e) => Close();
             btnMin.Click   += (s, e) => WindowState = FormWindowState.Minimized;
@@ -203,7 +205,7 @@ namespace vmsOpenAcars.UI.Forms
 
             _chkFollow = new CheckBox
             {
-                Text      = "FOLLOW",
+                Text      = _("Map_ChkFollow"),
                 Checked   = true,
                 Dock      = DockStyle.Right,
                 Width     = 80,
@@ -233,27 +235,24 @@ namespace vmsOpenAcars.UI.Forms
             btnZoomIn.Click  += (s, e) => { if (_map.Zoom < _map.MaxZoom) _map.Zoom++; };
             btnZoomOut.Click += (s, e) => { if (_map.Zoom > _map.MinZoom) _map.Zoom--; };
 
-            _chkLayerTiles  = MakeLayerChk("TILES");
-            _chkLayerRoute  = MakeLayerChk("ROUTE");
-            _chkLayerSpaces = MakeLayerChk("SPACES");
-            _chkLayerIvao   = MakeLayerChk("IVAO");
+            _chkLayerTiles  = MakeLayerChk(_("Map_LayerTiles"));
+            _chkLayerRoute  = MakeLayerChk(_("Map_LayerRoute"));
+            _chkLayerSpaces = MakeLayerChk(_("Map_LayerSpaces"));
+            _chkLayerIvao   = MakeLayerChk(_("Map_LayerIvao"));
 
             // Alterna el panel lateral de ATC/ATIS detallado.
-            var btnAtc = new Button
+            var btnAtc = new McduKeyButton
             {
-                Text      = "ATC ▸",
-                Dock      = DockStyle.Right,
-                Width     = 62,
-                BackColor = Color.FromArgb(30, 50, 65),
-                ForeColor = Color.FromArgb(0, 180, 255),
-                FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Consolas", 8, FontStyle.Bold),
+                Text        = _("Map_BtnAtc"),
+                Dock        = DockStyle.Right,
+                Width       = 62,
+                LegendColor = McduLegend.Info,
+                Font        = new Font("Consolas", 8, FontStyle.Bold),
             };
-            btnAtc.FlatAppearance.BorderSize = 0;
             btnAtc.Click += (s, e) =>
             {
                 _atcPanel.Visible = !_atcPanel.Visible;
-                btnAtc.Text = _atcPanel.Visible ? "ATC ◂" : "ATC ▸";
+                btnAtc.Text = _atcPanel.Visible ? _("Map_BtnAtcOpen") : _("Map_BtnAtc");
             };
 
             _chkLayerTiles.CheckedChanged += (s, e) =>
@@ -314,31 +313,29 @@ namespace vmsOpenAcars.UI.Forms
             Controls.Add(titleBar);   // Top — mayor prioridad de docking
         }
 
-        private static Button MakeTitleBtn(string text, Color backColor)
+        /// <summary>Una tecla de la barra de título: el color **enciende la leyenda** (cuerpo negro).</summary>
+        private static McduKeyButton MakeTitleBtn(string text, Color legendColor)
         {
-            var btn = new Button
+            return new McduKeyButton
             {
-                Text      = text,
-                Size      = new Size(30, 25),
-                BackColor = backColor,
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Arial", 11, FontStyle.Bold),
-                TabStop   = false,
+                Text        = text,
+                Size        = new Size(30, 25),
+                LegendColor = legendColor,
+                Font        = new Font("Arial", 11, FontStyle.Bold),
+                TabStop     = false,
             };
-            btn.FlatAppearance.BorderSize = 0;
-            return btn;
         }
 
-        private static Button MakeZoomBtn(string text) => new Button
+        private static McduKeyButton MakeZoomBtn(string text)
         {
-            Text      = text,
-            Width     = 32,
-            BackColor = Color.FromArgb(40, 55, 70),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font      = new Font("Consolas", 13, FontStyle.Bold),
-        };
+            return new McduKeyButton
+            {
+                Text        = text,
+                Width       = 32,
+                LegendColor = McduLegend.Neutral,
+                Font        = new Font("Consolas", 13, FontStyle.Bold),
+            };
+        }
 
         private static CheckBox MakeLayerChk(string text) => new CheckBox
         {

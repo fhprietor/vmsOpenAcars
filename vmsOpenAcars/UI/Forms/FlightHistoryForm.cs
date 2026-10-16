@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using static vmsOpenAcars.Helpers.L;
+using vmsOpenAcars.Controls;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
@@ -62,18 +64,15 @@ namespace vmsOpenAcars.UI.Forms
                 Location  = new Point(10, 8),
                 AutoSize  = true
             };
-            var btnX = new Button
+            var btnX = new McduKeyButton
             {
-                Text      = "✕",
-                Font      = new Font("Arial", 12, FontStyle.Bold),
-                Size      = new Size(30, 25),
-                Location  = new Point(ClientSize.Width - 35, 5),
-                BackColor = Color.FromArgb(150, 0, 0),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Anchor    = AnchorStyles.Top | AnchorStyles.Right
+                Text        = "✕",
+                Font        = new Font("Arial", 12, FontStyle.Bold),
+                Size        = new Size(30, 25),
+                Location    = new Point(ClientSize.Width - 35, 5),
+                LegendColor = McduLegend.Danger,
+                Anchor      = AnchorStyles.Top | AnchorStyles.Right
             };
-            btnX.FlatAppearance.BorderSize = 0;
             btnX.Click += (s, e) => Close();
             pnlTitle.Controls.Add(lblTitle);
             pnlTitle.Controls.Add(btnX);
@@ -156,22 +155,22 @@ namespace vmsOpenAcars.UI.Forms
                 Padding   = new Padding(6, 6, 6, 6)
             };
 
-            _btnAnalyse = MakeBtn("VIEW ANALYSIS", Color.FromArgb(0, 100, 200));
+            _btnAnalyse = MakeBtn(_("Fh_BtnViewAnalysis"), McduLegend.Info);
             _btnAnalyse.Click   += (s, e) => OpenAnalysis();
             _btnAnalyse.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
             _btnAnalyse.Enabled  = false;
 
-            _btnCompare = MakeBtn("COMPARE", Color.FromArgb(0, 120, 80));
+            _btnCompare = MakeBtn(_("Fh_BtnCompare"), McduLegend.Confirm);
             _btnCompare.Click   += BtnCompare_Click;
             _btnCompare.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
             _btnCompare.Enabled  = false;
 
-            _btnDelete = MakeBtn("DELETE", Color.FromArgb(140, 30, 30));
+            _btnDelete = MakeBtn(_("Fh_BtnDelete"), McduLegend.Danger);
             _btnDelete.Click   += BtnDelete_Click;
             _btnDelete.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
             _btnDelete.Enabled  = false;
 
-            _btnClose = MakeBtn("CLOSE", Color.FromArgb(100, 0, 0));
+            _btnClose = MakeBtn(_("BtnClose"), McduLegend.Neutral);
             _btnClose.Click += (s, e) => Close();
             _btnClose.Anchor = AnchorStyles.Top | AnchorStyles.Right;
 
@@ -196,19 +195,16 @@ namespace vmsOpenAcars.UI.Forms
             Controls.Add(pnlTitle);
         }
 
-        private Button MakeBtn(string text, Color back)
+        /// <summary>Una tecla de la barra inferior: `legendColor` enciende la leyenda (cuerpo negro).</summary>
+        private McduKeyButton MakeBtn(string text, Color legendColor)
         {
-            var btn = new Button
+            return new McduKeyButton
             {
-                Text      = text,
-                Size      = new Size(140, 30),
-                BackColor = back,
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Consolas", 9, FontStyle.Bold)
+                Text        = text,
+                Size        = new Size(140, 30),
+                LegendColor = legendColor,
+                Font        = new Font("Consolas", 9, FontStyle.Bold)
             };
-            btn.FlatAppearance.BorderSize = 0;
-            return btn;
         }
 
         private void Reload()

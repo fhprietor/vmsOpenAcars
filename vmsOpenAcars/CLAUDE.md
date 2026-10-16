@@ -1,10 +1,10 @@
-# vmsOpenAcars — Guía para Claude
+﻿# vmsOpenAcars — Guía para Claude
 
 ## Proyecto
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.44  
+**Versión actual:** v0.9.45  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -59,23 +59,27 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
   las otras reglas. Nunca suprimir una acción por una suposición.
 
 **Idioma**
-- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 463 claves cada uno): toda
+- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 500 claves cada uno): toda
   clave que se añade o se quita va en los dos.
-- **Los rótulos de `SettingsForm` se traducen por `_(clave)` con el propio texto en inglés como
-  clave** (`CreateLabel("Duration (s)")` → *Duración (s)*). Una clave que falte **no cae al
-  inglés**: `LocalizationService.GetString` devuelve `[[clave]]`, así que aparece literalmente
-  `[[Airspace]]` en la pantalla. Al añadir una fila al formulario hay que añadir su clave a los
-  dos `.json` (`Restricted zones` y `Stg_AirspaceOsdAlerts` lo son desde v0.9.10).
+- **Antes de escribir un rótulo, mirar si la clave ya existe**: los `.json` tienen claves definidas y sin
+  cablear (128 contadas en v0.9.45, casi todo `Fp_*` y `Status_*`), y **un rótulo de botón o de casilla
+  no se escribe a mano** —`ButtonLabelsTests` exige `_("Clave")` o un símbolo puro—. **El tamaño de la
+  leyenda lo decide el grupo, nunca cada tecla**: la barra **reparte el ancho** (`MainButtonBar.ButtonWidthFor`,
+  suelo 108 px y mínimo de ventana 910) y `McduKeyButton.CommonLegendSize` encoge **todas a la vez** si hace
+  falta. Se mide y se dibuja la cadena **entera** con GDI: por carácter la medida se infla (24 px por letra
+  donde la cadena mide 16) y encogía rótulos que cabían.
+- **Los rótulos de `SettingsForm` se traducen por `_(clave)` con el texto inglés como clave**
+  (`CreateLabel("Duration (s)")` → *Duración (s)*). Una clave que falte **no cae al inglés**:
+  `LocalizationService.GetString` devuelve `[[clave]]` y se pinta `[[Airspace]]` en la pantalla. Al añadir
+  una fila hay que añadir su clave a los dos `.json`.
 - Al añadir un criterio a `ScoringService`: su test, su entrada en `PirepBuilder._critKeyMap`
   y su clave `Score_Crit*` en ambos idiomas.
 
 **Documentación**
-- **`CLAUDE.md` tiene un techo duro real de ~65 200 bytes** (el detalle, en `Docs/SETUP-ENTORNO.md` §3.1): es el presupuesto de instrucciones
-  del agente, y el harness **trunca en silencio** lo que sobra, empezando por el final del archivo
-  —o sea *Próximas áreas*, justo lo que no se puede perder—. Se pasó de 67 KB en v0.9.13 y se
-  movieron a `Docs/architecture.md` la narrativa de desvíos (~21 KB) y el índice de archivos
-  (~10 KB), quedando en ~38 KB. **Lo largo va a `Docs/architecture.md`**; aquí se deja un resumen
-  con puntero. Antes de añadir una sección grande: `(Get-Item CLAUDE.md).Length`.
+- **`CLAUDE.md` tiene techo duro** (`Docs/SETUP-ENTORNO.md` §3.1): el presupuesto de instrucciones es de
+  ~65 KB y el harness **trunca en silencio** lo que sobra **empezando por el final** —o sea *Próximas
+  áreas*—. Pasó en v0.9.13 (67 KB) y volvió a pasar en v0.9.45: **lo largo va a `Docs/architecture.md`**,
+  y antes de añadir hay que medir con `(Get-Item CLAUDE.md).Length`.
 - `Docs/CHANGELOG.md` es el **canónico**: cada entrada lleva causa raíz y las cifras que la
   demuestran. Se actualiza junto con `CLAUDE.md`, en el mismo cambio.
 - `Docs/README.md` es el índice: un `.md` nuevo se lista ahí o queda huérfano.
@@ -560,18 +564,26 @@ Y **`ON BLOCK` manual** (`FlightManager.ForceOnBlock`) en la bandeja y en el di�
 ahora avisa de que cancela **eliminando** el PIREP. Hace el **mismo** cierre que la detección y
 **publica la transición**: sin eso `MainViewModel` no habilita `SEND PIREP`.
 
+## Teclas y piel MCDU — v0.9.45
+
+Los 34 botones son teclas de cuerpo negro con la leyenda **retroiluminada** con el color del botón
+(`Controls/McduKeyRenderer.cs`, puro y con test); el color ya **no rellena** (`MainButtonSpec.LegendColor`,
+convenio en `UI/McduLegend.cs`). Y la ventana es un MCDU: carcasa de plástico gastado (`UI/McduChassis.cs`)
+y cada grupo hundido como pantalla LCD (`Controls/McduSurface.cs`), con la paleta **muestreada de la foto
+del A320** en `UI/McduPalette.cs`; lo apaga `mcdu_look`. Tabla, decisiones y cifras en
+**`Docs/PROPUESTA-MCDU-CARCASA.md`**. **Dos trampas que costaron horas**: sobre una superficie pintada a
+mano **nada lleva `BackColor = Color.Transparent`** (sale con basura detrás: fondo sólido del color de la
+superficie) y la rampa del plástico se calcula con `McduChassis.RampAt`, **no** con un degradado de GDI+
+sobre un rectángulo virtual ni con `PointToScreen` (devolvía −220 y dejaba la ventana plana).
 ## Referencias de archivos clave
 
-El índice de archivos con lo relevante de cada uno —qué hace cada partial, dónde viven los
-helpers puros, qué cubre cada suite de tests— está en **`Docs/architecture.md` → "Referencias de
-archivos clave"** (movido allí en **v0.9.13** por el mismo motivo de presupuesto que la sección
-anterior).
+El índice de archivos está en **`Docs/architecture.md`**.
 
 ---
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **804 tests** (1 se omite sola: la herramienta de relleno):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **822 tests** (1 se omite sola: la herramienta de relleno):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y

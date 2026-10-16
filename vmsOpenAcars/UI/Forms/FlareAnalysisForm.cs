@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
+using static vmsOpenAcars.Helpers.L;
+using vmsOpenAcars.Controls;
 using System.Windows.Forms.DataVisualization.Charting;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
@@ -271,18 +273,15 @@ namespace vmsOpenAcars.UI.Forms
                 AutoSize  = true
             });
 
-            var btnX = new Button
+            var btnX = new McduKeyButton
             {
-                Text      = "✕",
-                Font      = new Font("Arial", 12, FontStyle.Bold),
-                Size      = new Size(30, 25),
-                Location  = new Point(ClientSize.Width - 35, 5),
-                BackColor = Color.FromArgb(150, 0, 0),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Anchor    = AnchorStyles.Top | AnchorStyles.Right
+                Text        = "✕",
+                Font        = new Font("Arial", 12, FontStyle.Bold),
+                Size        = new Size(30, 25),
+                Location    = new Point(ClientSize.Width - 35, 5),
+                LegendColor = McduLegend.Danger,
+                Anchor      = AnchorStyles.Top | AnchorStyles.Right
             };
-            btnX.FlatAppearance.BorderSize = 0;
             btnX.Click += (s, e) => Close();
             pnl.Controls.Add(btnX);
 
@@ -290,20 +289,17 @@ namespace vmsOpenAcars.UI.Forms
             // esto, lo único que se puede compartir es una captura de pantalla de la ventana. El PNG
             // sale del propio gráfico (`Chart.SaveImage`, nunca `DrawToBitmap`) y lleva la identidad
             // del vuelo en su título, que es la franja del formulario que **no** está en la imagen.
-            _btnSaveImage = new Button
+            _btnSaveImage = new McduKeyButton
             {
-                Text      = "💾 PNG",
-                Font      = new Font("Consolas", 9, FontStyle.Bold),
-                Size      = new Size(90, 25),
-                Location  = new Point(ClientSize.Width - 130, 5),
-                BackColor = Color.FromArgb(20, 70, 110),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
+                Text        = _("Flare_BtnSavePng"),
+                Font        = new Font("Consolas", 9, FontStyle.Bold),
+                Size        = new Size(90, 25),
+                Location    = new Point(ClientSize.Width - 130, 5),
+                LegendColor = McduLegend.Info,
                 // Solo tiene sentido con gráfico: sin muestras no hay nada que guardar.
-                Enabled   = HasSamples,
-                Anchor    = AnchorStyles.Top | AnchorStyles.Right
+                Enabled     = HasSamples,
+                Anchor      = AnchorStyles.Top | AnchorStyles.Right
             };
-            _btnSaveImage.FlatAppearance.BorderSize = 0;
             _btnSaveImage.Click += (s, e) => PromptSaveImage();
             pnl.Controls.Add(_btnSaveImage);
             Resize += (s, e) => _btnSaveImage.Location = new Point(ClientSize.Width - 130, 5);

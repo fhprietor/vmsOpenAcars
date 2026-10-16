@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
+using static vmsOpenAcars.Helpers.L;
+using vmsOpenAcars.Controls;
 using System.Windows.Forms.DataVisualization.Charting;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
@@ -257,7 +259,7 @@ namespace vmsOpenAcars.UI.Forms
 
             _chkCloseup = new CheckBox
             {
-                Text      = "Closeup",
+                Text      = _("Lnm_ChkCloseup"),
                 Font      = new Font("Consolas", 9, FontStyle.Bold),
                 ForeColor = Color.Cyan,
                 AutoSize  = true,
@@ -313,20 +315,17 @@ namespace vmsOpenAcars.UI.Forms
             // una celda de `TableLayoutPanel` se pintan uno sobre otro **sin dar error**—. Solo
             // aparece si quien construye el formulario sabe leer `flare_track` (`_flareLoader`); sin
             // esa fuente no hay nada que enseñar y el botón sería un botón muerto.
-            Button btnFlare = null;
+            McduKeyButton btnFlare = null;
             if (_flareLoader != null && _flights.Count == 1)
             {
-                btnFlare = new Button
+                btnFlare = new McduKeyButton
                 {
-                    Text      = "FLARE",
-                    Font      = new Font("Consolas", 9, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(255, 215, 0),
-                    BackColor = Color.FromArgb(28, 40, 52),
-                    FlatStyle = FlatStyle.Flat,
-                    AutoSize  = true,
-                    Margin    = new Padding(0, 1, 0, 0)
+                    Text        = _("Lnm_BtnFlare"),
+                    Font        = new Font("Consolas", 9, FontStyle.Bold),
+                    LegendColor = McduLegend.Warning,
+                    AutoSize    = true,
+                    Margin      = new Padding(0, 1, 0, 0)
                 };
-                btnFlare.FlatAppearance.BorderColor = Color.FromArgb(90, 110, 130);
                 btnFlare.Click += (s, e) => OpenFlareAnalysis();
             }
 
@@ -418,18 +417,15 @@ namespace vmsOpenAcars.UI.Forms
                 AutoSize  = true
             });
 
-            var btnX = new Button
+            var btnX = new McduKeyButton
             {
-                Text      = "✕",
-                Font      = new Font("Arial", 12, FontStyle.Bold),
-                Size      = new Size(30, 25),
-                Location  = new Point(ClientSize.Width - 35, 5),
-                BackColor = Color.FromArgb(150, 0, 0),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Anchor    = AnchorStyles.Top | AnchorStyles.Right
+                Text        = "✕",
+                Font        = new Font("Arial", 12, FontStyle.Bold),
+                Size        = new Size(30, 25),
+                Location    = new Point(ClientSize.Width - 35, 5),
+                LegendColor = McduLegend.Danger,
+                Anchor      = AnchorStyles.Top | AnchorStyles.Right
             };
-            btnX.FlatAppearance.BorderSize = 0;
             btnX.Click += (s, e) => Close();
             pnl.Controls.Add(btnX);
             Resize += (s, e) => btnX.Location = new Point(ClientSize.Width - 35, 5);

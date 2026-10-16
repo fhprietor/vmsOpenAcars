@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -37,6 +37,11 @@ namespace vmsOpenAcars.Services
 
         public void AddLog(string message, Color color)
         {
+            // El color viene de `Theme`, que es la paleta de la aplicación y no la del MCDU: se traduce en
+            // un solo sitio para que el log entero cambie de piel de golpe y ningún color acabe ilegible
+            // sobre el fondo del LCD (`McduPalette.ForLog`, comprobado por `McduPaletteTests`).
+            color = McduPalette.ForLog(color);
+
             // Mostrar en el log (código existente)
             if (_form.txtIncomingMsg.InvokeRequired)
             {

@@ -17,6 +17,13 @@ namespace vmsOpenAcars.Helpers
         public static int UpdateIntervalOther => GetInt("update_interval_other", 30);
 
         // Event reporting
+        /// <summary>
+/// La piel del MCDU: carcasa de plástico y grupos hundidos como pantallas LCD. Apagado conserva los
+/// colores y los biseles pero quita el grano, las manchas y las líneas de barrido, que es lo que cansa
+/// cuando el log se lee durante horas.
+/// </summary>
+        public static bool McduLook => GetBool("mcdu_look", true);
+
         public static bool ReportGearChanges => GetBool("report_gear_changes", true);
         public static bool ReportFlapChanges => GetBool("report_flap_changes", true);
         public static bool ReportSpoilerChanges => GetBool("report_spoiler_changes", true);

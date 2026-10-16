@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
@@ -16,6 +16,7 @@ using vmsOpenAcars.Helpers;
 using static vmsOpenAcars.Helpers.L;
 using System.Reflection;
 using vmsOpenAcars.Core.Helpers;
+using vmsOpenAcars.Controls;
 using System.IO.Compression;
 using System.Net.Http;
 using vmsOpenAcars;
@@ -40,13 +41,13 @@ namespace vmsOpenAcars.UI.Forms
         private Point _dragStartPoint;
 
         // ========== CONTROLES ==========
-        private TableLayoutPanel mainLayout;
-        private BufferedPanel pnlHeader;
-        private BufferedPanel pnlFma;
-        private BufferedPanel pnlStatus;
-        private BufferedPanel pnlButtons;
-        private BufferedPanel pnlMessageInfo;
-        private BufferedPanel pnlIncoming;
+        private McduChassisTable mainLayout;
+        private McduChassisPanel pnlHeader;
+        private McduDisplayPanel pnlFma;
+        private McduChassisPanel pnlStatus;
+        private McduChassisPanel pnlButtons;
+        private McduDisplayPanel pnlMessageInfo;
+        private McduDisplayPanel pnlIncoming;
         public Label lblTitle;
         public Label lblSubTitle;
         public Label _lblFlightNo;
@@ -68,15 +69,19 @@ namespace vmsOpenAcars.UI.Forms
         public Label lblValidationStatus;
         public Label lblCurrentAirport;
         public Label lblSimName;
-        private Button btnLogin;
-        private Button btnOfp;
-        private Button btnMap;
+        private McduKeyButton btnLogin;
+        private McduKeyButton btnOfp;
+        private McduKeyButton btnMap;
         private MapForm _mapForm;
-        private Button btnWeather;
-        private Button btnSimbrief;
-        private Button btnLogbook;
-        public Button btnStartStop;
-        private Button btnCancel;
+        private McduKeyButton btnWeather;
+        private McduKeyButton btnSimbrief;
+        private McduKeyButton btnLogbook;
+        // `internal` y no `public`: el tipo de la tecla es interno como el resto de helpers, y solo lo usa
+        // `UIService` en este mismo ensamblado (los tests lo ven por `InternalsVisibleTo`).
+        internal McduKeyButton btnStartStop;
+        private McduKeyButton btnCancel;
+        // Las teclas de la barra, en orden: `LayoutButtonBar` reparte el ancho entre ellas.
+        private readonly List<McduKeyButton> _barKeys = new List<McduKeyButton>();
         private NotifyIcon _notifyIcon;
         private bool _isFlightActive = false;
 
@@ -123,7 +128,7 @@ namespace vmsOpenAcars.UI.Forms
         private Label[]         _metarLabels         = new Label[4];
         private BufferedPanel[] _metarPanels         = new BufferedPanel[4];
         private MetarData[]     _metarDataArray      = new MetarData[4];
-        private Color[]         _metarConditionColors = new[] { Color.DimGray, Color.DimGray, Color.DimGray, Color.DimGray };
+        private Color[]         _metarConditionColors = new[] { McduPalette.LcdDim, McduPalette.LcdDim, McduPalette.LcdDim, McduPalette.LcdDim };
 
         // LUCES
         private Label _lblNavLight;
@@ -247,16 +252,11 @@ namespace vmsOpenAcars.UI.Forms
                 return;
             }
 
-            if (_isFlightActive)
-            {
-                btnCancel.Text = _("BtnCancel");
-                btnCancel.BackColor = Color.FromArgb(150, 0, 0);
-            }
-            else
-            {
-                btnCancel.Text = _("BtnExit");
-                btnCancel.BackColor = Color.FromArgb(100, 0, 0);
-            }
+            // El color ya no cambia con el estado: la tecla es negra y su leyenda es roja en los dos casos
+            // (viene de `MainButtonBar`, `McduLegend.Danger`). Hasta v0.9.44 el fondo se aclaraba cuando
+            // había vuelo activo, pero un rojo más apagado sobre un cuerpo negro —que es lo que es ahora—
+            // deja de leerse: la diferencia la dice el rótulo, CANCELAR contra SALIR.
+            btnCancel.Text = _isFlightActive ? _("BtnCancel") : _("BtnExit");
         }
 
         private void ConnectViewModelEvents()
@@ -401,10 +401,12 @@ namespace vmsOpenAcars.UI.Forms
                 return;
             }
 
-            _startStopCommand     = command;
-            btnStartStop.Text     = ButtonCommandLabel(command);
-            btnStartStop.BackColor = backColor;
-            btnStartStop.Enabled  = enabled;
+            _startStopCommand      = command;
+            btnStartStop.Text      = ButtonCommandLabel(command);
+            // El color del comando enciende la leyenda de la tecla (cuerpo negro, siempre): START ámbar,
+            // ABORT rojo, ENVIAR PIREP verde. `MainViewModel` y `AcarsReporter` no cambian.
+            btnStartStop.LegendColor = backColor;
+            btnStartStop.Enabled   = enabled;
         }
 
         /// <summary>
@@ -457,6 +459,17 @@ namespace vmsOpenAcars.UI.Forms
 
         #region Inicialización de UI (Tus métodos existentes)
 
+        /// <summary>
+        /// El fondo de la ventana es la **carcasa**: el plástico azuloso gastado. `mainLayout` es
+        /// transparente desde siempre, así que los huecos entre paneles y los márgenes muestran este
+        /// plástico, y cada panel que enseña plástico pinta su trozo de la misma rampa
+        /// (`McduChassis.OffsetY`), de modo que la ventana se lee como un solo aparato.
+        /// </summary>
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            McduChassis.Paint(e.Graphics, ClientRectangle, 0, Math.Max(1, ClientSize.Height));
+        }
+
         private void InitializeForm()
         {
 
@@ -466,7 +479,9 @@ namespace vmsOpenAcars.UI.Forms
             // el panel no tiene `AutoScroll` y lo que no quepa no se puede pulsar. Con una sola
             // fuente, mover uno de los dos números no puede desalinearlos (MainButtonBarTests).
             this.MinimumSize = new Size(MainButtonBar.MinWindowWidth, 600);
-            this.BackColor = Color.FromArgb(10, 10, 20);
+            // La piel del MCDU, con su interruptor: apagada conserva colores y biseles y quita la textura.
+            McduPalette.Textured = AppConfig.McduLook;
+            this.BackColor = McduPalette.ChassisMid;
             this.Font = new Font("Consolas", 10, FontStyle.Regular);
             this.FormBorderStyle = FormBorderStyle.None;
             this.Padding = new Padding(2);
@@ -533,7 +548,7 @@ namespace vmsOpenAcars.UI.Forms
             // Borde
             this.Paint += (s, e) =>
             {
-                using (Pen pen = new Pen(Color.FromArgb(100, 180, 255), 1))
+                using (Pen pen = new Pen(McduPalette.LcdCyan, 1))
                 {
                     e.Graphics.DrawRectangle(pen, 0, 0, this.ClientSize.Width - 1, this.ClientSize.Height - 1);
                 }
@@ -542,12 +557,12 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeLayout()
         {
-            mainLayout = new TableLayoutPanel
+            // El layout pinta la carcasa: sus huecos son la mayor superficie de plástico de la ventana.
+            mainLayout = new McduChassisTable
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 6,
-                BackColor = Color.Transparent
+                RowCount = 6
             };
 
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));   // Row 0: Header
@@ -624,10 +639,9 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeHeader()
         {
-            pnlHeader = new BufferedPanel
+            pnlHeader = new McduChassisPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(20, 30, 40),
                 Padding = new Padding(10)
             };
 
@@ -637,7 +651,7 @@ namespace vmsOpenAcars.UI.Forms
                 Size = new Size(40, 40),
                 Location = new Point(10, 10),
                 SizeMode = PictureBoxSizeMode.Zoom,
-                BackColor = Color.Transparent
+                BackColor = McduPalette.ChassisHigh
             };
 
             // Cargar el logo
@@ -650,11 +664,11 @@ namespace vmsOpenAcars.UI.Forms
                 }
                 else
                 {
-                    pbLogo.BackColor = Color.FromArgb(50, 50, 60);
+                    pbLogo.BackColor = McduPalette.ChassisLow;
                     pbLogo.Paint += (s, e) =>
                     {
                         using (Font font = new Font("Consolas", 8))
-                        using (SolidBrush brush = new SolidBrush(Color.Cyan))
+                        using (SolidBrush brush = new SolidBrush(McduPalette.LcdCyan))
                         {
                             e.Graphics.DrawString("LOGO", font, brush, new PointF(5, 12));
                         }
@@ -671,7 +685,9 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Text = _("MainTitle"),
                 Font = new Font("Consolas", 16, FontStyle.Bold),
-                ForeColor = Color.Cyan,
+                // Grabado en oscuro sobre el plástico: el blanco se queda en 2,9:1 y el cian en 1,5:1.
+                ForeColor = McduPalette.Ink,
+                BackColor = McduPalette.ChassisHigh,
                 Location = new Point(60, 10),
                 AutoSize = true
             };
@@ -682,7 +698,8 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Text = airlineName,
                 Font = new Font("Consolas", 12, FontStyle.Bold),
-                ForeColor = Color.LightGreen,
+                ForeColor = McduPalette.Ink,
+                BackColor = McduPalette.ChassisHigh,
                 Location = new Point(60, 35),
                 AutoSize = true
             };
@@ -692,52 +709,44 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Text = $"v{AppInfo.Version}",
                 Font = new Font("Consolas", 9, FontStyle.Italic),
-                ForeColor = Color.FromArgb(150, 150, 150),
+                ForeColor = McduPalette.Ink,
+                BackColor = McduPalette.ChassisHigh,
                 AutoSize = true,
                 // La posición Y se ajustará en el evento Resize
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
 
             // ===== BOTÓN DE CONFIGURACIÓN =====
-            Button btnSettings = new Button
+            McduKeyButton btnSettings = new McduKeyButton
             {
-                Text = "⚙️",
-                Font = new Font("Segoe UI", 14, FontStyle.Regular),
-                Size = new Size(40, 40),
-                BackColor = Color.Transparent,
-                ForeColor = Color.Cyan,
-                FlatStyle = FlatStyle.Flat,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
+                Text        = "⚙️",
+                Font        = new Font("Segoe UI", 14, FontStyle.Regular),
+                Size        = new Size(40, 40),
+                LegendColor = McduLegend.Neutral,
+                Anchor      = AnchorStyles.Top | AnchorStyles.Right
             };
-            btnSettings.FlatAppearance.BorderSize = 0;
             btnSettings.Click += BtnSettings_Click;
 
             // ===== BOTÓN MINIMIZAR A TASKBAR =====
-            Button btnMinimize = new Button
+            McduKeyButton btnMinimize = new McduKeyButton
             {
-                Text = "─",
-                Font = new Font("Consolas", 14, FontStyle.Bold),
-                Size = new Size(40, 40),
-                BackColor = Color.Transparent,
-                ForeColor = Color.FromArgb(180, 180, 180),
-                FlatStyle = FlatStyle.Flat,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
+                Text        = "─",
+                Font        = new Font("Consolas", 14, FontStyle.Bold),
+                Size        = new Size(40, 40),
+                LegendColor = McduLegend.Neutral,
+                Anchor      = AnchorStyles.Top | AnchorStyles.Right
             };
-            btnMinimize.FlatAppearance.BorderSize = 0;
             btnMinimize.Click += (s, e) => this.WindowState = FormWindowState.Minimized;
 
             // ===== BOTÓN MINIMIZAR AL SYSTEM TRAY =====
-            Button btnTray = new Button
+            McduKeyButton btnTray = new McduKeyButton
             {
-                Text = "▾",
-                Font = new Font("Segoe UI", 12, FontStyle.Regular),
-                Size = new Size(40, 40),
-                BackColor = Color.Transparent,
-                ForeColor = Color.FromArgb(180, 180, 180),
-                FlatStyle = FlatStyle.Flat,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
+                Text        = "▾",
+                Font        = new Font("Segoe UI", 12, FontStyle.Regular),
+                Size        = new Size(40, 40),
+                LegendColor = McduLegend.Neutral,
+                Anchor      = AnchorStyles.Top | AnchorStyles.Right
             };
-            btnTray.FlatAppearance.BorderSize = 0;
             btnTray.Click += (s, e) => MinimizeToTray();
             new ToolTip().SetToolTip(btnTray, "Minimizar al área de notificaciones");
 
@@ -824,24 +833,11 @@ namespace vmsOpenAcars.UI.Forms
         private void InitializeMessageSection()
         {
             // ===== PANEL FLIGHT INFORMATION =====
-            pnlMessageInfo = new BufferedPanel
+            pnlMessageInfo = new McduDisplayPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(15, 15, 25),
-                Padding = new Padding(3),
-                BorderStyle = BorderStyle.FixedSingle
+                Title = _("FlightInfoTitle")
             };
-
-            var lblTitle = new Label
-            {
-                Text = "FLIGHT INFORMATION",
-                Font = new Font("Consolas", 10, FontStyle.Bold),
-                ForeColor = Color.Yellow,
-                Dock = DockStyle.Top,
-                Height = 20,
-                TextAlign = ContentAlignment.MiddleLeft
-            };
-            pnlMessageInfo.Controls.Add(lblTitle);
 
             // Layout principal — una sola columna (motores en topGrid)
             var mainGrid = new TableLayoutPanel
@@ -850,7 +846,7 @@ namespace vmsOpenAcars.UI.Forms
                 ColumnCount = 1,
                 RowCount = 1,
                 Padding = new Padding(2),
-                BackColor = Color.Transparent
+                BackColor = McduPalette.LcdBackground
             };
             mainGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
 
@@ -860,7 +856,7 @@ namespace vmsOpenAcars.UI.Forms
                 ColumnCount = 1,
                 RowCount = 2,
                 Padding = new Padding(2),
-                BackColor = Color.Transparent
+                BackColor = McduPalette.LcdBackground
             };
             leftGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
             leftGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
@@ -872,7 +868,7 @@ namespace vmsOpenAcars.UI.Forms
                 ColumnCount = 4,
                 RowCount = 1,
                 Padding = new Padding(1),
-                BackColor = Color.Transparent
+                BackColor = McduPalette.LcdBackground
             };
             topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
             topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
@@ -901,7 +897,7 @@ namespace vmsOpenAcars.UI.Forms
                 ColumnCount = 3,
                 RowCount = 1,
                 Padding = new Padding(1),
-                BackColor = Color.Transparent
+                BackColor = McduPalette.LcdBackground
             };
             bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28F));
             bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36F));
@@ -921,19 +917,17 @@ namespace vmsOpenAcars.UI.Forms
             mainLayout.Controls.Add(pnlMessageInfo, 0, 2);
 
             // ===== PANEL DE MENSAJES ENTRANTES (INCOMING MSG) =====
-            pnlIncoming = new BufferedPanel
+            pnlIncoming = new McduDisplayPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(15, 15, 25),
-                Padding = new Padding(10),
-                BorderStyle = BorderStyle.FixedSingle
+                Title = _("IncomingTitle")
             };
 
             txtIncomingMsg = new RichTextBox
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.Black,
-                ForeColor = Color.LightGreen,
+                BackColor = McduPalette.LcdBackground,
+                ForeColor = McduPalette.LcdGreenSoft,
                 Font = new Font("Consolas", 10),
                 BorderStyle = BorderStyle.None,
                 ReadOnly = true,
@@ -944,16 +938,8 @@ namespace vmsOpenAcars.UI.Forms
             txtIncomingMsg.PreviewKeyDown += (s, e) => e.IsInputKey = false;
             pnlIncoming.Controls.Add(txtIncomingMsg);
 
-            var lblIncomingTitle = new Label
-            {
-                Text = "INCOMING MSG",
-                Font = new Font("Consolas", 12, FontStyle.Bold),
-                ForeColor = Color.Yellow,
-                Dock = DockStyle.Top,
-                Height = 25,
-                TextAlign = ContentAlignment.MiddleLeft
-            };
-            pnlIncoming.Controls.Add(lblIncomingTitle);
+            // El título lo pinta la propia pantalla (`McduDisplayPanel.Title`), en blanco y en su banda:
+            // una etiqueta aparte lo duplicaba en ámbar debajo del cristal.
 
             var pnlMetar = InitializeMetarPanel();
             var row3Split = new TableLayoutPanel
@@ -963,7 +949,7 @@ namespace vmsOpenAcars.UI.Forms
                 RowCount    = 1,
                 Padding     = Padding.Empty,
                 Margin      = Padding.Empty,
-                BackColor   = Color.Transparent
+                BackColor   = McduPalette.LcdBackground
             };
             row3Split.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
             row3Split.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
@@ -974,13 +960,13 @@ namespace vmsOpenAcars.UI.Forms
 
         private Panel CreateCompactInfoCard(string title, out Label label1, out Label label2, out Label label3)
         {
-            var panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(20, 25, 35), Margin = new Padding(1) };
+            var panel = new Panel { Dock = DockStyle.Fill, BackColor = McduPalette.LcdBackground, Margin = new Padding(1) };
             var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 5,
-                BackColor = Color.Transparent,
+                BackColor = McduPalette.LcdBackground,
                 Padding = new Padding(3, 8, 3, 2)
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 14)); // título
@@ -992,7 +978,7 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Text = title,
                 Font = new Font("Consolas", 8, FontStyle.Bold),
-                ForeColor = Color.Gold,
+                ForeColor = McduPalette.LcdCyan,
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = Padding.Empty
@@ -1012,13 +998,13 @@ namespace vmsOpenAcars.UI.Forms
         /// <summary>Panel SISTEMAS — título en fila 0 del TLP para evitar que tape la fila 1.</summary>
         private Panel CreateSistemasPanel()
         {
-            var panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(20, 25, 35), Margin = new Padding(1) };
+            var panel = new Panel { Dock = DockStyle.Fill, BackColor = McduPalette.LcdBackground, Margin = new Padding(1) };
             var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 8,
-                BackColor = Color.Transparent,
+                BackColor = McduPalette.LcdBackground,
                 Padding = new Padding(3, 8, 3, 2)
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 14)); // título
@@ -1026,7 +1012,7 @@ namespace vmsOpenAcars.UI.Forms
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // espaciador
 
-            layout.Controls.Add(new Label { Text = _("Panel_Systems"), Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
+            layout.Controls.Add(new Label { Text = _("Panel_Systems"), Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = McduPalette.LcdCyan, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
 
             _lblGear = MakeSysLabel("GEAR: ---");
             _lblFlaps = MakeSysLabel("FLAPS: --");
@@ -1048,13 +1034,13 @@ namespace vmsOpenAcars.UI.Forms
         /// <summary>Panel LUCES — título en fila 0 del TLP para evitar que tape la fila 1.</summary>
         private Panel CreateLucesPanel()
         {
-            var panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(20, 25, 35), Margin = new Padding(1) };
+            var panel = new Panel { Dock = DockStyle.Fill, BackColor = McduPalette.LcdBackground, Margin = new Padding(1) };
             var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 7,
-                BackColor = Color.Transparent,
+                BackColor = McduPalette.LcdBackground,
                 Padding = new Padding(3, 8, 3, 2)
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 14)); // título
@@ -1062,7 +1048,7 @@ namespace vmsOpenAcars.UI.Forms
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // espaciador
 
-            layout.Controls.Add(new Label { Text = _("Panel_Lights"), Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
+            layout.Controls.Add(new Label { Text = _("Panel_Lights"), Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = McduPalette.LcdCyan, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
 
             _lblNavLight = MakeSysLabel("● NAV: OFF");
             _lblBeaconLight = MakeSysLabel("● BCN: OFF");
@@ -1082,13 +1068,13 @@ namespace vmsOpenAcars.UI.Forms
         /// <summary>Panel MOTORES — título en fila 0 del TLP para evitar que tape la fila 1.</summary>
         private Panel CreateMotorCompactPanel()
         {
-            var panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(20, 25, 35), Margin = new Padding(1) };
+            var panel = new Panel { Dock = DockStyle.Fill, BackColor = McduPalette.LcdBackground, Margin = new Padding(1) };
             var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 4,
-                BackColor = Color.Transparent,
+                BackColor = McduPalette.LcdBackground,
                 Padding = new Padding(3, 8, 3, 2)
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 14)); // título
@@ -1096,7 +1082,7 @@ namespace vmsOpenAcars.UI.Forms
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // espaciador
 
-            layout.Controls.Add(new Label { Text = _("Panel_Engines"), Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = Color.Gold, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
+            layout.Controls.Add(new Label { Text = _("Panel_Engines"), Font = new Font("Consolas", 8, FontStyle.Bold), ForeColor = McduPalette.LcdCyan, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty }, 0, 0);
 
             _lblEng1Val = MakeSysLabel("ENG1: ---");
             _lblEng2Val = MakeSysLabel("ENG2: ---");
@@ -1111,7 +1097,7 @@ namespace vmsOpenAcars.UI.Forms
         {
             Text = text,
             Font = new Font("Consolas", 8, FontStyle.Bold),
-            ForeColor = Color.LightGreen,
+            ForeColor = McduPalette.LcdGreenSoft,
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(2, 0, 0, 0),
@@ -1122,7 +1108,7 @@ namespace vmsOpenAcars.UI.Forms
             var panel = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(20, 25, 35),
+                BackColor = McduPalette.LcdBackground,
                 Padding = new Padding(0),
                 Margin = new Padding(0)
             };
@@ -1137,7 +1123,7 @@ namespace vmsOpenAcars.UI.Forms
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 3,
-                BackColor = Color.Transparent,
+                BackColor = McduPalette.LcdBackground,
                 Padding = new Padding(0),
                 Margin = new Padding(0)
             };
@@ -1150,7 +1136,7 @@ namespace vmsOpenAcars.UI.Forms
             var topSpacer = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.Transparent
+                BackColor = McduPalette.LcdBackground
             };
             layout.Controls.Add(topSpacer, 0, 0);
 
@@ -1159,7 +1145,7 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Text = _("Panel_Engines"),
                 Font = new Font("Consolas", 8, FontStyle.Bold),
-                ForeColor = Color.Gold,
+                ForeColor = McduPalette.LcdCyan,
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Padding = new Padding(3, 0, 0, 0)
@@ -1184,7 +1170,7 @@ namespace vmsOpenAcars.UI.Forms
             var panel = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(20, 25, 35),
+                BackColor = McduPalette.LcdBackground,
                 Margin = new Padding(1)
             };
 
@@ -1193,7 +1179,7 @@ namespace vmsOpenAcars.UI.Forms
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 6,
-                BackColor = Color.Transparent,
+                BackColor = McduPalette.LcdBackground,
                 Padding = new Padding(3, 8, 3, 2)
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 14)); // título
@@ -1205,7 +1191,7 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Text = title,
                 Font = new Font("Consolas", 8, FontStyle.Bold),
-                ForeColor = Color.Gold,
+                ForeColor = McduPalette.LcdCyan,
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = Padding.Empty
@@ -1226,12 +1212,10 @@ namespace vmsOpenAcars.UI.Forms
         }
         private void InitializeFmaPanel()
         {
-            pnlFma = new BufferedPanel
+            pnlFma = new McduDisplayPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(15, 15, 25),
-                Padding = new Padding(10, 0, 10, 4),
-                BorderStyle = BorderStyle.FixedSingle
+                Padding = new Padding(12, 26, 12, 12)
             };
 
             // Outer: 2 cols (izquierda líneas SimBrief / derecha columna de estado)
@@ -1240,7 +1224,7 @@ namespace vmsOpenAcars.UI.Forms
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
                 RowCount = 1,
-                BackColor = Theme.FMAPanelBackground,
+                BackColor = McduPalette.LcdBackground,
                 Margin = Padding.Empty
             };
             outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70));
@@ -1253,7 +1237,7 @@ namespace vmsOpenAcars.UI.Forms
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 3,
-                BackColor = Theme.FMAPanelBackground,
+                BackColor = McduPalette.LcdBackground,
                 Margin = Padding.Empty
             };
             planLines.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -1261,15 +1245,15 @@ namespace vmsOpenAcars.UI.Forms
                 planLines.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33f));
 
             var monoFont = new Font("Consolas", 12.25f, FontStyle.Regular, GraphicsUnit.Point);
-            var planFore1 = Color.FromArgb(190, 210, 230);
-            var planFore2 = Color.FromArgb(160, 185, 205);
+            var planFore1 = McduPalette.Ink;
+            var planFore2 = McduPalette.Ink;
 
             _lblFmaPlanLine1 = new Label
             {
                 Dock = DockStyle.Fill,
                 Font = monoFont,
                 ForeColor = planFore1,
-                BackColor = Theme.FMAPanelBackground,
+                BackColor = McduPalette.LcdBackground,
                 Margin = Padding.Empty,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Text = ""
@@ -1279,7 +1263,7 @@ namespace vmsOpenAcars.UI.Forms
                 Dock = DockStyle.Fill,
                 Font = monoFont,
                 ForeColor = planFore2,
-                BackColor = Theme.FMAPanelBackground,
+                BackColor = McduPalette.LcdBackground,
                 Margin = Padding.Empty,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Text = ""
@@ -1289,7 +1273,7 @@ namespace vmsOpenAcars.UI.Forms
                 Dock = DockStyle.Fill,
                 Font = monoFont,
                 ForeColor = planFore2,
-                BackColor = Theme.FMAPanelBackground,
+                BackColor = McduPalette.LcdBackground,
                 Margin = Padding.Empty,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Text = ""
@@ -1305,7 +1289,7 @@ namespace vmsOpenAcars.UI.Forms
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 3,
-                BackColor = Theme.FMAPanelBackground,
+                BackColor = McduPalette.LcdBackground,
                 Margin = Padding.Empty
             };
             rightCol.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -1319,8 +1303,8 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Fill,
                 Font = new Font("Consolas", 20f, FontStyle.Bold, GraphicsUnit.Point),
-                ForeColor = Color.Lime,
-                BackColor = Theme.FMAPanelBackground,
+                ForeColor = McduPalette.LcdGreen,
+                BackColor = McduPalette.LcdBackground,
                 Margin = Padding.Empty,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Visible = false,
@@ -1348,7 +1332,7 @@ namespace vmsOpenAcars.UI.Forms
                 TextAlign = ContentAlignment.MiddleCenter,
                 Font = Theme.LargeFont,
                 ForeColor = Theme.MainText,
-                BackColor = Theme.FMAPanelBackground,
+                BackColor = McduPalette.LcdBackground,
                 Margin = Padding.Empty,
                 Text = $"{title} {value}"
             };
@@ -1356,29 +1340,27 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeStatusSection()
         {
-            pnlStatus = new BufferedPanel
+            pnlStatus = new McduChassisPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(10, 12, 20),
                 Padding = new Padding(3, 0, 3, 0)
             };
 
-            var flow = new FlowLayoutPanel
+            var flow = new McduChassisFlow
             {
                 Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
-                BackColor = Color.Transparent,
                 Padding = new Padding(0)
             };
 
-            lblSimName        = CreateStatusPill(_("Waiting"), Color.DimGray);
-            lblAcarsStatus    = CreateStatusPill("⚠️ Offline", Color.Orange);
-            lblCurrentAirport = CreateStatusPill("---", Color.DimGray);
-            lblValidationStatus = CreateStatusPill("ICAO --- GPS ---", Color.DimGray);
-            lblPos            = CreateStatusPill("---", Color.DimGray);
-            _lblCom1          = CreateStatusPill("COM ---", Color.DimGray);
-            _lblNav1          = CreateStatusPill("NAV ---", Color.DimGray);
+            lblSimName        = CreateStatusPill(_("Waiting"), McduPalette.LcdDim);
+            lblAcarsStatus    = CreateStatusPill("⚠️ Offline", McduPalette.LcdAmber);
+            lblCurrentAirport = CreateStatusPill("---", McduPalette.LcdDim);
+            lblValidationStatus = CreateStatusPill("ICAO --- GPS ---", McduPalette.LcdDim);
+            lblPos            = CreateStatusPill("---", McduPalette.LcdDim);
+            _lblCom1          = CreateStatusPill("COM ---", McduPalette.LcdDim);
+            _lblNav1          = CreateStatusPill("NAV ---", McduPalette.LcdDim);
 
             flow.Controls.AddRange(new Control[] {
                 lblSimName, lblAcarsStatus, lblCurrentAirport, lblValidationStatus, lblPos,
@@ -1395,8 +1377,8 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Text = text,
                 Font = new Font("Consolas", 9),
-                ForeColor = fore,
-                BackColor = Color.FromArgb(28, 32, 48),
+                ForeColor = McduPalette.ForLog(fore),
+                BackColor = McduPalette.LcdBackground,
                 AutoSize = true,
                 Padding = new Padding(7, 2, 7, 2),
                 Margin = new Padding(3, 3, 3, 3)
@@ -1405,29 +1387,25 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitializeButtons()
         {
-            pnlButtons = new BufferedPanel
+            pnlButtons = new McduChassisPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(30, 40, 50),
                 Padding = new Padding(4)
             };
 
             // La barra sale de `MainButtonBar` (nombres, claves de rótulo y colores en una sola
-            // lista, para que no puedan desalinearse) y tiene que caber en el ancho mínimo de la
-            // ventana: el panel no tiene `AutoScroll` y los botones van con `Location` absoluta.
-            int xPos = MainButtonBar.StartX;
-
+            // lista, para que no puedan desalinearse) y **reparte el ancho del panel**: antes cada tecla
+            // medía 90 px fijos y sobraban ~270 px a la derecha mientras `DESPACHO` y `BITÁCORA` se
+            // quedaban sin sitio al 150 % de escalado. El ancho se recalcula en cada `Resize`
+            // (`LayoutButtonBar`), porque el panel está dockeado y crece con la ventana.
             foreach (var spec in MainButtonBar.Specs)
             {
-                Button btn = new Button
+                McduKeyButton btn = new McduKeyButton
                 {
-                    Text      = _(spec.LabelKey),
-                    Location  = new Point(xPos, 6),
-                    Size      = new Size(MainButtonBar.ButtonWidth, MainButtonBar.ButtonHeight),
-                    BackColor = spec.BackColor,
-                    ForeColor = Color.White,
-                    FlatStyle = FlatStyle.Flat,
-                    Font      = new Font("Consolas", 10, FontStyle.Bold)
+                    Text        = _(spec.LabelKey),
+                    Size        = new Size(MainButtonBar.MinimumButtonWidth, MainButtonBar.ButtonHeight),
+                    LegendColor = spec.LegendColor,
+                    Font        = new Font("Consolas", MainButtonBar.ButtonFontSize, FontStyle.Bold)
                 };
 
                 switch (spec.Name)
@@ -1478,10 +1456,47 @@ namespace vmsOpenAcars.UI.Forms
                 }
 
                 pnlButtons.Controls.Add(btn);
-                xPos += MainButtonBar.ButtonWidth + MainButtonBar.Spacing;
+                _barKeys.Add(btn);
             }
 
+            // Reparto del ancho: una vez ahora y en cada cambio de tamaño del panel.
+            pnlButtons.Resize += (s, e) => LayoutButtonBar();
+            // Las rayitas van detrás de las teclas, así que las pinta el panel.
+            pnlButtons.Paint += (s, e) => DrawLineSelectDashes(e.Graphics);
+            LayoutButtonBar();
+
             mainLayout.Controls.Add(pnlButtons, 0, 4);
+        }
+
+        /// <summary>
+        /// Las rayitas blancas del bisel, una por tecla. En el MCDU real cada tecla de línea tiene la suya
+        /// apuntando a su renglón, y aquí son lo que convierte la barra en la columna de LSK del aparato.
+        /// Van detrás de las teclas: las pinta el panel y las teclas se dibujan encima.
+        /// </summary>
+        private void DrawLineSelectDashes(Graphics g)
+        {
+            foreach (McduKeyButton key in _barKeys)
+                McduChassis.Dash(g, key.Left + 12, key.Top - 5, 22);
+        }
+
+        /// <summary>
+        /// Reparte el ancho del panel entre las teclas de la barra: todas del **mismo** ancho, que es lo
+        /// que mantiene la armonía de los rótulos (unos más pequeños que otros era justo lo que se veía
+        /// cuando cada tecla medía 90 px fijos y `DESPACHO`/`BITÁCORA` no cabían al 150 % de escalado).
+        /// El ancho común lo decide `MainButtonBar.ButtonWidthFor`, que es puro y está probado.
+        /// </summary>
+        private void LayoutButtonBar()
+        {
+            if (_barKeys.Count == 0) return;
+
+            int width = MainButtonBar.ButtonWidthFor(pnlButtons.ClientSize.Width, _barKeys.Count);
+            int x = MainButtonBar.StartX;
+
+            foreach (McduKeyButton key in _barKeys)
+            {
+                key.SetBounds(x, 6, width, MainButtonBar.ButtonHeight);
+                x += width + MainButtonBar.Spacing;
+            }
         }
 
         private Label CreateInfoLabel(string text, FontStyle style = FontStyle.Regular)
@@ -1490,7 +1505,7 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Text = text,
                 Font = new Font("Consolas", 10, style),
-                ForeColor = Color.LightGreen,
+                ForeColor = McduPalette.LcdGreenSoft,
                 AutoSize = true,
                 Anchor = AnchorStyles.Left
             };
@@ -1534,12 +1549,12 @@ namespace vmsOpenAcars.UI.Forms
                         if (fm.HasSimulatorData)
                         {
                             lblPhase.Text = "🟢 SIM READY";
-                            lblPhase.ForeColor = Color.Lime;
+                            lblPhase.ForeColor = McduPalette.LcdGreen;
                         }
                         else
                         {
                             lblPhase.Text = "🔴 NO SIM";
-                            lblPhase.ForeColor = Color.Red;
+                            lblPhase.ForeColor = McduPalette.LcdRed;
                         }
                     }
                 }
@@ -1573,11 +1588,11 @@ namespace vmsOpenAcars.UI.Forms
                 {
                     _lblVs.Text = $"VS: {vsSign}{fm.CurrentVerticalSpeed} fpm";
                     if (fm.CurrentVerticalSpeed > 500)
-                        _lblVs.ForeColor = Color.Lime;
+                        _lblVs.ForeColor = McduPalette.LcdGreen;
                     else if (fm.CurrentVerticalSpeed < -500)
-                        _lblVs.ForeColor = Color.Orange;
+                        _lblVs.ForeColor = McduPalette.LcdAmber;
                     else
-                        _lblVs.ForeColor = Color.LightGreen;
+                        _lblVs.ForeColor = McduPalette.LcdGreenSoft;
                 }
 
                 // === FUEL ===
@@ -1597,9 +1612,9 @@ namespace vmsOpenAcars.UI.Forms
                 {
                     _lblFuelCurrent.Text = $"ACT: {fuelAct:F0} {fuelUnit}";
                     // umbrales en kg internamente
-                    _lblFuelCurrent.ForeColor = fm.CurrentFuel < 500 ? Color.Red
-                        : fm.CurrentFuel < 1000 ? Color.Orange
-                        : Color.LightGreen;
+                    _lblFuelCurrent.ForeColor = fm.CurrentFuel < 500 ? McduPalette.LcdRed
+                        : fm.CurrentFuel < 1000 ? McduPalette.LcdAmber
+                        : McduPalette.LcdGreenSoft;
                 }
 
                 if (_lblFuelUsed != null)
@@ -1629,7 +1644,7 @@ namespace vmsOpenAcars.UI.Forms
                     else
                     {
                         _lblQnhVal.Text = "QNH: --- hPa";
-                        _lblQnhVal.ForeColor = Color.DimGray;
+                        _lblQnhVal.ForeColor = McduPalette.LcdDim;
                     }
                 }
 
@@ -1637,17 +1652,17 @@ namespace vmsOpenAcars.UI.Forms
                 if (_lblGear != null)
                 {
                     _lblGear.Text = fm.IsGearDown ? "GEAR: DOWN" : "GEAR: UP";
-                    _lblGear.ForeColor = fm.IsGearDown ? Color.Lime : Color.Orange;
+                    _lblGear.ForeColor = fm.IsGearDown ? McduPalette.LcdGreen : McduPalette.LcdAmber;
                 }
                 if (_lblFlaps != null)
                 {
                     _lblFlaps.Text = $"FLAPS: {fm.FlapsLabel}";
-                    _lblFlaps.ForeColor = (fm.FlapsLabel != "UP" && fm.FlapsLabel != "0") ? Color.Yellow : Color.LightGreen;
+                    _lblFlaps.ForeColor = (fm.FlapsLabel != "UP" && fm.FlapsLabel != "0") ? McduPalette.LcdAmber : McduPalette.LcdGreenSoft;
                 }
                 if (_lblSpoilers != null)
                 {
                     _lblSpoilers.Text = fm.AreSpoilersDeployed ? "SPOIL: DEP" : "SPOIL: RET";
-                    _lblSpoilers.ForeColor = fm.AreSpoilersDeployed ? Color.Orange : Color.LightGreen;
+                    _lblSpoilers.ForeColor = fm.AreSpoilersDeployed ? McduPalette.LcdAmber : McduPalette.LcdGreenSoft;
                 }
                 if (_lblAutobrake != null) _lblAutobrake.Text = $"A/BRK: {fm.AutobrakeSetting}";
 
@@ -1657,12 +1672,12 @@ namespace vmsOpenAcars.UI.Forms
                     if (fm.AutopilotEngaged)
                     {
                         _lblAutopilot.Text = $"A/P: {fm.ApNavMode}/{fm.ApVertMode}";
-                        _lblAutopilot.ForeColor = Color.Cyan;
+                        _lblAutopilot.ForeColor = McduPalette.LcdCyan;
                     }
                     else
                     {
                         _lblAutopilot.Text = "A/P: OFF";
-                        _lblAutopilot.ForeColor = Color.Gray;
+                        _lblAutopilot.ForeColor = McduPalette.LcdDim;
                     }
                 }
 
@@ -1678,7 +1693,7 @@ namespace vmsOpenAcars.UI.Forms
                     else
                     {
                         _lblStabilized.Text = fm.IsApproachStabilized ? "✅ STABLE" : "⚠️ UNSTABLE";
-                        _lblStabilized.ForeColor = fm.IsApproachStabilized ? Color.Lime : Color.Red;
+                        _lblStabilized.ForeColor = fm.IsApproachStabilized ? McduPalette.LcdGreen : McduPalette.LcdRed;
                     }
                 }
 
@@ -1687,27 +1702,27 @@ namespace vmsOpenAcars.UI.Forms
                 if (_lblNavLight != null)
                 {
                     _lblNavLight.Text = fm.IsNavLightOn ? "🟡 NAV: ON" : "🟡 NAV: OFF";
-                    _lblNavLight.ForeColor = fm.IsNavLightOn ? Color.Gold : Color.Gray;
+                    _lblNavLight.ForeColor = fm.IsNavLightOn ? McduPalette.LcdCyan : McduPalette.LcdDim;
                 }
                 if (_lblBeaconLight != null)
                 {
                     _lblBeaconLight.Text = fm.IsBeaconLightOn ? "🔴 BCN: ON" : "🔴 BCN: OFF";
-                    _lblBeaconLight.ForeColor = fm.IsBeaconLightOn ? Color.Red : Color.Gray;
+                    _lblBeaconLight.ForeColor = fm.IsBeaconLightOn ? McduPalette.LcdRed : McduPalette.LcdDim;
                 }
                 if (_lblLandingLight != null)
                 {
                     _lblLandingLight.Text = fm.IsLandingLightOn ? "⚪ LAND: ON" : "⚪ LAND: OFF";
-                    _lblLandingLight.ForeColor = fm.IsLandingLightOn ? Color.White : Color.Gray;
+                    _lblLandingLight.ForeColor = fm.IsLandingLightOn ? McduPalette.LcdWhite : McduPalette.LcdDim;
                 }
                 if (_lblTaxiLight != null)
                 {
                     _lblTaxiLight.Text = fm.IsTaxiLightOn ? "🔵 TAXI: ON" : "🔵 TAXI: OFF";
-                    _lblTaxiLight.ForeColor = fm.IsTaxiLightOn ? Color.Cyan : Color.Gray;
+                    _lblTaxiLight.ForeColor = fm.IsTaxiLightOn ? McduPalette.LcdCyan : McduPalette.LcdDim;
                 }
                 if (_lblStrobeLight != null)
                 {
                     _lblStrobeLight.Text = fm.IsStrobeLightOn ? "🟢 STROBE: ON" : "🟢 STROBE: OFF";
-                    _lblStrobeLight.ForeColor = fm.IsStrobeLightOn ? Color.Lime : Color.Gray;
+                    _lblStrobeLight.ForeColor = fm.IsStrobeLightOn ? McduPalette.LcdGreen : McduPalette.LcdDim;
                 }
 
                 // ===== RADIO (COM1 / NAV1) =====
@@ -1723,12 +1738,12 @@ namespace vmsOpenAcars.UI.Forms
                         if (com1 > 0)
                         {
                             _lblCom1.Text      = $"COM {com1:F2}";
-                            _lblCom1.ForeColor = Color.LightGreen;
+                            _lblCom1.ForeColor = McduPalette.LcdGreenSoft;
                         }
                         else
                         {
                             _lblCom1.Text      = "COM ---";
-                            _lblCom1.ForeColor = Color.DimGray;
+                            _lblCom1.ForeColor = McduPalette.LcdDim;
                         }
                     }
                     if (_lblNav1 != null)
@@ -1738,12 +1753,12 @@ namespace vmsOpenAcars.UI.Forms
                             _lblNav1.Text = nav1Crs > 0
                                 ? $"NAV {nav1:F2}/{nav1Crs:D3}"
                                 : $"NAV {nav1:F2}";
-                            _lblNav1.ForeColor = Color.Cyan;
+                            _lblNav1.ForeColor = McduPalette.LcdCyan;
                         }
                         else
                         {
                             _lblNav1.Text      = "NAV ---";
-                            _lblNav1.ForeColor = Color.DimGray;
+                            _lblNav1.ForeColor = McduPalette.LcdDim;
                         }
                     }
                 }
@@ -1806,11 +1821,11 @@ namespace vmsOpenAcars.UI.Forms
                                                 DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                         Color cdwColor;
                         if (secondsRemaining > 600 || secondsRemaining < -600)
-                            cdwColor = Color.Red;
+                            cdwColor = McduPalette.LcdRed;
                         else if (secondsRemaining > 300 || secondsRemaining < -300)
-                            cdwColor = Color.Yellow;
+                            cdwColor = McduPalette.LcdAmber;
                         else
-                            cdwColor = Color.Lime;
+                            cdwColor = McduPalette.LcdGreen;
 
                         string cdwText;
                         if (secondsRemaining >= 0)
@@ -1886,10 +1901,10 @@ namespace vmsOpenAcars.UI.Forms
 
         private Color GetPhaseColor(FlightPhase phase)
         {
-            if (phase == FlightPhase.Enroute) return Color.Lime;
-            if (phase == FlightPhase.Takeoff || phase == FlightPhase.Climb) return Color.Yellow;
-            if (phase == FlightPhase.Descent || phase == FlightPhase.Approach) return Color.Orange;
-            return Color.Cyan;
+            if (phase == FlightPhase.Enroute) return McduPalette.LcdGreen;
+            if (phase == FlightPhase.Takeoff || phase == FlightPhase.Climb) return McduPalette.LcdAmber;
+            if (phase == FlightPhase.Descent || phase == FlightPhase.Approach) return McduPalette.LcdAmber;
+            return McduPalette.LcdCyan;
         }
 
         private string GetMachString(FlightManager fm)
@@ -2176,12 +2191,10 @@ namespace vmsOpenAcars.UI.Forms
 
         private Panel InitializeMetarPanel()
         {
-            var pnl = new BufferedPanel
+            var pnl = new McduDisplayPanel
             {
-                Dock        = DockStyle.Fill,
-                BackColor   = Color.FromArgb(12, 15, 22),
-                Padding     = new Padding(2),
-                BorderStyle = BorderStyle.FixedSingle
+                Dock  = DockStyle.Fill,
+                Title = _("MetarTitle")
             };
 
             var grid = new TableLayoutPanel
@@ -2190,7 +2203,7 @@ namespace vmsOpenAcars.UI.Forms
                 ColumnCount = 1,
                 RowCount    = 4,
                 Padding     = Padding.Empty,
-                BackColor   = Color.Transparent
+                BackColor   = McduPalette.LcdBackground
             };
             for (int i = 0; i < 4; i++)
                 grid.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
@@ -2204,7 +2217,7 @@ namespace vmsOpenAcars.UI.Forms
                 var cell = new BufferedPanel
                 {
                     Dock      = DockStyle.Fill,
-                    BackColor = Color.FromArgb(10, 14, 22),
+                    BackColor = McduPalette.LcdBackground,
                     Margin    = new Padding(0, 0, 0, 1),
                     Cursor    = Cursors.Hand
                 };
@@ -2215,7 +2228,7 @@ namespace vmsOpenAcars.UI.Forms
                     ColumnCount = 2,
                     RowCount    = 1,
                     Padding     = new Padding(10, 2, 4, 2),
-                    BackColor   = Color.Transparent
+                    BackColor   = McduPalette.LcdBackground
                 };
                 inner.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 38));
                 inner.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -2224,7 +2237,7 @@ namespace vmsOpenAcars.UI.Forms
                 {
                     Text      = stationLabels[i],
                     Font      = new Font("Consolas", 8, FontStyle.Bold),
-                    ForeColor = Color.Gold,
+                    ForeColor = McduPalette.LcdCyan,
                     Dock      = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleLeft,
                     Margin    = Padding.Empty
@@ -2234,7 +2247,7 @@ namespace vmsOpenAcars.UI.Forms
                 {
                     Text         = "---",
                     Font         = monoFont,
-                    ForeColor    = Color.FromArgb(160, 175, 195),
+                    ForeColor    = McduPalette.Ink,
                     Dock         = DockStyle.Fill,
                     TextAlign    = ContentAlignment.MiddleLeft,
                     AutoEllipsis = true,
@@ -2272,7 +2285,7 @@ private void UpdateMetarPanel(MetarData[] metars)
                 _metarDataArray[i] = metars?[i];
                 if (_metarLabels[i] == null) continue;
                 _metarLabels[i].Text      = _metarDataArray[i]?.Raw ?? "---";
-                _metarLabels[i].ForeColor = Color.FromArgb(160, 175, 195);
+                _metarLabels[i].ForeColor = McduPalette.Ink;
                 _metarConditionColors[i]  = ConditionToColor(_metarDataArray[i]?.Condition ?? MetarCondition.Unknown);
                 _metarPanels[i]?.Invalidate();
             }
@@ -2291,7 +2304,7 @@ private void UpdateMetarPanel(MetarData[] metars)
             {
                 if (_metarLabels[i] == null || _metarDataArray[i] != null) continue;
                 _metarLabels[i].Text      = "fetching...";
-                _metarLabels[i].ForeColor = Color.FromArgb(100, 120, 140);
+                _metarLabels[i].ForeColor = McduPalette.Ink;
             }
         }
 
@@ -2299,10 +2312,10 @@ private void UpdateMetarPanel(MetarData[] metars)
         {
             switch (c)
             {
-                case MetarCondition.VMC:  return Color.Lime;
-                case MetarCondition.MVMC: return Color.Yellow;
-                case MetarCondition.IMC:  return Color.Red;
-                default:                  return Color.DimGray;
+                case MetarCondition.VMC:  return McduPalette.LcdGreen;
+                case MetarCondition.MVMC: return McduPalette.LcdAmber;
+                case MetarCondition.IMC:  return McduPalette.LcdRed;
+                default:                  return McduPalette.LcdDim;
             }
         }
 

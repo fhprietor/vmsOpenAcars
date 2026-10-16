@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using vmsOpenAcars.Controls;
 using vmsOpenAcars.Models.NavData;
 using vmsOpenAcars.Services;
 
@@ -116,18 +117,15 @@ namespace vmsOpenAcars.UI.Forms
                 BackColor = Color.FromArgb(14, 20, 28),
             };
 
-            _btnToggle = new Button
+            _btnToggle = new McduKeyButton
             {
-                Dock      = DockStyle.Right,
-                Width     = TW,
-                Text      = "◀",
-                BackColor = Color.FromArgb(25, 35, 48),
-                ForeColor = Color.FromArgb(120, 160, 200),
-                FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Consolas", 7, FontStyle.Bold),
-                TabStop   = false,
+                Dock        = DockStyle.Right,
+                Width       = TW,
+                Text        = "◀",
+                LegendColor = McduLegend.Neutral,
+                Font        = new Font("Consolas", 7, FontStyle.Bold),
+                TabStop     = false,
             };
-            _btnToggle.FlatAppearance.BorderSize = 0;
             _btnToggle.Click += (s, e) =>
             {
                 _expanded               = !_expanded;

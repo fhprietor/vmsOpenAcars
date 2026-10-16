@@ -1,4 +1,197 @@
-# CHANGELOG — vmsOpenAcars
+﻿# CHANGELOG — vmsOpenAcars
+
+---
+
+## [0.9.45] — 15/10/2026
+
+### Changed
+
+**Los botones de toda la aplicación son teclas de MCDU retroiluminadas: cuerpo negro y leyenda encendida
+con el color del botón.** Lo pidió el mantenedor con la foto de un MCDU A320 delante: «que los botones
+parezcan retroiluminados desde atrás, con sus respectivos colores». Hasta aquí un botón era un rectángulo
+de color con letra blanca encima; ahora el color **no rellena el botón, lo enciende**.
+
+**El problema no era pintar letras de colores.** Un color que funciona como fondo con letra blanca encima
+no funciona como texto sobre negro, y eso se mide: los ocho colores de la barra, usados como leyenda,
+dan entre **1,75:1** (`rgb(60,70,80)` de MAPA y METEO) y **4,29:1** (el verde de DISPATCH), todos por
+debajo del **4,5:1** que la WCAG pide para texto normal. Y hay un segundo efecto que se descubrió al
+encender la luz: el **lavado de color dentro del capuchón sube el brillo del fondo** justo detrás de la
+leyenda, así que el contraste efectivo es menor que contra el negro puro — el **rojo puro de hoy
+(`Color.Red`) se queda en 4,39:1** con la luz puesta y hubo que aclararlo a `rgb(255,118,110)` (5,25:1).
+La paleta de la barra se aclaró conservando la familia de cada botón (azul, pizarra, verde, ámbar, rojo):
+es la única forma de conservar el convenio sin perder la legibilidad.
+
+**Qué se copia del MCDU.** El capuchón negro con degradado y esquinas redondeadas (4 px), el bisel de dos
+tonos (filo iluminado arriba, sombra pegada al borde inferior) y la leyenda espaciada (0,7 px de
+*tracking*). **Qué es nuestro**: la luz, en tres piezas — el **lavado** del propio color dentro del
+capuchón (`PathGradientBrush`, más denso en el centro y desvanecido hacia el borde: la luz que atraviesa
+el plástico), el **halo** de la leyenda (la propia leyenda desenfocada —capa aparte, reducida a un cuarto
+y reampliada con bicúbica— y teñida por una **matriz de luminancia**, así que pega con la forma de cada
+rótulo) y la **fuga por la junta** (un filo del color en el borde inferior del capuchón). Pulsada, la
+tecla **se enciende**: el cuerpo se apaga, el bisel se invierte y la leyenda y el halo suben de brillo.
+Deshabilitada, la leyenda **conserva su color hundido al 45 %** —un `OFP` apagado sigue siendo azul y se
+distingue de un `MAPA` apagado—, no se vuelve gris.
+
+**El color cambia de sitio, no de significado.** `MainButtonSpec.BackColor` pasa a **`LegendColor`** y los
+valores salen del convenio compartido **`UI/McduLegend.cs`** (utilidad, consulta, panel, confirmar,
+acción, cancelar). Los tres estados del botón grande siguen viajando igual —`MainViewModel` y
+`AcarsReporter` mandan su `Color` por `OnButtonStateChanged`, que ahora enciende la tecla en lugar de
+rellenarla—: **cero cambios en los ViewModels**. La barra de la cabecera, los popups de `EcamDialog` y los
+botones de `SettingsForm`, `MapForm`, `FlightPlannerForm`, `FlightSelectorForm`, `FlightHistoryForm`,
+`LandingAnalysisForm`, `FlareAnalysisForm`, `TaxiRouteForm`, `SidebarController` y la barra principal
+—**34 botones**— pasan por el mismo control. También el **aspa de cerrar**, que ahora es roja sobre negro.
+`MainForm.UpdateCancelButton` deja de aclarar el fondo de CANCELAR según haya vuelo activo: un rojo más
+apagado sobre un cuerpo negro deja de leerse, y la diferencia ya la dice el rótulo (CANCELAR contra SALIR).
+
+### Fixed
+
+**La leyenda se pinta con GDI, no con GDI+, y recorriendo elementos de texto.** Dos fallos que el arnés de
+previsualización destapó antes de que llegaran a un piloto: **GDI+ no hace enlace de fuentes**, así que los
+glifos que Consolas no tiene salían como cuadros vacíos —el engranaje de la cabecera (`⚙️`), el disquete de
+`💾 PNG`, la papelera de `🗑 DELETE BID`, el portapapeles de `📋 PLAN IN SIMBRIEF` y las flechas de
+`🔄 FETCH OFP`, medido en `Tools/McduPreview/probe`—; y recorrer el rótulo **`char` a `char`** partía los
+pares surogados (`📋` es U+1F4CB) y el selector de variación de `⚙️` (U+FE0F), dejando **dos cuadros** por
+emoji. Ahora la leyenda va por `TextRenderer` (GDI) y por **elementos de texto** (`StringInfo`), que
+resuelve las dos cosas y encima sale más afilado en pantalla.
+
+**28 rótulos de botón estaban escritos a mano en inglés, y las traducciones ya existían sin usar.** Lo
+destapó el mantenedor al revisar el barrido: «aún hay botones con labels hardcode o sin traducir». Lo
+primero que apareció fue el inventario: de las 480 claves de `Languages/{es,en}.json`, **128 estaban
+definidas y sin una sola referencia en el código** —y entre ellas, escritas justo para esos botones,
+`Fp_BtnPlanSimbrief`, `Fp_BtnFetchOfp` y `Fp_BtnAccept`—. No faltaban traducciones: **faltaba
+cablearlas**. Se han puesto los 28 (`SELECT`, `CANCEL`, `CLOSE`, `ACCEPT`, `VIEW ANALYSIS`, `COMPARE`,
+`DELETE`, `FLARE`, `💾 PNG`, `TEST`, `REFRESH`, `TEST ▾`, `Enabled` ×3, `Play cockpit chimes`, `FOLLOW`,
+`TILES`/`ROUTE`/`SPACES`/`IVAO`, `ATC ▸`, `📋 PLAN IN SIMBRIEF`, `🔄 FETCH OFP`, `🗑 DELETE BID` y
+`Closeup`) y se han añadido **20 claves nuevas** —los ficheros siguen simétricos, **500 y 500**— para los
+que no tenían ninguna. Cinco formularios no tenían ni el `using static …L;` con el que se traduce.
+
+**Y uno de ellos escondía la trampa de v0.9.42 otra vez.** `FlightPlannerForm` habilitaba su botón de
+aceptar con `this.Controls.OfType<Button>().FirstOrDefault(b => b.Text == "ACCEPT")`: **buscaba el botón
+por su rótulo visible**, así que traducirlo lo habría dejado muerto —el mismo fallo que se corrigió en
+`MainForm.btnStartStop`, donde el despacho se hacía comparando el texto—. Ahora `btnAccept` es un
+**campo** y se habilita por referencia.
+
+`ButtonLabelsTests` (2 pruebas) impide que vuelva: recorre los inicializadores de `Button`,
+`McduKeyButton`, `CheckBox` y `RadioButton` de todo `UI/` y las fábricas (`CreateButton`, `MakeBtn`,
+`MakeTitleBtn`, `MakeLayerChk`) y exige que `Text` sea **o un símbolo** (`✕`, `─`, `▾`, `...`, `+`) **o
+una llamada a `_("Clave")`**. Un literal con letras ASCII es un rótulo que nadie va a traducir, y el
+mensaje de fallo dice fichero, línea, el literal y qué hacer. Antes de arreglarlo, la prueba listó los
+**28** exactos: sirvió de inventario, no de adorno.
+
+**Lo que queda pendiente, medido.** Las **128 claves sin usar** son la lista de trabajo. Además de los
+botones había bloques enteros sin cablear —las píldoras de estado de `MainForm` (`Status_SimReady` /
+`Status_NoSim` contra `"🟢 SIM READY"` / `"🔴 NO SIM"` literales), los rótulos de sección
+(`FlightInfoTitle`, `IncomingTitle`, `Panel_*`), los mensajes de progreso de `FlightPlannerForm`
+(`Fp_Loading`, `Fp_Assigned`, `Fp_FetchingOfp`, `Fp_OfpMismatch`…), las cabeceras de la rejilla de
+`FlightHistoryForm` y los `Metar_*`— que **no** entran en este cambio ni en la prueba: no son controles
+con `Text` en su inicializador, así que la regla no los ve. Es el siguiente paso natural y está a un
+`_()` por línea.
+
+**Y aun así quedaban rótulos en inglés y rótulos que no caben.** Dos rondas más, las dos del mantenedor:
+
+1. **`DISPATCH` seguía en inglés** (y con él `LOGIN`, `TEST`, `Chimes`, `Cabin Ann.`). Se encontraron con
+   una comprobación que cruza las claves **usadas** por la interfaz contra los dos idiomas y lista las que
+   tienen el mismo texto en los dos: de ahí salieron esos cinco, más un aviso para el futuro (los
+   acrónimos —`OFP`, `IVAO`, `ATC`, `FLARE`, `PNG`, `METAR`— son iguales a propósito y **no** se traducen).
+   Ahora: `DESPACHO`, `ENTRAR`, `PROBAR`, `Timbres`, `Anuncios cabina`.
+2. **«ACEPTAR Y CERRAR» y «📋 PLANIFICAR EN SIMBRIEF» desbordaban su botón.** Medido: el primero ocupa
+   **128 px** en el botón de aceptar del planificador, que mide **100**; el segundo **199** en uno de 200,
+   y con el espaciado de la leyenda más. Se acortaron a **`✅ ACEPTAR`** y **`📋 SIMBRIEF`** (en los dos
+   idiomas, que el inglés también era largo), y —esto es lo que evita que vuelva— **el rótulo ahora se
+   encoge para caber**: `McduKeyRenderer.FittedSize` mide la leyenda con el mismo contexto con el que la
+   va a dibujar y baja el cuerpo de letra en pasos de 0,5 pt hasta que quepa, con un suelo de 6 pt y un
+   recorte contra el capuchón como última red (`ButtonLabelsTests.ElRotuloLargoSeEncogeParaCaberEnLaTecla`).
+
+   **El caso que obliga a que la regla se calcule al pintar y no en una tabla: el DPI.** En este equipo, al
+   **200 %** de escalado, el proceso de tests mide «ENTRAR» en **99 px** donde un proceso sin consciencia
+   de DPI mide **51** — en una tecla que sigue midiendo 90. O sea: **una traducción que hoy cabe puede no
+   caber mañana en el monitor de otro piloto**, y por eso el tamaño se decide en el momento de pintar, con
+   el `Graphics` de verdad. Lo destapó la propia prueba al fallar por un factor de dos.
+3. **Y la tercera ronda, con los botones ya en pantalla: `DESPACHO`, `BITÁCORA` e `INICIAR` salían más
+   pequeños que el resto** («hay que guardar armonía, todos del mismo tamaño; el de SALIR es el apropiado»).
+   Dos causas, y la segunda era **nuestra**:
+
+   - **La tecla medía 90 px fijos con ~270 px muertos a la derecha.** Medido al **150 %** —lo que había en
+     su pantalla—: `DESPACHO` ocupa **98 px** y con el aire de la leyenda pide **106**, así que no cabía y
+     se encogía; `ENTRAR` (81) y `SALIR` (58) sí cabían, y de ahí que solo unos pocos se vieran pequeños.
+     **El ancho ahora se reparte**: `MainButtonBar.ButtonWidthFor` divide el ancho del panel entre las ocho
+     teclas (en la ventana de 1024 salen **123 px** cada una, en vez de 90 con 270 px muertos al lado) y
+     `MainForm` lo recalcula en cada `Resize`. El suelo sube a **108 px** —los 106 medidos más dos de
+     holgura— y el mínimo de ventana de 800 a **910**, que es lo que ahora pide la barra (898).
+   - **La leyenda se medía carácter a carácter, y esa medida se infla.** Sumar la anchura de cada letra
+     medida por separado daba **24 px por letra** donde la cadena entera mide **16**: `DESPACHO` salía a
+     199 px cuando son 72. El rótulo se ensanchaba de mentira y se encogía antes de tiempo. Ahora se mide
+     **y se dibuja de una tirada** (`TextRenderer` con la cadena completa), lo que además retira el antiguo
+     efecto de espaciado entre letras —era el que obligaba a dibujar por caracteres— y hace que los pares
+     surogados (`📋` U+1F4CB) dejen de ser un caso aparte.
+   - **Y la armonía, como regla**: el cuerpo de letra lo decide **el grupo**, no cada tecla
+     (`McduKeyButton.CommonLegendSize`: mismas teclas hermanas del mismo padre, mismo ancho y misma fuente
+     toman el menor que necesite la más larga). Con el ancho repartido no hace falta encoger nada al 150 %,
+     y si algún día hace falta —otro DPI, otra traducción— se encogen **todas a la vez**, que es lo que se
+     pidió.
+
+   Las dos comprobaciones nuevas lo fijan: `MainButtonBarTests.ElAnchoDeCadaTeclaCubreElRotuloMasLargoAl150PorCiento`
+   mide **los rótulos reales de los dos idiomas** con la fuente configurada al 150 % y exige que el ancho
+   que le toca a cada tecla los cubra; `ButtonLabelsTests.LasTeclasHermanasCompartenElCuerpoDeLetra` monta dos
+   teclas hermanas y exige que pinten al mismo cuerpo y que la más larga quepa. La primera mide con la
+   fuente al 150 % y **no** multiplicando la medida de 10 pt por 1,5: la anchura se redondea por letra, y
+   de 10 a 15 pt la relación real es **1,36** (72 px contra 98), no 1,5.
+4. **Y la ventana entera pasó a ser un MCDU.** Con la maqueta aprobada, la piel llegó al código:
+   **carcasa de plástico azuloso gastado** (`UI/McduChassis.cs`) y **cada grupo hundido como una pantalla
+   LCD** (`Controls/McduSurface.cs`), con la paleta **muestreada de la foto del A320** (`UI/McduPalette.cs`,
+   contando píxeles por zona): fondo `#1B1D20` (55.122 px), blanco `#F8F4ED` (604), verde `#08DA09` (519) y
+   cian `#09CFCF` (374); carcasa de `#859AB2` a `#5A6A7E` y cara de tecla `#323233`. **El ámbar y el rojo no
+   están medidos** —en esa foto no hay un solo píxel cálido— y van por convención MCDU; el detalle, con la
+   tabla y las decisiones, en **`Docs/PROPUESTA-MCDU-CARCASA.md`**.
+
+   Las tres decisiones que no eran obvias: **la carcasa va de `#859AB2` a `#5A6A7E`, no de `#93A6BD`**, que
+   en la foto es el reflejo del canto y no el color del panel (un panel entero así se ve *nuevo*); **sobre
+   el plástico el texto va grabado** en tinta `#1F2933`, porque el blanco se queda en **2,9:1** y el cian
+   que usaba la aplicación en **1,5:1** (tinta: 5,1:1), y por eso la información viva vive dentro de las
+   pantallas; y **dos verdes**, el medido para los valores y uno rebajado `#3FCB55` (8,0:1) para el cuerpo
+   del log, que se lee durante minutos. El interruptor `mcdu_look` apaga la textura y deja colores y biseles.
+
+   **Tres trampas que costaron horas, encontradas verificando contra la ventana real** (captura en
+   `Tools/McduPreview/out/07-app-real.png`), no razonando: (1) **nada pintado sobre una superficie hecha a
+   mano puede llevar `BackColor = Color.Transparent`** —sale con basura detrás, cuadros de color con la
+   forma del texto—, así que el contenido va con fondo sólido y el cristal se pinta **plano** con la textura
+   en la banda del título; (2) un **degradado de GDI+ sobre un rectángulo virtual no da el color que toca**
+   —medido: la barra, al 96 % de la altura, salía con el color del 26 %— y se sustituyó por la función pura
+   `McduChassis.RampAt`; y (3) **`PointToScreen` devolvía −220** para un panel colocado en Y=40, con lo que
+   todos pintaban el mismo trozo de rampa y **la ventana se veía plana** aunque cada panel pintara bien: se
+   suma el `Top` de la cadena de padres. Y una cuarta de composición: lo que más superficie ocupa manda —el
+   layout y el flujo de estado también tienen que pintar la carcasa—.
+
+### Añadido
+
+- **`Controls/McduKeyRenderer.cs`** (343 líneas): el dibujo de la tecla. `internal static`, recibe
+  `Graphics` + rectángulo + color + estado — sin ventana, así que se previsualiza y se prueba sin abrir un
+  formulario, como los demás helpers puros del proyecto. Expone `BacklitBody(color)`, que es **contra lo
+  que hay que medir el contraste**: el capuchón con su lavado encendido.
+- **`Controls/McduKeyButton.cs`**: `Button` con `ControlStyles.UserPaint`, `LegendColor` y los cuatro
+  estados. `Text`, `Enabled`, `Click` y el foco se comportan igual que antes; el rectángulo de foco se
+  vuelve a dibujar a mano, que al pintar sin `Button` se pierde.
+- **`UI/McduLegend.cs`** y **`UI/ColorContrast.cs`** (luminancia relativa y ratio de la WCAG 2.1).
+- **`Tools/McduPreview/`**: el arnés de previsualización y la sonda de glifos que produjeron las láminas de
+  la propuesta (`Docs/PROPUESTA-MCDU-BOTONES.md`) y destaparon el fallo de los emoji. Material de
+  desarrollo: no se distribuye ni se commitean sus PNG.
+
+### Tests
+
+`MainButtonBarTests.CadaLeyendaSeLeeConLaRetroiluminacionEncendida` (los ocho botones de la barra contra
+`BacklitBody`, mínimo 4,5:1) y `LosColoresDelConvenioSeLeenYNoSeConfunden` (los seis de `McduLegend`, y
+que dos significados distintos no compartan color), más las **cuatro** de `ButtonLabelsTests`: ningún
+rótulo de botón ni de casilla escrito a mano —ni en su inicializador ni pasado a una fábrica—, **toda
+clave que la interfaz usa existe en los dos idiomas** (una que falte no cae al inglés: se pinta
+`[[Clave]]`) y **el rótulo largo se encoge hasta caber** en la tecla. **822 tests** en total: 821 pasan,
+0 fallan, 1 se omite sola.
+
+### Verificado
+
+Build **Debug y Release** limpios y la suite completa. **Lo que no está verificado**: la aplicación en
+pantalla. El arnés usa los mismos controles y `DrawToBitmap`, pero no es la ventana real: queda mirar la
+barra con los dos botones que arrancan deshabilitados (`OFP` y `MAPA`) y el coste de repintado del halo
+con el ratón encima de la barra.
 
 ---
 

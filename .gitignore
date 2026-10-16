@@ -262,3 +262,10 @@ __pycache__/
 *.pyc
 
 dsh-acl-reports/
+
+# Arnes de previsualizacion del MCDU (Tools/McduPreview): los .exe se recompilan desde los .cs de al
+# lado, asi que no se versionan. Los PNG de out/ y probe/ SI: son la evidencia que citan las
+# PROPUESTA-MCDU-*.md. (No habia ni un .exe trackeado en el repo.)
+vmsOpenACars/Tools/McduPreview/*.exe
+vmsOpenACars/Tools/McduPreview/probe/*.exe
+acl-recovery/

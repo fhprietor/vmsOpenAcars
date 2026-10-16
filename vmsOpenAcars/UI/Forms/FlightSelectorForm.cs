@@ -1,8 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using static vmsOpenAcars.Helpers.L;
+using vmsOpenAcars.Controls;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.UI;
 
@@ -114,29 +116,25 @@ namespace vmsOpenAcars.UI.Forms
             lvFlights.Columns.Add("Route", 200);
 
             // Botón Seleccionar
-            btnSelect = new Button
+            btnSelect = new McduKeyButton
             {
-                Text = "SELECT",
-                Location = new Point(520, 415),
-                Size = new Size(100, 35),
-                BackColor = Color.FromArgb(0, 100, 0),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = Theme.MainFont,
-                Enabled = false
+                Text        = _("Fs_BtnSelect"),
+                Location    = new Point(520, 415),
+                Size        = new Size(100, 35),
+                LegendColor = McduLegend.Confirm,
+                Font        = Theme.MainFont,
+                Enabled     = false
             };
             btnSelect.Click += BtnSelect_Click;
 
             // Botón Cancelar
-            btnCancel = new Button
+            btnCancel = new McduKeyButton
             {
-                Text = "CANCEL",
-                Location = new Point(630, 415),
-                Size = new Size(100, 35),
-                BackColor = Color.FromArgb(100, 0, 0),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = Theme.MainFont
+                Text        = _("BtnCancel"),
+                Location    = new Point(630, 415),
+                Size        = new Size(100, 35),
+                LegendColor = McduLegend.Danger,
+                Font        = Theme.MainFont
             };
             btnCancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
 

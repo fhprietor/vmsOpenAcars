@@ -157,6 +157,12 @@
     <Compile Include="Controls\LinearGauge.cs">
       <SubType>Component</SubType>
     </Compile>
+    <!-- La tecla del MCDU: el dibujo (puro, sin ventana) y el botón que lo usa. El cuerpo es negro y el
+         color del botón vive en `LegendColor`, que es lo que enciende la leyenda desde detrás. -->
+    <Compile Include="Controls\McduKeyRenderer.cs" />
+    <Compile Include="Controls\McduKeyButton.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Core\Flight\FlightManager.cs" />
     <Compile Include="Core\Flight\FlightManager.Lifecycle.cs" />
     <Compile Include="Core\Flight\FlightManager.Telemetry.cs" />
@@ -352,6 +358,13 @@
     </Compile>
     <Compile Include="Helpers\OsdAudio.cs" />
     <Compile Include="UI\Theme.cs" />
+    <Compile Include="UI\ColorContrast.cs" />
+    <Compile Include="UI\McduLegend.cs" />
+    <Compile Include="UI\McduPalette.cs" />
+    <Compile Include="UI\McduChassis.cs" />
+    <Compile Include="Controls\McduSurface.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="UpdateChecker.cs" />
     <Compile Include="ViewModels\MainViewModel.cs" />
     <Compile Include="ViewModels\AcarsReporter.cs" />

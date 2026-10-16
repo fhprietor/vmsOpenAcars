@@ -2,6 +2,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using vmsOpenAcars.Controls;
 using static vmsOpenAcars.Helpers.L;
 
 namespace vmsOpenAcars.UI.Forms
@@ -91,15 +92,13 @@ namespace vmsOpenAcars.UI.Forms
                 AutoSize = true
             };
 
-            btnClose = new Button
+            btnClose = new McduKeyButton
             {
                 Text = "✕",
                 Font = new Font("Arial", 12, FontStyle.Bold),
                 Size = new Size(30, 25),
                 Location = new Point(this.ClientSize.Width - 35, 5),
-                BackColor = Color.FromArgb(150, 0, 0),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
+                LegendColor = McduLegend.Danger,
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
             btnClose.FlatAppearance.BorderSize = 0;
@@ -174,41 +173,41 @@ namespace vmsOpenAcars.UI.Forms
             switch (_buttons)
             {
                 case EcamDialogButtons.OK:
-                    btn1 = CreateButton(_("BtnOk"), Color.FromArgb(0, 100, 0));
+                    btn1 = CreateButton(_("BtnOk"), McduLegend.Confirm);
                     btn1.Click += (s, e) => { this.DialogResult = DialogResult.OK; Close(); };
                     panelBotones.Controls.Add(btn1);
                     break;
 
                 case EcamDialogButtons.OKCancel:
-                    btn1 = CreateButton(_("BtnOk"), Color.FromArgb(0, 100, 0));
+                    btn1 = CreateButton(_("BtnOk"), McduLegend.Confirm);
                     btn1.Click += (s, e) => { this.DialogResult = DialogResult.OK; Close(); };
                     panelBotones.Controls.Add(btn1);
 
-                    btn2 = CreateButton(_("BtnCancel"), Color.FromArgb(100, 0, 0));
+                    btn2 = CreateButton(_("BtnCancel"), McduLegend.Danger);
                     btn2.Click += (s, e) => { this.DialogResult = DialogResult.Cancel; Close(); };
                     panelBotones.Controls.Add(btn2);
                     break;
 
                 case EcamDialogButtons.YesNo:
-                    btn1 = CreateButton(_("BtnYes"), Color.FromArgb(0, 100, 0));
+                    btn1 = CreateButton(_("BtnYes"), McduLegend.Confirm);
                     btn1.Click += (s, e) => { this.DialogResult = DialogResult.Yes; Close(); };
                     panelBotones.Controls.Add(btn1);
 
-                    btn2 = CreateButton(_("BtnNo"), Color.FromArgb(100, 0, 0));
+                    btn2 = CreateButton(_("BtnNo"), McduLegend.Danger);
                     btn2.Click += (s, e) => { this.DialogResult = DialogResult.No; Close(); };
                     panelBotones.Controls.Add(btn2);
                     break;
 
                 case EcamDialogButtons.YesNoCancel:
-                    btn1 = CreateButton(_("BtnYes"), Color.FromArgb(0, 100, 0));
+                    btn1 = CreateButton(_("BtnYes"), McduLegend.Confirm);
                     btn1.Click += (s, e) => { this.DialogResult = DialogResult.Yes; Close(); };
                     panelBotones.Controls.Add(btn1);
 
-                    btn2 = CreateButton(_("BtnNo"), Color.FromArgb(100, 0, 0));
+                    btn2 = CreateButton(_("BtnNo"), McduLegend.Danger);
                     btn2.Click += (s, e) => { this.DialogResult = DialogResult.No; Close(); };
                     panelBotones.Controls.Add(btn2);
 
-                    btn3 = CreateButton(_("BtnCancel"), Color.FromArgb(100, 100, 100));
+                    btn3 = CreateButton(_("BtnCancel"), McduLegend.Neutral);
                     btn3.Click += (s, e) => { this.DialogResult = DialogResult.Cancel; Close(); };
                     panelBotones.Controls.Add(btn3);
                     break;
@@ -254,15 +253,18 @@ namespace vmsOpenAcars.UI.Forms
             this.Height = Math.Max(this.MinimumSize.Height, Math.Min(needed, maxHeight));
         }
 
-        private Button CreateButton(string text, Color color)
+        /// <summary>
+        /// Una tecla de confirmación. `legendColor` es el color con el que se **enciende la leyenda**
+        /// (el cuerpo es negro): el verde de aceptar y el rojo de cancelar salen de `McduLegend`, que es el
+        /// convenio compartido con la barra principal.
+        /// </summary>
+        private McduKeyButton CreateButton(string text, Color legendColor)
         {
-            return new Button
+            return new McduKeyButton
             {
                 Text = text,
                 Font = new Font("Consolas", 10, FontStyle.Bold),
-                ForeColor = Color.White,
-                BackColor = color,
-                FlatStyle = FlatStyle.Flat,
+                LegendColor = legendColor,
                 Size = new Size(90, 35),
                 Margin = new Padding(5)
             };

@@ -6,6 +6,8 @@ using System.Drawing;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using static vmsOpenAcars.Helpers.L;
+using vmsOpenAcars.Controls;
 using vmsOpenAcars.Core.Flight;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
@@ -70,6 +72,9 @@ namespace vmsOpenAcars.UI
         private Button btnFetchOFP;
         private RichTextBox txtOFPPreview;
         private Button btnClose;
+        // Campo y no variable local: el botón se habilita al cargar el OFP y se busca por referencia,
+        // nunca por su rótulo (que ahora se traduce).
+        private McduKeyButton btnAccept;
         private ProgressBar progressBar;
         private Label lblStatus;
 
@@ -181,27 +186,23 @@ namespace vmsOpenAcars.UI
             lstAircraft.SelectedIndexChanged += LstAircraft_SelectedIndexChanged;
 
             // Botón Planificar en SimBrief
-            btnPlanWithSimbrief = new Button
+            btnPlanWithSimbrief = new McduKeyButton
             {
-                Text = "📋 PLAN IN SIMBRIEF",
-                Location = new Point(20, 555),
-                Size = new Size(200, 40),
-                BackColor = Color.FromArgb(0, 100, 200),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Enabled = false
+                Text        = _("Fp_BtnPlanSimbrief"),
+                Location    = new Point(20, 555),
+                Size        = new Size(200, 40),
+                LegendColor = McduLegend.Info,
+                Enabled     = false
             };
             btnPlanWithSimbrief.Click += BtnPlanWithSimbrief_Click;
 
             // Botón Recuperar OFP
-            btnFetchOFP = new Button
+            btnFetchOFP = new McduKeyButton
             {
-                Text = "🔄 FETCH OFP",
-                Location = new Point(230, 555),
-                Size = new Size(140, 40),
-                BackColor = Color.FromArgb(0, 100, 100),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat
+                Text        = _("Fp_BtnFetchOfp"),
+                Location    = new Point(230, 555),
+                Size        = new Size(140, 40),
+                LegendColor = McduLegend.Confirm
             };
             btnFetchOFP.Click += BtnFetchOFP_Click;
 
@@ -244,28 +245,24 @@ namespace vmsOpenAcars.UI
             };
 
             // Botón Cerrar
-            btnClose = new Button
+            btnClose = new McduKeyButton
             {
-                Text = "CLOSE",
+                Text        = _("BtnClose"),
                 //Location = new Point(750, 630),
-                Location = new Point(740, 630),
-                Size = new Size(100, 30),
-                BackColor = Theme.PanelBackground,
-                ForeColor = Theme.MainText,
-                FlatStyle = FlatStyle.Flat
+                Location    = new Point(740, 630),
+                Size        = new Size(100, 30),
+                LegendColor = McduLegend.Neutral
             };
             btnClose.Click += (s, e) => this.Close();
 
             // Botón Aceptar (inicialmente deshabilitado)
-            Button btnAccept = new Button
+            btnAccept = new McduKeyButton
             {
-                Text = "ACCEPT",
-                Location = new Point(630, 630), // Ajusta según tu layout
-                Size = new Size(100, 30),
-                BackColor = Color.FromArgb(0, 100, 0),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Enabled = false
+                Text        = _("Fp_BtnAccept"),
+                Location    = new Point(630, 630), // Ajusta según tu layout
+                Size        = new Size(100, 30),
+                LegendColor = McduLegend.Confirm,
+                Enabled     = false
             };
             btnAccept.Click += BtnAccept_Click;
             this.Controls.Add(btnAccept);
@@ -342,18 +339,15 @@ namespace vmsOpenAcars.UI
             lvBids.SelectedIndexChanged += LvBids_SelectedIndexChanged;
             lvBids.DoubleClick += (s, e) => BtnPlanWithSimbrief_Click(s, e);
 
-            btnDeleteBid = new Button
+            btnDeleteBid = new McduKeyButton
             {
-                Text     = "🗑 DELETE BID",
-                Dock     = DockStyle.Bottom,
-                Height   = 32,
-                BackColor = Color.FromArgb(140, 20, 20),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font     = Theme.MainFont,
-                Enabled  = false,
+                Text        = _("Fp_BtnDeleteBid"),
+                Dock        = DockStyle.Bottom,
+                Height      = 32,
+                LegendColor = McduLegend.Danger,
+                Font        = Theme.MainFont,
+                Enabled     = false,
             };
-            btnDeleteBid.FlatAppearance.BorderSize = 0;
             btnDeleteBid.Click += BtnDeleteBid_Click;
 
             var bidsPanel = new Panel { Dock = DockStyle.Fill };
@@ -967,8 +961,10 @@ namespace vmsOpenAcars.UI
                     DisplayOFP(plan);
                     lblStatus.Text = $"✅ OFP loaded: {plan.FlightNumber}";
 
-                    var btnAccept = this.Controls.OfType<Button>().FirstOrDefault(b => b.Text == "ACCEPT");
-                    if (btnAccept != null) btnAccept.Enabled = true;
+                    // Se habilita por referencia y no buscando el botón por su rótulo: "ACCEPT" dejó de
+                    // existir en cuanto el rótulo pasó a los ficheros de idioma (la misma trampa que se
+                    // corrigió en `MainForm.btnStartStop`).
+                    btnAccept.Enabled = true;
                 }
                 else
                 {
