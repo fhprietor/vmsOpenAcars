@@ -322,6 +322,8 @@
   "Log_Manufacturer": "🏭 Manufacturer: {0}",
   "Log_ICAO": "📋 ICAO: {0}",
   "Log_IcaoResolved": "📋 ICAO: {0}  (ATC model: {1})",
+  "Log_IcaoFromAcf": "📋 ICAO: {0}  (from the aircraft .acf)",
+  "Log_IcaoDeduced": "📋 ICAO: {0}  (deduced from the title: the simulator does not publish the type)",
   "Log_Aircraft": "✈️ Aircraft: {0}",
   "Log_Livery": "🎨 Livery: {0}",
   "Log_Altitude": "📏 XXX Altitude: {0} ft",

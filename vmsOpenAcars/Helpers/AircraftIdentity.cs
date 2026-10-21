@@ -86,14 +86,24 @@ namespace vmsOpenAcars.Helpers
         ///
         /// `designator` y `family` valen `null` cuando el dato no existe (`????`, vacío, nulo): quien
         /// lo pinte decide entonces qué calla, en vez de rellenar el hueco.
+        ///
+        /// La sobrecarga con <see cref="AircraftTypeSource"/> es la que usan el log y el gráfico cuando
+        /// saben de dónde salió el dato: en X-Plane el `.acf` manda sobre el título, y un designador
+        /// deducido del título no se afina con el modelo (ver `AircraftTypeMatch.DesignatorFor`).
         /// </summary>
         internal static void Resolve(string simModel, string simTitle, string simAtcModel,
+                                     out string designator, out string family)
+            => Resolve(simModel, simTitle, simAtcModel, AircraftTypeSource.AtcModel,
+                       out designator, out family);
+
+        internal static void Resolve(string simModel, string simTitle, string simAtcModel,
+                                     AircraftTypeSource source,
                                      out string designator, out string family)
         {
             family = AircraftTypeMatch.IsKnown(simAtcModel)
                          ? simAtcModel.Trim().ToUpperInvariant() : null;
 
-            string variant = AircraftTypeMatch.ResolveVariant(simModel, simTitle, simAtcModel);
+            string variant = AircraftTypeMatch.DesignatorFor(source, simModel, simTitle, simAtcModel);
             designator = variant.Length > 0 ? variant : family;
         }
 
@@ -126,9 +136,13 @@ namespace vmsOpenAcars.Helpers
         /// imagen que se comparte no puedan decir cosas distintas de la misma aeronave.
         /// </summary>
         internal static string LogLine(string simModel, string simTitle, string simAtcModel)
+            => LogLine(simModel, simTitle, simAtcModel, AircraftTypeSource.AtcModel);
+
+        internal static string LogLine(string simModel, string simTitle, string simAtcModel,
+                                       AircraftTypeSource source)
         {
             string designator, family;
-            Resolve(simModel, simTitle, simAtcModel, out designator, out family);
+            Resolve(simModel, simTitle, simAtcModel, source, out designator, out family);
             return LogPrefix + Compose(designator, simTitle);
         }
 

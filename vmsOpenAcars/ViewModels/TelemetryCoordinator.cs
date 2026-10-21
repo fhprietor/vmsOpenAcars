@@ -1203,12 +1203,27 @@ namespace vmsOpenAcars.ViewModels
                 // El modelo ATC es de familia («B777» en un PMDG 777-200LR) y el título trae la
                 // variante: si se puede resolver, se enseña ESA y el crudo entre paréntesis, para
                 // que el log diga lo mismo que decide la validación contra el OFP (v0.9.16).
-                string variant = AircraftTypeMatch.ResolveVariant(_fsuipc.AircraftModel,
-                                                                  _fsuipc.AircraftTitle,
-                                                                  _fsuipc.AircraftIcao);
-                _cb.Log?.Invoke(variant.Length > 0 && variant != _fsuipc.AircraftIcao
-                    ? _("Log_IcaoResolved", variant, _fsuipc.AircraftIcao)
-                    : _("Log_ICAO", _fsuipc.AircraftIcao), Theme.SecondaryText);
+                //
+                // **Y se dice de dónde sale**, que en X-Plane es la diferencia entre acertar y no:
+                // allí el `0x3D00` es el nombre de la carpeta, así que el tipo sale del `.acf` del
+                // avión (`A20N`) o, si no se pudo leer, es una suposición sobre la carpeta
+                // (`ToLissA320_V1p2p1` → `A320`). Publicar las dos cosas igual fue lo que hizo creer
+                // que el ACARS «detectaba un CEO» (ver `AircraftTypeSource`).
+                AircraftTypeSource source = _fsuipc.AircraftIcaoSource;
+                string designator = AircraftTypeMatch.DesignatorFor(source, _fsuipc.AircraftModel,
+                                                                    _fsuipc.AircraftTitle,
+                                                                    _fsuipc.AircraftIcao);
+                string line;
+                if (source == AircraftTypeSource.TitleGuess)
+                    line = _("Log_IcaoDeduced", _fsuipc.AircraftIcao);
+                else if (source == AircraftTypeSource.AcfFile)
+                    line = _("Log_IcaoFromAcf", designator);
+                else
+                    line = designator.Length > 0 && designator != _fsuipc.AircraftIcao
+                        ? _("Log_IcaoResolved", designator, _fsuipc.AircraftIcao)
+                        : _("Log_ICAO", _fsuipc.AircraftIcao);
+
+                _cb.Log?.Invoke(line, Theme.SecondaryText);
             }
             if (!string.IsNullOrEmpty(_fsuipc.AircraftTitle) && _fsuipc.AircraftTitle != "Unknown")
                 _cb.Log?.Invoke(_("Log_Aircraft", _fsuipc.AircraftTitle), Theme.MainText);

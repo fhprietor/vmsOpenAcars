@@ -30,6 +30,12 @@ namespace vmsOpenAcars.Helpers
     ///
     /// La tabla de modelos es **best-effort**: si un avión no está, el resultado no es un aviso
     /// equivocado sino la comparación por familia. Y el aviso nunca bloquea: el diálogo pregunta.
+    ///
+    /// **Todo lo anterior supone que el designador lo publicó el simulador.** En X-Plane no es así:
+    /// XPUIPC deja vacío el modelo ATC (`0x0618`) y su `0x3D00` es el nombre de la **carpeta**, del
+    /// que deducíamos el tipo (`ToLissA320_V1p2p1` → `A320`, cuando el `.acf` dice `A20N`). Por eso
+    /// la comparación recibe también <see cref="AircraftTypeSource"/>: un designador deducido se
+    /// queda en la familia y uno leído del `.acf` manda sobre el título.
     /// </summary>
     internal static class AircraftTypeMatch
     {
@@ -42,9 +48,9 @@ namespace vmsOpenAcars.Helpers
                && !string.Equals(type.Trim(), Unknown, StringComparison.Ordinal);
 
         /// <summary>
-        /// Misma familia = coinciden los tres primeros caracteres del designador: `B77` cubre
-        /// B772/B773/B77L/B77W/B778/B779 y también el `B777` de familia que reporta el simulador;
-        /// `B73` cubre 737-700/800/900; `A32` cubre A319/A320/A321. Un avión de otra familia
+        /// Misma familia = misma clave de familia: `B77` cubre B772/B773/B77L/B77W/B778/B779 y
+        /// también el `B777` de familia que reporta el simulador; `B73` cubre 737-700/800/900;
+        /// `A32` cubre **A319/A320/A321 y sus NEO** (ver `FamilyKey`). Un avión de otra familia
         /// (A320 contra B738, B77L contra A333) no pasa: ahí el aviso sigue siendo el correcto.
         /// </summary>
         internal static bool IsSameFamily(string simType, string planType)
@@ -57,24 +63,111 @@ namespace vmsOpenAcars.Helpers
 
             // Menos de tres caracteres no identifica familia: se exige igualdad exacta (arriba).
             if (a.Length < 3 || b.Length < 3) return false;
-            return string.Equals(a.Substring(0, 3), b.Substring(0, 3), StringComparison.Ordinal);
+            return string.Equals(FamilyKey(a), FamilyKey(b), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// **La clave de familia de un designador: sus tres primeros caracteres, salvo la familia
+        /// A320 de Airbus.**
+        ///
+        /// El CEO y el NEO **no comparten prefijo** y esto no es un detalle de estilo: `A320` empieza
+        /// por `A32` y `A20N` por `A20`, igual que `A319`→`A31`, `A321`→`A32`, `A19N`→`A19` y
+        /// `A21N`→`A21`. Con la regla de tres caracteres a secas, un A320 y un A20N salían de
+        /// «familias» distintas y la degradación honesta —«no sé si es CEO o NEO, no acuso»— no
+        /// funcionaba justo en el caso que la motivó: el ToLiss A320neo de X-Plane, cuyo nombre de
+        /// carpeta (`ToLissA320_V1p2p1`) sugiere `A320` mientras su `.acf` dice `A20N`.
+        ///
+        /// Agrupar no relaja el aviso de verdad: cuando las dos partes traen designador de variante
+        /// se comparan **exactos** (`A20N` contra un plan de `A320` sigue avisando). Esto solo decide
+        /// el caso en que falta la variante, que es cuando no se puede saber.
+        /// </summary>
+        private static string FamilyKey(string upperType)
+        {
+            string prefix = upperType.Substring(0, 3);
+            switch (prefix)
+            {
+                case "A19":      // A319neo
+                case "A20":      // A320neo
+                case "A21":      // A321neo
+                case "A31":      // A318 / A319
+                case "A32":      // A320 / A321
+                    return "A32";
+                default:
+                    return prefix;
+            }
         }
 
         /// <summary>
         /// ¿Es el mismo avión? Exacto cuando las dos partes tienen la variante, por familia cuando
         /// a alguna le falta.
+        ///
+        /// Se asume que el designador lo publicó el simulador (MSFS/P3D, `0x0618`). Cuando **no** es
+        /// así, el que llama tiene que decirlo —ver la sobrecarga con <see cref="AircraftTypeSource"/>—:
+        /// un designador deducido del título no puede decidir una comparación exacta.
         /// </summary>
         internal static bool IsSameAircraft(string simAtcModel, string simModel, string simTitle,
                                             string planType)
+            => IsSameAircraft(simAtcModel, simModel, simTitle, planType, AircraftTypeSource.AtcModel);
+
+        /// <summary>
+        /// La misma pregunta, sabiendo **de dónde salió** el designador del simulador. Tres reglas y
+        /// ninguna adivinanza:
+        ///
+        /// 1. <see cref="AircraftTypeSource.AcfFile"/> — en X-Plane el `.acf` **es la ficha del
+        ///    avión**: `_ICAO` manda tal cual y el título no lo afina. Sin esto, un ToLiss A320neo
+        ///    (`.acf` = `A20N`) se comparaba con la variante que saca `VariantFromText` del nombre de
+        ///    su **carpeta** (`ToLissA320_V1p2p1` → `A320`) y el avión correcto avisaba de
+        ///    discrepancia contra su propio OFP.
+        /// 2. <see cref="AircraftTypeSource.TitleGuess"/> — el simulador no publicó el tipo y lo
+        ///    dedujimos nosotros: se compara **por familia** y nunca exacto. Un «A320» deducido de una
+        ///    carpeta no distingue un CEO de un NEO, así que no puede acusar a ninguno de los dos.
+        /// 3. <see cref="AircraftTypeSource.AtcModel"/> — como siempre: la variante del
+        ///    modelo/título afina la familia que publica el ATC (`B777` + `777-200LR` → `B77L`).
+        /// </summary>
+        internal static bool IsSameAircraft(string simAtcModel, string simModel, string simTitle,
+                                            string planType, AircraftTypeSource source)
         {
             if (!IsKnown(simAtcModel) || !IsKnown(planType)) return false;
 
+            if (source == AircraftTypeSource.TitleGuess)
+                return IsSameFamily(simAtcModel, planType);
+
+            if (source == AircraftTypeSource.AcfFile)
+                return IsVariantDesignator(planType)
+                    ? string.Equals(Normalize(simAtcModel), Normalize(planType), StringComparison.Ordinal)
+                    : IsSameFamily(simAtcModel, planType);
+
             string variant = ResolveVariant(simModel, simTitle, simAtcModel);
             if (variant.Length > 0 && IsVariantDesignator(planType))
-                return string.Equals(variant, planType.Trim().ToUpperInvariant(), StringComparison.Ordinal);
+                return string.Equals(variant, Normalize(planType), StringComparison.Ordinal);
 
             return IsSameFamily(simAtcModel, planType);
         }
+
+        /// <summary>
+        /// **El designador ICAO que hay que publicar y comparar**, del dato más preciso que haya y
+        /// sabiendo de dónde viene:
+        ///
+        /// - `AcfFile` y `TitleGuess`: el designador tal cual. En el primer caso porque es la ficha
+        ///   del avión; en el segundo porque es lo único que hay —y quien lo pinte tiene que poder
+        ///   decir que es deducido—.
+        /// - `AtcModel`: la variante resuelta del modelo/título (`B77L`), o `""` si solo hay familia.
+        ///
+        /// `""` significa «no lo sé»: el que llama decide qué hacer en vez de recibir un invento.
+        /// </summary>
+        internal static string DesignatorFor(AircraftTypeSource source, string simModel,
+                                             string simTitle, string simAtcModel)
+        {
+            if (!IsKnown(simAtcModel)) return "";
+
+            if (source == AircraftTypeSource.AcfFile || source == AircraftTypeSource.TitleGuess)
+                return Normalize(simAtcModel);
+
+            return ResolveVariant(simModel, simTitle, simAtcModel);
+        }
+
+        /// <summary>Mayúsculas y sin espacios: así llega el offset y así se compara.</summary>
+        private static string Normalize(string type) => type.Trim().ToUpperInvariant();
 
         /// <summary>
         /// La variante del avión del simulador, o "" si no se puede resolver. Mira primero el

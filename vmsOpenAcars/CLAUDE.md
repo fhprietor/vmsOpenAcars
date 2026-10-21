@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.48  
+**Versión actual:** v0.9.49  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -479,12 +479,17 @@ falso «AIRCRAFT MISMATCH» con el avión correcto (PMDG B77L en MSFS 2024, bloq
 - `FlightPlannerForm` compara el OFP contra el **tipo del vuelo licitado**, no contra el
   simulador, y ahí se mantiene la igualdad exacta: el plan tiene que ser el del avión asignado.
 
-**Un mensaje largo no puede compartir caja con los botones.** `EcamDialog` (el popup de
-confirmación de toda la aplicación) llevaba el mensaje con `Location` absoluta y `AutoSize` en el
-mismo panel que los botones en `Dock.Bottom`, y como el `Label` se añadía antes se pintaba
-**encima**: el aviso de discrepancia (~10 líneas) dejaba el NO inalcanzable. Ahora el mensaje va en
-un panel con `AutoScroll` y `Dock.Fill` —no pueden solaparse por mucho que crezca el texto— y la
-ventana se ajusta al texto (`FitToMessage`). `EcamDialogTests` lo mide sin enseñar la ventana.
+**En X-Plane el tipo sale del `.acf` (v0.9.49).** XPUIPC **no publica** el tipo (`0x0618` vacío) y su
+`0x3D00` es el nombre de la **carpeta** (`ToLissA320_V1p2p1`), de donde se deducía `A320` en un avión
+cuyo `.acf` dice **`A20N`**. `Helpers/XPlaneAcfIdentity.cs` lee `P acf/_ICAO` del `.acf` cargado
+(carpeta del `0x3D00` + raíz del proceso; consenso de los varios `.acf`) y **`AircraftTypeSource` dice
+de dónde salió el designador**: `AcfFile` manda sobre el título y un `TitleGuess` **solo compara por
+familia**. `FamilyKey` agrupa A19/A20/A21/A31/A32 —`A320` y `A20N` no comparten prefijo—. Detalle en
+`Docs/architecture.md`; el origen se persiste en `flights.aircraft_type_source`.
+
+**Un mensaje largo no puede compartir caja con los botones**: en `EcamDialog` el mensaje va en un
+panel con `AutoScroll` y `Dock.Fill` y los botones en `Dock.Bottom`, con la ventana ajustada al texto
+(`FitToMessage`). El porqué y `EcamDialogTests`, en `Docs/architecture.md`.
 
 ## Detección de fases — umbrales
 
@@ -571,7 +576,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **873 tests** (1 se omite sola; los anuncios locutados, sin tarjeta de sonido: `CabinAnnouncementScriptTests`, `LocalTimeOfDayTests`, `SapiVoicePolicyTests`, `TurbulenceAdvisorTests`):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **885 tests** (1 se omite sola; los anuncios locutados, sin tarjeta de sonido: `CabinAnnouncementScriptTests`, `LocalTimeOfDayTests`, `SapiVoicePolicyTests`, `TurbulenceAdvisorTests`):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
@@ -723,7 +728,7 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
   Se arregla convirtiendo antes de comparar, y **el dato ya está** (30/09/2026): `mag_var` se publica
   en `/airport/{icao}/` y en `/runways/` (medido: **-8,58** en SKBO, **-13,73** en KBOS, +0,68 en LEMD). La
   evidencia del KBOS fija el signo: 19° verdadero contra 33,4 magnético con `mag_var` -13,73 →
-  **`magnético = verdadero − mag_var`**, dentro de 0,7°. **HECHA (0.9.21, 01/10/2026): la conversion esta en `MagVar` y en las tres comparaciones** en `Models/NavData.cs` (campo `MagVar`, 0 por defecto = degrada sin datos) y `Services/NavDataService.cs` (tres sitios que comparan el rumbo de la pista con el del avion: `rwy.Heading + rwy.MagVar`). Compila y **655/655**. Comprobado con el dato real de KBOS: 33,4 magnetico con mag_var -13,73 da **19,67 verdadero**, que es el rumbo del eje que marcaba el avion. **Cerrado en 0.9.21** con el test sobre el fixture real `KbosRwy04R()` (**655/655**): a 2 grados del eje verdadero la pista se reconoce con la variacion, y **sin** ella el aviso queda fuera de los 15 por el sesgo de 13,73, o sea el fallo queda fijado. Los tres sitios son `SelectApproachThreshold` (L77) y **dos dentro de `ProjectOnRunway`** (L540 y L560), que es la que decide en que pista esta el avion: el sesgo tambien ensuciaba eso. Simplificacion futura anotada, no bloqueo: comparar contra el rumbo verdadero geometrico (`TrueRunwayBearing`) en vez de depender de `mag_var`.
+  **`magnético = verdadero − mag_var`**, dentro de 0,7°. **HECHA en 0.9.21**: el campo `MagVar` (`Models/NavData.cs`, 0 = degrada sin datos) y la conversión `rwy.Heading + rwy.MagVar` en las tres comparaciones de `NavDataService` (`SelectApproachThreshold` y dos en `ProjectOnRunway`), con el fixture real `KbosRwy04R()`: a 2° del eje verdadero la pista se reconoce, y sin la variación el sesgo de 13,73° la deja fuera de los 15°. Simplificación futura anotada, no bloqueo: comparar contra `TrueRunwayBearing` en vez de depender de `mag_var`.
   **No usar la puerta doble** (aceptar magnético *o* verdadero): el filtro que para el falso desvío
   de KOWD es justamente el cono angular, y ensancharlo lo reabriría.
 

@@ -19,6 +19,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
@@ -379,6 +380,24 @@ namespace vmsOpenAcars.Services
         public string AircraftIcao { get; private set; } = "????";
         public string AircraftManufacturer { get; private set; } = "Unknown";
         public string AircraftModel { get; private set; } = "Unknown";
+
+        /// <summary>
+        /// **De dónde salió <see cref="AircraftIcao"/>**, que decide cuánto se puede afirmar de él.
+        ///
+        /// Importa porque no todos los simuladores publican el tipo: en X-Plane, XPUIPC deja vacío el
+        /// modelo ATC (`0x0618`) y su `0x3D00` es el nombre de la **carpeta**. Medido el 20/10/2026 con
+        /// el ToLiss A320neo cargado: `0x0618` = "", `0x3D00` = `ToLissA320_V1p2p1`, y el `.acf` del
+        /// avión dice `A20N`. Antes de esto el cliente publicaba `A320` —deducido de la carpeta— y
+        /// avisaba de discrepancia contra el OFP de A20N del propio piloto.
+        /// </summary>
+        public AircraftTypeSource AircraftIcaoSource { get; private set; } = AircraftTypeSource.Unknown;
+
+        /// <summary>Raíz de la instalación de X-Plane, una vez resuelta (no se busca en cada ciclo).</summary>
+        private string _xplaneRoot;
+
+        /// <summary>Última consulta al `.acf`, cacheada por (raíz + carpeta): un vuelo no cambia de avión.</summary>
+        private string _acfProbeKey;
+        private string _acfProbeIcao = "";
 
         #endregion
 
@@ -1602,19 +1621,151 @@ namespace vmsOpenAcars.Services
                     AircraftTitle = title.Trim();
                 }
 
+                // ¿El simulador **publica** el tipo? El modelo ATC (0x0618) es la respuesta de MSFS y
+                // P3D; en X-Plane/XPUIPC llega vacío. Saber cuál de las dos cosas pasó es la mitad del
+                // arreglo: un designador publicado se puede comparar exacto, uno deducido no.
+                bool published = false;
                 TryReadStringOffset(() => _icaoDesignator.Value,
-                    val => { if (val != "????") AircraftIcao = val; });
+                    val => { if (val != "????") { AircraftIcao = val; published = true; } });
                 TryReadStringOffset(() => _icaoManufacturer.Value,
                     val => AircraftManufacturer = val);
                 TryReadStringOffset(() => _icaoModel.Value,
                     val => AircraftModel = val);
 
+                if (published)
+                {
+                    AircraftIcaoSource = AircraftTypeSource.AtcModel;
+                }
+                else
+                {
+                    // X-Plane: el tipo real está en el `_ICAO` del `.acf` del avión cargado. El `0x3D00`
+                    // de XPUIPC es el nombre de la carpeta (`ToLissA320_V1p2p1`), así que sin esto el
+                    // avión se identificaba con lo que su carpeta parece decir —y un A320neo salía
+                    // como A320—. Si la lectura falla, se degrada al título, pero marcado como
+                    // suposición: entonces la comparación contra el OFP se queda en la familia.
+                    string fromAcf = TryReadXPlaneAcfIcao();
+                    if (fromAcf.Length > 0)
+                    {
+                        AircraftIcao = fromAcf;
+                        AircraftIcaoSource = AircraftTypeSource.AcfFile;
+                    }
+                }
+
                 if (AircraftIcao == "????" && !string.IsNullOrEmpty(AircraftTitle))
+                {
                     AircraftIcao = ExtractIcaoFromTitle(AircraftTitle);
+                    AircraftIcaoSource = AircraftTypeSource.TitleGuess;
+                }
 
                 OnAircraftInfoReady?.Invoke();
             }
             catch { }
+        }
+
+        /// <summary>
+        /// **El designador ICAO del avión cargado en X-Plane, leído de su `.acf`.**
+        ///
+        /// Existe porque XPUIPC no expone el dato en ningún offset (medido: `0x0600`, `0x0618`,
+        /// `0x0630`, `0x09D2`, `0x0B26` y `0x3138` devuelven cadena vacía, y su binario ni siquiera
+        /// referencia el dataref `acf_ICAO`). Lo que sí llega por `0x3D00` es el nombre de la
+        /// **carpeta** del avión, que es lo que se usa para localizarlo: `<X-Plane>\Aircraft\&lt;carpeta&gt;`.
+        ///
+        /// La lectura es **acotada y del avión que el simulador dice tener cargado**: dos rutas
+        /// construidas con ese nombre y, si ninguna existe, ninguna otra —no se recorre la carpeta de
+        /// aviones ni, por supuesto, la de community—. Devuelve `""` sin dato, sin simulador de
+        /// X-Plane o si los `.acf` de la carpeta no coinciden en su `_ICAO`; y entonces decide la
+        /// degradación de `ReadAircraftInfo`, nunca una excepción.
+        /// </summary>
+        private string TryReadXPlaneAcfIcao()
+        {
+            try
+            {
+                string root = XPlaneInstallPath();
+                if (string.IsNullOrEmpty(root)) return "";
+
+                string key = root + "|" + AircraftTitle;
+                if (string.Equals(_acfProbeKey, key, StringComparison.Ordinal)) return _acfProbeIcao;
+
+                _acfProbeKey = key;
+                _acfProbeIcao = "";
+
+                string aircraftRoot = Path.Combine(root, "Aircraft");
+                foreach (string directory in XPlaneAcfIdentity.CandidateDirectories(aircraftRoot, AircraftTitle))
+                {
+                    if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory)) continue;
+
+                    string[] acfFiles;
+                    try { acfFiles = Directory.GetFiles(directory, "*.acf"); }
+                    catch { continue; }
+                    if (acfFiles.Length == 0) continue;
+
+                    var texts = new List<string>(acfFiles.Length);
+                    foreach (string acf in acfFiles)
+                    {
+                        try { texts.Add(ReadAcfHeader(acf)); }
+                        catch { texts.Add(""); }          // un .acf ilegible invalida la carpeta, no el vuelo
+                    }
+
+                    string icao = XPlaneAcfIdentity.IcaoFromAcfTexts(texts);
+                    if (icao.Length > 0)
+                    {
+                        _acfProbeIcao = icao;
+                        return icao;
+                    }
+                }
+
+                return "";
+            }
+            catch { return ""; }
+        }
+
+        /// <summary>
+        /// El `.acf` es un volcado de texto de ~2,3 MB y la clave está al final (línea 63.505 de
+        /// `a320.acf`), así que se lee entero pero **solo lo que hay entre la clave y esa línea**: no
+        /// se guarda nada más. De la carpeta se leen todos los `.acf` porque X-Plane carga uno según la
+        /// versión, y el designador solo se acepta si coinciden (ver `XPlaneAcfIdentity`).
+        /// </summary>
+        private static string ReadAcfHeader(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var reader = new StreamReader(stream, System.Text.Encoding.UTF8, true))
+            {
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    if (line.TrimStart().StartsWith(XPlaneAcfIdentity.IcaoKey, StringComparison.Ordinal))
+                        return line;                       // la clave y su valor van en la misma línea
+                }
+            }
+
+            return "";
+        }
+
+        /// <summary>
+        /// **La raíz de X-Plane, del proceso del simulador.** Es la única forma de llegar al `.acf` sin
+        /// escanear el disco: el `0x3D00` da el nombre de la carpeta y el proceso da dónde está su
+        /// `Aircraft\`. Se resuelve una vez; si el proceso no está o su ruta no se deja leer, se
+        /// devuelve `null` y el tipo se queda sin leer (degradación, no excepción).
+        /// </summary>
+        private string XPlaneInstallPath()
+        {
+            if (!string.IsNullOrEmpty(_xplaneRoot)) return _xplaneRoot;
+
+            try
+            {
+                var processes = Process.GetProcessesByName("X-Plane");
+                if (processes.Length == 0) return null;
+
+                string exe = processes[0].MainModule?.FileName;
+                if (string.IsNullOrWhiteSpace(exe)) return null;
+
+                string directory = Path.GetDirectoryName(exe);
+                if (string.IsNullOrWhiteSpace(directory)) return null;
+
+                _xplaneRoot = directory;
+                return _xplaneRoot;
+            }
+            catch { return null; }
         }
 
         private static void TryReadStringOffset(Func<string> reader, Action<string> setter)
@@ -1630,6 +1781,12 @@ namespace vmsOpenAcars.Services
 
         private static string ExtractIcaoFromTitle(string title)
         {
+            // **Esto es una suposición, no un dato**: el título de X-Plane es el nombre de la carpeta
+            // del avión, y aquí solo hay subcadenas. Sirve para que el log diga algo y para comparar
+            // por familia (`AircraftTypeSource.TitleGuess`), nunca para decidir una variante: al
+            // ToLiss A320neo le sale `A320` porque su carpeta se llama `ToLissA320_V1p2p1`, y su
+            // `_ICAO` de verdad es `A20N` (lo lee `TryReadXPlaneAcfIcao`). Y ojo con el orden: se
+            // recorre el diccionario tal cual, así que `A321` gana a `A320` cuando están las dos.
             var patterns = new Dictionary<string, string>
             {
                 { "737-800", "B738" }, { "B738",  "B738" },

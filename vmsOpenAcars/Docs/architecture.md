@@ -2158,7 +2158,10 @@ El idioma se selecciona en `SettingsForm` y se persiste en `App.config`.
 | `vmsOpenAcars.Tests/RaasTests.cs` | 16 tests con 106 segmentos reales de SKBO y el rodaje real del `MNjR664PBAr25RbD`: ruta por grafo, parseo de la ruta, guía, avisos, y las reglas de «fuera de ruta» y «ruta completa» de v0.9.15 (v0.9.14, v0.9.15) |
 | `vmsOpenAcars.Tests/TaxiRouteCaseTests.cs` | El caso **G74 → A3 de la 14L en SKBO** sobre 237 segmentos reales (`Fixtures/SKBO-taxi-2026-09-29.csv`): lo que propone el grafo y sus variantes sin `X`/sin `B5`, que **ninguna** da la ruta del piloto, y la coherencia del fixture (v0.9.16) |
 | `vmsOpenAcars.Tests/RaasReplayTests.cs` | Un test que **reproduce el rodaje completo** del `MNjR664PBAr25RbD` (569 segmentos, 35 hold-shorts, 4 pistas, las 72 líneas `SCH` del log real y las 42 posiciones entre el pushback y el takeoff roll) y escribe la secuencia de avisos a `%TEMP%\raas_replay_MNjR664.txt`. Exige los cinco avisos y su orden, no solo los vuelca: es el banco para juzgar el RAAS sobre una traza real sin volar (v0.9.14, v0.9.15) |
-| `Helpers/AircraftTypeMatch.cs` | ¿La aeronave del simulador es la del OFP? Compara exacto cuando resuelve la variante desde el modelo/título (`777-200LR` → `B77L`) y por **familia** (tres primeros caracteres) cuando el simulador solo publica el modelo ATC (`B777`) (v0.9.16) |
+| `Helpers/AircraftTypeMatch.cs` | ¿La aeronave del simulador es la del OFP? Compara exacto cuando resuelve la variante desde el modelo/título (`777-200LR` → `B77L`) y por **familia** cuando el simulador solo publica el modelo ATC (`B777`); desde v0.9.49 recibe el **origen** del designador (`AircraftTypeSource`): `AcfFile` manda sobre el título y `TitleGuess` solo compara por familia, con `FamilyKey` agrupando la familia A320 (CEO y NEO no comparten prefijo) (v0.9.16, v0.9.49) |
+| `Helpers/AircraftTypeSource.cs` | De dónde salió el designador ICAO del simulador: `AtcModel` (publicado en `0x0618`), `AcfFile` (`_ICAO` del `.acf` cargado en X-Plane) o `TitleGuess` (deducido del título porque el simulador no lo publica) — decide cuánto se puede afirmar al comparar (v0.9.49) |
+| `Helpers/XPlaneAcfIdentity.cs` | El tipo ICAO de X-Plane desde el `.acf`: `IcaoFromAcfText` (línea `P acf/_ICAO`), `IcaoFromAcfTexts` (consenso de los varios `.acf` de la carpeta; si discrepan, sin dato), `IsPlausibleDesignator` y las carpetas candidatas a partir del nombre que publica XPUIPC en `0x3D00`. Puro, sin disco (v0.9.49) |
+| `vmsOpenAcars.Tests/XPlaneAcfIdentityTests.cs` | 7 tests con el texto real de `a320.acf` alrededor de la clave (línea 63.505) y el nombre de carpeta real (`ToLissA320_V1p2p1 `): lectura, mayúsculas, centinela `????`, `_name` que no es `_ICAO`, los cuatro `.acf` que coinciden y los que discrepan, y las carpetas candidatas con el anidado de Laminar (v0.9.49) |
 | `UI/Forms/EcamDialog.cs` | Popup de confirmación de toda la app: mensaje en un panel con desplazamiento (`Dock.Fill`) y botones abajo (`Dock.Bottom`), con el alto ajustado al texto (`FitToMessage`) (v0.9.16) |
 | `Helpers/AircraftLivery.cs` | La pintura del avión a partir del título: aerolínea conocida o un código alfabético de 3–4 caracteres — **una pintura no lleva dígitos**, así que `777`/`200LR` nunca se confunden con ella; si el título solo dice el modelo, no hay pintura que enseñar (v0.9.16) |
 | `vmsOpenAcars.Tests/AircraftLiveryTests.cs` | 3 tests de la pintura: el título real del mantenedor (`777-200LR`) no produce pintura, los títulos con aerolínea sí, y un código alfabético se conserva (v0.9.16) |
@@ -2391,6 +2394,91 @@ degradar solo cuando falte.
 `SetActivePlan` (al cargar el plan). **`FlightPlannerForm` no lo usa**: ahí la comparación es contra
 el **tipo del vuelo licitado** (`_selectedAircraft.Type`), no contra el simulador, y el plan tiene
 que ser exactamente el del avión asignado.
+
+## X-Plane no publica el tipo: se lee del `.acf` del avión (v0.9.49)
+
+**El síntoma que lo destapó.** Con el ToLiss A320neo cargado, el log del ACARS decía:
+
+```
+✈️ Aeronave: ToLissA320_V1p2p1
+📋 ICAO: A320
+```
+
+y el piloto —que volaba un A320neo, OFP de `A20N`— veía un aviso de discrepancia contra su propio
+avión. La tentación es buscar la versión en la que «se rompió»; **no la hay**: la comparación por
+igualdad exacta existe desde v0.7.1 y el designador se deducía del título desde v0.2.x. Lo que cambió
+en v0.9.36 fue el **log**, que empezó a publicar el `ICAO` en un renglón propio en vez de dentro de
+«✈️ A320 [ToLiss]», y por eso el dato —que siempre estuvo mal— se hizo visible.
+
+**Lo medido, en vivo, el 20/10/2026** (X-Plane 12.4.3, XPUIPC 2.0.3.8, ToLiss A320 NEO v1.2.1, sonda
+propia contra los offsets con el avión cargado):
+
+| Offset | Qué es | Lo que devuelve X-Plane |
+|---|---|---|
+| `0x3D00` | «título» | `ToLissA320_V1p2p1 ` — el nombre de la **carpeta**, con su espacio final |
+| `0x0618` | modelo ATC | **vacío** |
+| `0x0600` / `0x0630` | tipo / aerolínea ATC | **vacío** |
+| `0x09D2` / `0x0B26` | fabricante / modelo | **vacío** |
+| `0x3138` | matrícula | **vacío** |
+
+Y no es que XPUIPC lo publique en otro sitio: su binario **no referencia el dataref `acf_ICAO`** en
+ninguna parte (sí `acf_descrip` y `acf_livery_path`, de donde sale ese `0x3D00`). El `.cfg` de XPUIPC
+tampoco sirve de puente: sus expresiones son numéricas y no pueden volcar una cadena. O sea que
+**ningún offset puede traer el tipo**.
+
+Quedaba `ExtractIcaoFromTitle("ToLissA320_V1p2p1")` → `A320`, por contener la subcadena, y el avión es
+un **A20N**. El dato de verdad está en el fichero del avión:
+
+```
+P acf/_ICAO A20N          (a320.acf, línea 63.505 de 2,3 MB)
+```
+
+y los **cuatro** `.acf` del paquete coinciden (`a320`, `a320_StdDef`, `a320_XP11`,
+`a320_XP11_StdDef`) — el que carga X-Plane depende de la versión, así que se leen todos y solo se
+acepta el designador si coinciden.
+
+**La cadena que lo lee** (`Helpers/XPlaneAcfIdentity.cs` puro + `FsuipcService` para el disco):
+
+1. La **carpeta** sale del `0x3D00` (recortado y sin separadores finales).
+2. La **raíz** sale del proceso del simulador (`X-Plane.exe` → su carpeta), que es lo único que la da:
+   X-Plane no la registra en ningún sitio consultable.
+3. Se prueban dos rutas construidas con ese nombre —`<raíz>\Aircraft\<carpeta>` y, si el nombre llegó
+   con la ruta relativa, su último tramo— y **nada más**: no se recorre la carpeta de aviones ni, por
+   supuesto, la de community. Es la diferencia con la pintura, que sí se descartó en v0.9.16.
+4. De cada `.acf` se lee **la línea de la clave** y se comparan; si discrepan o a alguno le falta, la
+   respuesta es «no lo sé».
+
+**El origen del designador es un dato, no un detalle** (`Helpers/AircraftTypeSource.cs`):
+
+| Origen | Qué es | Cómo se compara |
+|---|---|---|
+| `AtcModel` | lo publicó el simulador en `0x0618` (MSFS/P3D) | como siempre: la variante del modelo/título afina la familia |
+| `AcfFile` | `_ICAO` del `.acf` cargado (X-Plane) | **manda tal cual**; el título no lo afina |
+| `TitleGuess` | no lo publica y lo deducimos del título | **solo por familia**, nunca exacto |
+
+Sin esa distinción, el `.acf` daba `A20N` y el título `A320`, y `ResolveVariant` —que mira modelo →
+título → modelo ATC— se quedaba con el título: el avión correcto seguía avisando. Con `AcfFile` el
+título no participa (`DesignatorFor`), y con `TitleGuess` se apaga la comparación exacta: un `A320`
+deducido de una carpeta no distingue un CEO de un NEO, así que no puede acusar a ninguno de los dos.
+
+**La familia de Airbus, que era la otra trampa.** `IsSameFamily` comparaba los tres primeros
+caracteres, y el CEO y el NEO **no comparten prefijo**: `A320` → `A32`, `A20N` → `A20` (y `A319` →
+`A31`, `A321` → `A32`, `A19N` → `A19`, `A21N` → `A21`). O sea que la degradación honesta no
+funcionaba justo en el caso que la motivó. `FamilyKey` agrupa `A19`/`A20`/`A21`/`A31`/`A32` en la
+familia A320; **no relaja el aviso de verdad**, porque cuando las dos partes traen designador de
+variante se comparan exactos (`A20N` contra un plan de `A320` sigue avisando).
+
+**Dónde se ve.** El log de inicio (`📋 ICAO: A20N  (del .acf del avión)` y, sin `.acf`,
+`Log_IcaoDeduced`), la línea `✈️ A20N  [ToLiss]`, la validación del START y la cabecera del gráfico
+del flare — para lo último el origen se **persiste** en `flights.aircraft_type_source`, porque el
+título solo existe mientras el avión está cargado y sin él la ventana volvía a resolver la variante
+con la carpeta (`A320`).
+
+**Verificado** contra el simulador real: los cuatro `.acf` del ToLiss, el nombre de carpeta que
+publica XPUIPC y la raíz del proceso dan `A20N` con el código ya compilado; y con ese `A20N` la
+comparación acepta el OFP de `A20N`, rechaza el de `A320` (CEO) y rechaza otro avión. **Sin
+verificar**: una sesión completa de la app nueva contra X-Plane (la que corría era la 0.9.48) y el
+detector en MSFS, que no se ha tocado.
 
 ## Popup de confirmación: mensaje y botones no comparten caja (v0.9.16)
 

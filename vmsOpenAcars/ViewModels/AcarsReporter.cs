@@ -511,6 +511,12 @@ namespace vmsOpenAcars.ViewModels
                 AircraftTitle        = KnownText(_fsuipc?.AircraftTitle),
                 AircraftModel        = KnownText(_fsuipc?.AircraftModel),
 
+                // **De dónde salió ese designador**, que es lo que permite releerlo bien: en X-Plane
+                // el título es el nombre de la carpeta, y sin este dato la ventana del flare volvía a
+                // resolver la variante con él (`ToLissA320_V1p2p1` → `A320` en un avión cuyo `.acf`
+                // dice `A20N`). `Unknown` = simulador que no lo dijo, y se resuelve como siempre.
+                TypeSource           = _fsuipc?.AircraftIcaoSource ?? AircraftTypeSource.Unknown,
+
                 // El LTOW, capturado en el contacto (ver `CaptureLandingWeight`). Null si el
                 // simulador no lo publicó, que es un hueco y no un cero.
                 LandingWeightLbs     = _landingWeightLbs,

@@ -1,4 +1,5 @@
 using System;
+using vmsOpenAcars.Helpers;
 
 namespace vmsOpenAcars.Models
 {
@@ -179,6 +180,18 @@ namespace vmsOpenAcars.Models
         /// (`Helpers/AircraftTypeMatch.ResolveVariant`).
         /// </summary>
         public string AircraftModel { get; set; }
+
+        /// <summary>
+        /// **De dónde salió `AircraftIcao`**, que es lo que decide cómo se puede leer después:
+        /// publicado por el simulador (`AtcModel`), leído del `.acf` del avión (`AcfFile`) o deducido
+        /// del título (`TitleGuess`) — ver `Helpers/AircraftTypeSource`.
+        ///
+        /// Se guarda porque **el título de X-Plane es el nombre de la carpeta** y, sin saber el
+        /// origen, la ventana del flare volvía a resolver la variante con él: un vuelo cuyo `.acf`
+        /// decía `A20N` se releía como `A320`. Null/NULL en las filas anteriores a la columna, y
+        /// entonces se resuelve como siempre (`AtcModel`).
+        /// </summary>
+        public AircraftTypeSource TypeSource { get; set; } = AircraftTypeSource.Unknown;
 
         /// <summary>
         /// **El peso del avión en el momento de la toma (LTOW), en LIBRAS.** Es una **lectura del

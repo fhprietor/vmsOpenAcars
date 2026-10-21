@@ -147,5 +147,96 @@ namespace vmsOpenAcars.Tests
             Assert.IsTrue(AircraftTypeMatch.IsVariantDesignator("b77l"));
             Assert.IsFalse(AircraftTypeMatch.IsVariantDesignator("B777"));
         }
+
+        // ── De dónde salió el designador: X-Plane no es MSFS ────────────────────────────────
+        //
+        // El caso real (medido el 20/10/2026 con X-Plane 12.4.3 + XPUIPC 2.0.3.8 y el ToLiss A320neo
+        // cargado): el modelo ATC (0x0618) llega **vacío**, y el 0x3D00 —el «título»— es el nombre de
+        // la CARPETA, `ToLissA320_V1p2p1`. De ahí se deducía `A320`, y el A20N de verdad está en el
+        // `_ICAO` del `.acf` del avión. Con el designador deducido, el avión correcto avisaba de
+        // discrepancia contra su propio OFP (un A20N) y además se perdía la comparación exacta.
+
+        [TestMethod]
+        public void ConElTipoLeidoDelAcf_MandaElAcfYNoElNombreDeLaCarpeta()
+        {
+            // El `.acf` dice A20N y la carpeta dice A320: el avión es el del OFP, sin aviso.
+            Assert.IsTrue(AircraftTypeMatch.IsSameAircraft("A20N", "", "ToLissA320_V1p2p1", "A20N",
+                                                           AircraftTypeSource.AcfFile));
+
+            // Un título que sí dijera «neo» tampoco cambia nada: el `.acf` es la ficha del avión.
+            Assert.IsTrue(AircraftTypeMatch.IsSameAircraft("A20N", "", "Airbus A320neo", "A20N",
+                                                           AircraftTypeSource.AcfFile));
+
+            // Y la puerta que importa sigue cerrada: el OFP de un CEO no es el de un NEO.
+            Assert.IsFalse(AircraftTypeMatch.IsSameAircraft("A20N", "", "ToLissA320_V1p2p1", "A320",
+                                                            AircraftTypeSource.AcfFile),
+                           "un plan de A320 en un A320neo");
+            Assert.IsFalse(AircraftTypeMatch.IsSameAircraft("A320", "", "ToLissA320_V1p2p1", "A20N",
+                                                            AircraftTypeSource.AcfFile),
+                           "un plan de A320neo en un CEO");
+
+            // Y otra familia sigue avisando.
+            Assert.IsFalse(AircraftTypeMatch.IsSameAircraft("A20N", "", "ToLissA320_V1p2p1", "B738",
+                                                            AircraftTypeSource.AcfFile));
+        }
+
+        [TestMethod]
+        public void SinDatoDelSimulador_ElTipoDeducidoSoloComparaPorFamilia()
+        {
+            // Si el `.acf` no se pudo leer, el «A320» es una suposición sobre el nombre de la carpeta:
+            // no distingue CEO de NEO, así que no puede acusar a ninguno de los dos. Y ojo con la
+            // trampa que destapó esto: `A320` empieza por `A32` y `A20N` por `A20`, así que la
+            // familia de tres caracteres a secas los daba por aviones distintos (ver `FamilyKey`).
+            Assert.IsTrue(AircraftTypeMatch.IsSameAircraft("A320", "", "ToLissA320_V1p2p1", "A20N",
+                                                           AircraftTypeSource.TitleGuess));
+            Assert.IsTrue(AircraftTypeMatch.IsSameAircraft("A320", "", "ToLissA320_V1p2p1", "A321",
+                                                           AircraftTypeSource.TitleGuess));
+            Assert.IsTrue(AircraftTypeMatch.IsSameAircraft("A320", "", "ToLissA320_V1p2p1", "A21N",
+                                                           AircraftTypeSource.TitleGuess));
+
+            // Pero un avión de otra familia sí avisa, que es lo que el piloto agradece saber.
+            Assert.IsFalse(AircraftTypeMatch.IsSameAircraft("A320", "", "ToLissA320_V1p2p1", "B738",
+                                                            AircraftTypeSource.TitleGuess));
+            Assert.IsFalse(AircraftTypeMatch.IsSameAircraft("A320", "", "ToLissA320_V1p2p1", "A333",
+                                                            AircraftTypeSource.TitleGuess));
+        }
+
+        [TestMethod]
+        public void LaFamiliaA320IncluyeAlCeoYAlNeo()
+        {
+            // El CEO y el NEO de Airbus no comparten los tres primeros caracteres: A320 → A32 y
+            // A20N → A20. La familia tiene que agruparlos, o la degradación honesta del cliente no
+            // funciona justo con el avión que la motivó.
+            Assert.IsTrue(AircraftTypeMatch.IsSameFamily("A320", "A20N"));
+            Assert.IsTrue(AircraftTypeMatch.IsSameFamily("A20N", "A320"));
+            Assert.IsTrue(AircraftTypeMatch.IsSameFamily("A319", "A320"), "A319 → A31, A320 → A32");
+            Assert.IsTrue(AircraftTypeMatch.IsSameFamily("A321", "A21N"));
+            Assert.IsTrue(AircraftTypeMatch.IsSameFamily("A19N", "A320"));
+
+            // Y no se lleva por delante las familias de verdad distintas.
+            Assert.IsFalse(AircraftTypeMatch.IsSameFamily("A320", "A330"));
+            Assert.IsFalse(AircraftTypeMatch.IsSameFamily("A20N", "A350"));
+            Assert.IsFalse(AircraftTypeMatch.IsSameFamily("A320", "B738"));
+
+            // El aviso exacto sigue en pie: dos variantes conocidas se comparan exactas.
+            Assert.IsFalse(AircraftTypeMatch.IsSameAircraft("A20N", "", "", "A320",
+                                                            AircraftTypeSource.AcfFile));
+        }
+
+        [TestMethod]
+        public void ElDesignadorQueSePublica_DependeDelOrigen()
+        {
+            // Publicado por el ATC: la variante que se resuelve del modelo/título (como siempre).
+            Assert.AreEqual("B77L", AircraftTypeMatch.DesignatorFor(AircraftTypeSource.AtcModel,
+                                        "777-200LR", "PMDG 777-200LR", "B777"));
+            // Del `.acf`: él, tal cual, sin que el título lo afine.
+            Assert.AreEqual("A20N", AircraftTypeMatch.DesignatorFor(AircraftTypeSource.AcfFile,
+                                        "", "ToLissA320_V1p2p1", "A20N"));
+            // Deducido: se publica el deducido (el log lo marca), y no se afina con el título.
+            Assert.AreEqual("A320", AircraftTypeMatch.DesignatorFor(AircraftTypeSource.TitleGuess,
+                                        "", "ToLissA320_V1p2p1", "A320"));
+            // Sin dato: vacío, para que el que llama decida qué calla.
+            Assert.AreEqual("", AircraftTypeMatch.DesignatorFor(AircraftTypeSource.AcfFile, "", "", "????"));
+        }
     }
 }

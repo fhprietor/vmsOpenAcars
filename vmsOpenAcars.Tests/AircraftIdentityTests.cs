@@ -161,6 +161,23 @@ namespace vmsOpenAcars.Tests
             Assert.AreEqual("✈️ B77L  [PMDG]", AircraftIdentity.LogLine(null, "PMDG 777-200LR", "B777"));
         }
 
+        /// <summary>
+        /// **En X-Plane manda el `.acf`, no el nombre de la carpeta.** El caso real del mantenedor
+        /// (20/10/2026): el ToLiss A320neo publica como «título» su carpeta —`ToLissA320_V1p2p1`— y su
+        /// `.acf` dice `A20N`. La línea que el piloto ve al empezar el vuelo tiene que decir `A20N`:
+        /// dirá `A320` solo si el `.acf` no se pudo leer, y entonces el log lo marca como deducido
+        /// (`Log_IcaoDeduced`), que es otra línea y no esta.
+        /// </summary>
+        [TestMethod]
+        public void ConElTipoDelAcf_ElLogNoSeDejaLlevarPorElNombreDeLaCarpeta()
+        {
+            Assert.AreEqual("✈️ A20N  [ToLiss]",
+                AircraftIdentity.LogLine(null, "ToLissA320_V1p2p1", "A20N", AircraftTypeSource.AcfFile));
+            Assert.AreEqual("✈️ A320  [ToLiss]",
+                AircraftIdentity.LogLine(null, "ToLissA320_V1p2p1", "A320", AircraftTypeSource.TitleGuess),
+                "sin `.acf` se publica el deducido, y el log lo marca aparte");
+        }
+
         /// <summary>**Sin addon en el título no se abren corchetes**: un `[]` vacío no es un dato.</summary>
         [TestMethod]
         public void SinAddonEnElTitulo_NoHayCorchetes()

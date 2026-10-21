@@ -652,11 +652,12 @@ namespace vmsOpenAcars.ViewModels
                 string simModel = _fsuipc.AircraftModel ?? "";
                 string simTitle = _fsuipc.AircraftTitle ?? "";
                 string planType = plan.AircraftIcao     ?? "";
+                AircraftTypeSource typeSource = _fsuipc.AircraftIcaoSource;
                 if (AircraftTypeMatch.IsKnown(simType) && AircraftTypeMatch.IsKnown(planType)
                     && !string.Equals(simType, planType, StringComparison.OrdinalIgnoreCase))
                 {
-                    string simVariant = AircraftTypeMatch.ResolveVariant(simModel, simTitle, simType);
-                    if (AircraftTypeMatch.IsSameAircraft(simType, simModel, simTitle, planType))
+                    string simVariant = AircraftTypeMatch.DesignatorFor(typeSource, simModel, simTitle, simType);
+                    if (AircraftTypeMatch.IsSameAircraft(simType, simModel, simTitle, planType, typeSource))
                     {
                         // Aceptado por familia porque falta la variante: se dice en gris, sin rojo.
                         if (simVariant.Length == 0)
@@ -753,6 +754,7 @@ namespace vmsOpenAcars.ViewModels
             string simModel = _fsuipc.AircraftModel ?? "";
             string simTitle = _fsuipc.AircraftTitle ?? "";
             string planType = plan.AircraftIcao     ?? "";
+            AircraftTypeSource typeSource = _fsuipc.AircraftIcaoSource;
             if (!AircraftTypeMatch.IsKnown(simType) || !AircraftTypeMatch.IsKnown(planType))
                 return true;
             if (string.Equals(simType, planType, StringComparison.OrdinalIgnoreCase))
@@ -764,8 +766,14 @@ namespace vmsOpenAcars.ViewModels
             // variante, así que cuando se puede resolver se compara exacto —un plan de 777-300ER
             // en un 777-200LR es otra versión del mismo avión y SÍ se avisa— y solo se cae a la
             // familia cuando el dato no permite más precisión.
-            string simVariant = AircraftTypeMatch.ResolveVariant(simModel, simTitle, simType);
-            if (AircraftTypeMatch.IsSameAircraft(simType, simModel, simTitle, planType))
+            //
+            // **De dónde sale el designador decide cuánto se puede apretar** (ver
+            // `AircraftTypeSource`): en X-Plane el tipo se lee del `.acf` del avión y manda sobre el
+            // título, que allí es el nombre de la carpeta; y si no se pudo leer, es una suposición y
+            // la comparación se queda en la familia. Así un ToLiss A320neo (`.acf` = A20N) deja de
+            // avisar contra su propio OFP sin dejar de avisar contra el de un CEO.
+            string simVariant = AircraftTypeMatch.DesignatorFor(typeSource, simModel, simTitle, simType);
+            if (AircraftTypeMatch.IsSameAircraft(simType, simModel, simTitle, planType, typeSource))
             {
                 // Aceptado por familia porque falta la variante en algún lado: que quede en el log.
                 if (simVariant.Length == 0)
@@ -824,8 +832,12 @@ namespace vmsOpenAcars.ViewModels
             // del modelo/título (`B77L` en un PMDG 777-200LR, `B38M` en un 737 MAX 8) y el addon entre
             // corchetes. Antes el log publicaba el crudo del modelo ATC —`B777`— mientras el bloque
             // enseñaba `B77L`: dos formatos de la misma identidad que ahora no pueden divergir.
+            //
+            // El **origen del designador** viaja con la identidad: en X-Plane el tipo sale del `.acf`
+            // del avión cargado y manda sobre el título, que allí es el nombre de la carpeta
+            // (`ToLissA320_V1p2p1` → `A20N`). Sin eso la línea decía `A320` con un A320neo.
             string acLine = AircraftIdentity.LogLine(_fsuipc.AircraftModel, _fsuipc.AircraftTitle,
-                                                     _fsuipc.AircraftIcao);
+                                                     _fsuipc.AircraftIcao, _fsuipc.AircraftIcaoSource);
             OnLog?.Invoke(_("Log_SimRunning", _fsuipc.SimulatorName), Theme.MainText);
             OnLog?.Invoke(acLine, Theme.MainText);
 

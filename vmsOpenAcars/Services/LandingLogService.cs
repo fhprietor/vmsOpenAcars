@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Globalization;
 using System.IO;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services.Interfaces;
 
@@ -174,6 +175,19 @@ namespace vmsOpenAcars.Services
                     // familia, que es lo honesto.
                     EnsureColumn(conn, "flights", "aircraft_title", "TEXT");
                     EnsureColumn(conn, "flights", "aircraft_model", "TEXT");
+
+                    // ── De dónde salió ese designador ─────────────────────────────────
+                    // `aircraft_icao` puede venir de tres sitios muy distintos (`Helpers/AircraftTypeSource`):
+                    // del modelo ATC del simulador, del `_ICAO` del `.acf` del avión en X-Plane, o de
+                    // una **suposición** sobre el título. Sin este dato, releer el vuelo vuelve a
+                    // resolver la variante con el título —que en X-Plane es el nombre de la CARPETA—
+                    // y un ToLiss A320neo (`_ICAO` = A20N) se pintaba como `A320` en la cabecera del
+                    // gráfico, que es justo lo que el log ya no dice desde v0.9.49.
+                    //
+                    // INTEGER y **NULL en las filas anteriores** a la columna: el lector lo trata como
+                    // `AtcModel`, que es cómo se resolvían hasta ahora, así que el historial viejo no
+                    // cambia de significado.
+                    EnsureColumn(conn, "flights", "aircraft_type_source", "INTEGER");
 
                     // ── El peso en la toma (LTOW), en LIBRAS ──────────────────────────
                     // Es una **lectura** del peso bruto del simulador hecha en el contacto, no una
@@ -441,7 +455,8 @@ namespace vmsOpenAcars.Services
                          aircraft_title, aircraft_model, landing_weight_lbs,
                          offset_threshold_ft, vref_kt, trace_stop_reason,
                          taxi_out_moving_sec, taxi_out_single_sec,
-                         taxi_in_moving_sec, taxi_in_single_sec, single_engine_bonus)
+                         taxi_in_moving_sec, taxi_in_single_sec, single_engine_bonus,
+                         aircraft_type_source)
                     VALUES
                         (@fn, @org, @dest, @rwy, @dt,
                          @rate, @gf, @dist, @cl,
@@ -452,7 +467,8 @@ namespace vmsOpenAcars.Services
                          @acftTitle, @acftModel, @lw,
                          @offset, @vref, @stopReason,
                          @taxiOutMoving, @taxiOutSingle,
-                         @taxiInMoving, @taxiInSingle, @seBonus)";
+                         @taxiInMoving, @taxiInSingle, @seBonus,
+                         @typeSource)";
 
                 cmd.Parameters.AddWithValue("@fn",    r.FlightNumber ?? "");
                 cmd.Parameters.AddWithValue("@org",   r.Origin ?? "");
@@ -512,6 +528,10 @@ namespace vmsOpenAcars.Services
                 cmd.Parameters.AddWithValue("@taxiInMoving",  (object)r.TaxiInMovingSeconds        ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@taxiInSingle",  (object)r.TaxiInSingleEngineSeconds  ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@seBonus",       r.SingleEngineBonus ? 1 : 0);
+                // El origen del designador. `Unknown` es «no lo sé» y va NULL: al releer se resuelve
+                // como siempre, no se inventa una procedencia.
+                cmd.Parameters.AddWithValue("@typeSource",
+                    r.TypeSource == AircraftTypeSource.Unknown ? (object)DBNull.Value : (int)r.TypeSource);
                 cmd.ExecuteNonQuery();
             }
             using (var cmd2 = conn.CreateCommand())
@@ -543,7 +563,8 @@ namespace vmsOpenAcars.Services
                                aircraft_title, aircraft_model, landing_weight_lbs,
                                offset_threshold_ft, vref_kt, trace_stop_reason,
                                taxi_out_moving_sec, taxi_out_single_sec,
-                               taxi_in_moving_sec, taxi_in_single_sec, single_engine_bonus
+                               taxi_in_moving_sec, taxi_in_single_sec, single_engine_bonus,
+                               aircraft_type_source
                         FROM flights
                         ORDER BY flight_date DESC";
 
@@ -603,7 +624,13 @@ namespace vmsOpenAcars.Services
                                 TaxiInMovingSeconds        = r.IsDBNull(30) ? (double?)null : r.GetDouble(30),
                                 TaxiInSingleEngineSeconds  = r.IsDBNull(31) ? (double?)null : r.GetDouble(31),
                                 // En la duda, «no cobrada»: es lo conservador.
-                                SingleEngineBonus          = !r.IsDBNull(32) && r.GetInt32(32) != 0
+                                SingleEngineBonus          = !r.IsDBNull(32) && r.GetInt32(32) != 0,
+                                // De dónde salió el designador, al final para no mover índices. NULL
+                                // en las filas anteriores a la columna = `Unknown`, que se resuelve
+                                // como siempre (`AtcModel`): el historial viejo no cambia.
+                                TypeSource                 = r.IsDBNull(33)
+                                                                 ? AircraftTypeSource.Unknown
+                                                                 : (AircraftTypeSource)r.GetInt32(33)
                             });
                         }
                     }

@@ -242,8 +242,11 @@ namespace vmsOpenAcars.Helpers
         private static void Identity(FlightRecord record, out string title,
                                      out string designator, out string family)
         {
+            // El **origen** del designador viaja con el registro: en X-Plane el título es el nombre de
+            // la carpeta del avión, así que sin saber que el tipo se leyó del `.acf` se volvía a
+            // resolver la variante con el título y un A20N se pintaba como A320.
             AircraftIdentity.Resolve(record.AircraftModel, record.AircraftTitle, record.AircraftIcao,
-                                     out designator, out family);
+                                     record.TypeSource, out designator, out family);
             title = Clean(record.AircraftTitle);
         }
 
