@@ -155,6 +155,12 @@ namespace vmsOpenAcars.ViewModels
                 });
             _tc.WireEvents();
 
+            // Anuncios de cabina: lo que suena deja línea en el log de vuelo (mismo canal que el
+            // RAAS, para poder auditar después si el PA salió y en qué modo) y las dos fases que
+            // hablan del tiempo refrescan el METAR del destino antes de locutar.
+            _cabinAnnouncements.Log            = message => OnLog?.Invoke(message, Theme.SecondaryText);
+            _cabinAnnouncements.ContextRefresh = RefreshCabinContextAsync;
+
             // RAAS: el coordinador decide *cuándo* preguntar (luz de taxi / TaxiOut); el
             // formulario principal es quien pinta el popup y devuelve la elección.
             // OJO: esto va DESPUÉS de crear `_tc` — `SubscribeToEvents()` corre antes y ahí
@@ -335,6 +341,62 @@ namespace vmsOpenAcars.ViewModels
         private readonly AirspaceMonitorService        _airspaceMonitor     = new AirspaceMonitorService();
         private readonly ProcedureRestrictionTracker   _procTracker         = new ProcedureRestrictionTracker();
         private const int CheckpointIntervalSeconds = 60;
+
+        // ── Anuncios de cabina: contexto de la locución ──────────────────────────
+
+        private CabinAnnouncementContext _cabinContext;
+
+        /// <summary>
+        /// Datos de vuelo que usan las plantillas habladas. La ciudad del destino sale de la caché
+        /// de NavData —si el aeropuerto aún no está cacheado el texto dice el código deletreado, que
+        /// se entiende, en vez de quedarse a medias— y la meteo se conserva entre refrescos cuando
+        /// la llamada nueva no trae dato.
+        /// </summary>
+        private void RefreshCabinContext(SimbriefPlan plan, int? temperatureC = null, string condition = null)
+        {
+            if (plan == null) return;
+
+            NavAirportInfo navInfo = null;
+            try { navInfo = NavDataClient.GetAirportInfo(plan.Destination); } catch { }
+
+            _cabinContext = new CabinAnnouncementContext
+            {
+                AirlineName     = _flightManager?.ActivePilot?.AirlineName,
+                FlightNumber    = plan.FlightNumber,
+                // Nombre y ciudad llegan abreviados y sin tildes («El Dorado Intl» / «Bogota»):
+                // `CabinAnnouncementScript.AirportPhrase` los convierte en «Aeropuerto
+                // Internacional El Dorado de Bogota». Sin nombre se cae a la ciudad y al código.
+                AirportName     = navInfo?.Name ?? _cabinContext?.AirportName,
+                City            = navInfo?.City ?? _cabinContext?.City,
+                DestinationCode = string.IsNullOrWhiteSpace(plan.DestinationIata)
+                                    ? plan.Destination : plan.DestinationIata,
+                // La longitud es lo único que permite decir una hora local: no hay zona horaria.
+                DestinationLongitude = navInfo?.Lon ?? _cabinContext?.DestinationLongitude,
+                TemperatureC    = temperatureC ?? _cabinContext?.TemperatureC,
+                Condition       = condition    ?? _cabinContext?.Condition,
+            };
+
+            _cabinAnnouncements.SetFlightContext(_cabinContext);
+        }
+
+        /// <summary>
+        /// Refresco del METAR del destino antes de locutar `top_of_descent` y `taxi_in`. En un vuelo
+        /// largo la temperatura de la salida ya no vale, y leer una temperatura falsa es peor que no
+        /// leer ninguna: el servicio acota la espera a 3 s y, si no llega, omite la frase.
+        /// </summary>
+        private async Task RefreshCabinContextAsync()
+        {
+            SimbriefPlan plan = _flightManager?.ActivePlan;
+            if (plan == null || string.IsNullOrWhiteSpace(plan.Destination)) return;
+
+            try
+            {
+                NavWeather weather = await NavDataClient.GetWeatherAsync(plan.Destination)
+                                                            .ConfigureAwait(false);
+                RefreshCabinContext(plan, weather?.TemperatureC, weather?.Condition);
+            }
+            catch { }
+        }
 
         private void OnRawDataUpdated(object sender, RawTelemetryData e)
         {
@@ -792,6 +854,12 @@ namespace vmsOpenAcars.ViewModels
             _tc?.Reset();
             _reporter?.Reset();
             _procTracker.ResetProgress();
+
+            // Después de `_tc.Reset()` a propósito: el reset vacía también el contexto de los
+            // anuncios, así que fijarlo antes lo habría borrado y la bienvenida se locutaría sin
+            // aerolínea ni destino.
+            RefreshCabinContext(plan);
+
             Task.Run(async () => await _cabinAnnouncements.PrefetchAsync(
                 plan.Origin, plan.Destination,
                 _flightManager.ActivePilot?.AirlineCountry ?? "",
@@ -951,7 +1019,7 @@ namespace vmsOpenAcars.ViewModels
         }
 
         public Task<string> TestCabinAnnouncementAsync(string phase)
-            => _cabinAnnouncements.TestAnnouncementAsync(phase, "en");
+            => _cabinAnnouncements.TestAnnouncementAsync(phase);
 
         public void SetCabinVolume(int volume)
             => _cabinAnnouncements.SetVolume(volume);

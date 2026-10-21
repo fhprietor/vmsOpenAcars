@@ -891,9 +891,9 @@ namespace vmsOpenAcars.UI.Forms
                 ForeColor = Color.White,
                 Font      = new Font("Consolas", 10)
             };
-            string[] phases = { "boarding", "taxi_out", "on_runway", "cruise",
-                                 "top_of_descent", "approach", "taxi_in" };
-            foreach (string phase in phases)
+            // Las diez fases con texto: siete tienen grabación en NavData y tres se locutan con
+            // SAPI. La lista sale del catálogo del script para que no se puedan desincronizar.
+            foreach (string phase in CabinAnnouncementScript.Phases)
             {
                 string p    = phase;
                 var item = new ToolStripMenuItem(p)

@@ -229,6 +229,11 @@
     <Compile Include="Helpers\TaxiRouteObservation.cs" />
     <Compile Include="Helpers\TaxiPlannedObservationPolicy.cs" />
     <Compile Include="Helpers\RaasAdvisor.cs" />
+    <!-- Anuncios de cabina: las frases y la política de voz son puras y se prueban sin tarjeta de sonido. -->
+    <Compile Include="Helpers\CabinAnnouncementScript.cs" />
+    <Compile Include="Helpers\LocalTimeOfDay.cs" />
+    <Compile Include="Helpers\TurbulenceAdvisor.cs" />
+    <Compile Include="Helpers\SapiVoicePolicy.cs" />
     <Compile Include="Helpers\FireAndForget.cs" />
     <Compile Include="Helpers\SystemInfoHelper.cs" />
     <Compile Include="Helpers\TransitionDefaults.cs" />
@@ -304,6 +309,7 @@
     <Compile Include="Services\MetarService.cs" />
     <Compile Include="Services\LandingLogService.cs" />
     <Compile Include="Services\CabinAnnouncementService.cs" />
+    <Compile Include="Services\CabinVoice.cs" />
     <Compile Include="Services\NavDataCache.cs" />
     <Compile Include="Services\AirspaceMonitorService.cs" />
     <Compile Include="Services\NavDataClient.cs" />

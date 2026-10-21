@@ -659,6 +659,7 @@ namespace vmsOpenAcars.Services
                 GroundSpeedKt = CurrentGroundSpeedKt,
                 HeadingDeg = CurrentHeading,
                 VerticalSpeedFpm = CurrentVerticalSpeedFpm,
+                GForce = CurrentGForce,
                 IndicatedAirspeedKt = CurrentIndicatedAirspeed,
                 IsOnGround = _lastOnGround,
                 FuelLbs = CurrentFuelLbs,
@@ -1811,6 +1812,11 @@ namespace vmsOpenAcars.Services
         public double GroundSpeedKt { get; set; }
         public double HeadingDeg { get; set; }
         public double VerticalSpeedFpm { get; set; }
+        /// <summary>
+        /// Factor de carga actual (`0x11BA` / 625). Ya se leía para el pico de la aproximación;
+        /// ahora también alimenta la detección de turbulencia (`Helpers/TurbulenceAdvisor`).
+        /// </summary>
+        public double GForce { get; set; }
         public double IndicatedAirspeedKt { get; set; }
         public bool IsOnGround { get; set; }
         public double FuelLbs { get; set; }

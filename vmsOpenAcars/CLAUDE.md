@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.47  
+**Versión actual:** v0.9.48  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -83,8 +83,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
 - `Docs/CHANGELOG.md` es el **canónico**: cada entrada lleva causa raíz y las cifras que la
   demuestran. Se actualiza junto con `CLAUDE.md`, en el mismo cambio.
 - `Docs/README.md` es el índice: un `.md` nuevo se lista ahí o queda huérfano.
-- **`Docs/MEMORY.md` y `Docs/project_vmsOpenAcars.md` no son fuente de verdad** (son resúmenes
-  de mantenimiento y se quedan atrás: `MEMORY.md` llegó a decir v0.9.2 con el cliente en
+- **`Docs/MEMORY.md` y `Docs/project_vmsOpenAcars.md` no son fuente de verdad** (se quedan atrás: `MEMORY.md` llegó a decir v0.9.2 con el cliente en
   v0.9.9). La verdad es `CLAUDE.md` + `Docs/CHANGELOG.md`.
 - Para montar el proyecto en otro equipo (o cambiar de agente) está `Docs/SETUP-ENTORNO.md`:
   qué **no** viaja por git —`App.config` y `packages/` están ignorados—, el toolchain y cómo se
@@ -305,26 +304,15 @@ crédito**: al añadir uno nuevo al combo hay que darle el suyo. El rótulo es t
 
 ---
 
-## CabinAnnouncementService — `Services/CabinAnnouncementService.cs` (v0.5.9)
+## CabinAnnouncementService — `Services/CabinAnnouncementService.cs` (v0.5.9, voz 0.9.48)
 
-Anuncios pregrabados: fetch `/briefing/check/` + `/briefing/download/`, caché `%TEMP%\vmsacars\briefing\`, reproducción FIFO chime WAV → MP3.
+**Clip si existe, voz SAPI si no.** Clips de `/briefing/check/` + `/briefing/download/` (caché `%TEMP%\vmsacars\briefing\`); NavData **no publicará más fases**, así que las que faltan las locuta `Services/CabinVoice` (`System.Speech`, ya referenciado) con el texto puro de `Helpers/CabinAnnouncementScript` (es/en, datos opcionales: sin dato la frase desaparece; destino **por su nombre** de `name`+`city`, que llegan abreviados y sin tildes; hora local de `Helpers/LocalTimeOfDay`, longitud ÷ 15°). `Helpers/SapiVoicePolicy` elige el idioma **contra las voces instaladas**: sin voz española se locuta el texto inglés.
 
-**Idioma:** `Pilot.AirlineCountry` (ISO-2) → `SpanishCountries` hashset → `"es"` o `"en"`. Internacional con aerolínea no anglohablante → inglés primero + nativo. Doméstico → solo nativo.
+**13 fases.** Por entrada de fase: `pushback`, `taxi_out`, `top_of_descent`, `approach`, `slides_disarm` (AfterLanding), `taxi_in`, `on_block`; `boarding` al acabar el prefetch; `after_takeoff` a 10 000 ft AGL (Climb/Enroute); `cruise` >10 000 ft AGL 30 s; `on_runway` a la 1.ª luz con GS ≤ 40 kt; y la turbulencia (`turbulence_on`/`turbulence_off`, evento por `Helpers/TurbulenceAdvisor`: g `0x11BA` + VS `0x02C8`, 6 s de densidad, 10 min de enfriamiento). `top_of_descent`/`taxi_in` refrescan el METAR (3 s) y cada PA deja línea en el log.
 
-**Supresión:** `aircraftSeats ∈ (0,40)` → `PrefetchAsync` retorna sin hacer nada.
+**Idioma:** `Pilot.AirlineCountry` → `SpanishCountries` → `"es"`/`"en"` (internacional no anglohablante: inglés y luego nativo). **Supresión:** `aircraftSeats ∈ (0,40)`. **Settings:** `chkCabinAnnouncements`, `trkCabinVolume` (en caliente), `btnTestCabin` (13 fases). Claves: `cabin_announcements_enabled` / `_volume`.
 
-**Reproducción:** NAudio `AudioFileReader` + `WaveOutEvent` + `ManualResetEventSlim`. `_currentOutput`/`_currentReader` (volatile) para stop en tiempo real y volumen en caliente.
-
-**Fases:**
-
-| Fase | Trigger |
-|---|---|
-| `boarding` | `PrefetchAsync()` completado en `StartFlight()` |
-| `taxi_out` / `top_of_descent` / `approach` / `taxi_in` | `OnFlightPhaseChanged` |
-| `on_runway` | `LandingLight` o `StrobeLight` changed(on=true), GS ≤ 40 kt, una vez |
-| `cruise` | Enroute + AGL > 10 000 ft sostenido 30 s |
-
-**Settings:** `chkCabinAnnouncements` (live, auto-save), `trkCabinVolume` (0–100, live, auto-save), `btnTestCabin` (7 fases). Callbacks inyectados desde MainForm. Clave App.config: `cabin_announcements_enabled` / `cabin_announcements_volume`.
+Detalle: `architecture.md` → "Los anuncios de cabina".
 
 ---
 
@@ -583,7 +571,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **828 tests** (1 se omite sola: la herramienta de relleno):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **873 tests** (1 se omite sola; los anuncios locutados, sin tarjeta de sonido: `CabinAnnouncementScriptTests`, `LocalTimeOfDayTests`, `SapiVoicePolicyTests`, `TurbulenceAdvisorTests`):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
@@ -617,7 +605,7 @@ inventada: el falso SKTL, el SKCG legítimo, los tres falsos de KBOS y el rodaje
 `MNjR664PBAr25RbD` (106 segmentos reales de SKBO y las posiciones del pushback y del rodaje).
 
 `InternalsVisibleTo("vmsOpenAcars.Tests")` en `Properties/AssemblyInfo.cs` permite que los
-tests accedan a los tipos `internal` (helpers) sin tener que hacerlos públicos.
+tests accedan a los tipos `internal` sin tener que hacerlos públicos.
 
 ```bash
 msbuild vmsOpenAcars.sln /p:Configuration=Debug
@@ -629,8 +617,6 @@ El scoring vive en un `WinExe`, así que el proyecto de tests lo referencia vía
 compilación) más un `<Reference>` a `..\vmsOpenAcars\bin\$(Configuration)\vmsOpenAcars.exe`
 que sí lo copia para el runtime. En **Release** el proyecto de tests no se compila.
 
-Al añadir un criterio a `ScoringService`: añadir su test, su entrada en
-`PirepBuilder._critKeyMap` y su clave `Score_Crit*` en `Languages/{en,es}.json`.
 
 ---
 

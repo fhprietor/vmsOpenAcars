@@ -2767,3 +2767,195 @@ que delataba que el avion estaba en la calle paralela, no en la pista.
 
 No se agrego heuristica de posicion/pista al propio state machine — es "pure state machine" por
 diseno, sin acceso a NavData; el debounce de 5 s resuelve el caso real sin ese acoplamiento.
+
+---
+
+## Los anuncios de cabina: grabación si existe, voz de Windows si no (v0.9.48)
+
+### El problema real
+
+La librería de anuncios de NavData son **siete clips** servidos por `/briefing/check/` +
+`/briefing/download/`: `boarding`, `taxi_out`, `on_runway`, `cruise`, `top_of_descent`, `approach` y
+`taxi_in`. **No habrá más.** Contra el calendario de una tripulación de verdad, ese repertorio tiene
+dos agujeros distintos:
+
+1. **Faltan momentos.** Puerta cerrada al empujar, «ya pueden usar sus dispositivos» al dejar los
+   10 000 ft, **desarmar toboganes y chequeo cruzado** al dejar la pista y la llegada a puesto son PA
+   de manual y no tienen grabación.
+2. **Si el briefing no responde, no hay nada.** Un `503`, una clave caducada o volar sin red dejaban
+   las siete fases **en silencio**, con el piloto esperando un anuncio que no llega y sin una línea
+   de diagnóstico.
+
+La decisión fue **no reemplazar** los clips: una locución grabada es mejor que una sintética. Lo que
+se añadió es la pieza que faltaba debajo —`Services/CabinVoice`, SAPI por `System.Speech`, que ya
+viaja con .NET Framework porque el RAAS lo usa— y un orden explícito: **grabación si existe, voz si
+no**.
+
+### Cómo se decide qué suena
+
+`CabinAnnouncementService` ya no encola rutas de fichero, sino **fases**; la resolución ocurre en el
+hilo de anuncios, y eso resuelve tres cosas de una vez:
+
+- **Carrera con la descarga.** Si el prefetch aún está bajando clips, no se puede saber si habrá
+  grabación. La cola espera hasta **5 s** al prefetch antes de decidir (`PrefetchWaitMs`). Sin eso,
+  un enlace lento hacía sonar la voz y medio minuto después el clip del mismo anuncio.
+- **Meteo fresca.** `top_of_descent` y `taxi_in` hablan de la temperatura en el destino. En un vuelo
+  de diez horas la que se leyó al pulsar START ya no vale, así que antes de locutar se refresca el
+  METAR del destino con una espera máxima de **3 s** (`WeatherWaitMs`); si no llega, **la frase se
+  omite**. Leer una temperatura falsa es peor que no leer ninguna.
+- **Un solo FIFO.** Chime → clip(s) → o texto locutado, en el mismo hilo de fondo: es lo que impide
+  que un clip se monte encima de la voz. Por eso `CabinVoice.SpeakSync` **bloquea** a quien lo llama
+  hasta que termina de hablar (con techo de 120 s), en vez de encolar en otro hilo.
+
+### Por qué un sintetizador propio y no el del RAAS
+
+`RaasVoice` y `CabinVoice` no comparten instancia, y no es duplicación:
+
+| | RAAS | Cabina |
+|---|---|---|
+| Ritmo | `Rate = 1` (un RAAS habla rápido) | `Rate = 0` |
+| Volumen | el de los avisos de cabina de vuelo | el slider de anuncios |
+| Bloqueo | nunca bloquea a telemetría | **bloquea** al hilo de anuncios (FIFO) |
+
+Compartir sintetizador habría obligado a mezclar las tres políticas en un solo objeto.
+
+### El idioma lo decide la voz instalada, no la aerolínea
+
+`Helpers/SapiVoicePolicy` (puro) recibe el idioma pedido —el que sale de `Pilot.AirlineCountry`— y
+**la lista de voces instaladas**, y devuelve el idioma en el que se va a locutar de verdad. La regla:
+si hay voz del idioma pedido, se usa; si no, se cambia **el texto** al otro idioma que sí tenga voz;
+si no hay ninguna de los dos, se locuta el pedido con la voz por defecto y se avisa una vez en el log.
+
+La razón es concreta: con solo voz inglesa, pedir `es` hacía que `SelectVoiceByHints(es-ES)` fallara
+y la voz por defecto leyera **texto español con fonética inglesa**. En un RAAS es una palabra mal
+dicha; en un anuncio de quince segundos no se sostiene.
+
+**Medido en el equipo de desarrollo** (sin tarjeta de sonido, sintetizando a fichero): 8 voces
+instaladas —`es-MX` *Sabina Desktop* y *Raul*, `en-US` *Zira*, *David* y *Mark*— y la bienvenida
+completa a 8,1 s de audio (357 604 bytes de WAV). Además, `SelectVoiceByHints(CultureInfo("es-ES"))`
+partiendo de *Zira* (`en-US`) **sí** cambia a *Sabina* (`es-MX`): SAPI casa por **idioma**, no por
+cultura exacta, y por eso basta con pedir `es-ES` aunque en el equipo solo haya `es-MX`.
+
+### Las frases: datos opcionales, nada de huecos
+
+`Helpers/CabinAnnouncementScript` (puro, con test) tiene las **trece fases** en español e inglés.
+Todos los datos son opcionales por diseño —el aeropuerto puede no estar en la caché de NavData, el
+METAR puede no responder— y cada cláusula desaparece cuando falta su dato. El defecto clásico de
+estas plantillas es «con destino .»; un test recorre las diez fases × dos idiomas × tres contextos
+buscando doble espacio, espacio antes de punto, `null` y marcadores sin sustituir.
+
+Se lee como se habla, no como se escribe:
+
+- **Número de vuelo**: si es todo dígitos se deletrea dígito a dígito (`1234` → `1 2 3 4`), porque
+  «mil doscientos treinta y cuatro» no es un vuelo. Con letras se deja tal cual: las voces leen bien
+  una secuencia corta en mayúsculas (`55CH`).
+- **Temperatura**: `1 grado` en singular y `menos 3 grados` en negativo; el guion no se lee.
+- **Condición del METAR**: se busca por token (`rain`/`lluvia`, `overcast`/`nublado`…) y **lo que no
+  se reconoce se omite**, para no oír «con volcanic ash».
+- **Destino**: la ciudad (`NavAirportInfo.City`); si el aeropuerto no está cacheado, el código
+  deletreado letra a letra.
+
+El texto **no** vive en `Languages/*.json` a propósito: no es interfaz. Son dos locuciones completas
+por fase, y la que suena la decide la voz instalada, no el idioma de la UI.
+
+### El destino por su nombre, y la hora local
+
+Los campos `name`/`city` de NavData llegan **abreviados y sin tildes**. Medido en la caché real
+(`bin\Release\NavData_cache.sqlite`, 15/10/2026):
+
+| ICAO | `name` | `city` |
+|---|---|---|
+| SKBO | `El Dorado Intl` | `Bogota` |
+| SKCL | `Alfonso Bonilla Aragon Intl` | `Cali` |
+| SKBG | `Palonegro` | `Bucaramanga` |
+| SKRG | `Jose Maria Cordova` | `Medellín` |
+
+Decir «con destino Bogotá» era perder la mitad de la información, así que
+`CabinAnnouncementScript.AirportPhrase` arma el nombre completo: expande la abreviatura (`Intl` →
+Internacional), **reordena a la construcción española** («Aeropuerto Internacional El Dorado», no
+«El Dorado Internacional») y añade la ciudad si el nombre no la lleva ya → **«Aeropuerto
+Internacional El Dorado de Bogota»**. Un sufijo desconocido no se toca («Aeropuerto El Dorado Air
+Base»), la ciudad sola da «Aeropuerto de Cali» y sin nada queda el código deletreado. La frase va
+**sin artículo** porque el artículo lo pone la plantilla: «con destino **al** …», «hemos aterrizado
+**en el** …», «hacia **el** …».
+
+La **hora local** no existe en ningún dato —NavData publica `lat`/`lon`, no una base de tiempos, y el
+METAR tampoco la lleva—, así que `Helpers/LocalTimeOfDay` la deduce de la **longitud** (15° por
+hora). Se midió el error con las coordenadas reales: SKBO −74,1469 → −5 h y SBGR −46,47 → −3 h
+aciertan (países sin horario de verano); LEMD −3,59 → 0 h se queda una hora corta en verano. El
+mantenedor lo aceptó explícitamente. La hora se dice **como la diría la tripulación**, no como un
+reloj de 24 h: un pasajero no entiende «las catorce cuarenta y dos», entiende «las dos de la tarde
+con cuarenta y dos minutos». Reloj de 12 h con franja del día —antes de las 05:00 **madrugada**,
+hasta las 11:59 **mañana**, las 12 **mediodía**, hasta las 19:59 **tarde**, de 20:00 en adelante
+**noche**— y con la concordancia resuelta, que es lo que delata a una máquina cuando se escribe
+sola: **«Es la una»**, no «Son la una».
+
+### Los cuatro momentos nuevos
+
+| Fase | Disparo | Por qué |
+|---|---|---|
+| `pushback` | entrada en `FlightPhase.Pushback` | es el «cabin crew, doors for departure» real |
+| `after_takeoff` | 10 000 ft AGL en `Climb` o `Enroute`, una vez | donde deja de haber restricción de dispositivos; **no** se espera al crucero, entre los 10 000 ft y el nivel de crucero pueden pasar veinte minutos |
+| `slides_disarm` | entrada en `FlightPhase.AfterLanding` | la orden del comandante **a la tripulación**, no un PA a los pasajeros: «desarmen los toboganes y realicen el chequeo cruzado». Va en `AfterLanding` y no en `TaxiIn` para no pisar la bienvenida al destino |
+| `on_block` | entrada en `FlightPhase.OnBlock` | el PA de desembarco |
+
+Cada anuncio deja línea en el log de vuelo —`🔊 PA taxi_in (grabación)`, `🔊 PA pushback (voz es)`,
+`🔇 PA cruise: no hay voz de Windows disponible`—, que es lo que permite auditar después si sonó y
+en qué modo.
+
+### Turbulencia: se mide, no se lee el letrero
+
+Los anuncios de turbulencia —`turbulence_on` y `turbulence_off`— no son momentos del vuelo, son
+**eventos**: pueden ocurrir en cualquier punto en el aire, así que no los dispara la máquina de fases
+sino `Helpers/TurbulenceAdvisor`, que es puro y con estado (reloj inyectado).
+
+**No se usa la señal de cinturones de la cabina**, y es una decisión, no un olvido: ese offset no se
+lee hoy en `FsuipcService` —afirmar en el texto que «el comandante ha encendido la señal» sería
+inventar— y, en los aviones que la publican, el piloto suele dejarla puesta **todo el vuelo**, con lo
+que como disparador no distingue una zona de turbulencia de un vuelo tranquilo con el letrero puesto.
+Se detecta la turbulencia misma, con los dos datos que **ya** se leen a 20 Hz:
+
+| Dato | Offset | Uso |
+|---|---|---|
+| Factor de carga | `0x11BA` / 625 (ahora en `RawTelemetryData.GForce`) | desviación `|g − 1| ≥ 0,15` |
+| Tasa vertical | `0x02C8` | golpes de `≥ 150 fpm` y sus reversiones |
+
+Eso funciona en cualquier avión, publique los letreros o no. El ancla de los umbrales es del propio
+proyecto: **~100 fpm de ruido de VS es turbulencia leve** —es la cifra con la que la máquina de fases
+evita falsas transiciones—, así que un golpe cuenta a partir de 150 fpm y ese ruido **no** dispara;
+hay un test que lo fija.
+
+**La densidad es el «sostenido» (corregido en el mismo cambio).** La primera versión evaluaba la
+señal sobre una ventana de 20 s y exigía 3 s seguidos: un bache de 3 s dejaba sus golpes en la
+ventana y seguía contando como turbulencia **20 s después de haber terminado**, de modo que anunciaba
+un bache corto y además retrasaba el «ya pasó». Ahora la señal se mide sobre **6 s** y hacen falta
+**6 reversiones del VS** o **4 muestras con g fuera de 1** *dentro de esos 6 s* —un bache de 3 s da 5
+reversiones y 3 muestras, o sea que no llega—. El resto de reglas:
+
+- **60 s lisos** para anunciar el final: una tregua de diez segundos no es el final de nada.
+- **10 min de enfriamiento** entre anuncios de entrada: una zona de media hora no se anuncia seis veces.
+- **AGL mínimo 1 000 ft** y avión en el aire, medido contra el terreno (`0x0020`): en la final se
+  vuela, no se anuncia.
+
+El texto no dice «el comandante ha encendido la señal» —no se sabe—, dice lo que se acaba de medir:
+«estamos atravesando una zona de turbulencia». Y el final no da barra libre: «pueden moverse por la
+cabina, **mantengan el cinturón abrochado** mientras estén sentados».
+
+### Deuda pendiente
+
+- **La señal de cinturones del avión no se lee.** Si algún día se lee su offset, el letrero puede ser
+  un segundo disparo del anuncio de turbulencia (y permitiría decir «el comandante ha encendido la
+  señal»), pero verificarlo exige una sesión con simulador. Hoy el disparador es la turbulencia
+  medida, que es lo que el pasajero nota.
+- **`slides_arm`** (armar toboganes al cerrar puertas) tampoco: caería en el mismo instante que el PA
+  de `pushback` y los dos saldrían por el mismo altavoz, uno detrás del otro. Necesita un canal de
+  «intercom» separado o un disparador distinto; es una decisión de diseño, no un olvido.
+- **Los nombres sin tildes se acentúan a la manera de la voz.** `name`/`city` vienen en ASCII
+  («Bogota», «Jose Maria Cordova»), así que la sílaba tónica puede caer mal: «Bogota» se lee llana.
+  Arreglarlo en general exige un diccionario de pronunciación; queda como deuda.
+- **El chime sigue siendo `chime_warning.wav`**, el mismo del aviso crítico del OSD; un dos-tonos
+  propio necesita un WAV que no existe.
+- **La caché de clips se borra en cada `Reset()`**: un piloto de la misma aerolínea vuelve a
+  descargar 7–14 ficheros por vuelo. Con la voz duele menos, pero sigue siendo red evitable.
+- **No se ha escuchado en vuelo con simulador**: la lógica está probada en seco (33 tests, la
+  síntesis a fichero y el texto leído del `.exe` compilado por reflexión); los disparadores nuevos, no.

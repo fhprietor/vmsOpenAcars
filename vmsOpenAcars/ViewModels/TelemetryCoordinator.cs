@@ -330,7 +330,11 @@ namespace vmsOpenAcars.ViewModels
         // ── Cabin state ───────────────────────────────────────────────────────────
         private bool     _cabinCruiseSent;
         private bool     _cabinOnRunwaySent;
+        private bool     _cabinAfterTakeoffSent;
         private DateTime _cabinCruiseCheckStart = DateTime.MinValue;
+
+        /// <summary>Cuándo tiene sentido anunciar turbulencia (`Helpers/TurbulenceAdvisor`).</summary>
+        private readonly TurbulenceAdvisor _turbulence = new TurbulenceAdvisor();
         internal double  LastGroundSpeedKt { get; private set; }
 
         // ── Airspace throttle ─────────────────────────────────────────────────────
@@ -427,7 +431,9 @@ namespace vmsOpenAcars.ViewModels
             _airspaceMonitor.Reset();
             _cabinCruiseSent       = false;
             _cabinOnRunwaySent     = false;
+            _cabinAfterTakeoffSent = false;
             _cabinCruiseCheckStart = DateTime.MinValue;
+            _turbulence.Reset();
 
             // RAAS: vuelo nuevo → se vuelve a preguntar la pista y se suelta la guía anterior.
             _raasGuidanceActive = false;
@@ -536,6 +542,14 @@ namespace vmsOpenAcars.ViewModels
 
             switch (phase)
             {
+                // ── Anuncios de cabina ────────────────────────────────────────────
+                // La lista sigue el calendario de una tripulación real, no la de fases de la app:
+                // puerta cerrada al empujar (aquí no había nada), rodaje de salida, «cabin crew
+                // seats for landing» en aproximación y bienvenida a puesto al llegar. Los tres que
+                // no tienen grabación en NavData se locutan con SAPI (`CabinVoice`).
+                case FlightPhase.Pushback:
+                    _cabinAnnouncements.QueueAnnouncement("pushback");
+                    break;
                 case FlightPhase.TaxiOut:
                     _cabinAnnouncements.QueueAnnouncement("taxi_out");
                     break;
@@ -547,8 +561,17 @@ namespace vmsOpenAcars.ViewModels
                     _cabinAnnouncements.QueueAnnouncement("approach");
                     _airspaceMonitor.TriggerIvaoRefresh();
                     break;
+                // Orden del comandante a la tripulación al dejar la pista, no un PA a los pasajeros:
+                // es el «disarm slides and cross-check» de cualquier manual de operación. Va en
+                // AfterLanding y no en TaxiIn justo para no pisar la bienvenida al destino.
+                case FlightPhase.AfterLanding:
+                    _cabinAnnouncements.QueueAnnouncement("slides_disarm");
+                    break;
                 case FlightPhase.TaxiIn:
                     _cabinAnnouncements.QueueAnnouncement("taxi_in");
+                    break;
+                case FlightPhase.OnBlock:
+                    _cabinAnnouncements.QueueAnnouncement("on_block");
                     break;
             }
         }
@@ -601,6 +624,24 @@ namespace vmsOpenAcars.ViewModels
 
             EvaluateRaas(e);
 
+            // ── Cabin after-takeoff check ─────────────────────────────────────────
+            // El anuncio que sí existe en una operación real y faltaba: «ya pueden usar sus
+            // dispositivos» a 10 000 ft, que es donde deja de haber restricción. No se espera al
+            // crucero aunque sea el mismo umbral de altitud: entre los 10 000 ft y el nivel de
+            // crucero pueden pasar veinte minutos y el anuncio es de ese primer momento. Una sola
+            // vez por vuelo, igual que el de crucero.
+            if (!_cabinAfterTakeoffSent &&
+                (_flightManager?.CurrentPhase == FlightPhase.Climb ||
+                 _flightManager?.CurrentPhase == FlightPhase.Enroute))
+            {
+                double aglAfterTakeoff = e.AltitudeFeet - (_flightManager.ActivePlan?.OriginElevation ?? 0);
+                if (aglAfterTakeoff > 10000)
+                {
+                    _cabinAfterTakeoffSent = true;
+                    _cabinAnnouncements.QueueAnnouncement("after_takeoff");
+                }
+            }
+
             // ── Cabin cruise check ────────────────────────────────────────────────
             if (_flightManager?.CurrentPhase == FlightPhase.Enroute && !_cabinCruiseSent)
             {
@@ -619,6 +660,33 @@ namespace vmsOpenAcars.ViewModels
                 {
                     _cabinCruiseCheckStart = DateTime.MinValue;
                 }
+            }
+
+            // ── Turbulencia ───────────────────────────────────────────────────────
+            // Se mide con lo que YA se lee en cada ciclo: el factor de carga (`0x11BA`) y la tasa
+            // vertical (`0x02C8`). No se usa la señal de cinturones de la cabina porque su offset no
+            // se lee hoy —afirmar que el comandante la encendió sería inventar— y porque el piloto
+            // suele dejarla puesta todo el vuelo, con lo que como disparador no distingue nada.
+            // El AGL es contra el terreno (`0x0020`), así que no depende de la fase ni del destino.
+            DateTime now = DateTime.UtcNow;
+            bool airborne = _flightManager != null && !e.IsOnGround
+                            && _flightManager.CurrentPhase.IsAirborne();
+            double terrainAgl = e.AltitudeFeet - e.GroundAltitudeFeet;
+
+            TurbulenceCallout turbulence = _turbulence.Feed(
+                now, e.GForce, e.VerticalSpeedFpm, airborne, terrainAgl);
+
+            if (turbulence == TurbulenceCallout.Onset)
+            {
+                _cabinAnnouncements.QueueAnnouncement("turbulence_on");
+                _cb.Log?.Invoke($"〰️ Turbulencia: g {e.GForce:F2} · VS {e.VerticalSpeedFpm:F0} fpm",
+                    Theme.Warning);
+            }
+            else if (turbulence == TurbulenceCallout.Cleared)
+            {
+                _cabinAnnouncements.QueueAnnouncement("turbulence_off");
+                _cb.Log?.Invoke("〰️ Turbulencia superada: cabina libre de cinturones",
+                    Theme.SecondaryText);
             }
 
             // ── Approach track capture ────────────────────────────────────────────
