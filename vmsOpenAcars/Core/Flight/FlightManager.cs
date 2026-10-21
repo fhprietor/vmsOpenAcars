@@ -473,7 +473,8 @@ namespace vmsOpenAcars.Core.Flight
                 // `lA4ZVAzgxYzlG4vD` hizo 290 s de 630 (46 %) en la salida y el log quedó mudo. Ver
                 // `Helpers/SingleEngineTaxiPolicy.cs`.
                 var singleEngineOut = EvaluateAndPublishSingleEngineTaxi(
-                    "TaxiPhaseOut", _pen.TaxiOutMovingSeconds, _pen.TaxiOutSingleEngineSeconds);
+                    "TaxiPhaseOut", _pen.TaxiOutMovingSeconds, _pen.TaxiOutSingleEngineSeconds,
+                    _pen.TaxiOutNoEngineSeconds, _pen.TaxiOutMetres);
                 if (!_pen.SingleEngineTaxiDetected && singleEngineOut.Awarded)
                 {
                     _pen.SingleEngineTaxiDetected = true;
@@ -506,11 +507,12 @@ namespace vmsOpenAcars.Core.Flight
         /// segunda cuenta que pudiera decir otra cosa.
         /// </summary>
         private SingleEngineTaxiVerdict EvaluateAndPublishSingleEngineTaxi(
-            string phaseLabelKey, double movingSeconds, double singleEngineSeconds)
+            string phaseLabelKey, double movingSeconds, double singleEngineSeconds,
+            double noEngineSeconds, double metres)
         {
             var verdict = SingleEngineTaxiPolicy.Evaluate(
                 movingSeconds, singleEngineSeconds, _pen.BothEnginesRunning);
-            PublishSingleEngineTaxiVerdict(phaseLabelKey, verdict);
+            PublishSingleEngineTaxiVerdict(phaseLabelKey, verdict, noEngineSeconds, metres);
             return verdict;
         }
 
@@ -526,21 +528,32 @@ namespace vmsOpenAcars.Core.Flight
                 _pen.TaxiOutMovingSeconds, _pen.TaxiOutSingleEngineSeconds,
                 _pen.TaxiInMovingSeconds,  _pen.TaxiInSingleEngineSeconds,
                 _pen.BothEnginesRunning);
-            PublishSingleEngineTaxiVerdict("TaxiPhaseTotal", verdict);
+            PublishSingleEngineTaxiVerdict("TaxiPhaseTotal", verdict,
+                _pen.TaxiOutNoEngineSeconds + _pen.TaxiInNoEngineSeconds,
+                _pen.TaxiOutMetres + _pen.TaxiInMetres);
             return verdict;
         }
 
         /// <summary>
         /// Escribe la línea del veredicto, **se otorgue o no**: las cifras que salen son las mismas que
         /// deciden, no una segunda cuenta que pudiera decir otra cosa.
+        ///
+        /// Lleva también los segundos que se **descartaron** por no tener ningún motor en marcha
+        /// (`noEngineSeconds`) y los **metros realmente recorridos** (`metres`): lo primero son el
+        /// remolque del pushback o ruido de GS, no rodaje; lo segundo es lo que el piloto puede
+        /// comprobar por su cuenta. Sin esos dos números, el piloto del PIREP `29Z3A8r748rGPnzq` leyó un
+        /// 33 % que en realidad era un 49 %.
         /// </summary>
-        private void PublishSingleEngineTaxiVerdict(string phaseLabelKey, SingleEngineTaxiVerdict verdict)
+        private void PublishSingleEngineTaxiVerdict(
+            string phaseLabelKey, SingleEngineTaxiVerdict verdict, double noEngineSeconds, double metres)
         {
             OnLog?.Invoke(_("Log_SingleEngineTaxiVerdict",
                 _(phaseLabelKey),
                 (int)Math.Round(verdict.SingleEngineSeconds),
                 (int)Math.Round(verdict.MovingSeconds),
                 verdict.Percent,
+                (int)Math.Round(noEngineSeconds),
+                (int)Math.Round(metres),
                 SingleEngineTaxiPolicy.MinPercent,
                 _(SingleEngineTaxiPolicy.OutcomeKey(verdict.Outcome))), Theme.MainText);
         }
@@ -775,7 +788,8 @@ namespace vmsOpenAcars.Core.Flight
             }
             // Mismo veredicto para el rodaje de llegada, con sus propias cifras.
             var singleEngineIn = EvaluateAndPublishSingleEngineTaxi(
-                "TaxiPhaseIn", _pen.TaxiInMovingSeconds, _pen.TaxiInSingleEngineSeconds);
+                "TaxiPhaseIn", _pen.TaxiInMovingSeconds, _pen.TaxiInSingleEngineSeconds,
+                _pen.TaxiInNoEngineSeconds, _pen.TaxiInMetres);
             if (!_pen.SingleEngineTaxiDetected && singleEngineIn.Awarded)
             {
                 _pen.SingleEngineTaxiDetected = true;

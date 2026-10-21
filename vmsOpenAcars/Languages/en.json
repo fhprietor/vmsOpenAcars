@@ -415,7 +415,7 @@
   "Log_FuelTaxiOut":            "⛽ Taxi Out fuel: {0} kg",
   "Log_FuelTrip":               "⛽ Trip fuel (airborne): {0} kg",
   "Log_FuelTaxiIn":             "⛽ Taxi In fuel: {0} kg",
-  "Log_SingleEngineTaxiVerdict": "🚶 Single engine on {0}: {1} of {2} s on one engine ({3} %) · minimum {4} % · {5}",
+  "Log_SingleEngineTaxiVerdict": "🚶 Single engine on {0}: {1} of {2} s on one engine ({3} %) · {4} s with no engine running · {5} m taxied · minimum {6} % · {7}",
   "TaxiPhaseOut":               "taxi-out",
   "TaxiPhaseIn":                "taxi-in",
   "TaxiPhaseTotal":             "the whole taxi",

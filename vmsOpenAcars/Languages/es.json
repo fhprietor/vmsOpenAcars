@@ -413,7 +413,7 @@
   "Log_FuelTaxiOut":            "⛽ Combustible Taxi Out: {0} kg",
   "Log_FuelTrip":               "⛽ Combustible Trip (en vuelo): {0} kg",
   "Log_FuelTaxiIn":             "⛽ Combustible Taxi In: {0} kg",
-  "Log_SingleEngineTaxiVerdict": "🚶 Motor único en {0}: {1} de {2} s con un solo motor ({3} %) · mínimo {4} % · {5}",
+  "Log_SingleEngineTaxiVerdict": "🚶 Motor único en {0}: {1} de {2} s con un solo motor ({3} %) · {4} s sin ningún motor en marcha · {5} m rodados · mínimo {6} % · {7}",
   "TaxiPhaseOut":               "salida",
   "TaxiPhaseIn":                "llegada",
   "TaxiPhaseTotal":             "el rodaje completo",

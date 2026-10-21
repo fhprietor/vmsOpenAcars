@@ -215,25 +215,43 @@ namespace vmsOpenAcars.Core.Flight
             if (string.IsNullOrEmpty(ActivePirepId)) return;
 
             bool oneEngineOnly = data.Eng1Running ^ data.Eng2Running;
-            bool moving        = CurrentGroundSpeed > 3;
+
+            // El movimiento se mide por **desplazamiento**, no por la velocidad de tierra: con el avión
+            // aparcado el simulador publica 4-7 kt (PIREP `29Z3A8r748rGPnzq`: 60 m en ocho minutos con
+            // IAS 0), y eso falseaba el criterio en los dos sentidos a la vez —243 s de más en el
+            // denominador y ~90 s de regalo en el numerador—.
+            _groundMotion.Observe(data.Latitude, data.Longitude, dtSeconds);
+
+            bool anyEngine      = data.Eng1Running || data.Eng2Running;
+            bool moved          = _groundMotion.WindowMetres >= SingleEngineTaxiPolicy.MinMovingMetres;
+            bool moving         = SingleEngineTaxiPolicy.CountsAsMoving(
+                                      _groundMotion.WindowMetres, data.Eng1Running, data.Eng2Running);
+            bool noEngineMoving = moved && !anyEngine;
 
             if (CurrentPhase == FlightPhase.TaxiOut)
             {
                 if (moving)
                 {
                     _pen.TaxiOutMovingSeconds += dtSeconds;
+                    _pen.TaxiOutMetres        += _groundMotion.StepMetres;
                     if (oneEngineOnly) _pen.TaxiOutSingleEngineSeconds += dtSeconds;
                 }
+                else if (noEngineMoving) _pen.TaxiOutNoEngineSeconds += dtSeconds;
             }
             else if (CurrentPhase == FlightPhase.TaxiIn)
             {
                 if (moving)
                 {
                     _pen.TaxiInMovingSeconds += dtSeconds;
+                    _pen.TaxiInMetres        += _groundMotion.StepMetres;
                     if (oneEngineOnly) _pen.TaxiInSingleEngineSeconds += dtSeconds;
                 }
+                else if (noEngineMoving) _pen.TaxiInNoEngineSeconds += dtSeconds;
             }
         }
+
+        /// <summary>El movimiento medido por **desplazamiento**, compartido con la gracia de las luces.</summary>
+        private readonly GroundMotion _groundMotion = new GroundMotion();
 
         /// <summary>Segundos que el avión lleva parado en tierra con una fase de vuelo.</summary>
         private double _stuckAirPhaseSeconds;

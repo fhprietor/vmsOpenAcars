@@ -214,6 +214,10 @@
          publica OnGround=0 brevemente tras el primer contacto, pero el paso a «aire» no se confirmaba
          y esa bandera llegaba a la máquina de fases (PIREP RBmrBApLOjWlYmO2). -->
     <Compile Include="Helpers\GroundContactGate.cs" />
+    <!-- ¿Se mueve el avión? Por **desplazamiento**, no por la velocidad de tierra: con el avión
+         aparcado el sim publica 4-7 kt (PIREP 29Z3A8r748rGPnzq), y eso falseó un veredicto de motor
+         único y cobró un −5 de luces con los motores apagados. -->
+    <Compile Include="Helpers\GroundMotion.cs" />
     <Compile Include="Helpers\PolylineResampler.cs" />
     <!-- Gracia de entrada de fase (v0.9.40): el falso TaxiOut de 01:58:56 ya no cobra el −5. -->
     <Compile Include="Helpers\PhaseEntryGrace.cs" />

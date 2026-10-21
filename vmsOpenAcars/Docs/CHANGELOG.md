@@ -2,6 +2,37 @@
 
 ---
 
+## [0.9.47] — 15/10/2026
+
+### Fixed
+
+**El criterio de motor único contaba rodaje que no existía, y lo contaba en los dos sentidos.** Del
+PIREP `29Z3A8r748rGPnzq` (SKRG→KSEA, 20/10/2026), reclamado por el piloto **en vuelo**: con el avión
+aparcado en el puesto y los motores apagados, el simulador publicaba **GS 4-7 kt** e **IAS 0** mientras
+la traza enseñaba **60 m en 451 s**. Esas lecturas entraban como rodaje —**243 s** de más en el
+denominador y **~90 s** de regalo en el numerador—, abrieron la fase `TaxiOut` **doce minutos** antes de
+que el avión rodara y cobraron un **−5 de luces con los motores apagados**.
+
+Ahora «moverse» se mide por **desplazamiento** (`Helpers/GroundMotion.cs`: ventana de 5 s, **8 m ≈ 3 kt**
+—el mismo umbral de siempre, pero exigiendo que el avión se haya movido—) y **sin ningún motor en marcha
+no hay rodaje**. La línea del log publica además los segundos descartados y los **metros realmente
+recorridos**:
+
+```
+🚶 Motor único en salida: 228 de 448 s con un solo motor (50 %) · 0 s sin ningún motor en marcha · 1370 m rodados · mínimo 50 % · bonificación +5
+```
+
+**Y la cifra de ese vuelo sigue estando en la raya**: con la medida buena son **~49 %**, o sea que el
+veredicto depende de un punto sobre un criterio que se decide en un punto. El **crédito proporcional**
+queda pendiente de corpus: las cifras no viajan a phpVMS ni estaban en esta máquina, así que hay que
+persistirlas y publicarlas primero. Los tres pasos que quedan, con lo que hay que leer antes de tocar
+cada uno, en **`Docs/CAMBIOS-PENDIENTES-RODAJE.md`**.
+
+Tests: **828** (827 pasan, 0 fallan, 1 se omite sola), con los dos tramos reales de ese vuelo: el
+aparcado (60 m en 451 s) no cuenta como movimiento y el rodaje real (~250 m en 31 s) sí.
+
+---
+
 ## [0.9.46] — 15/10/2026
 
 ### Fixed

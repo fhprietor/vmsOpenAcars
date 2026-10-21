@@ -136,7 +136,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
 | Minimums Compliance | 5 | −5 si `BelowMinimums=true`. Omitido si Localizer fue omitido |
 | Procedure Speed | 10 | 3 pts/violación de restricción SID/STAR al pasar el fix, cap 10 |
 | Engine Stabilization | 5 | −5 si algún motor en marcha no establecido (aceite/N2) al entrar en pista |
-| **Single Engine Taxi** | **+5** | ≥50 % del **tiempo** en movimiento con un motor, por fase (salida **o** llegada). El rodaje completo se publica en el log, pero **no relaja nada**: `(a+b)/(w1+w2) ≥ 0,5` con las dos fases por debajo es imposible (`SingleEngineTaxiPolicyTests`) |
+| **Single Engine Taxi** | **+5** | ≥50 % del **tiempo** en movimiento con un motor, por fase (salida **o** llegada), **medido por desplazamiento** (`GroundMotion`: la GS del sim publica 4-7 kt con el avión aparcado) y **sin contar el tiempo sin motor en marcha**. El rodaje completo se publica en el log, pero **no relaja nada**: `(a+b)/(w1+w2) ≥ 0,5` con las dos fases por debajo es imposible (`SingleEngineTaxiPolicyTests`) |
 
 ---
 
@@ -583,7 +583,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **824 tests** (1 se omite sola: la herramienta de relleno):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **828 tests** (1 se omite sola: la herramienta de relleno):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
@@ -641,18 +641,11 @@ detallado y los tramos de carta sin coordenadas. Cerrada en v0.9.9: la clase de 
 alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL en un SKRG→SKBQ y
 28M/1B9/KOWD en un SKCG→KBOS). Pendiente por decisión de diseño, no por falta de trabajo:
 
-- **SayIntentions.AI — hilo nuevo, investigación cerrada y NADA implementado (07/10/2026).** Base en
-  `Docs/2026-10-07_VMSOPENACARS_SAYINTENTIONS_sayintentions_01_base-integracion.md`; diseño de la
-  primera pieza en `Docs/TRANSCRIPCION-ATC.md`. De un vistazo: la `va_api_key` **solo** sirve para
-  `importVAData` y **es del servidor**; la clave del piloto se lee de `flight.json` y **no sale de su
-  PC**; ese JSON va envuelto en **`flight_details`**; se pueden leer y **escribir** LVARs con la
-  `FSUIPCClientDLL` **ya referenciada** (`FSUIPCConnection.WriteLVar`), pero exige el **WASM de
-  FSUIPC7** y **solo MSFS** (X-Plane no tiene camino; sin WASM está **sin medir**); y
-  `L:SIAI_CABIN_ANNOUNCEMENTS_DISABLE` es la palanca para que la IA no hable encima de nuestros 7
-  anuncios, con dos matices que cambian el diseño (**unidireccional**, y calla **también** los
-  botones del piloto). Orden acordado: **1) `flight.json` + LVARs al mapa → 2) transcripción
-  `getCommsHistory` → 3) arbitraje de anuncios**. La documentación buena de SAPI **no** es la KB
-  (es una SPA ilegible): es `portal.sayintentions.ai/p2d/docs/`.
+- **SayIntentions.AI — investigación cerrada y NADA implementado (07/10/2026).** Todo está en
+  `Docs/2026-10-07_VMSOPENACARS_SAYINTENTIONS_sayintentions_01_base-integracion.md` (claves, LVARs,
+  `flight.json`, la palanca de anuncios y sus dos matices) y en `Docs/TRANSCRIPCION-ATC.md` (primera
+  pieza). Orden acordado: **1) `flight.json` + LVARs al mapa → 2) `getCommsHistory` → 3) arbitraje de
+  anuncios**. La documentación buena de SAPI no es la KB: es `portal.sayintentions.ai/p2d/docs/`.
 
 - **Base de rutas de rodaje reales en NavData (respuesta recibida, base por implementar)** — caso de
   validación: `TaxiRouteCaseTests`; el pedido está en **`Docs/PEDIDO-NAVDATA-RUTAS-TAXI.md`** y

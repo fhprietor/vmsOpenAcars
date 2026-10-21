@@ -182,5 +182,106 @@ namespace vmsOpenAcars.Tests
             Assert.IsFalse(total.Awarded, "sumada no llega: el 52 % de la salida se diluye en el rodaje entero");
             Assert.AreEqual(19, total.Percent, "310 de 1600");
         }
+
+        // ══ El vuelo que obligó a separar «moverse» de «rodar» ═════════════════
+
+        /// <summary>
+        /// **Sin un motor en marcha no hay rodaje.** El vuelo que lo obliga es el PIREP
+        /// `29Z3A8r748rGPnzq` (SKRG→KSEA, `vmsOpenACars/0.9.46`, 20/10/2026), reclamado por el piloto
+        /// **en vuelo**: entre las 19:46:53 y las 19:54:24 el avión hizo **60 m en ocho minutos** con
+        /// **IAS 0**, pero el simulador publicaba **GS 4-7 kt** y hasta 500 fpm de `vs` con el avión
+        /// aparcado en el puesto. Ruido de datos de tierra.
+        ///
+        /// Esas filas entraban en el criterio **con los dos motores apagados** —cero motores no es
+        /// «uno», así que no sumaban— y engordaban el denominador: **restaban** igual que un rodaje real
+        /// con los dos motores. La regla que queda: sin un motor en marcha, ese tiempo no se cuenta.
+        /// </summary>
+        [TestMethod]
+        public void SinNingunMotorEnMarchaNoSeCuentaComoRodaje()
+        {
+            // 29 m en la ventana de 5 s son ~11 kt: rodando. 3 m son el ruido de un avión parado.
+            Assert.IsFalse(SingleEngineTaxiPolicy.CountsAsMoving(29.0, false, false),
+                "se movió con todo apagado: eso es remolque, no rodaje");
+            Assert.IsTrue (SingleEngineTaxiPolicy.CountsAsMoving(29.0, true,  false), "29 m con ENG1");
+            Assert.IsTrue (SingleEngineTaxiPolicy.CountsAsMoving(29.0, false, true),  "29 m con ENG2");
+            Assert.IsTrue (SingleEngineTaxiPolicy.CountsAsMoving(29.0, true,  true),  "rodando con los dos");
+            Assert.IsFalse(SingleEngineTaxiPolicy.CountsAsMoving(3.0,  true,  false),
+                "3 m en 5 s no es moverse, y ése es justo el ruido que este umbral deja fuera");
+            Assert.IsFalse(SingleEngineTaxiPolicy.CountsAsMoving(0.0,  true,  true), "parado con los dos en marcha");
+        }
+
+        // ══ El movimiento, medido por desplazamiento ══════════════════════════
+
+        /// <summary>
+        /// **Con el avión aparcado, la GS del simulador miente.** Es el tramo real del PIREP
+        /// `29Z3A8r748rGPnzq`: de las 19:46:53 a las 19:54:24 —**451 s**— el avión se desplazó **60 m**
+        /// mientras el sim publicaba **GS 4-7 kt** e **IAS 0**. En una ventana de 5 s eso son décimas de
+        /// metro: no se mueve, por mucho que la GS diga que sí.
+        /// </summary>
+        [TestMethod]
+        public void ElAvionAparcadoNoSeMueveAunqueLaGsDigaQueSi()
+        {
+            var motion = new GroundMotion();
+            const double lat0 = 6.17319, lon0 = -75.42833;
+            const double dLat = (6.17372 - lat0) / 451.0;    // las posiciones reales del puesto
+            const double dLon = (-75.42822 - lon0) / 451.0;
+
+            for (int i = 0; i <= 451; i++)
+                motion.Observe(lat0 + dLat * i, lon0 + dLon * i, 1.0);
+
+            Assert.IsTrue(motion.WindowMetres < SingleEngineTaxiPolicy.MinMovingMetres,
+                $"en la ventana sólo se han recorrido {motion.WindowMetres:F1} m: no llega al umbral");
+        }
+
+        /// <summary>
+        /// Y el tramo que sí era rodaje: de las 19:58:53 a las 19:59:24 el avión pasó de 6,17381/−75,42813
+        /// a 6,17260/−75,42626 —unos **250 m en 31 s**, 15 kt—. Ahí la ventana de 5 s lleva ~40 m.
+        /// </summary>
+        [TestMethod]
+        public void RodandoDeVerdadLaVentanaLoVe()
+        {
+            var motion = new GroundMotion();
+            const double lat0 = 6.17381, lon0 = -75.42813;
+            const double dLat = (6.17260 - lat0) / 31.0;
+            const double dLon = (-75.42626 - lon0) / 31.0;
+
+            for (int i = 0; i <= 31; i++)
+            {
+                motion.Observe(lat0 + dLat * i, lon0 + dLon * i, 1.0);
+                if (i >= 5)
+                    Assert.IsTrue(motion.WindowMetres >= SingleEngineTaxiPolicy.MinMovingMetres,
+                        $"a los {i} s la ventana lleva {motion.WindowMetres:F1} m");
+            }
+
+            Assert.IsTrue(motion.StepMetres > 4.0,
+                $"un paso de un segundo ronda los 8 m, y salió {motion.StepMetres:F1}");
+        }
+
+        /// <summary>
+        /// Y lo que ese descarte cambia, con las cifras del mismo vuelo: **228 s** con un motor dentro de
+        /// **691 s** que el simulador dio por movimiento → **sin bonificación** (el log enseñó 33 %); los
+        /// mismos **228 s** dentro de **448** —descontados los **243 s** que se hicieron con los motores
+        /// apagados— → **con bonificación**.
+        ///
+        /// Se comprueba el **veredicto** y no el entero exacto a propósito: el porcentaje se **trunca**
+        /// (para que un 49,6 % no se lea como «50 % · mínimo 50 % · sin bonificación») mientras el log
+        /// redondea los dos segundos para enseñarlos, así que la cuenta con las cifras redondeadas da un
+        /// punto menos. Lo que no puede pasar —y es lo que se afirma— es que el número publicado y el
+        /// veredicto se contradigan.
+        /// </summary>
+        [TestMethod]
+        public void ElTiempoSinMotorDescartadoEsLaDiferenciaDelCasoReal()
+        {
+            var conRuido = SingleEngineTaxiPolicy.Evaluate(691.0, 228.0, true);
+            var sinRuido = SingleEngineTaxiPolicy.Evaluate(448.0, 228.0, true);
+
+            Assert.IsFalse(conRuido.Awarded, "con el ruido dentro no llega al mínimo");
+            Assert.IsTrue(conRuido.Percent < SingleEngineTaxiPolicy.MinPercent,
+                $"sin bonificar, el número publicado no puede llegar al mínimo (salió {conRuido.Percent} %)");
+
+            Assert.IsTrue(sinRuido.Awarded, "descontado el tiempo sin motor, el mismo rodaje sí llega");
+            Assert.IsTrue(sinRuido.Percent >= SingleEngineTaxiPolicy.MinPercent,
+                $"con bonificación, el número publicado tiene que llegar al mínimo (salió {sinRuido.Percent} %)");
+        }
     }
 }

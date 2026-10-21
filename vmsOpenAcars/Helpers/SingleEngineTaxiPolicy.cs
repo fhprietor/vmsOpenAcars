@@ -59,6 +59,30 @@ namespace vmsOpenAcars.Helpers
             => movingSeconds > 0.0 && singleEngineSeconds * 100.0 >= movingSeconds * MinPercent;
 
         /// <summary>
+        /// Metros que hay que recorrer en la ventana de <see cref="GroundMotion.WindowSeconds"/> para
+        /// considerar que el avión se mueve: 8 m en 5 s son ~3 kt, el mismo umbral de siempre, pero
+        /// medido con desplazamiento.
+        /// </summary>
+        internal const double MinMovingMetres = 8.0;
+
+        /// <summary>
+        /// **¿Este ciclo cuenta como rodaje en movimiento?**
+        ///
+        /// Dos condiciones, y las dos con su caso real detrás:
+        ///
+        /// 1. **Que se haya movido de verdad** (`windowMetres` viene de <see cref="GroundMotion"/>). El
+        ///    vuelo `29Z3A8r748rGPnzq` (SKRG, 20/10/2026) tenía el avión aparcado haciendo **60 m en
+        ///    ocho minutos** mientras el simulador publicaba **GS 4-7 kt** e **IAS 0**: esas filas
+        ///    entraron como rodaje y Falsearon el veredicto en los dos sentidos (243 s de más en el
+        ///    denominador, ~90 s de regalo en el numerador).
+        /// 2. **Que haya un motor en marcha.** Un avión no rueda por su cuenta con todo apagado: eso es
+        ///    el remolque del pushback o ruido, y contarlo restaba como si se hubiera rodado con dos
+        ///    motores (cero motores no es «uno»).
+        /// </summary>
+        internal static bool CountsAsMoving(double windowMetres, bool eng1Running, bool eng2Running)
+            => windowMetres >= MinMovingMetres && (eng1Running || eng2Running);
+
+        /// <summary>
         /// El veredicto con sus cifras. `bothEnginesRunning` entra en la decisión porque la
         /// bonificación premia rodar con uno **teniendo dos**: sin haber visto nunca los dos en
         /// marcha no hay nada que premiar, y decirlo es la diferencia entre «no lo hiciste» y «no te
