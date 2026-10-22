@@ -1282,7 +1282,7 @@ namespace vmsOpenAcars.ViewModels
             // línea decía siempre «0% / 0%» (20:25:39 en `5ow69vzDNW5ZMayB`) y parecía que no se habían
             // detectado. Se publican cuando se despliegan (`FlightManager` → `FirstDetection`) y se
             // resumen al entrar en TaxiIn.
-            _cb.Log?.Invoke(_("Log_TouchdownBrakes",    $"{data.BrakeLeft * 100:F0}", $"{data.BrakeRight * 100:F0}", GetAutobrakeName(data.AutobrakeSetting)), Theme.MainText);
+            _cb.Log?.Invoke(_("Log_TouchdownBrakes",    $"{data.BrakeLeft * 100:F0}", $"{data.BrakeRight * 100:F0}", data.AutoBrakeLabel), Theme.MainText);
             _cb.Log?.Invoke(_("Log_OatWind", $"{data.OatCelsius:F0}", $"{data.WindSpeedKt:F0}", $"{data.WindDirDeg:F0}"), Theme.MainText);
 
             if (_navDataService.IsAvailable)
@@ -2198,18 +2198,6 @@ namespace vmsOpenAcars.ViewModels
             }
         }
 
-        private static string GetAutobrakeName(int setting)
-        {
-            switch (setting)
-            {
-                case 0:  return "RTO";
-                case 1:  return "OFF";
-                case 2:  return "1";
-                case 3:  return "2";
-                case 4:  return "3";
-                case 5:  return "MAX";
-                default: return setting.ToString();
-            }
         }
-    }
 }
+

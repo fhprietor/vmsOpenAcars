@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace vmsOpenAcars.Models
 {
@@ -28,7 +28,12 @@ namespace vmsOpenAcars.Models
         public double Eng2ReverserPct { get; set; }
         public double BrakeLeft { get; set; }
         public double BrakeRight { get; set; }
-        public int AutobrakeSetting { get; set; }
+        /// <summary>
+        /// Ajuste del autobrake en el momento del toque, ya como etiqueta («RTO», «1», «MAX»…) o
+        /// «---» si el addon no demostró que publica el selector. Antes era un enum que nadie rellenaba
+        /// y que `GetAutobrakeName` imprimía con el 0 y el 1 cambiados: decía «RTO» siempre.
+        /// </summary>
+        public string AutoBrakeLabel { get; set; } = Helpers.AutobrakeSelector.NoData;
         public double OatCelsius { get; set; }
         public double WindSpeedKt { get; set; }
         public double WindDirDeg { get; set; }

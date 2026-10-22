@@ -52,6 +52,9 @@ namespace vmsOpenAcars.Core.Flight
         public int LastFlightScore { get; private set; } = 0;
         private int _apEngagedCounter = 0;
         private const int ApEngageDebounce = 6;
+        // Simétrico al de enganche: cuántas muestras seguidas con la bandera a 0 antes de dar el AP
+        // por desconectado (v0.9.51). Antes bastaba un frame.
+        private int _apDisengagedCounter;
         // El umbral del motor único vive en `Helpers/SingleEngineTaxiPolicy.MinPercent`: estaba aquí
         // y duplicado en la comparación del rodaje de llegada, y ahora la regla está en un solo sitio.
         // Escritos desde Task.Run (TelemetryCoordinator.ReconfirmApproachRunway /
@@ -338,6 +341,26 @@ namespace vmsOpenAcars.Core.Flight
             WireApproachValidator();
         }
 
+        /// <summary>
+        /// Una linea con el estado **crudo** del panel del avion: banderas del piloto automatico,
+        /// carteles de cabina y selector de autobrake. Se escribe al entrar en crucero y en aproximacion,
+        /// y su unico fin es saber que publica cada addon antes de afinar umbrales (`AutopilotPanel`,
+        /// `AutobrakeSelector`, `SignalAvailability`).
+        /// </summary>
+        private void LogPanelDiagnostics(FlightPhase phase)
+        {
+            var d = LastRawData;
+            if (d == null) return;
+
+            string cabin = $"CAB cint={(d.SeatbeltSignOn ? 1 : 0)} nofum={(d.NoSmokingSignOn ? 1 : 0)}"
+                         + $" publicado={(d.CabinSignsAvailable ? "si" : "no")}";
+            string abrk  = $"ABRK {d.AutobrakeSetting} act={(d.AutobrakeActuating ? 1 : 0)}"
+                         + $" publicado={(d.AutobrakeAvailable ? "si" : "no")}";
+
+            OnLog?.Invoke($"🛠 {phase}: {d.ApPanel} hdgBug={d.ApHeadingBugDeg}° · {cabin} · {abrk}",
+                          Theme.SecondaryText);
+        }
+
         private void WirePhaseMachine()
         {
             _phaseMachine.OnTransitioned += (from, to) =>
@@ -347,6 +370,13 @@ namespace vmsOpenAcars.Core.Flight
                 PhaseChanged?.Invoke(to);
                 OnPhaseChanged?.Invoke(to.ToString());
                 CheckProcedureAtPhaseEntry(to);
+
+                // Diagnóstico del panel (vuelo de afinamiento): **una** línea al entrar en subida y otra
+                // en aproximación con lo que el addon publica de verdad —banderas del AP, carteles de
+                // cabina y selector de autobrake—. Es lo que decide si los offsets responden o si hay
+                // que degradar a «sin dato» en vez de seguir suponiendo.
+                if (to == FlightPhase.Enroute || to == FlightPhase.Approach)
+                    LogPanelDiagnostics(to);
 
                 // AfterLanding→TaxiIn: log trip fuel, record taxi-in start fuel
                 if (to == FlightPhase.TaxiIn)

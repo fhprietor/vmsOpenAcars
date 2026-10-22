@@ -66,6 +66,7 @@ namespace vmsOpenAcars.Core.Flight
 
             if (data.AutopilotEngaged)
             {
+                _apDisengagedCounter = 0;
                 _apEngagedCounter = Math.Min(_apEngagedCounter + 1, ApEngageDebounce);
                 if (_apEngagedCounter >= ApEngageDebounce && !AutopilotEngaged)
                 {
@@ -83,10 +84,24 @@ namespace vmsOpenAcars.Core.Flight
             }
             else
             {
-                if (AutopilotEngaged)
-                    OnLog?.Invoke(_("Log_AutopilotDisengaged", (int)CurrentAGL), Theme.Warning);
-                AutopilotEngaged  = false;
+                // **Soltar también exige sostenido** (v0.9.51). Antes bastaba **un frame** con la
+                // bandera a 0 para anunciar «AP DISENGAGED» —a 200 ft, justo en la final—; ahora hacen
+                // falta las mismas seis muestras que para enganchar.
                 _apEngagedCounter = 0;
+                if (AutopilotEngaged)
+                {
+                    _apDisengagedCounter = Math.Min(_apDisengagedCounter + 1, ApEngageDebounce);
+                    if (_apDisengagedCounter >= ApEngageDebounce)
+                    {
+                        AutopilotEngaged     = false;
+                        _apDisengagedCounter = 0;
+                        OnLog?.Invoke(_("Log_AutopilotDisengaged", (int)CurrentAGL), Theme.Warning);
+                    }
+                }
+                else
+                {
+                    _apDisengagedCounter = 0;
+                }
             }
 
             SimTime            = DateTime.UtcNow;

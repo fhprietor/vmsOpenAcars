@@ -29,17 +29,6 @@ using FSUIPC;
 // Enums y Decoder para Autobrake
 // =============================================================================
 
-public enum AutobrakeMode
-{
-    Unknown = -1,
-    Off = 0,
-    RTO = 1,   // Boeing
-    Low = 2,
-    Med = 3,
-    High = 4,  // Boeing 777/787
-    Max = 5    // Airbus / Boeing 737
-}
-
 public enum AircraftFamily
 {
     Unknown,
@@ -165,9 +154,23 @@ namespace vmsOpenAcars.Services
         private readonly Offset<int> _flapsActualLeft = new Offset<int>(0x0BE0);       // Posición física real izquierda
         private readonly Offset<int> _flapsActualRight = new Offset<int>(0x0BE4);      // Posición física real derecha
 
-        // ---- Autopiloto / Nav ----
-        private readonly Offset<short> _autopilotOffset = new Offset<short>(0x07BC);
-        private readonly Offset<short> _navModeOffset = new Offset<short>(0x07CC);
+        // ---- Autopiloto (todos Responded en MSFS; ver Helpers/AutopilotPanel) ----
+        // 0x07BC · 4 bytes · AUTOPILOT MASTER
+        private readonly Offset<int> _apMasterOffset = new Offset<int>(0x07BC);
+        // 0x07CC · 2 bytes · AUTOPILOT HEADING LOCK DIR: **el rumbo**, no una bandera (grados*65536/360).
+        // Hasta v0.9.50 se usaba como «modo» y por eso el AP salía enganchado siempre.
+        private readonly Offset<short> _apHeadingBugOffset = new Offset<short>(0x07CC);
+        private readonly Offset<int> _apAvailableOffset = new Offset<int>(0x0764);
+        private readonly Offset<int> _apNavLockOffset = new Offset<int>(0x07C4);
+        private readonly Offset<int> _apHeadingLockOffset = new Offset<int>(0x07C8);
+        private readonly Offset<int> _apAltitudeLockOffset = new Offset<int>(0x07D0);
+        private readonly Offset<int> _apAirspeedHoldOffset = new Offset<int>(0x07DC);
+        private readonly Offset<int> _apMachHoldOffset = new Offset<int>(0x07E4);
+        private readonly Offset<int> _apVerticalHoldOffset = new Offset<int>(0x07EC);
+        private readonly Offset<int> _apGlideslopeHoldOffset = new Offset<int>(0x07FC);
+        private readonly Offset<int> _apApproachHoldOffset = new Offset<int>(0x0800);
+        private readonly Offset<int> _apBackCourseOffset = new Offset<int>(0x0804);
+        private readonly Offset<int> _apFlightDirectorOffset = new Offset<int>(0x2EE0);
         private readonly Offset<short> _transponderOffset = new Offset<short>(0x0354);
         /// <summary>0x034E · INT16 · COM1 active frequency, BCD encoded (decode → MHz).</summary>
         private readonly Offset<short> _com1FreqOffset = new Offset<short>(0x034E);
@@ -182,12 +185,19 @@ namespace vmsOpenAcars.Services
         private readonly Offset<short> _kohlsmanOffset = new Offset<short>(0x0330);
         private readonly Offset<short> _brakeLeftOffset = new Offset<short>(0x0BC4);
         private readonly Offset<short> _brakeRightOffset = new Offset<short>(0x0BC6);
-        //private readonly Offset<byte> _autobrakeOffset = new Offset<byte>(0x2F80);
 
-        // ---- Autobrake ----
+        // ---- Autobrake y carteles de cabina ----
         private readonly Offset<string> _aircraftTitleOffset = new Offset<string>(0x3D00, 256);
-        private readonly Offset<short> _abAirbusOffset = new Offset<short>(0x0260);
-        private readonly Offset<byte> _abGenericOffset = new Offset<byte>(0x0C46);
+        // 0x2F80 · 1 byte · AUTO BRAKE SWITCH CB (Responded): el **selector** (0=RTO, 1=Off, 2..5).
+        private readonly Offset<byte> _autobrakePanelOffset = new Offset<byte>(0x2F80);
+        // 0x0260 · 2 bytes · autobrake del A320neo de MSFS (0=Off, 1=Lo, 2=Med, 3=Max). No Responded.
+        private readonly Offset<short> _autobrakeAirbusOffset = new Offset<short>(0x0260);
+        // 0x0C46 · 1 byte · AUTOBRAKES ACTIVE: si está **actuando**, no cuál está puesto. No Responded.
+        private readonly Offset<byte> _autobrakeActiveOffset = new Offset<byte>(0x0C46);
+        // 0x341C / 0x341D · 1 byte · CABIN NO SMOKING / SEATBELTS ALERT SWITCH (Responded, lectura y
+        // escritura). Se leen desde v0.9.51: antes el proyecto decía —y era verdad— que no se leían.
+        private readonly Offset<byte> _noSmokingSignOffset = new Offset<byte>(0x341C);
+        private readonly Offset<byte> _seatbeltSignOffset = new Offset<byte>(0x341D);
 
         // ---- Meteorología ----
         /// <summary>
@@ -256,6 +266,14 @@ namespace vmsOpenAcars.Services
         // mismo criterio que las luces). El estado que consume la telemetría no cambia.
         private readonly Helpers.StateChangeGate<int>  _gearGate     = new Helpers.StateChangeGate<int>(StateHoldSeconds);
         private readonly Helpers.StateChangeGate<bool> _spoilersGate = new Helpers.StateChangeGate<bool>(StateHoldSeconds);
+        // Prueba de que el addon **publica** cada offset nuevo: sin un cambio en todo el vuelo se
+        // publica «sin dato» en vez de inventarlo (`Helpers/SignalAvailability`).
+        private readonly Helpers.SignalAvailability<int> _autobrakePanelSeen  = new Helpers.SignalAvailability<int>();
+        private readonly Helpers.SignalAvailability<int> _autobrakeAirbusSeen = new Helpers.SignalAvailability<int>();
+        private readonly Helpers.SignalAvailability<int> _cabinSignsSeen      = new Helpers.SignalAvailability<int>();
+        // Últimas banderas de AP, para el payload de posición y el `nav_type` (`DetermineNavType`).
+        private Helpers.AutopilotFlags _lastApFlags;
+        private bool _lastApEngaged;
         private bool _pendingLandingState;
         private bool _pendingTaxiState;
         private DateTime _pendingBeaconAt = DateTime.MinValue;
@@ -378,8 +396,19 @@ namespace vmsOpenAcars.Services
         public double CurrentOatCelsius { get; private set; }
 
         // ---- Autobrake ----
-        public string AutobrakeLabel { get; private set; } = "---";
-        public AutobrakeMode AutobrakeMode { get; private set; } = AutobrakeMode.Unknown;
+        public string AutobrakeLabel { get; private set; } = Helpers.AutobrakeSelector.NoData;
+        /// <summary>El addon demostró que publica el selector de autobrake (ver `ReadAutobrake`).</summary>
+        public bool AutobrakeAvailable { get; private set; }
+        /// <summary>`0x0C46 AUTOBRAKES ACTIVE`: está **actuando** (no dice cuál está seleccionado).</summary>
+        public bool AutobrakeActuating { get; private set; }
+
+        // ---- Carteles de cabina (0x341C / 0x341D) ----
+        /// <summary>Señal de cinturones encendida.</summary>
+        public bool SeatbeltSignOn { get; private set; }
+        /// <summary>Señal de no fumar encendida.</summary>
+        public bool NoSmokingSignOn { get; private set; }
+        /// <summary>El addon demostró que publica los carteles (alguno cambió en el vuelo).</summary>
+        public bool CabinSignsAvailable { get; private set; }
 
         // ---- Motores ----
         public EnginePower Engine1Power { get; private set; }
@@ -445,6 +474,11 @@ namespace vmsOpenAcars.Services
         {
             if (_isRunning) return;
             _isRunning = true;
+            // Puede ser otra sesión y otro avión: la prueba de «este addon publica el offset» se vuelve
+            // a exigir en cada arranque de la telemetría (`Helpers/SignalAvailability`).
+            _autobrakePanelSeen.Reset();
+            _autobrakeAirbusSeen.Reset();
+            _cabinSignsSeen.Reset();
             _pollingTimer = new Timer(OnPollingTick, null, 500, _pollingIntervalMs);
         }
 
@@ -578,31 +612,47 @@ namespace vmsOpenAcars.Services
             bool strobeLightOn = _singleSwitchBeaconStrobeAircraft.Contains(AircraftIcao ?? "")
                 ? strobeRaw && (beaconLightOn || navLightOn)
                 : strobeRaw && beaconLightOn;
-            // ── Autopilot (0x07BC + 0x07CC fallback for MSFS) ─────────────────
-            // In MSFS/FSUIPC7, 0x07BC is master-only (0 or 1); mode bits 2-5 are
-            // FSX/P3D only and are never set. Many MSFS add-ons (PMDG, FBW) don't
-            // update AUTOPILOT MASTER via SimConnect → 0x07BC is always 0.
-            // Use navModeOffset (0x07CC) as fallback engagement indicator.
-            short apBits = _autopilotOffset.Value;
-            short navModeBits = _navModeOffset.Value;
-            // navModeBits fallback: complex MSFS add-ons (iFly, PMDG, FBW) don't write 0x07BC
-            bool apMaster = apBits != 0 || navModeBits != 0;
-            bool apLnav = (apBits & 0x04) != 0;  // bit 2: LNAV (FSX/P3D only)
-            bool apVnav = (apBits & 0x08) != 0;  // bit 3: VNAV (FSX/P3D only)
-            bool apLoc = (apBits & 0x10) != 0;   // bit 4: LOC (FSX/P3D only)
-            bool apGs = (apBits & 0x20) != 0;    // bit 5: GS  (FSX/P3D only)
-            // MSFS: derive lateral/vertical mode from navModeOffset when FSX/P3D bits absent
-            if (!apLnav && !apLoc && !apGs && navModeBits != 0)
+            // ── Autopiloto: las banderas de verdad ───────────────────────────
+            // `0x07CC` es **el rumbo del bug** (grados*65536/360), no una bandera. Usarlo como «modo»
+            // —como se hacía hasta v0.9.50— hacía que el AP saliera enganchado prácticamente siempre y
+            // que los modos se dedujeran comparando un rumbo con 1, 2 y 3 (`Helpers/AutopilotPanel`).
+            // Ahora se lee el maestro y los modos, que el documento marca `Responded` en MSFS, y el
+            // rumbo solo se registra para el diagnóstico.
+            var apFlags = new Helpers.AutopilotFlags
             {
-                apLoc  = navModeBits == 1 || navModeBits == 3;
-                apGs   = navModeBits == 2;
-                apLnav = navModeBits == 3;
-            }
-            string apNavMode = apGs ? "ILS" : apLoc ? "LOC" : apLnav ? "LNAV" : "HDG";
-            string apVertMode = apGs ? "GS" : apVnav ? "VNAV" : "ALT";
+                Available      = _apAvailableOffset.Value != 0,
+                Master         = _apMasterOffset.Value != 0,
+                NavLock        = _apNavLockOffset.Value != 0,
+                HeadingLock    = _apHeadingLockOffset.Value != 0,
+                AltitudeLock   = _apAltitudeLockOffset.Value != 0,
+                AirspeedHold   = _apAirspeedHoldOffset.Value != 0,
+                MachHold       = _apMachHoldOffset.Value != 0,
+                VerticalHold   = _apVerticalHoldOffset.Value != 0,
+                GlideslopeHold = _apGlideslopeHoldOffset.Value != 0,
+                ApproachHold   = _apApproachHoldOffset.Value != 0,
+                BackCourse     = _apBackCourseOffset.Value != 0,
+                FlightDirector = _apFlightDirectorOffset.Value != 0,
+            };
+            bool   apMaster    = Helpers.AutopilotPanel.IsEngaged(apFlags);
+            string apNavMode   = Helpers.AutopilotPanel.NavMode(apFlags);
+            string apVertMode  = Helpers.AutopilotPanel.VertMode(apFlags);
+            string apPanel     = Helpers.AutopilotPanel.Describe(apFlags);
+            _lastApFlags  = apFlags;
+            _lastApEngaged = apMaster;
+            // Rumbo del bug: 2 bytes con signo, 0..65535 = 0,0..359,99°.
+            int apHeadingBugDeg = (int)Math.Round((((int)_apHeadingBugOffset.Value) & 0xFFFF) * 360.0 / 65536.0) % 360;
 
-            // ── Autobrake y parking brake ─────────────────────────────────────
+            // ── Autobrake y carteles de cabina ────────────────────────────────
             string autobrakeSetting = AutobrakeLabel;
+            int seatbeltRaw  = _seatbeltSignOffset.Value;
+            int noSmokingRaw = _noSmokingSignOffset.Value;
+            // Los carteles solo se dan por publicados cuando el piloto **toca** alguno en el vuelo
+            // (`Helpers/SignalAvailability`): si el addon no los escribe, se callan en vez de suponer.
+            _cabinSignsSeen.Update(seatbeltRaw * 2 + noSmokingRaw);
+            CabinSignsAvailable = _cabinSignsSeen.Available;
+            SeatbeltSignOn      = seatbeltRaw != 0;
+            NoSmokingSignOn     = noSmokingRaw != 0;
+            string cabinPanel   = HelperSigns(seatbeltRaw, noSmokingRaw);
             // Umbral 60% (9830/16383) para filtrar ruido analógico de X-Plane
             bool parkingBrakeOn = _parkingBrakeOffset.Value > ParkingBrakeThreshold;
 
@@ -722,7 +772,14 @@ namespace vmsOpenAcars.Services
                 StrobeLightOn = strobeLightOn,
 
                 // ── Autopilot ─────────────────────────────────────────────────
-                AutopilotEngaged = apMaster,
+                                AutopilotEngaged = apMaster,
+                ApPanel          = apPanel,
+                ApHeadingBugDeg  = apHeadingBugDeg,
+                SeatbeltSignOn   = SeatbeltSignOn,
+                NoSmokingSignOn  = NoSmokingSignOn,
+                CabinSignsAvailable  = CabinSignsAvailable,
+                AutobrakeAvailable   = AutobrakeAvailable,
+                AutobrakeActuating   = AutobrakeActuating,
                 ApMaster = apMaster,
                 ApNavMode = apNavMode,
                 ApVertMode = apVertMode,
@@ -1006,80 +1063,39 @@ namespace vmsOpenAcars.Services
 
 
 
+        /// <summary>
+        /// Lee el **selector** de autobrake con la tabla del documento (`Helpers/AutobrakeSelector`) y
+        /// publica «sin dato» mientras el addon no demuestre que lo escribe (`SignalAvailability`).
+        ///
+        /// Hasta v0.9.50 se leía `0x0C46` (`AUTOBRAKES ACTIVE`, una bandera de «está actuando», sin
+        /// `Responded` en MSFS) y se decodificaba con la tabla del selector; encima el enum y
+        /// `GetAutobrakeName` tenían el 0 y el 1 cambiados, así que el registro decía «RTO» en todos
+        /// los vuelos. Ahora el ajuste sale de `0x2F80` (el único `Responded`) o, en el A320neo de MSFS,
+        /// de `0x0260`; `0x0C46` queda solo como «está actuando».
+        /// </summary>
         private void ReadAutobrake()
         {
-            var family = DetectAircraftFamily();
-            AutobrakeMode mode;
-            string label;
+            int panel  = _autobrakePanelOffset.Value;
+            int airbus = _autobrakeAirbusOffset.Value;
 
-            switch (family)
-            {
-                case AircraftFamily.Airbus:
-                    (mode, label) = DecodeAirbusAutobrake(_abAirbusOffset.Value);
-                    break;
-                case AircraftFamily.Boeing737:
-                    (mode, label) = DecodeBoeingAutobrake(_abGenericOffset.Value);
-                    break;
-                default:
-                    mode = AutobrakeMode.Unknown;
-                    label = "N/A";
-                    break;
-            }
+            _autobrakePanelSeen.Update(panel);
+            _autobrakeAirbusSeen.Update(airbus);
 
-            AutobrakeMode = mode;
-            AutobrakeLabel = label;
+            if (_autobrakePanelSeen.Available)
+                AutobrakeLabel = Helpers.AutobrakeSelector.PanelLabel(panel);
+            else if (_autobrakeAirbusSeen.Available)
+                AutobrakeLabel = Helpers.AutobrakeSelector.AirbusLabel(airbus);
+            else
+                AutobrakeLabel = Helpers.AutobrakeSelector.NoData;
+
+            AutobrakeAvailable = _autobrakePanelSeen.Available || _autobrakeAirbusSeen.Available;
+            AutobrakeActuating = _autobrakeActiveOffset.Value != 0;
         }
 
-        private AircraftFamily DetectAircraftFamily()
-        {
-            string title = _aircraftTitleOffset.Value;
-            if (string.IsNullOrEmpty(title)) return AircraftFamily.Unknown;
-
-            var t = title.ToUpperInvariant();
-
-            // Airbus
-            if (t.Contains("A318") || t.Contains("A319") || t.Contains("A320") ||
-                t.Contains("A321") || t.Contains("A330") || t.Contains("A340") ||
-                t.Contains("A350") || t.Contains("A380") || t.Contains("FENIX") ||
-                t.Contains("TOLISS") || t.Contains("FLYBYWIRE") || t.Contains("FBW"))
-                return AircraftFamily.Airbus;
-
-            // Boeing
-            if (t.Contains("737") || t.Contains("747") || t.Contains("757") ||
-                t.Contains("767") || t.Contains("777") || t.Contains("787") ||
-                t.Contains("PMDG") || t.Contains("TFDI") || t.Contains("INIBUILDS"))
-                return AircraftFamily.Boeing737;
-
-            return AircraftFamily.Unknown;
-        }
-
-        private (AutobrakeMode Mode, string Label) DecodeAirbusAutobrake(short val)
-        {
-            switch (val)
-            {
-                case 0: return (AutobrakeMode.Off, "OFF");
-                case 1: return (AutobrakeMode.Low, "LO");
-                case 2: return (AutobrakeMode.Med, "MED");
-                case 3: return (AutobrakeMode.Max, "MAX");
-                default: return (AutobrakeMode.Unknown, $"RAW={val}");
-            }
-        }
-
-        private (AutobrakeMode Mode, string Label) DecodeBoeingAutobrake(byte val)
-        {
-            switch (val)
-            {
-                case 0: return (AutobrakeMode.Off, "OFF");
-                case 1: return (AutobrakeMode.RTO, "RTO");
-                case 2: return (AutobrakeMode.Low, "1");
-                case 3: return (AutobrakeMode.Med, "2");
-                case 4: return (AutobrakeMode.High, "3");
-                case 5: return (AutobrakeMode.Max, "MAX");
-                default: return (AutobrakeMode.Unknown, $"RAW={val}");
-            }
-        }
-
-
+        /// <summary>Línea del diagnóstico de cabina: los dos carteles y si el addon los publica.</summary>
+        private string HelperSigns(int seatbeltRaw, int noSmokingRaw) =>
+            $"CAB: seatbelt={seatbeltRaw} nosmoking={noSmokingRaw} " +
+            $"publicado={(CabinSignsAvailable ? "si" : "no")}";
         private static EnginePower DecodeEnginePower(short n1Raw, short rpmRaw)
         {
             double n1 = n1Raw * 100.0 / 16384.0;
@@ -1487,6 +1503,7 @@ namespace vmsOpenAcars.Services
 
                 FlapsPosition = CurrentFlapsPercent / 100.0,
                 SpoilersPosition = CurrentSpoilersPosition,
+                AutoBrakeLabel   = AutobrakeLabel,
                 GearPosition = CurrentGearPosition,
 
                 // N1 del FLOAT64 offset (más preciso para jets)
@@ -1536,7 +1553,7 @@ namespace vmsOpenAcars.Services
                 IsOnGround = _lastOnGround,
                 FuelLbs = CurrentFuelLbs,
                 Transponder = _transponderOffset.Value,
-                AutopilotEngaged = _autopilotOffset.Value != 0 || _navModeOffset.Value != 0,
+                AutopilotEngaged = _lastApEngaged,
                 Order = _positionOrder,
                 PitchDeg = CurrentPitch,
                 BankDeg = CurrentBank,
@@ -1548,16 +1565,17 @@ namespace vmsOpenAcars.Services
             });
         }
 
+        /// <summary>
+        /// `nav_type` que viaja en la posicion. Se deduce de las **banderas de modo** reales y no del
+        /// rumbo del bug (`0x07CC`), que es lo que se hacia hasta v0.9.50 y devolvia 0 salvo que el
+        /// rumbo estuviera entre 1 y 3 grados: 1 = navegacion lateral (NAV/LNAV), 3 = ILS/GS, 0 = nada.
+        /// </summary>
         private int DetermineNavType()
         {
-            if (_autopilotOffset.Value == 0 && _navModeOffset.Value == 0) return 0;
-            switch (_navModeOffset.Value)
-            {
-                case 1: return 1;
-                case 2: return 3;
-                case 3: return 1;
-                default: return 0;
-            }
+            if (!_lastApEngaged) return 0;
+            if (_lastApFlags.GlideslopeHold || _lastApFlags.ApproachHold) return 3;
+            if (_lastApFlags.NavLock) return 1;
+            return 0;
         }
 
         /// <summary>
@@ -2024,7 +2042,7 @@ namespace vmsOpenAcars.Services
         // Frenos y motores
         public bool ParkingBrakeOn { get; set; }
         public bool EnginesRunning { get; set; }
-        public string AutobrakeSetting { get; set; } = "RTO";
+        public string AutobrakeSetting { get; set; } = Helpers.AutobrakeSelector.NoData;
 
         // Luces
         public bool NavLightOn { get; set; }
@@ -2082,8 +2100,22 @@ namespace vmsOpenAcars.Services
         /// <summary>NAV1 OBS / ILS course in degrees (0–359).</summary>
         public int Nav1ObsCourse { get; set; }
         public bool ApMaster { get; set; }
-        public string ApNavMode { get; set; } = "HDG";  // ILS / LOC / LNAV / HDG
-        public string ApVertMode { get; set; } = "ALT";  // GS  / VNAV / ALT
+        public string ApNavMode { get; set; } = "----";   // ILS / APP / NAV / HDG / BC
+        public string ApVertMode { get; set; } = "----";  // GS / VS / ALT
+        /// <summary>Linea de diagnostico con **todas** las banderas del AP (`Helpers/AutopilotPanel`).</summary>
+        public string ApPanel { get; set; } = "";
+        /// <summary>Rumbo del bug del AP (0-359 grados, de `0x07CC`). Solo informativo.</summary>
+        public int ApHeadingBugDeg { get; set; }
+        /// <summary>Senal de cinturones encendida (`0x341D`).</summary>
+        public bool SeatbeltSignOn { get; set; }
+        /// <summary>Senal de no fumar encendida (`0x341C`).</summary>
+        public bool NoSmokingSignOn { get; set; }
+        /// <summary>El addon demostro que publica los carteles de cabina.</summary>
+        public bool CabinSignsAvailable { get; set; }
+        /// <summary>El addon demostro que publica el selector de autobrake.</summary>
+        public bool AutobrakeAvailable { get; set; }
+        /// <summary>`0x0C46 AUTOBRAKES ACTIVE`: esta actuando.</summary>
+        public bool AutobrakeActuating { get; set; }
     }
 
     public enum ConnectionState { Disconnected, Connected }

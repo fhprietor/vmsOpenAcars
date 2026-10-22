@@ -2,6 +2,59 @@
 
 ---
 
+## [0.9.51] — 21/10/2026
+
+### Fixed
+
+**El piloto automático salía «enganchado» siempre y el autobrake decía RTO en todos los vuelos.** Los
+dos venían de leer offsets con la semántica equivocada, y los dos se encontraron cruzando el código con
+la tabla oficial de FSUIPC7 (`FSUIPC7 Offsets Status.pdf`), que trae una columna que el cliente no
+estaba usando: **`MSFS SDK Read Response`** — «`Responded`» = el simulador rellena ese offset.
+
+- **Autopiloto**: el respaldo para los addons que no escriben `0x07BC` usaba **`0x07CC`**, que el
+  documento define como `AUTOPILOT HEADING LOCK DIR` (*«Autopilot heading value, as
+  degrees*65536/360»*): un **rumbo**, no una bandera. Vale 43 690 con 240°, así que `!= 0` era verdad
+  prácticamente siempre y el registro anunciaba `AP ENGAGED` con el avión volado a mano; y los modos se
+  deducían comparando ese rumbo con `1`, `2` y `3` —de ahí el `HDG ALT` fijo en todos los vuelos—.
+  Ahora se leen las banderas reales (maestro, NAV1 lock, heading lock, altitude lock, VS, IAS, mach,
+  approach, glideslope, backcourse y flight director), todas `Responded`, y el **FD no cuenta como AP**:
+  va encendido también en la final a mano.
+- **Soltar el AP también exige sostenido**: antes bastaba **un frame** con la bandera a 0 para anunciar
+  `AP DISENGAGED` —a 200 ft, en plena final—; ahora hacen falta las mismas seis muestras que para
+  engancharlo.
+- **Autobrake**: se leía `0x0C46` (`AUTOBRAKES ACTIVE`, una bandera de «está actuando» y **sin**
+  `Responded` en MSFS) y se decodificaba con la tabla del **selector**, que es otro offset; encima el
+  enum y `GetAutobrakeName` tenían **el 0 y el 1 cambiados**. Suma: `0x0C46` = 0 → `Off` → «RTO», o
+  sea **`Autobrake: RTO` en todos los vuelos**, se hubiera puesto RTO, MAX o nada. El ajuste sale
+  ahora de `0x2F80` (el único `Responded`: 0=RTO, 1=Off, 2..5=brake1..max) o, en el A320neo de MSFS,
+  de `0x0260`; `0x0C46` queda como «está actuando». Cuando el addon no demuestra publicarlo se publica
+  `---`.
+- **`nav_type` de la posición** se deducía del mismo rumbo y devolvía 0 casi siempre: ahora sale de las
+  banderas de modo (1 = NAV, 3 = ILS/GS).
+
+### New
+
+**Los carteles de cabina se leen** (`0x341C` no fumar y `0x341D` cinturones, 1 byte, `Responded` en
+lectura **y** escritura): la deuda que el proyecto tenía anotada —«la señal de cinturones no se lee»—
+deja de existir. Se publican en el registro, pero **no cambian ningún aviso todavía**: el motivo
+documentado para no usarlos (el piloto los deja puestos todo el vuelo) sigue siendo bueno, y ahora hay
+con qué decidirlo sin adivinar.
+
+**Una línea de diagnóstico del panel al entrar en subida y en aproximación** con las banderas crudas del
+AP, los dos carteles y el selector de autobrake. Es lo que se lleva al vuelo de prueba: sin saber qué
+publica cada addon, cambiar umbrales es adivinar. Los offsets nuevos se dan por publicados solo cuando
+su valor **cambia** alguna vez en el vuelo (`Helpers/SignalAvailability`), y hasta entonces se publica
+«sin dato» en vez de suponer.
+
+### Verificado
+
+- Build Debug y Release OK y **934 tests** (933 pasan, 0 fallan, 1 se omite sola), con
+  `AutopilotPanelTests`, `AutobrakeSelectorTests` y `SignalAvailabilityTests` nuevos.
+- **Lo que NO está verificado**: qué escribe cada addon. La tabla dice `Responded`, pero eso es la
+  respuesta del SDK de MSFS; si el 777/738 de PMDG publica esas banderas o las lleva por LVars solo se
+  ve en un vuelo. Hasta entonces el cliente no afirma nada que no haya medido: `---` donde no hay dato.
+
+---
 ## [0.9.50] — 21/10/2026
 
 ### Fixed
