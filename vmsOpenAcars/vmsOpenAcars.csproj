@@ -236,6 +236,7 @@
     <Compile Include="Helpers\ExcursionCounter.cs" />
     <Compile Include="Helpers\SpoilersPosition.cs" />
     <Compile Include="Helpers\StateChangeGate.cs" />
+    <Compile Include="Helpers\PmdgSdk.cs" />
     <Compile Include="Helpers\AutopilotPanel.cs" />
     <Compile Include="Helpers\AutobrakeSelector.cs" />
     <Compile Include="Helpers\SignalAvailability.cs" />

@@ -199,6 +199,50 @@ namespace vmsOpenAcars.Services
         private readonly Offset<byte> _noSmokingSignOffset = new Offset<byte>(0x341C);
         private readonly Offset<byte> _seatbeltSignOffset = new Offset<byte>(0x341D);
 
+        // ---- Bloque SDK de PMDG (`Helpers/PmdgSdk`) ----
+        // Solo se puebla con `[SDK] EnableDataBroadcast=1` en 737_Options.ini / 777_Options.ini. El 737
+        // y el 777 no comparten direcciones (en el 737, 0x6584 es `AIR_FltAltWindow`), asi que se
+        // registran las dos familias pero **solo se usan los offsets de la detectada**.
+        // 737: MCP_annunCMD_A/B, CWS, FD, modos, autobrake y carteles.
+        private readonly Offset<byte> _p737Powered    = new Offset<byte>(0x65E9);  // MCP_indication_powered
+        private readonly Offset<byte> _p737CmdA       = new Offset<byte>(0x65E5);
+        private readonly Offset<byte> _p737CmdB       = new Offset<byte>(0x65E7);
+        private readonly Offset<byte> _p737CwsA       = new Offset<byte>(0x65E6);
+        private readonly Offset<byte> _p737CwsB       = new Offset<byte>(0x65E8);
+        private readonly Offset<byte> _p737Fd1        = new Offset<byte>(0x65D8);  // MCP_annunFD[2]
+        private readonly Offset<byte> _p737Fd2        = new Offset<byte>(0x65D9);
+        private readonly Offset<byte> _p737Lnav       = new Offset<byte>(0x65E0);
+        private readonly Offset<byte> _p737Vnav       = new Offset<byte>(0x65DD);
+        private readonly Offset<byte> _p737LvlChg     = new Offset<byte>(0x65DE);
+        private readonly Offset<byte> _p737HdgSel     = new Offset<byte>(0x65DF);
+        private readonly Offset<byte> _p737AltHold    = new Offset<byte>(0x65E3);
+        private readonly Offset<byte> _p737Vs         = new Offset<byte>(0x65E4);
+        private readonly Offset<byte> _p737VorLoc     = new Offset<byte>(0x65E1);
+        private readonly Offset<byte> _p737App        = new Offset<byte>(0x65E2);
+        private readonly Offset<byte> _p737N1         = new Offset<byte>(0x65DB);
+        private readonly Offset<byte> _p737Speed      = new Offset<byte>(0x65DC);
+        private readonly Offset<byte> _p737AtArm      = new Offset<byte>(0x65DA);
+        private readonly Offset<byte> _p737Autobrake  = new Offset<byte>(0x6607);  // MAIN_AutobrakeSelector
+        private readonly Offset<byte> _p737SeatBelts  = new Offset<byte>(0x64FB);  // COMM_FastenBeltsSelector
+        private readonly Offset<byte> _p737NoSmoking  = new Offset<byte>(0x64FA);  // COMM_NoSmokingSelector
+        // 777: MCP_annunAP[2], FD, modos, autobrake y carteles.
+        private readonly Offset<byte> _p777Ap1        = new Offset<byte>(0x6584);  // MCP_annunAP[2]
+        private readonly Offset<byte> _p777Ap2        = new Offset<byte>(0x6585);
+        private readonly Offset<byte> _p777At         = new Offset<byte>(0x6586);
+        private readonly Offset<byte> _p777Lnav       = new Offset<byte>(0x6587);
+        private readonly Offset<byte> _p777Vnav       = new Offset<byte>(0x6588);
+        private readonly Offset<byte> _p777Flch       = new Offset<byte>(0x6589);
+        private readonly Offset<byte> _p777HdgHold    = new Offset<byte>(0x658A);
+        private readonly Offset<byte> _p777Vs         = new Offset<byte>(0x658B);
+        private readonly Offset<byte> _p777AltHold    = new Offset<byte>(0x658C);
+        private readonly Offset<byte> _p777Loc        = new Offset<byte>(0x658D);
+        private readonly Offset<byte> _p777App        = new Offset<byte>(0x658E);
+        private readonly Offset<byte> _p777Fd1        = new Offset<byte>(0x6565);  // MCP_FD_Sw_On[2]
+        private readonly Offset<byte> _p777Fd2        = new Offset<byte>(0x6566);
+        private readonly Offset<byte> _p777Autobrake   = new Offset<byte>(0x64FE);  // BRAKES_AutobrakeSelector
+        private readonly Offset<byte> _p777SeatBelts   = new Offset<byte>(0x6483);  // SIGNS_SeatBeltsSelector
+        private readonly Offset<byte> _p777NoSmoking   = new Offset<byte>(0x6482);  // SIGNS_NoSmokingSelector
+
         // ---- Meteorología ----
         /// <summary>
         /// 0x0E90 · INT16 · velocidad del viento en knots (valor directo).
@@ -271,6 +315,15 @@ namespace vmsOpenAcars.Services
         private readonly Helpers.SignalAvailability<int> _autobrakePanelSeen  = new Helpers.SignalAvailability<int>();
         private readonly Helpers.SignalAvailability<int> _autobrakeAirbusSeen = new Helpers.SignalAvailability<int>();
         private readonly Helpers.SignalAvailability<int> _cabinSignsSeen      = new Helpers.SignalAvailability<int>();
+        // Bloque SDK de PMDG: familia detectada, última lectura y prueba de vida (la huella cambia).
+        private readonly Helpers.SignalAvailability<int> _pmdgSdkSeen = new Helpers.SignalAvailability<int>();
+        private Helpers.PmdgSdkRaw _pmdgRaw;
+        /// <summary>Familia PMDG del avión cargado (`None` si no es PMDG).</summary>
+        internal Helpers.PmdgFamily PmdgFamily { get; private set; } = Helpers.PmdgFamily.None;
+        /// <summary>El bloque SDK de PMDG está alimentado (bandera `powered` o algo se movió).</summary>
+        public bool PmdgSdkAlive { get; private set; }
+        /// <summary>`nav_type` de la última posición, para no deducirlo dos veces.</summary>
+        private int _lastNavType;
         // Últimas banderas de AP, para el payload de posición y el `nav_type` (`DetermineNavType`).
         private Helpers.AutopilotFlags _lastApFlags;
         private bool _lastApEngaged;
@@ -479,6 +532,7 @@ namespace vmsOpenAcars.Services
             _autobrakePanelSeen.Reset();
             _autobrakeAirbusSeen.Reset();
             _cabinSignsSeen.Reset();
+            _pmdgSdkSeen.Reset();
             _pollingTimer = new Timer(OnPollingTick, null, 500, _pollingIntervalMs);
         }
 
@@ -618,41 +672,97 @@ namespace vmsOpenAcars.Services
             // que los modos se dedujeran comparando un rumbo con 1, 2 y 3 (`Helpers/AutopilotPanel`).
             // Ahora se lee el maestro y los modos, que el documento marca `Responded` en MSFS, y el
             // rumbo solo se registra para el diagnóstico.
-            var apFlags = new Helpers.AutopilotFlags
+            // ── Autopiloto: manda el SDK de PMDG si está vivo ────────────────
+            // La tabla estándar es del **AP del simulador**, y un PMDG vuela con su propio AFDS: en el
+            // vuelo real `4Vz9nwaKKgQpYrEl` (738) las doce banderas salieron a 0 con el avión en
+            // crucero manteniendo 23 990 ft. Con el bloque SDK alimentado se usan **sus** anunciadores
+            // (`Helpers/PmdgSdk`); si no, las banderas estándar, que es lo que sirve a los demás addons.
+            bool pmdgAp = PmdgSdkAlive && PmdgFamily != Helpers.PmdgFamily.None;
+
+            bool   apMaster;
+            string apNavMode;
+            string apVertMode;
+            string apPanel;
+
+            if (pmdgAp)
             {
-                Available      = _apAvailableOffset.Value != 0,
-                Master         = _apMasterOffset.Value != 0,
-                NavLock        = _apNavLockOffset.Value != 0,
-                HeadingLock    = _apHeadingLockOffset.Value != 0,
-                AltitudeLock   = _apAltitudeLockOffset.Value != 0,
-                AirspeedHold   = _apAirspeedHoldOffset.Value != 0,
-                MachHold       = _apMachHoldOffset.Value != 0,
-                VerticalHold   = _apVerticalHoldOffset.Value != 0,
-                GlideslopeHold = _apGlideslopeHoldOffset.Value != 0,
-                ApproachHold   = _apApproachHoldOffset.Value != 0,
-                BackCourse     = _apBackCourseOffset.Value != 0,
-                FlightDirector = _apFlightDirectorOffset.Value != 0,
-            };
-            bool   apMaster    = Helpers.AutopilotPanel.IsEngaged(apFlags);
-            string apNavMode   = Helpers.AutopilotPanel.NavMode(apFlags);
-            string apVertMode  = Helpers.AutopilotPanel.VertMode(apFlags);
-            string apPanel     = Helpers.AutopilotPanel.Describe(apFlags);
-            _lastApFlags  = apFlags;
+                apMaster   = Helpers.PmdgSdk.IsEngaged(_pmdgRaw);
+                apNavMode  = Helpers.PmdgSdk.NavMode(_pmdgRaw);
+                apVertMode = Helpers.PmdgSdk.VertMode(_pmdgRaw);
+                apPanel    = Helpers.PmdgSdk.Describe(_pmdgRaw);
+                _lastApFlags = new Helpers.AutopilotFlags
+                {
+                    Master         = apMaster,
+                    NavLock        = _pmdgRaw.Lnav,
+                    HeadingLock    = _pmdgRaw.HdgSel,
+                    AltitudeLock   = _pmdgRaw.AltHold,
+                    VerticalHold   = _pmdgRaw.Vs,
+                    AirspeedHold   = _pmdgRaw.Speed,
+                    GlideslopeHold = _pmdgRaw.Loc,
+                    ApproachHold   = _pmdgRaw.App,
+                    FlightDirector = _pmdgRaw.Fd1 || _pmdgRaw.Fd2,
+                };
+            }
+            else
+            {
+                var apFlags = new Helpers.AutopilotFlags
+                {
+                    Available      = _apAvailableOffset.Value != 0,
+                    Master         = _apMasterOffset.Value != 0,
+                    NavLock        = _apNavLockOffset.Value != 0,
+                    HeadingLock    = _apHeadingLockOffset.Value != 0,
+                    AltitudeLock   = _apAltitudeLockOffset.Value != 0,
+                    AirspeedHold   = _apAirspeedHoldOffset.Value != 0,
+                    MachHold       = _apMachHoldOffset.Value != 0,
+                    VerticalHold   = _apVerticalHoldOffset.Value != 0,
+                    GlideslopeHold = _apGlideslopeHoldOffset.Value != 0,
+                    ApproachHold   = _apApproachHoldOffset.Value != 0,
+                    BackCourse     = _apBackCourseOffset.Value != 0,
+                    FlightDirector = _apFlightDirectorOffset.Value != 0,
+                };
+                apMaster     = Helpers.AutopilotPanel.IsEngaged(apFlags);
+                apNavMode    = Helpers.AutopilotPanel.NavMode(apFlags);
+                apVertMode   = Helpers.AutopilotPanel.VertMode(apFlags);
+                apPanel      = Helpers.AutopilotPanel.Describe(apFlags);
+                _lastApFlags = apFlags;
+            }
+
             _lastApEngaged = apMaster;
-            // Rumbo del bug: 2 bytes con signo, 0..65535 = 0,0..359,99°.
+            // `nav_type` de la posición: 0 nada, 1 navegación lateral, 3 ILS/GS. Se decide aquí, con la
+            // misma información que el modo, y no en `DetermineNavType` mirando banderas sueltas.
+            _lastNavType = !apMaster ? 0
+                         : (_lastApFlags.GlideslopeHold || _lastApFlags.ApproachHold) ? 3
+                         : _lastApFlags.NavLock ? 1
+                         : 0;
+
             int apHeadingBugDeg = (int)Math.Round((((int)_apHeadingBugOffset.Value) & 0xFFFF) * 360.0 / 65536.0) % 360;
 
             // ── Autobrake y carteles de cabina ────────────────────────────────
             string autobrakeSetting = AutobrakeLabel;
-            int seatbeltRaw  = _seatbeltSignOffset.Value;
-            int noSmokingRaw = _noSmokingSignOffset.Value;
-            // Los carteles solo se dan por publicados cuando el piloto **toca** alguno en el vuelo
-            // (`Helpers/SignalAvailability`): si el addon no los escribe, se callan en vez de suponer.
-            _cabinSignsSeen.Update(seatbeltRaw * 2 + noSmokingRaw);
-            CabinSignsAvailable = _cabinSignsSeen.Available;
-            SeatbeltSignOn      = seatbeltRaw != 0;
-            NoSmokingSignOn     = noSmokingRaw != 0;
-            string cabinPanel   = HelperSigns(seatbeltRaw, noSmokingRaw);
+            int seatbeltRaw;
+            int noSmokingRaw;
+            string cabinPanel;
+            if (pmdgAp)
+            {
+                // El bloque SDK vivo implica que PMDG publica los selectores de carteles.
+                seatbeltRaw  = _pmdgRaw.SeatBeltsRaw;
+                noSmokingRaw = _pmdgRaw.NoSmokingRaw;
+                CabinSignsAvailable = true;
+                cabinPanel = $"CAB cint={Helpers.PmdgSdk.SignLabel(seatbeltRaw)} nofum={Helpers.PmdgSdk.SignLabel(noSmokingRaw)} publicado=si (SDK)";
+            }
+            else
+            {
+                seatbeltRaw  = _seatbeltSignOffset.Value;
+                noSmokingRaw = _noSmokingSignOffset.Value;
+                // Los carteles solo se dan por publicados cuando el piloto **toca** alguno en el vuelo
+                // (`Helpers/SignalAvailability`): si el addon no los escribe, se callan en vez de suponer.
+                _cabinSignsSeen.Update(seatbeltRaw * 2 + noSmokingRaw);
+                CabinSignsAvailable = _cabinSignsSeen.Available;
+                cabinPanel = HelperSigns(seatbeltRaw, noSmokingRaw);
+            }
+            // `AUTO` (1) no es «encendido»: lo decide el avión según la fase.
+            SeatbeltSignOn  = pmdgAp ? Helpers.PmdgSdk.SeatbeltsOn(_pmdgRaw)  : seatbeltRaw != 0;
+            NoSmokingSignOn = pmdgAp ? Helpers.PmdgSdk.NoSmokingOn(_pmdgRaw)  : noSmokingRaw != 0;
             // Umbral 60% (9830/16383) para filtrar ruido analógico de X-Plane
             bool parkingBrakeOn = _parkingBrakeOffset.Value > ParkingBrakeThreshold;
 
@@ -774,6 +884,11 @@ namespace vmsOpenAcars.Services
                 // ── Autopilot ─────────────────────────────────────────────────
                                 AutopilotEngaged = apMaster,
                 ApPanel          = apPanel,
+                CabinPanel       = cabinPanel,
+                PmdgSdkAlive     = PmdgSdkAlive,
+                PmdgFamilyName   = PmdgFamily == Helpers.PmdgFamily.None ? "" : PmdgFamily.ToString(),
+                PmdgSdkHint      = (PmdgSdkAlive || PmdgFamily == Helpers.PmdgFamily.None) ? "" :
+                    $"{PmdgFamily}: bloque SDK apagado — anade «{Helpers.PmdgSdk.EnableLine}» a {Helpers.PmdgSdk.OptionsFileName(PmdgFamily)} y reinicia MSFS",
                 ApHeadingBugDeg  = apHeadingBugDeg,
                 SeatbeltSignOn   = SeatbeltSignOn,
                 NoSmokingSignOn  = NoSmokingSignOn,
@@ -896,7 +1011,10 @@ namespace vmsOpenAcars.Services
             Engine1Power = DecodeEnginePower(_eng1N1Int.Value, (short)(_engRpmOffset.Value & 0xFFFF));
             Engine2Power = DecodeEnginePower(_eng2N1Int.Value, 0);
 
-            // ---- Autobrake ----
+            // ---- Bloque SDK de PMDG y autobrake ----
+            // El SDK va **antes** que el autobrake porque, si está vivo, es él quien manda sobre
+            // `0x2F80` (que PMDG no escribe: ver `Helpers/PmdgSdk`).
+            ReadPmdgSdk();
             ReadAutobrake();
             // ---- Flaps ----
             ReadFlaps();
@@ -1064,6 +1182,79 @@ namespace vmsOpenAcars.Services
 
 
         /// <summary>
+        /// Lee el bloque SDK de PMDG (`Helpers/PmdgSdk`). Se leen **solo** los offsets de la familia
+        /// detectada: el 737 y el 777 no comparten direcciones, y leer «la otra» daría basura.
+        ///
+        /// **La prueba de vida.** El 737 publica `0x65E9 MCP_indication_powered`, que es un sí o un no
+        /// directo; el 777 no tiene nada equivalente, así que sirve la huella: si algo del bloque cambia
+        /// alguna vez, está alimentado. Sin ninguna de las dos el bloque está **apagado** —falta
+        /// `EnableDataBroadcast`— y no se usa: se sigue con los offsets estándar, que es lo que había.
+        /// </summary>
+        private void ReadPmdgSdk()
+        {
+            PmdgFamily = Helpers.PmdgSdk.FamilyFrom(AircraftTitle, AircraftIcao);
+
+            if (PmdgFamily == Helpers.PmdgFamily.None)
+            {
+                _pmdgSdkSeen.Reset();
+                _pmdgRaw = default(Helpers.PmdgSdkRaw);
+                PmdgSdkAlive = false;
+                return;
+            }
+
+            var raw = new Helpers.PmdgSdkRaw { Family = PmdgFamily };
+
+            if (PmdgFamily == Helpers.PmdgFamily.B737)
+            {
+                raw.IndicationPowered = _p737Powered.Value != 0;
+                raw.CmdA     = _p737CmdA.Value != 0;
+                raw.CmdB     = _p737CmdB.Value != 0;
+                raw.CwsA     = _p737CwsA.Value != 0;
+                raw.CwsB     = _p737CwsB.Value != 0;
+                raw.Fd1      = _p737Fd1.Value != 0;
+                raw.Fd2      = _p737Fd2.Value != 0;
+                raw.Lnav     = _p737Lnav.Value != 0;
+                raw.Vnav     = _p737Vnav.Value != 0;
+                raw.Flch     = _p737LvlChg.Value != 0;
+                raw.HdgSel   = _p737HdgSel.Value != 0;
+                raw.AltHold  = _p737AltHold.Value != 0;
+                raw.Vs       = _p737Vs.Value != 0;
+                raw.Loc      = _p737VorLoc.Value != 0;
+                raw.App      = _p737App.Value != 0;
+                raw.N1       = _p737N1.Value != 0;
+                raw.Speed    = _p737Speed.Value != 0;
+                raw.AtArm    = _p737AtArm.Value != 0;
+                raw.AutobrakeRaw  = _p737Autobrake.Value;
+                raw.SeatBeltsRaw  = _p737SeatBelts.Value;
+                raw.NoSmokingRaw  = _p737NoSmoking.Value;
+            }
+            else
+            {
+                raw.Ap1      = _p777Ap1.Value != 0;
+                raw.Ap2      = _p777Ap2.Value != 0;
+                raw.AtArm    = _p777At.Value != 0;
+                raw.Lnav     = _p777Lnav.Value != 0;
+                raw.Vnav     = _p777Vnav.Value != 0;
+                raw.Flch     = _p777Flch.Value != 0;
+                raw.HdgSel   = _p777HdgHold.Value != 0;
+                raw.Vs       = _p777Vs.Value != 0;
+                raw.AltHold  = _p777AltHold.Value != 0;
+                raw.Loc      = _p777Loc.Value != 0;
+                raw.App      = _p777App.Value != 0;
+                raw.Fd1      = _p777Fd1.Value != 0;
+                raw.Fd2      = _p777Fd2.Value != 0;
+                raw.AutobrakeRaw  = _p777Autobrake.Value;
+                raw.SeatBeltsRaw  = _p777SeatBelts.Value;
+                raw.NoSmokingRaw  = _p777NoSmoking.Value;
+            }
+
+            _pmdgRaw = raw;
+            _pmdgSdkSeen.Update(Helpers.PmdgSdk.Fingerprint(raw));
+            PmdgSdkAlive = raw.IndicationPowered || _pmdgSdkSeen.Available;
+        }
+
+
+        /// <summary>
         /// Lee el **selector** de autobrake con la tabla del documento (`Helpers/AutobrakeSelector`) y
         /// publica «sin dato» mientras el addon no demuestre que lo escribe (`SignalAvailability`).
         ///
@@ -1075,6 +1266,16 @@ namespace vmsOpenAcars.Services
         /// </summary>
         private void ReadAutobrake()
         {
+            // Si el bloque SDK de PMDG está vivo, el selector bueno es el suyo: PMDG **no** escribe
+            // `0x2F80` (el piloto lo movió en `4Vz9nwaKKgQpYrEl` y el offset no cambió en todo el vuelo).
+            if (PmdgSdkAlive && PmdgFamily != Helpers.PmdgFamily.None)
+            {
+                AutobrakeLabel      = Helpers.PmdgSdk.AutobrakeLabel(_pmdgRaw);
+                AutobrakeAvailable  = true;
+                AutobrakeActuating  = _autobrakeActiveOffset.Value != 0;
+                return;
+            }
+
             int panel  = _autobrakePanelOffset.Value;
             int airbus = _autobrakeAirbusOffset.Value;
 
@@ -1570,13 +1771,7 @@ namespace vmsOpenAcars.Services
         /// rumbo del bug (`0x07CC`), que es lo que se hacia hasta v0.9.50 y devolvia 0 salvo que el
         /// rumbo estuviera entre 1 y 3 grados: 1 = navegacion lateral (NAV/LNAV), 3 = ILS/GS, 0 = nada.
         /// </summary>
-        private int DetermineNavType()
-        {
-            if (!_lastApEngaged) return 0;
-            if (_lastApFlags.GlideslopeHold || _lastApFlags.ApproachHold) return 3;
-            if (_lastApFlags.NavLock) return 1;
-            return 0;
-        }
+        private int DetermineNavType() => _lastNavType;
 
         /// <summary>
         /// "270° at 15 kts" o "Calm".
@@ -2116,6 +2311,14 @@ namespace vmsOpenAcars.Services
         public bool AutobrakeAvailable { get; set; }
         /// <summary>`0x0C46 AUTOBRAKES ACTIVE`: esta actuando.</summary>
         public bool AutobrakeActuating { get; set; }
+        /// <summary>Línea de cabina ya armada (`CAB cint=… nofum=… publicado=…`).</summary>
+        public string CabinPanel { get; set; } = "";
+        /// <summary>El bloque SDK de PMDG está alimentado.</summary>
+        public bool PmdgSdkAlive { get; set; }
+        /// <summary>`B737` / `B777` cuando el avión es PMDG; vacío si no lo es.</summary>
+        public string PmdgFamilyName { get; set; } = "";
+        /// <summary>Qué hacer si el bloque SDK de PMDG está apagado. Vacío si no aplica.</summary>
+        public string PmdgSdkHint { get; set; } = "";
     }
 
     public enum ConnectionState { Disconnected, Connected }

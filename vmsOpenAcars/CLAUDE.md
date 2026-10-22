@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.51  
+**Versión actual:** v0.9.52  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -519,7 +519,7 @@ nunca pone el freno; la puerta normal es el **freno de parqueo**, que es la señ
 indistinguibles; una puerta así dejaría atrapado en `Pushback` al que no publica motores, y en este
 caso no habría ayudado (a las 01:58:56 no había arrancado ninguno: arrancaron a las 01:59:06).
 
-Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia leve (~100 fpm). **Tren y spoilers** pasan por `Helpers/StateChangeGate` (2,5 s; la 1.ª muestra siembra): el spoiler se leía como booleano y **`0x0BD8` es posición 0–16383** —se despliega al **10 %** (`Helpers/SpoilersPosition`) y `0x0BCC` es armado, no despliegue—. **Reversas**: al desplegarse (`FirstDetection`, 10 %), no en el tick del toque. **Panel (0.9.51)**: AP con las banderas `0x07BC`/`0x07C4..0x0804` (`AutopilotPanel`) y **nunca con `0x07CC` (es el rumbo del bug)**; autobrake de `0x2F80` (`0x0C46` = «actuando»); carteles `0x341C`/`0x341D`.
+Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia leve (~100 fpm). **Tren y spoilers** pasan por `Helpers/StateChangeGate` (2,5 s; la 1.ª muestra siembra): el spoiler se leía como booleano y **`0x0BD8` es posición 0–16383** —se despliega al **10 %** (`Helpers/SpoilersPosition`) y `0x0BCC` es armado, no despliegue—. **Reversas**: al desplegarse (`FirstDetection`, 10 %), no en el tick del toque. **Panel (0.9.51/0.9.52)**: el AP se decide con las banderas `0x07BC`/`0x07C4..0x0804` (`AutopilotPanel`) y **nunca con `0x07CC` —es el rumbo del bug—**; autobrake `0x2F80` (`0x0C46` = «actuando») y carteles `0x341C`/`0x341D`, solo válidos si el valor **cambia** (`SignalAvailability`). **En PMDG eso está muerto**: su bloque SDK (`Helpers/PmdgSdk`) exige `[SDK] EnableDataBroadcast=1`.
 
 ---
 
@@ -561,11 +561,8 @@ Los 34 botones son teclas de cuerpo negro con la leyenda **retroiluminada** con 
 (`Controls/McduKeyRenderer.cs`, puro y con test); el color ya **no rellena** (`MainButtonSpec.LegendColor`,
 convenio en `UI/McduLegend.cs`). Y la ventana es un MCDU: carcasa de plástico gastado (`UI/McduChassis.cs`)
 y cada grupo hundido como pantalla LCD (`Controls/McduSurface.cs`), con la paleta **muestreada de la foto
-del A320** en `UI/McduPalette.cs`; lo apaga `mcdu_look`. Tabla, decisiones y cifras en
-**`Docs/PROPUESTA-MCDU-CARCASA.md`**. **Dos trampas que costaron horas**: sobre una superficie pintada a
-mano **nada lleva `BackColor = Color.Transparent`** (sale con basura detrás: fondo sólido del color de la
-superficie) y la rampa del plástico se calcula con `McduChassis.RampAt`, **no** con un degradado de GDI+
-sobre un rectángulo virtual ni con `PointToScreen` (devolvía −220 y dejaba la ventana plana).
+del A320** en `UI/McduPalette.cs`; lo apaga `mcdu_look`. Tabla, decisiones y cifras en **Docs/PROPUESTA-MCDU-CARCASA.md**.
+**Dos trampas**: nada lleva `BackColor = Color.Transparent` sobre una superficie pintada a mano, y la rampa del plástico se calcula con `McduChassis.RampAt` (no con un degradado de GDI+ ni `PointToScreen`).
 ## Referencias de archivos clave
 
 El índice de archivos está en **`Docs/architecture.md`**.
@@ -574,7 +571,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **934 tests** (1 se omite sola):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **945 tests** (1 se omite sola):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y

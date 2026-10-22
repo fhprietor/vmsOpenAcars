@@ -55,6 +55,8 @@ namespace vmsOpenAcars.Core.Flight
         // Simétrico al de enganche: cuántas muestras seguidas con la bandera a 0 antes de dar el AP
         // por desconectado (v0.9.51). Antes bastaba un frame.
         private int _apDisengagedCounter;
+        // El aviso de «bloque SDK de PMDG apagado» se da una sola vez por vuelo.
+        private bool _pmdgSdkWarned;
         // El umbral del motor único vive en `Helpers/SingleEngineTaxiPolicy.MinPercent`: estaba aquí
         // y duplicado en la comparación del rodaje de llegada, y ahora la regla está en un solo sitio.
         // Escritos desde Task.Run (TelemetryCoordinator.ReconfirmApproachRunway /
@@ -352,13 +354,24 @@ namespace vmsOpenAcars.Core.Flight
             var d = LastRawData;
             if (d == null) return;
 
-            string cabin = $"CAB cint={(d.SeatbeltSignOn ? 1 : 0)} nofum={(d.NoSmokingSignOn ? 1 : 0)}"
-                         + $" publicado={(d.CabinSignsAvailable ? "si" : "no")}";
+            string cabin = string.IsNullOrEmpty(d.CabinPanel)
+                ? $"CAB cint={(d.SeatbeltSignOn ? 1 : 0)} nofum={(d.NoSmokingSignOn ? 1 : 0)}"
+                  + $" publicado={(d.CabinSignsAvailable ? "si" : "no")}"
+                : d.CabinPanel;
             string abrk  = $"ABRK {d.AutobrakeSetting} act={(d.AutobrakeActuating ? 1 : 0)}"
                          + $" publicado={(d.AutobrakeAvailable ? "si" : "no")}";
 
             OnLog?.Invoke($"🛠 {phase}: {d.ApPanel} hdgBug={d.ApHeadingBugDeg}° · {cabin} · {abrk}",
                           Theme.SecondaryText);
+
+            // Si es un PMDG y su bloque SDK está apagado, se dice **una vez** y con la línea exacta que
+            // hay que añadir: sin eso el cliente no puede ver el AP, el autobrake ni los carteles, y
+            // callarlo dejaría al piloto pensando que su avión no los publica.
+            if (!d.PmdgSdkAlive && !string.IsNullOrEmpty(d.PmdgSdkHint) && !_pmdgSdkWarned)
+            {
+                _pmdgSdkWarned = true;
+                OnLog?.Invoke($"⚠️ {d.PmdgSdkHint}", Theme.Warning);
+            }
         }
 
         private void WirePhaseMachine()

@@ -2,6 +2,42 @@
 
 ---
 
+## [0.9.52] — 22/10/2026
+
+### Fixed
+
+**El piloto automático, el autobrake y los carteles de PMDG no se podían leer por la vía estándar, y
+ahora se leen de su bloque SDK.** Lo destapó el vuelo de prueba `4Vz9nwaKKgQpYrEl` (PMDG 738,
+v0.9.51, SKBG→SKRG): la línea de diagnóstico salió **con las doce banderas a 0** —`AUTOPILOT MASTER`,
+`AUTOPILOT AVAILABLE`, los modos, el flight director— con el avión en crucero manteniendo **23 990 ft y
+240°**, y el piloto había movido el autobrake y los carteles. No era un fallo del cliente: esos offsets
+son del **AP del simulador**, y el 738 de PMDG vuela con su propio AFDS, así que el AP del sim nunca se
+engancha y `0x2F80`/`0x341C`/`0x341D` no se escriben nunca.
+
+- **`Helpers/PmdgSdk.cs`**: lee el bloque que PMDG sí publica, con los offsets de
+  `Offset Mapping for PMDG 737.pdf` y `…777.pdf`. AP por los anunciadores del MCP (`0x65E5`/`0x65E7`
+  `CMD A/B` y `0x65E6`/`0x65E8` `CWS` en el 737; `0x6584`/`0x6585` `MCP_annunAP[2]` en el 777), **un
+  offset por modo** (LNAV, VNAV, LVL CHG/FLCH, HDG, ALT HOLD, VS, VOR LOC, APP), autobrake en
+  `0x6607`/`0x64FE` (**misma tabla**: 0 RTO, 1 OFF, 2..5) y carteles en `0x64FB`/`0x6483` (cinturones)
+  y `0x64FA`/`0x6482` (no fumar), con 0 OFF / 1 AUTO / 2 ON.
+- **Prueba de vida**: el 737 publica `0x65E9 MCP_indication_powered`; el 777 no tiene nada equivalente,
+  así que sirve la **huella** del bloque (`SignalAvailability`). Sin ninguna de las dos el bloque está
+  apagado y **no se usa**: se sigue con los offsets estándar, que es lo que había.
+- **Si está apagado se dice una vez**, con la línea exacta que falta: `[SDK] EnableDataBroadcast=1` en
+  `737_Options.ini` / `777_Options.ini` (está en la primera página de esos PDF). Es config del avión y
+  el cliente no puede escribirla; callarlo dejaría al piloto creyendo que su avión no publica nada.
+- `nav_type` de la posición y el autobrake del bloque de aterrizaje salen ahora de la misma decisión.
+
+### Verificado
+
+- **945 tests** (944 pasan, 0 fallan, 1 se omite sola), con `PmdgSdkTests` nuevo: familia por título/ICAO,
+  el crucero real del 738 (CMD A + LNAV + ALT → `LNAV+ALT`), APP/LOC, que el **FD no cuenta como AP**,
+  la tabla del autobrake, `AUTO` ≠ encendido y la huella.
+- **Lo que NO está verificado**: que PMDG rellene ese bloque con `EnableDataBroadcast=1` activo en el
+  equipo del piloto. Las direcciones y los tipos salen del PDF oficial de PMDG, pero el primer vuelo con
+  el interruptor encendido es el que lo confirma.
+
+---
 ## [0.9.51] — 21/10/2026
 
 ### Fixed

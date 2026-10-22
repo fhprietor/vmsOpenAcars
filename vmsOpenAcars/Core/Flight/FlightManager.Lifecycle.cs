@@ -101,6 +101,8 @@ namespace vmsOpenAcars.Core.Flight
             // Reset all scoring state before the API call so stale data from a
             // previous flight never survives into a new one, even if prefileing fails.
             _apEngagedCounter = 0;
+            _apDisengagedCounter = 0;
+            _pmdgSdkWarned = false;
             _td.Reset();
             _pen.Reset();
             _approachValidator.Reset();
