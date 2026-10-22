@@ -886,9 +886,6 @@ namespace vmsOpenAcars.Services
                 ApPanel          = apPanel,
                 CabinPanel       = cabinPanel,
                 PmdgSdkAlive     = PmdgSdkAlive,
-                PmdgFamilyName   = PmdgFamily == Helpers.PmdgFamily.None ? "" : PmdgFamily.ToString(),
-                PmdgSdkHint      = (PmdgSdkAlive || PmdgFamily == Helpers.PmdgFamily.None) ? "" :
-                    $"{PmdgFamily}: bloque SDK apagado — anade «{Helpers.PmdgSdk.EnableLine}» a {Helpers.PmdgSdk.OptionsFileName(PmdgFamily)} y reinicia MSFS",
                 ApHeadingBugDeg  = apHeadingBugDeg,
                 SeatbeltSignOn   = SeatbeltSignOn,
                 NoSmokingSignOn  = NoSmokingSignOn,
@@ -2315,10 +2312,6 @@ namespace vmsOpenAcars.Services
         public string CabinPanel { get; set; } = "";
         /// <summary>El bloque SDK de PMDG está alimentado.</summary>
         public bool PmdgSdkAlive { get; set; }
-        /// <summary>`B737` / `B777` cuando el avión es PMDG; vacío si no lo es.</summary>
-        public string PmdgFamilyName { get; set; } = "";
-        /// <summary>Qué hacer si el bloque SDK de PMDG está apagado. Vacío si no aplica.</summary>
-        public string PmdgSdkHint { get; set; } = "";
     }
 
     public enum ConnectionState { Disconnected, Connected }

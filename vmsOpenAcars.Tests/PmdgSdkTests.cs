@@ -29,14 +29,6 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
-        public void ElFicheroDeOpcionesEsElDeLaFamilia()
-        {
-            Assert.AreEqual("737_Options.ini", PmdgSdk.OptionsFileName(PmdgFamily.B737));
-            Assert.AreEqual("777_Options.ini", PmdgSdk.OptionsFileName(PmdgFamily.B777));
-            Assert.AreEqual("", PmdgSdk.OptionsFileName(PmdgFamily.None));
-        }
-
-        [TestMethod]
         public void BloqueApagadoNoEnganchaNiPublicaModos()
         {
             // Sin `EnableDataBroadcast` todo lee 0. El cliente tiene que callarse, no suponer.

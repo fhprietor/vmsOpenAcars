@@ -2,6 +2,40 @@
 
 ---
 
+## [0.9.53] — 22/10/2026
+
+### Fixed
+
+**Ninguna función depende ya de que el piloto edite un archivo del simulador.** La 0.9.52 leía el
+bloque SDK de PMDG, pero para que ese bloque se pueble hace falta `[SDK] EnableDataBroadcast=1` en el
+`737_Options.ini` del avión, y la versión salió pidiéndoselo al piloto en el registro. Es un error de
+diseño: traslada al piloto un trabajo técnico, no depende de nosotros y no habla el mismo idioma que
+el resto de la aplicación. La misma regla que ya estaba escrita para la pintura del avión —«el ACARS no
+escanea el disco del piloto»— se aplica aquí: **no se le pide nada**.
+
+- **Fuera el aviso y el texto con la ruta del `.ini`**, y con ellos `PmdgSdkHint`, `PmdgFamilyName` y
+  los ayudantes `OptionsFileName`/`EnableLine`.
+- **El lector del bloque SDK se queda, oportunista**: cuesta unas 20 lecturas de un byte y, si el
+  piloto ya tiene el flag puesto por otra herramienta (FS2Crew, AOC…), le funciona el AP con sus
+  modos de verdad. Si no lo tiene, `---` y silencio.
+- **La alternativa se evaluó y se descartó con la tabla delante**:
+  - **SimConnect directo no evita el flag**: el emisor es el avión, que publica su estado por
+    SimConnect *Client Data*; FSUIPC7 solo escucha. Un cliente propio chocaría con la misma puerta.
+  - **LVars por FSUIPC** (`0x0D6C` + `0x0D70`, `:nombre`) sí evitan el flag, pero **PMDG no publica
+    los nombres de sus LVars**: serían suposiciones sin verificar, que es justo el tipo de error que
+    ha costado tres correcciones (el rumbo como bandera, el spoiler como booleano, los carteles como
+    estado).
+  - **Deducción por comportamiento**: posible, pero es una inferencia y puede mentir en un crucero a
+    mano. No se implementa.
+- El AP, el autobrake y los carteles de PMDG **no alimentan nada puntuable** — una línea de registro,
+  el OSD y el `nav_type` de la posición —, así que el coste de no tenerlos es cosmético.
+
+### Verificado
+
+**944 tests** (943 pasan, 0 fallan, 1 se omite sola) y build Debug y Release OK. Se retiró el test del
+`OptionsFileName`, que ya no existe.
+
+---
 ## [0.9.52] — 22/10/2026
 
 ### Fixed

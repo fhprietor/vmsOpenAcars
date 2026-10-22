@@ -77,19 +77,6 @@ namespace vmsOpenAcars.Helpers
     {
         internal const int NoData = -1;
 
-        /// <summary>Nombre del fichero de opciones donde se enciende el bloque.</summary>
-        internal static string OptionsFileName(PmdgFamily family)
-        {
-            switch (family)
-            {
-                case PmdgFamily.B737: return "737_Options.ini";
-                case PmdgFamily.B777: return "777_Options.ini";
-                default:              return "";
-            }
-        }
-
-        /// <summary>La línea exacta que hay que añadir al final de ese fichero.</summary>
-        internal const string EnableLine = "[SDK] EnableDataBroadcast=1";
 
         /// <summary>
         /// ¿De qué familia es el PMDG cargado? Se mira el título primero (`PMDG 737-800`,
