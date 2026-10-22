@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="..\packages\PdfiumViewer.Native.x86_64.no_v8-no_xfa.2018.4.8.256\build\PdfiumViewer.Native.x86_64.no_v8-no_xfa.props" Condition="Exists('..\packages\PdfiumViewer.Native.x86_64.no_v8-no_xfa.2018.4.8.256\build\PdfiumViewer.Native.x86_64.no_v8-no_xfa.props')" />
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
@@ -232,6 +232,10 @@
     <Compile Include="Helpers\TaxiPlannedObservationPolicy.cs" />
     <Compile Include="Helpers\RaasAdvisor.cs" />
     <!-- Anuncios de cabina: las frases y la política de voz son puras y se prueban sin tarjeta de sonido. -->
+    <Compile Include="Helpers\CabinCalloutPolicy.cs" />
+    <Compile Include="Helpers\ExcursionCounter.cs" />
+    <Compile Include="Helpers\SpoilersPosition.cs" />
+    <Compile Include="Helpers\StateChangeGate.cs" />
     <Compile Include="Helpers\CabinAnnouncementScript.cs" />
     <Compile Include="Helpers\LocalTimeOfDay.cs" />
     <Compile Include="Helpers\TurbulenceAdvisor.cs" />

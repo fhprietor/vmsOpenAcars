@@ -150,8 +150,14 @@ namespace vmsOpenAcars.Services
         // ---- Controles ----
         private readonly Offset<int> _gearOffset = new Offset<int>(0x0BE8);
         private readonly Offset<short> _flapsOffset = new Offset<short>(0x0BDC);
-        private readonly Offset<short> _spoilersOffset = new Offset<short>(0x0BD8);
-        private readonly Offset<short> _spoilersArmedOffset = new Offset<short>(0x0BCC);
+        // 0x0BD8 · INT32 · SPOILERS RIGHT POSITION — **posición** 0–16383 según la tabla de FSUIPC7, no
+        // un booleano: leerla con `> 0` hacía que el 0,006 % de recorrido (una cuenta del indicador)
+        // contara como «EXTENDIDOS».
+        private readonly Offset<int> _spoilersOffset = new Offset<int>(0x0BD8);
+        // 0x0BCC · INT32 · SPOILERS ARMED — «arm for auto deployment». **No** se usa para decidir si
+        // están desplegados: armar antes de aterrizar es lo normal, y contarlo como despliegue era la
+        // otra mitad del parpadeo (v0.9.50).
+        private readonly Offset<int> _spoilersArmedOffset = new Offset<int>(0x0BCC);
 
         // ---- Flaps ----
         private readonly Offset<byte> _flapsHandleIndex = new Offset<byte>(0x0BFC);     // Notch actual (0,1,2,3...)
@@ -238,15 +244,18 @@ namespace vmsOpenAcars.Services
 
         // -- Estado anterior (detección de cambios) --
         private bool _lastOnGround = true;
-        private int _lastGearPosition;
         private double _lastFlapsPercent;
-        private bool _lastSpoilersDeployed;
         private int _lastParkingBrake;
         private int _lastEngineRpm;
         private bool _lastBeaconState;
         private bool _lastLandingState;
         private bool _lastTaxiState;
         private bool _pendingBeaconState;
+        // Tren y spoilers: el offset rebota (1-2 s) y cada rebote era una línea del registro. El
+        // evento solo sale cuando el valor nuevo se sostiene (`Helpers/StateChangeGate`, 2,5 s, el
+        // mismo criterio que las luces). El estado que consume la telemetría no cambia.
+        private readonly Helpers.StateChangeGate<int>  _gearGate     = new Helpers.StateChangeGate<int>(StateHoldSeconds);
+        private readonly Helpers.StateChangeGate<bool> _spoilersGate = new Helpers.StateChangeGate<bool>(StateHoldSeconds);
         private bool _pendingLandingState;
         private bool _pendingTaxiState;
         private DateTime _pendingBeaconAt = DateTime.MinValue;
@@ -347,6 +356,8 @@ namespace vmsOpenAcars.Services
         public int CurrentGearPosition { get; private set; }
         public double CurrentFlapsPercent { get; private set; }
         public bool CurrentSpoilersDeployed { get; private set; }
+        /// <summary>Posición real de los spoilers (0,0–1,0) según 0x0BD8.</summary>
+        public double CurrentSpoilersPosition { get; private set; }
         public string FlapsLabel { get; private set; } = "UP";
         public int FlapsHandleRaw { get; private set; }
         public int FlapsActualRaw { get; private set; }
@@ -819,7 +830,10 @@ namespace vmsOpenAcars.Services
             // ---- Controles ----
             CurrentGearPosition = DecodeGear(_gearOffset.Value);
             CurrentFlapsPercent = DecodeFlaps(_flapsOffset.Value);
-            CurrentSpoilersDeployed = _spoilersOffset.Value > 0 || _spoilersArmedOffset.Value > 0;
+            // La posición, no el booleano: `> 0` contaba como desplegado el 0,006 % de recorrido y el temblor
+// del indicador escribía una línea por rebote (`Helpers/SpoilersPosition`).
+            CurrentSpoilersPosition = Helpers.SpoilersPosition.FromRaw(_spoilersOffset.Value);
+            CurrentSpoilersDeployed = Helpers.SpoilersPosition.IsDeployed(CurrentSpoilersPosition);
 
             // ---- Motores ----
             Engine1Power = DecodeEnginePower(_eng1N1Int.Value, (short)(_engRpmOffset.Value & 0xFFFF));
@@ -1245,9 +1259,9 @@ namespace vmsOpenAcars.Services
         private void DetectGearChange()
         {
             int gear = CurrentGearPosition;
-            if (gear == _lastGearPosition) return;
-            GearChanged?.Invoke(_lastGearPosition, gear);
-            _lastGearPosition = gear;
+            int previous;
+            if (_gearGate.Update(DateTime.UtcNow, gear, out previous))
+                GearChanged?.Invoke(previous, gear);
         }
 
         private void DetectFlapsChange()
@@ -1269,9 +1283,10 @@ namespace vmsOpenAcars.Services
 
         private void DetectSpoilersChange()
         {
-            if (CurrentSpoilersDeployed == _lastSpoilersDeployed) return;
-            SpoilersChanged?.Invoke(CurrentSpoilersDeployed);
-            _lastSpoilersDeployed = CurrentSpoilersDeployed;
+            bool deployed = CurrentSpoilersDeployed;
+            bool previous;
+            if (_spoilersGate.Update(DateTime.UtcNow, deployed, out previous))
+                SpoilersChanged?.Invoke(deployed);
         }
 
         // ── Parking brake ─────────────────────────────────────────────────────────
@@ -1303,6 +1318,14 @@ namespace vmsOpenAcars.Services
         private DateTime _pendingNavAt = DateTime.MinValue;
         private DateTime _pendingStrobeAt = DateTime.MinValue;
         private const double LightHoldSeconds = 2.5;
+
+        /// <summary>
+        /// Sostenido para dar por bueno un cambio de tren o de spoilers. El offset de spoilers del
+        /// 777 rebota con rachas de 1-2 s (PIREP `5ow69vzDNW5ZMayB`: `EXTENDIDOS` 13:17:46 →
+        /// `RETRAÍDOS` 13:17:49 → `RETRAÍDOS` 13:17:50), así que se exige el mismo sostenido que a
+        /// las luces antes de escribir la línea del registro.
+        /// </summary>
+        private const double StateHoldSeconds = 2.5;
 
         public event Action<bool> NavLightChanged;
         public event Action<bool> StrobeLightChanged;
@@ -1463,7 +1486,7 @@ namespace vmsOpenAcars.Services
                 GForceAtTouch = CurrentGForce,
 
                 FlapsPosition = CurrentFlapsPercent / 100.0,
-                SpoilersPosition = CurrentSpoilersDeployed ? 1.0 : 0.0,
+                SpoilersPosition = CurrentSpoilersPosition,
                 GearPosition = CurrentGearPosition,
 
                 // N1 del FLOAT64 offset (más preciso para jets)

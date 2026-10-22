@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.49  
+**Versión actual:** v0.9.50  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -83,11 +83,9 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
 - `Docs/CHANGELOG.md` es el **canónico**: cada entrada lleva causa raíz y las cifras que la
   demuestran. Se actualiza junto con `CLAUDE.md`, en el mismo cambio.
 - `Docs/README.md` es el índice: un `.md` nuevo se lista ahí o queda huérfano.
-- **`Docs/MEMORY.md` y `Docs/project_vmsOpenAcars.md` no son fuente de verdad** (se quedan atrás: `MEMORY.md` llegó a decir v0.9.2 con el cliente en
+- **`Docs/MEMORY.md` y `Docs/project_vmsOpenAcars.md` no son fuente de verdad** (se quedan atrás: `MEMORY.md` dijo v0.9.2 con el cliente en
   v0.9.9). La verdad es `CLAUDE.md` + `Docs/CHANGELOG.md`.
-- Para montar el proyecto en otro equipo (o cambiar de agente) está `Docs/SETUP-ENTORNO.md`:
-  qué **no** viaja por git —`App.config` y `packages/` están ignorados—, el toolchain y cómo se
-  levanta `dsh` con `%USERPROFILE%\.dsh`.
+- Para montar el proyecto en otro equipo está `Docs/SETUP-ENTORNO.md` (toolchain y `dsh`).
 
 **Git**
 - **No commitear por iniciativa propia**: el mantenedor pide el commit.
@@ -131,7 +129,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
 | On-Time Departure | 5 | −5 si Blocks Off difiere >10 min de `sched_out` |
 | Touchdown Zone | 7 | **v0.9.30, proporcional a la pista** (`Helpers/TouchdownZonePolicy.cs`): 0 si ≤ `max(1.500 ft, 15 % de la pista)` con techo **3.000 ft**; 3 si ≤ `min(3.000 ft, mitad de pista)`; 7 por encima. **Sin dato de longitud → 1.500/2.500.** El techo no se negocia: en pista larga, 3.200 ft siguen siendo 7 |
 | Centreline Deviation | 7 | ≤10 ft=0, ≤30=3, >30=7 — activo si `CenterlineDeviationFt>0` |
-| Localizer Alignment | 5 | ILS not tuned=−3; heading>5°=−1 each (cap 2). Omitido si NAV1 difiere >0.05 MHz del ILS esperado a 1000 ft AGL |
+| Localizer Alignment | 5 | ILS not tuned=−3; **una desviación >5° = −1** (`ExcursionCounter`: 0,5 s fuera y re-arma al volver; cap 2). Omitido si NAV1 difiere >0.05 MHz del ILS a 1000 ft |
 | Minimums Compliance | 5 | −5 si `BelowMinimums=true`. Omitido si Localizer fue omitido |
 | Procedure Speed | 10 | 3 pts/violación de restricción SID/STAR al pasar el fix, cap 10 |
 | Engine Stabilization | 5 | −5 si algún motor en marcha no establecido (aceite/N2) al entrar en pista |
@@ -308,7 +306,7 @@ crédito**: al añadir uno nuevo al combo hay que darle el suyo. El rótulo es t
 
 **Clip si existe, voz SAPI si no.** Clips de `/briefing/check/` + `/briefing/download/` (caché `%TEMP%\vmsacars\briefing\`); NavData **no publicará más fases**, así que las que faltan las locuta `Services/CabinVoice` (`System.Speech`, ya referenciado) con el texto puro de `Helpers/CabinAnnouncementScript` (es/en, datos opcionales: sin dato la frase desaparece; destino **por su nombre** de `name`+`city`, que llegan abreviados y sin tildes; hora local de `Helpers/LocalTimeOfDay`, longitud ÷ 15°). `Helpers/SapiVoicePolicy` elige el idioma **contra las voces instaladas**: sin voz española se locuta el texto inglés.
 
-**13 fases.** Por entrada de fase: `pushback`, `taxi_out`, `top_of_descent`, `approach`, `slides_disarm` (AfterLanding), `taxi_in`, `on_block`; `boarding` al acabar el prefetch; `after_takeoff` a 10 000 ft AGL (Climb/Enroute); `cruise` >10 000 ft AGL 30 s; `on_runway` a la 1.ª luz con GS ≤ 40 kt; y la turbulencia (`turbulence_on`/`turbulence_off`, evento por `Helpers/TurbulenceAdvisor`: g `0x11BA` + VS `0x02C8`, 6 s de densidad, 10 min de enfriamiento). `top_of_descent`/`taxi_in` refrescan el METAR (3 s) y cada PA deja línea en el log.
+**13 fases.** Por entrada de fase: `pushback`, `taxi_out`, `top_of_descent`, `approach`, `slides_disarm` (AfterLanding), `taxi_in`, `on_block`; `boarding` al acabar el prefetch; `after_takeoff` a 10 000 ft AGL (Climb/Enroute); `cruise` >10 000 ft AGL 30 s; `on_runway` a la 1.ª luz con GS ≤ 40 kt; y la turbulencia (`turbulence_on`/`turbulence_off`, evento por `Helpers/TurbulenceAdvisor`: **oscilaciones** de g `0x11BA` (3 cruces de banda en 6 s), 10 min de enfriamiento; el fin solo en crucero (`CabinCalloutPolicy`)). `top_of_descent`/`taxi_in` refrescan el METAR (3 s) y cada PA deja línea en el log.
 
 **Idioma:** `Pilot.AirlineCountry` → `SpanishCountries` → `"es"`/`"en"` (internacional no anglohablante: inglés y luego nativo). **Supresión:** `aircraftSeats ∈ (0,40)`. **Settings:** `chkCabinAnnouncements`, `trkCabinVolume` (en caliente), `btnTestCabin` (13 fases). Claves: `cabin_announcements_enabled` / `_volume`.
 
@@ -521,7 +519,7 @@ nunca pone el freno; la puerta normal es el **freno de parqueo**, que es la señ
 indistinguibles; una puerta así dejaría atrapado en `Pushback` al que no publica motores, y en este
 caso no habría ayudado (a las 01:58:56 no había arrancado ninguno: arrancaron a las 01:59:06).
 
-Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia leve (~100 fpm).
+Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia leve (~100 fpm). **Tren y spoilers** pasan por `Helpers/StateChangeGate` (2,5 s; la 1.ª muestra siembra): el spoiler se leía como booleano y **`0x0BD8` es posición 0–16383** —se despliega al **10 %** (`Helpers/SpoilersPosition`) y `0x0BCC` es armado, no despliegue—. **Reversas**: al desplegarse (`FirstDetection`, 10 %), no en el tick del toque.
 
 ---
 
@@ -576,7 +574,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **885 tests** (1 se omite sola; los anuncios locutados, sin tarjeta de sonido: `CabinAnnouncementScriptTests`, `LocalTimeOfDayTests`, `SapiVoicePolicyTests`, `TurbulenceAdvisorTests`):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **915 tests** (1 se omite sola; los anuncios locutados, sin tarjeta de sonido: `CabinAnnouncementScriptTests`, `LocalTimeOfDayTests`, `SapiVoicePolicyTests`, `TurbulenceAdvisorTests`, `StateChangeGateTests`, `ThrustReverserMonitorTests`, `ExcursionCounterTests`, `SpoilersPositionTests`):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y

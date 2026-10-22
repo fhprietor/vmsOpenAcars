@@ -309,7 +309,18 @@ namespace vmsOpenAcars.Core.Flight
                 _lastAirborneTime = DateTime.UtcNow;
 
             if (data.IsOnGround && _td.Captured)
+            {
                 _reverserMonitor.Update(data.Rev1Pct, data.Rev2Pct);
+
+                // Se publica **cuando ocurre**. Hasta v0.9.49 el único aviso llegaba al entrar en
+                // TaxiIn —44 s después del toque en `5ow69vzDNW5ZMayB`—, así que el bloque de datos de
+                // aterrizaje decía «Reversas: 0% / 0%» (leído en el mismo tick del toque, antes de que
+                // se desplegaran) y el piloto no veía la reversa por ningún lado hasta el rodaje.
+                if (_reverserMonitor.FirstDetection)
+                    OnLog?.Invoke(
+                        $"Reversa: desplegada  ENG1 {_reverserMonitor.MaxEng1RevPct:F0}%  ENG2 {_reverserMonitor.MaxEng2RevPct:F0}%",
+                        Theme.MainText);
+            }
 
             _phaseMachine.Update(BuildPhaseInput());
 

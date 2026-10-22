@@ -9,47 +9,70 @@ namespace vmsOpenAcars.Tests
     /// <summary>
     /// Cuándo se anuncia la turbulencia y cuándo no.
     ///
-    /// **No hay serie real grabada de turbulencia en el corpus** (el `landing_log.sqlite` de esta
-    /// máquina está vacío), así que las series de estos tests son construidas. Lo que sí es real es
-    /// el ancla de los umbrales: el proyecto ya tiene medido que **~100 fpm de ruido de VS es
-    /// turbulencia leve** —es la cifra con la que la máquina de fases evita falsas transiciones—,
-    /// y por eso un golpe cuenta a partir de 150 fpm y el ruido de 100 fpm **no** dispara. Ese caso
-    /// está aquí abajo (`ElRuidoDeCienPiesPorMinutoNoEsTurbulencia`) y es el que fija el contrato.
+    /// El caso que manda es el **PIREP real `5ow69vzDNW5ZMayB`** (KSEA→SKRG, 21/10/2026, v0.9.49):
+    /// el cliente anunció turbulencia a las 13:17:54 y «cabina libre» a las 13:19:12, **dos minutos
+    /// después del despegue y a 5 200 ft subiendo a 1 800 fpm**. Lo que el avión marcaba era
+    /// **`g 0,83`** y **`VS 5221 fpm`**: un ascenso acelerando. Con el detector anterior —muestras
+    /// con `|g − 1| ≥ 0,15` y reversos del VS— eso encajaba perfecto: g desviado son *todos* los
+    /// muestreos durante minutos, así que declaraba turbulencia permanente mientras duró la subida.
     ///
-    /// Los tiempos se miden con reloj inyectado, así que los tests no esperan.
+    /// Los tests de aquí abajo fijan la regla nueva: **la turbulencia es oscilación**, un desvío
+    /// sostenido no es nada. La serie del ascenso usa el perfil **real** de VS de las filas `ICL` de
+    /// ese PIREP y el `g` que el cliente registró en el aviso (0,83 sostenido): no hay g por posición
+    /// en el PIREP, y ese 0,83 es exactamente lo que disparó el fallo.
     /// </summary>
     [TestClass]
     public class TurbulenceAdvisorTests
     {
-        private static readonly DateTime T0 = new DateTime(2026, 10, 20, 12, 0, 0, DateTimeKind.Utc);
+        private static readonly DateTime T0 = new DateTime(2026, 10, 21, 13, 17, 9, DateTimeKind.Utc);
+
+        /// <summary>Perfil real del ascenso (filas `ICL` del PIREP), en fpm y una cada ~15 s.</summary>
+        private static readonly double[] RealClimbVs =
+        {
+            3344, 5536, 1801, 717, 842, 1684, 2065, 1802, 1794, 2239,
+            2604, 1672, 2128, 2165, 2887, 2641, 1689
+        };
 
         private sealed class Runner
         {
+            internal const double Dt = 0.25;   // el bucle real va a 20 Hz; 4 Hz basta para la política
+
             internal readonly TurbulenceAdvisor Advisor = new TurbulenceAdvisor();
             internal DateTime Now = T0;
             internal readonly List<TurbulenceCallout> Calls = new List<TurbulenceCallout>();
 
-            internal void Step(double seconds, double g, double vs, bool airborne = true, double agl = 30000)
+            internal void One(double g, bool airborne = true, double agl = 30000)
             {
-                Now = Now.AddSeconds(seconds);
-                TurbulenceCallout callout = Advisor.Feed(Now, g, vs, airborne, agl);
-                if (callout != TurbulenceCallout.None) Calls.Add(callout);
+                Now = Now.AddSeconds(Dt);
+                TurbulenceCallout call = Advisor.Feed(Now, g, airborne, agl);
+                if (call != TurbulenceCallout.None) Calls.Add(call);
             }
 
-            /// <summary>Vuelo liso: g = 1 y VS estable.</summary>
-            internal void Calm(double seconds)
+            /// <summary>Mantiene un valor de g durante N segundos.</summary>
+            internal void Hold(double seconds, double g, bool airborne = true, double agl = 30000)
             {
-                for (double t = 0; t < seconds; t += 0.5) Step(0.5, 1.0, -1800);
+                int steps = Math.Max(1, (int)Math.Round(seconds / Dt));
+                for (int i = 0; i < steps; i++) One(g, airborne, agl);
             }
 
-            /// <summary>Turbulencia: g oscila ±0,3 y el VS da golpes de 400 fpm.</summary>
-            internal void Turbulent(double seconds)
+            /// <summary>Rampa lineal: es lo que hace un ascenso o un cambio de nivel.</summary>
+            internal void Ramp(double seconds, double from, double to)
             {
-                bool high = false;
-                for (double t = 0; t < seconds; t += 0.5)
+                int steps = Math.Max(1, (int)Math.Round(seconds / Dt));
+                for (int i = 1; i <= steps; i++) One(from + (to - from) * i / steps);
+            }
+
+            /// <summary>Oscilación: medio ciclo arriba y medio abajo con el semiperíodo dado.</summary>
+            internal void Oscillate(double seconds, double halfPeriod = 1.0, double high = 1.25, double low = 0.85)
+            {
+                double t = 0;
+                bool up = true;
+                while (t < seconds)
                 {
-                    high = !high;
-                    Step(0.5, high ? 1.30 : 0.98, high ? -1500 : -1900);
+                    double leg = Math.Min(halfPeriod, seconds - t);
+                    Hold(leg, up ? high : low);
+                    t += leg;
+                    up = !up;
                 }
             }
 
@@ -57,19 +80,66 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
-        public void UnVueloLisoNoAnunciaNada()
+        public void ElAscensoDelPirepRealNoEsTurbulencia()
         {
+            // 871 → 4 700 ft subiendo, con el g = 0,83 que el cliente registró al disparar el aviso
+            // falso y el ruido del sensor encima. El VS real va en RealClimbVs: ya no es una entrada
+            // del detector, y ese es justamente el arreglo.
             var run = new Runner();
-            run.Calm(300);
-            Assert.AreEqual(0, run.Calls.Count, "Dos minutos y medio de vuelo liso no son noticia");
+            var noise = new Random(20261021);
+
+            Assert.AreEqual(17, RealClimbVs.Length, "Las filas ICL del PIREP, ni una más");
+
+            run.Hold(10, 1.00);                                   // rodaje y rotación
+            for (int i = 0; i < RealClimbVs.Length; i++)
+                run.Hold(15, 0.83 + (noise.NextDouble() - 0.5) * 0.04);   // 0,83 ± 0,02
+
+            Assert.AreEqual(0, run.Calls.Count,
+                "Un ascenso acelerando (g desviado de forma sostenida, VS saltando entre 717 y 5 536 fpm) " +
+                "no es una zona de turbulencia: es el fallo que se corrigió");
         }
 
         [TestMethod]
-        public void LaTurbulenciaSostenidaSeAnunciaUnaSolaVez()
+        public void UnDesvioSostenidoDeGNoEsUnaZona()
+        {
+            // El error de raíz, aislado: g fuera de la banda un minuto entero. Antes eran 240
+            // muestras «desviadas» y turbulencia permanente; ahora no hay ni una oscilación.
+            var run = new Runner();
+            run.Hold(60, 0.80);
+            Assert.AreEqual(0, run.Calls.Count);
+        }
+
+        [TestMethod]
+        public void CambiarDeNivelTampocoEsTurbulencia()
+        {
+            // Lo que hace un «level-off»: g sube a 1,15, baja a 0,90 y vuelve. Un cruce de banda
+            // como mucho, muy lejos de los tres en seis segundos.
+            var run = new Runner();
+            run.Ramp(10, 1.00, 1.15);
+            run.Ramp(10, 1.15, 0.90);
+            run.Ramp(10, 0.90, 1.00);
+
+            Assert.AreEqual(0, run.Calls.Count);
+        }
+
+        [TestMethod]
+        public void UnGolpeAisladoNoEsUnaZona()
         {
             var run = new Runner();
-            run.Calm(30);
-            run.Turbulent(20);
+            run.Ramp(1.0, 1.00, 1.40);   // un bache seco
+            run.Ramp(1.0, 1.40, 1.00);
+            run.Hold(30, 1.00);
+
+            Assert.AreEqual(0, run.Calls.Count,
+                "Un solo golpe no da los tres cruces de banda: no se anuncia una zona");
+        }
+
+        [TestMethod]
+        public void LaTurbulenciaDeVerdadOscilaYSeAnunciaUnaVez()
+        {
+            var run = new Runner();
+            run.Hold(20, 1.00);
+            run.Oscillate(20);           // ±0,25 g a 0,5 Hz, como un chop de verdad
 
             Assert.AreEqual(1, run.Count(TurbulenceCallout.Onset),
                 "Una zona de turbulencia se anuncia una vez, no en cada golpe");
@@ -77,46 +147,39 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
-        public void UnBacheCortoNoAnuncia()
-        {
-            var run = new Runner();
-            run.Calm(30);
-            // 3 s de golpes: dan 5 reversiones y 3 muestras con g fuera de 1, por debajo de las 6 y
-            // las 4 que pide la ventana de 6 s. Antes de la corrección, esos 4 golpes se quedaban
-            // 20 s en la ventana y el bache corto acababa anunciándose.
-            run.Turbulent(3.0);
-            run.Calm(10);
-
-            Assert.AreEqual(0, run.Calls.Count,
-                "Un bache corto no es una zona: no se habla");
-        }
-
-        [TestMethod]
         public void EnElSueloONniBajoNoSeAnuncia()
         {
-            var run = new Runner();
-            for (int i = 0; i < 60; i++) run.Step(0.5, 1.4, -1200, airborne: false, agl: 0);
-            Assert.AreEqual(0, run.Calls.Count, "Con el avión en tierra no hay anuncio de cabina");
+            var ground = new Runner();
+            for (int i = 0; i < 240; i++) ground.One(i % 2 == 0 ? 1.30 : 0.70, airborne: false, agl: 0);
+            Assert.AreEqual(0, ground.Calls.Count, "Con el avión en tierra no hay anuncio de cabina");
 
             var low = new Runner();
-            for (int i = 0; i < 60; i++) low.Step(0.5, 1.4, -1200, airborne: true, agl: 500);
+            for (int i = 0; i < 240; i++) low.One(i % 2 == 0 ? 1.30 : 0.70, airborne: true, agl: 500);
             Assert.AreEqual(0, low.Calls.Count, "A 500 ft AGL se vuela, no se anuncia turbulencia");
         }
 
         [TestMethod]
-        public void ElFinalSeAnunciaSoloTrasUnMinutoLiso()
+        public void SinDatoDeGNoSeAnunciaNada()
+        {
+            // Si el addon no escribe 0x11BA, el valor llega 0 y no oscila nunca: se calla.
+            var run = new Runner();
+            run.Hold(120, 0.0);
+            Assert.AreEqual(0, run.Calls.Count);
+        }
+
+        [TestMethod]
+        public void ElFinalSeAnunciaSoloTrasUnMinutoSinOscilar()
         {
             var run = new Runner();
-            run.Calm(30);
-            run.Turbulent(20);
+            run.Hold(10, 1.00);
+            run.Oscillate(10);
             Assert.AreEqual(1, run.Count(TurbulenceCallout.Onset));
 
-            // Una tregua corta no es el final de nada: sigue sin anunciarse la salida.
-            run.Calm(TurbulenceAdvisor.ClearSec - 10);
+            run.Hold(20, 1.00);
             Assert.AreEqual(0, run.Count(TurbulenceCallout.Cleared),
                 "Menos de un minuto liso no cierra la zona");
 
-            run.Calm(20);
+            run.Hold(50, 1.00);
             Assert.AreEqual(1, run.Count(TurbulenceCallout.Cleared));
         }
 
@@ -124,69 +187,35 @@ namespace vmsOpenAcars.Tests
         public void ElEnfriamientoEvitaUnAnuncioPorCadaZona()
         {
             var run = new Runner();
-            run.Calm(30);
-            run.Turbulent(20);                      // Onset
-            run.Calm(TurbulenceAdvisor.ClearSec + 10);   // Cleared
+            run.Hold(10, 1.00);
+            run.Oscillate(10);                                // Onset
+            run.Hold(TurbulenceAdvisor.ClearSec + 5, 1.00);   // Cleared
 
-            run.Turbulent(20);                      // segunda zona, dentro del enfriamiento
+            run.Oscillate(10);                                // segunda zona, dentro del enfriamiento
             Assert.AreEqual(1, run.Count(TurbulenceCallout.Onset),
                 "10 minutos de enfriamiento: una zona larga no se anuncia seis veces");
 
-            // Pasado el enfriamiento desde el primer aviso, la siguiente zona sí se anuncia.
-            run.Calm(TurbulenceAdvisor.CooldownSec);
-            run.Turbulent(20);
+            run.Hold(TurbulenceAdvisor.CooldownSec, 1.00);
+            run.Oscillate(10);
             Assert.AreEqual(2, run.Count(TurbulenceCallout.Onset));
-        }
-
-        [TestMethod]
-        public void ElRuidoDeCienPiesPorMinutoNoEsTurbulencia()
-        {
-            // El ancla real: el proyecto ya documenta ~100 fpm de ruido como turbulencia leve que
-            // NO debe mover nada. Aquí se comprueba que tampoco dispara un anuncio de cabina.
-            var run = new Runner();
-            bool up = false;
-            for (int i = 0; i < 240; i++)
-            {
-                up = !up;
-                run.Step(0.5, 1.0, up ? -1700 : -1800);
-            }
-
-            Assert.AreEqual(0, run.Calls.Count,
-                "100 fpm de vaivén es ruido de fondo, no una zona de turbulencia");
-        }
-
-        [TestMethod]
-        public void SoloLaTasaVerticalBastaParaDetectarla()
-        {
-            // Factor de carga perfecto y VS dando golpes: es turbulencia igual (el pasajero la nota).
-            var run = new Runner();
-            run.Calm(20);
-            bool up = false;
-            for (int i = 0; i < 40; i++)
-            {
-                up = !up;
-                run.Step(0.5, 1.0, up ? -1300 : -1900);   // delta 600 fpm, alternando
-            }
-
-            Assert.AreEqual(1, run.Count(TurbulenceCallout.Onset));
         }
 
         [TestMethod]
         public void ResetDejaElEstadoComoUnVueloNuevo()
         {
             var run = new Runner();
-            run.Calm(30);
-            run.Turbulent(20);
+            run.Hold(10, 1.00);
+            run.Oscillate(10);
             Assert.AreEqual(1, run.Count(TurbulenceCallout.Onset));
 
             run.Advisor.Reset();
             run.Calls.Clear();
 
-            run.Calm(TurbulenceAdvisor.ClearSec + 10);
+            run.Hold(TurbulenceAdvisor.ClearSec + 10, 1.00);
             Assert.AreEqual(0, run.Count(TurbulenceCallout.Cleared),
                 "Tras el reset no queda nada que cerrar");
 
-            run.Turbulent(20);
+            run.Oscillate(10);
             Assert.AreEqual(1, run.Count(TurbulenceCallout.Onset),
                 "Y el enfriamiento del vuelo anterior tampoco se arrastra");
         }

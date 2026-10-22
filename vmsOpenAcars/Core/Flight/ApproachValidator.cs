@@ -85,6 +85,8 @@ namespace vmsOpenAcars.Core.Flight
         // fase no se sostiene (era un falso `TaxiOut` y volvió a `Pushback`, o ya pasó a otra cosa)
         // el armado se cancela y **no se cobra nada**.
         private readonly PhaseEntryGrace _taxiOutLightsGrace;
+        // Una desviación del localizador = un punto, no uno por ciclo (`Helpers/ExcursionCounter`).
+        private readonly ExcursionCounter _localizerExcursion = new ExcursionCounter();
         private bool   _arrivalQnhFinalized;
         private bool?  _provisionalArrivalQnhViolation;  // null=indeterminate, true=flagged, false=OK
         private bool   _approachGateEvaluated;
@@ -122,6 +124,7 @@ namespace vmsOpenAcars.Core.Flight
             _approachFixes    = fixes ?? new List<ApproachFix>();
             _nextFixIndex     = 0;
             _ilsGateChecked   = false;
+            _localizerExcursion.Reset();
             LocalizerViolations = 0;
             BelowMinimums     = false;
             IlsTunedCorrectly = true;
@@ -235,6 +238,7 @@ namespace vmsOpenAcars.Core.Flight
             _expectedApproach = null;
             _approachFixes    = null;
             _nextFixIndex     = 0;
+            _localizerExcursion.Reset();
             LocalizerViolations = 0;
             BelowMinimums       = false;
             _daAltitudeFt       = 0;
@@ -495,10 +499,17 @@ namespace vmsOpenAcars.Core.Flight
             double agl = ctx.AGL;
 
             // ── Localizer heading alignment (below 500 ft, above 50 ft) ──────────
+            // **Una desviación, un punto** (`Helpers/ExcursionCounter`). Hasta v0.9.49 esto sumaba un
+            // punto por ciclo de 20 Hz con tope 2, así que un solo apartamiento de −5,1° que duró 1,5 s
+            // gastaba el tope entero: en el PIREP `5ow69vzDNW5ZMayB` salieron dos líneas idénticas a
+            // las 20:25:12 y 20:25:13 y costaron −2 en un aterrizaje de −126 fpm. El contador se re-arma
+            // cuando el avión vuelve dentro de la tolerancia, así que dos apartamientos siguen siendo dos.
             if (_expectedIls != null && agl < 500 && agl > 50)
             {
                 double hdgDelta = ((ctx.Heading - _expectedIls.Course + 540) % 360) - 180;
-                if (Math.Abs(hdgDelta) > 5.0 && LocalizerViolations < 2)
+                bool outOfTolerance = Math.Abs(hdgDelta) > 5.0;
+                if (_localizerExcursion.Update(DateTime.UtcNow, outOfTolerance)
+                    && LocalizerViolations < 2)
                 {
                     LocalizerViolations++;
                     OnLog?.Invoke(_("Log_LocalizerDeviation",

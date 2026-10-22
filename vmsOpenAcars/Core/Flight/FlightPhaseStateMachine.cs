@@ -410,7 +410,11 @@ namespace vmsOpenAcars.Core.Flight
                 case FlightPhase.TakeoffRoll:
                     if (inp.GroundSpeed > 50 && inp.Pitch > 2.0)
                     {
-                        OnLog?.Invoke(_("Log_TakeoffRotation", inp.GroundSpeed, inp.Pitch.ToString("F1")), Theme.Success);
+                        // La línea «Velocidad de Rotación» NO se escribe aquí: el bloque de datos de
+                        // despegue (`TelemetryCoordinator.OnTakeoffDetectedEvent`) la publica 1 s
+                        // después con la **IAS**, que es el dato bueno. Escribirla en los dos sitios
+                        // dejaba dos rótulos iguales con números distintos (173 y 176 kt en el PIREP
+                        // `5ow69vzDNW5ZMayB`).
                         OnTakeoffDetected?.Invoke(inp.GroundSpeed, inp.Altitude, inp.VerticalSpeed);
                         TransitionTo(FlightPhase.Takeoff, prev);
                     }

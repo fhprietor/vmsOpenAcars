@@ -487,7 +487,7 @@ namespace vmsOpenAcars.Core.Flight
             if (newPhase == FlightPhase.TaxiIn)
             {
                 if (_reverserMonitor.ReversersUsed)
-                    OnLog?.Invoke($"Reversa: detectada  ENG1 {_reverserMonitor.MaxEng1RevPct:F1}%  ENG2 {_reverserMonitor.MaxEng2RevPct:F1}%  — cool-down {ThrustReverserMonitor.COOLDOWN_REQUIRED_SECONDS}s requeridos", Theme.MainText);
+                    OnLog?.Invoke($"Reversa: máximo del rodaje  ENG1 {_reverserMonitor.MaxEng1RevPct:F1}%  ENG2 {_reverserMonitor.MaxEng2RevPct:F1}%  — cool-down {ThrustReverserMonitor.COOLDOWN_REQUIRED_SECONDS}s requeridos", Theme.MainText);
                 else
                     OnLog?.Invoke("Reversa: no detectada" + (_reverserMonitor.ReverserDataAvailable ? "" : " (offset 0x207C sin datos — addon puede no soportarlo)"), Theme.MainText);
             }

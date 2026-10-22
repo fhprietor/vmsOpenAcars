@@ -2,6 +2,129 @@
 
 ---
 
+## [0.9.50] — 21/10/2026
+
+### Fixed
+
+**El cliente anunció turbulencia en pleno ascenso y «pueden moverse por la cabina» dos minutos después
+del despegue.** Del PIREP real **`5ow69vzDNW5ZMayB`** (KSEA→SKRG, B77W, v0.9.49): a las **13:17:54**
+sonó `turbulence_on` y a las **13:19:12** —con el avión a **5 200 ft subiendo a 1 800 fpm**, 2 min
+después de la carrera— `turbulence_off`, que es el aviso que libera a los pasajeros. Lo que el avión
+marcaba en el disparo era **`g 0,83`** y **`VS 5221 fpm`**.
+
+**Causa raíz: el detector confundía un desvío sostenido con turbulencia.** Contaba muestras con
+`|g − 1| ≥ 0,15` y reversos de la tasa vertical dentro de 6 s. En un ascenso acelerando g se queda
+**por debajo de 1 de forma sostenida**, así que *todas* las muestras de la ventana (120 a 20 Hz)
+estaban «desviadas» y el detector declaraba turbulencia permanente; el VS del perfil real salta
+entre **717 y 5 536 fpm**, de modo que sus reversos también encajaban. Ninguna de las dos cosas es
+turbulencia —un «level-off» o una aceleración dan el mismo g—, y el aviso se «superó» cuando g volvió
+a 1, 77 s más tarde.
+
+**Lo que se cambió:**
+
+- **La turbulencia se mide por oscilación, no por desvío** (`Helpers/TurbulenceAdvisor.cs`): el estado
+  pasa a «por encima» con `g ≥ 1,10` y a «por debajo» con `g ≤ 0,90`, y una oscilación es **cruzar de
+  una banda a la otra**. Hacen falta **3 cruces en 6 s** —media oscilación por segundo, lo que hace el
+  aire turbulento y lo que no hace ninguna maniobra—. Un ascenso deja dos cruces en un minuto como
+  mucho; un golpe aislado, ninguno. **La tasa vertical ya no decide**: es derivada, ruidosa y dominada
+  por el perfil de subida.
+- **Sin dato de g no se anuncia nada**: si el addon no escribe `0x11BA` el valor llega 0 y no oscila.
+  Se calla en vez de suponer.
+- **El aviso de fin solo se da en crucero** (`Helpers/CabinCalloutPolicy.cs`): «pueden moverse por la
+  cabina» es un permiso, y en subida o descenso es falso —en descenso la cabina dice justo lo
+  contrario—. En el resto de fases se sigue evaluando y se registra, pero no se anuncia. La **entrada**
+  en turbulencia no se filtra: una salida turbulenta se anuncia en cualquier fase en el aire.
+- El registro del fin ya no dice «cabina libre de cinturones» —el PA pide **mantener el cinturón
+  puesto**— sino `〰️ Turbulencia superada`, y cuando no se anuncia lo explica con la fase.
+
+### Fixed
+
+**El registro del vuelo se llenaba de rebotes de spoilers, tren y una «rotación» repetida.** En el
+mismo PIREP **`5ow69vzDNW5ZMayB`**, con el avión limpio en el ascenso:
+
+```
+13:17:46  Spoilers: EXTENDIDOS
+13:17:49  Spoilers: RETRAÍDOS
+13:17:50  Spoilers: RETRAÍDOS     ← dos seguidos: hubo un EXT/RET en medio
+13:17:50  Spoilers: EXTENDIDOS
+13:20:30  Spoilers: RETRAÍDOS
+13:20:31  Spoilers: EXTENDIDOS
+13:20:32  Spoilers: EXTENDIDOS
+```
+
+y en el despegue `Tren: UP` dos veces seguidas y `Velocidad de Rotación` **dos veces con números
+distintos** (173 y 176 kt).
+
+- **Los spoilers se leían como un booleano y son una POSICIÓN.** La tabla oficial de FSUIPC7
+  (`FSUIPC7 Offsets Status.pdf`) los documenta así:
+  ```
+  0x0BD8  4  SPOILERS RIGHT POSITION   "Spoiler Right position indicator (0-16383)"
+  0x0BCC  4  SPOILERS ARMED            "Spoilers arm (0=off, 1=arm for auto deployment)"
+  ```
+  y el cliente hacía **`0x0BD8 > 0 || 0x0BCC > 0`**: una posición de **1 sobre 16 383 —el 0,006 %—**
+  contaba como «EXTENDIDOS», y **estar armado** también —armar antes de aterrizar es lo normal—. De ahí
+  los rebotes: 26 líneas en 44 s de final, y rachas en el ascenso con el avión limpio. Ahora se lee la
+  **posición** (`Helpers/SpoilersPosition`) y se considera desplegado a partir del **10 %** (1 639 de
+  16 383), con el bit de armado fuera de la decisión. El `StateChangeGate` de 2,5 s se queda como segunda
+  línea de defensa, no como la única. Y la posición que va al bloque de aterrizaje es la **real**: antes
+  se publicaba `1.0` por convenio y salía «Spoilers: 100 %» aunque estuvieran al 20 %.
+
+- **Rebotes de tren y spoilers** (`Helpers/StateChangeGate.cs`, puro y con test): el **estado** que
+  consume la telemetría ya se filtraba en `FlightManager.DebounceState`, pero el **evento** que
+  escribe la línea del registro no tenía filtro: cada rebote de 1 s era una línea. Ahora el evento
+  solo sale cuando el valor nuevo lleva **2,5 s sostenido** —el mismo criterio que las luces—, la
+  primera muestra **siembra sin publicar** (un vuelo que empieza con el tren abajo ya no anuncia
+  «tren abajo» al pulsar START) y el evento lleva el valor anterior real. El estado de la telemetría
+  **no cambia**: esto es solo el registro.
+- **La final y la toma eran el peor sitio**: **26 líneas de spoilers en 44 s** (20:24:54 → 20:25:38),
+  con pares partidos por menos de un segundo. Es el mismo camino de código, así que el filtro las
+  quita igual (`StateChangeGateTests.LaAproximacionYLaTomaTampocoSeLlenanDeRebotes`); el despliegue
+  real de la toma (que dura todo el rodaje) sigue publicándose.
+- **Reversas: se informaba 0 % justo cuando no podía haber dato.** El bloque de datos de aterrizaje
+  las pintaba en el tick del toque —`Reversas: 0% / 0%` a las 20:25:39, con las reversas todavía
+  guardadas— y el único aviso de verdad llegaba **44 s después**, al entrar en `TaxiIn`
+  («detectada 95,2 %»). El dato existía y era bueno: **95,2 % en los dos motores**. Ahora
+  `ThrustReverserMonitor` expone `FirstDetection` y `FlightManager` escribe
+  `Reversa: desplegada ENG1 95% ENG2 95%` **en el momento**, el bloque de aterrizaje ya no pinta un
+  0 que no significa nada y el máximo del rodaje se resume en `TaxiIn`.
+- **El umbral de reversa era 0,6 %**, o sea ninguno: cualquier lectura positiva contaba como
+  «reversa usada» y activaba el cool-down de 180 s. Ahora hay dos: **0,5 %** para dar el offset por
+  publicado y **10 %** para darlo por usado.
+- **La desviación del localizador se cobraba dos veces por el mismo apartamiento** (`Helpers/ExcursionCounter.cs`).
+  El conteo sumaba un punto **por ciclo de 20 Hz** con tope 2, así que un solo apartamiento de **−5,1°
+  que duró un segundo y medio** —rumbo 355° contra CRS 0°— gastó el tope entero y costó **−2** en un
+  aterrizaje de −126 fpm:
+  ```
+  20:25:12  ⚠️ LOCALIZADOR: rumbo 355° desvía -5,1° del CRS ILS 0°
+  20:25:13  ⚠️ LOCALIZADOR: rumbo 355° desvía -5,1° del CRS ILS 0°
+  ```
+  Ahora se cuenta **una vez por excursión**: hace falta **0,5 s** fuera de la tolerancia para darla por
+  real (un frame suelto no gasta nada) y el contador **se re-arma cuando el avión vuelve** al eje, así
+  que dos apartamientos separados siguen siendo −2. El tope no cambia.
+
+- **Rotación duplicada**: se escribía desde la máquina de fases (con la **velocidad de tierra**) y
+  desde el bloque de datos de despegue (con la **IAS**), 1 s aparte. Se queda la de la IAS, que es el
+  dato bueno; la otra se retira.
+
+### Verificado
+
+- **Build Debug y Release OK** y **915 tests** (914 pasan, 0 fallan, 1 se omite sola).
+- El caso del PIREP es un **test de regresión** con sus datos: `ElAscensoDelPirepRealNoEsTurbulencia`
+  recorre las 17 filas `ICL` del ascenso (871 → 4 700 ft) con el **`g 0,83` sostenido** que el cliente
+  registró al disparar, más el ruido del sensor, y exige **cero avisos**. `UnDesvioSostenidoDeGNoEsUnaZona`,
+  `CambiarDeNivelTampocoEsTurbulencia`, `UnGolpeAisladoNoEsUnaZona` y `SinDatoDeGNoSeAnunciaNada` fijan
+  las otras caras del mismo error, y `CabinCalloutPolicyTests` fija que el permiso solo se da en crucero.
+  `StateChangeGateTests` reproduce la racha del registro con sus tiempos y exige que los rebotes de
+  0,4–1,4 s no se publiquen.
+- **Lo que NO está verificado**: el umbral de 3 cruces en 6 s no se ha podido contrastar con una
+  turbulencia real grabada —no hay ninguna en el corpus—, así que puede quedarse corto en un chop muy
+  ligero (no anunciaría). Lo que sí está medido es el **falso positivo**, que era el problema. Y no se
+  descarta que el offset de spoilers del 777 publique «armado» donde nosotros leemos «desplegado»
+  (`CurrentSpoilersDeployed` usa `0x0BD8 > 0 || 0x0BCC > 0`): el filtro quita el parpadeo, no cambia
+  esa semántica.
+
+---
+
 ## [0.9.49] — 20/10/2026
 
 ### Fixed

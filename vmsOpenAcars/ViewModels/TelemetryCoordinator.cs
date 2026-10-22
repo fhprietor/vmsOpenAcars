@@ -663,18 +663,21 @@ namespace vmsOpenAcars.ViewModels
             }
 
             // ── Turbulencia ───────────────────────────────────────────────────────
-            // Se mide con lo que YA se lee en cada ciclo: el factor de carga (`0x11BA`) y la tasa
-            // vertical (`0x02C8`). No se usa la señal de cinturones de la cabina porque su offset no
-            // se lee hoy —afirmar que el comandante la encendió sería inventar— y porque el piloto
-            // suele dejarla puesta todo el vuelo, con lo que como disparador no distingue nada.
+            // Se mide con lo que YA se lee en cada ciclo: el factor de carga (`0x11BA`). La tasa
+            // vertical **ya no decide** — es derivada, ruidosa y dominada por el perfil de subida:
+            // en el PIREP `5ow69vzDNW5ZMayB` saltaba entre 700 y 5 536 fpm subiendo, y con reversos
+            // de VS el detector llamaba turbulencia a un ascenso normal. Lo que distingue la
+            // turbulencia es la **oscilación** de g, no su desvío (`Helpers/TurbulenceAdvisor`).
+            // No se usa la señal de cinturones de la cabina porque su offset no se lee hoy —afirmar
+            // que el comandante la encendió sería inventar— y porque el piloto suele dejarla puesta
+            // todo el vuelo, con lo que como disparador no distingue nada.
             // El AGL es contra el terreno (`0x0020`), así que no depende de la fase ni del destino.
             DateTime now = DateTime.UtcNow;
-            bool airborne = _flightManager != null && !e.IsOnGround
-                            && _flightManager.CurrentPhase.IsAirborne();
+            FlightPhase phase = _flightManager?.CurrentPhase ?? FlightPhase.Idle;
+            bool airborne = _flightManager != null && !e.IsOnGround && phase.IsAirborne();
             double terrainAgl = e.AltitudeFeet - e.GroundAltitudeFeet;
 
-            TurbulenceCallout turbulence = _turbulence.Feed(
-                now, e.GForce, e.VerticalSpeedFpm, airborne, terrainAgl);
+            TurbulenceCallout turbulence = _turbulence.Feed(now, e.GForce, airborne, terrainAgl);
 
             if (turbulence == TurbulenceCallout.Onset)
             {
@@ -684,8 +687,14 @@ namespace vmsOpenAcars.ViewModels
             }
             else if (turbulence == TurbulenceCallout.Cleared)
             {
-                _cabinAnnouncements.QueueAnnouncement("turbulence_off");
-                _cb.Log?.Invoke("〰️ Turbulencia superada: cabina libre de cinturones",
+                // El aviso de que se puede volver a circular solo se da en crucero: en subida o en
+                // descenso ese permiso es falso (y en descenso dice justo lo contrario la cabina).
+                bool announce = CabinCalloutPolicy.AnnouncesTurbulenceCleared(phase);
+                if (announce) _cabinAnnouncements.QueueAnnouncement("turbulence_off");
+
+                _cb.Log?.Invoke(announce
+                        ? "〰️ Turbulencia superada"
+                        : $"〰️ Turbulencia superada en {phase}: sin aviso de cabina (solo se avisa en crucero)",
                     Theme.SecondaryText);
             }
 
@@ -1269,7 +1278,10 @@ namespace vmsOpenAcars.ViewModels
             _cb.Log?.Invoke(_("Log_TouchdownSpeed",     $"{data.IasKt:F0}", $"{data.GroundSpeedKt:F0}"), Theme.MainText);
             _cb.Log?.Invoke(_("Log_PitchBank",          $"{data.PitchDeg:F1}", $"{data.BankDeg:F1}"), Theme.MainText);
             _cb.Log?.Invoke(_("Log_TouchdownFlapsSpoilers", $"{data.FlapsPosition * 100:F0}", $"{data.SpoilersPosition * 100:F0}"), Theme.MainText);
-            _cb.Log?.Invoke(_("Log_TouchdownReversers", $"{data.Eng1ReverserPct:F0}", $"{data.Eng2ReverserPct:F0}"), Theme.MainText);
+            // Reversas: **no** se pintan aquí. En el tick del toque todavía están guardadas, así que la
+            // línea decía siempre «0% / 0%» (20:25:39 en `5ow69vzDNW5ZMayB`) y parecía que no se habían
+            // detectado. Se publican cuando se despliegan (`FlightManager` → `FirstDetection`) y se
+            // resumen al entrar en TaxiIn.
             _cb.Log?.Invoke(_("Log_TouchdownBrakes",    $"{data.BrakeLeft * 100:F0}", $"{data.BrakeRight * 100:F0}", GetAutobrakeName(data.AutobrakeSetting)), Theme.MainText);
             _cb.Log?.Invoke(_("Log_OatWind", $"{data.OatCelsius:F0}", $"{data.WindSpeedKt:F0}", $"{data.WindDirDeg:F0}"), Theme.MainText);
 

@@ -730,13 +730,50 @@ void Reset()
 
 ---
 
-### ThrustReverserMonitor — `Core/Flight/ThrustReverserMonitor.cs` (v0.8.5)
+### Los spoilers son una posición, no un booleano (v0.9.50)
+
+Lo que publica FSUIPC7, según su propia tabla (`FSUIPC7 Offsets Status.pdf`, página de
+`SPOILERS`):
+
+| Offset | Tamaño | Variable | Significado |
+|---|---|---|---|
+| `0x0BD0` | 4 | `SPOILERS HANDLE POSITION` | posición del mando (0–16383) |
+| `0x0BD4` | 4 | `SPOILERS LEFT POSITION` | *Spoiler Left position indicator (0-16383)* |
+| `0x0BD8` | 4 | `SPOILERS RIGHT POSITION` | *Spoiler Right position indicator (0-16383)* |
+| `0x0BCC` | 4 | `SPOILERS ARMED` | *Spoilers arm (0=off, 1=arm for auto deployment)* |
+
+El cliente leía `0x0BD8` y `0x0BCC` **como booleanos**: `valor > 0`. Con eso, **una posición de 1
+sobre 16 383 —el 0,006 % de recorrido— contaba como «EXTENDIDOS»**, y **estar armado** también, que es
+lo normal antes de aterrizar. De ahí el parpadeo del registro en el PIREP real **`5ow69vzDNW5ZMayB`**:
+**26 líneas de spoilers en 44 s** de final, con pares partidos por menos de un segundo, y rachas en el
+ascenso con el avión impecable.
+
+La regla que queda (`Helpers/SpoilersPosition`): se lee la **posición**, se pasa a fracción 0,0–1,0 y
+se considera desplegado a partir del **10 %** (1 639 de 16 383) —el despliegue automático de la toma
+va al 100 %—. El bit de armado **no** cuenta. La posición que va al bloque de aterrizaje es la
+**real**: antes se publicaba `1.0` por convenio y salía «Spoilers: 100 %» aunque estuvieran al 20 %.
+
+El `Helpers/StateChangeGate` (2,5 s de sostenido) se queda como **segunda** línea de defensa, no como
+la única: con el umbral de posición el temblor de unas cuentas ya no cruza, y el filtro cubre lo que
+quede.
+### ThrustReverserMonitor — `Core/Flight/ThrustReverserMonitor.cs` (v0.8.5, umbral 0.9.50)
 
 Monitorea el despliegue de reversas tras el aterrizaje y controla el cool-down mínimo antes de apagar motores.
 
-**Umbral de reversa:** > 0.6 % de despliegue (offset FSUIPC FLOAT64 `0x207C`/`0x217C`, multiplicado × 100). Si tras 30 s post-touchdown el offset retorna siempre 0, se marca como "offset no soportado" por el addon.
+**Dos umbrales, porque son dos preguntas distintas (v0.9.50).** Que el addon **publique** el dato
+(`ReverserDataAvailable`) se da por bueno con cualquier lectura por encima de **0,5 %**; que la
+reversa se haya **usado** (`ReversersUsed`) exige **10 %**. Antes el umbral era **0,6 %** para todo,
+así que una lectura de una décima contaba como despliegue, activaba el cool-down de 180 s y el
+comentario decía «filters out noise» sin filtrar nada. El despliegue real medido en el PIREP
+**`5ow69vzDNW5ZMayB`** (SKRG, 21/10/2026) fue de **95,2 % en los dos motores**.
 
-**Cool-down requerido:** 180 s desde el touchdown si las reversas fueron usadas. `CheckShutdown()` devuelve un mensaje de advertencia si los motores se apagan antes de completar el cool-down (solo durante TaxiIn).
+**El 0 % del instante del toque no es una medida.** Las reversas se despliegan 1-3 s *después* de la
+toma, así que leer el offset en el mismo tick del toque da 0 siempre: eso es lo que publicaba el
+bloque de datos de aterrizaje (`Reversas: 0% / 0%` a las 20:25:39) y lo que hacía creer que no se
+habían detectado. Ahora el dato se publica **cuando ocurre** (`FirstDetection`, que `FlightManager`
+escribe en el log en ese mismo ciclo) y el **máximo** del rodaje se resume al entrar en `TaxiIn`.
+
+**Cool-down requerido:** 180 s desde el touchdown si las reversas fueron usadas. `CheckShutdown()` devuelve un mensaje de advertencia si los motores se apagan antes de completar el cool-down (solo durante TaxiIn). El reloj es inyectable (`Func<DateTime>`) para poder probarlo sin esperar.
 
 **API pública:**
 
@@ -3001,29 +3038,39 @@ sino `Helpers/TurbulenceAdvisor`, que es puro y con estado (reloj inyectado).
 lee hoy en `FsuipcService` —afirmar en el texto que «el comandante ha encendido la señal» sería
 inventar— y, en los aviones que la publican, el piloto suele dejarla puesta **todo el vuelo**, con lo
 que como disparador no distingue una zona de turbulencia de un vuelo tranquilo con el letrero puesto.
-Se detecta la turbulencia misma, con los dos datos que **ya** se leen a 20 Hz:
+Se detecta la turbulencia misma con el **factor de carga** (`0x11BA` / 625, hoy en
+`RawTelemetryData.GForce`), que es lo que el pasajero siente, y **la tasa vertical ya no participa**.
 
-| Dato | Offset | Uso |
-|---|---|---|
-| Factor de carga | `0x11BA` / 625 (ahora en `RawTelemetryData.GForce`) | desviación `|g − 1| ≥ 0,15` |
-| Tasa vertical | `0x02C8` | golpes de `≥ 150 fpm` y sus reversiones |
+**Lo que la turbulencia tiene de turbulencia es la oscilación, no el desvío (v0.9.50).** Este es el
+error que costó un aviso falso en el PIREP real **`5ow69vzDNW5ZMayB`** (KSEA→SKRG, 21/10/2026):
+`turbulence_on` a las 13:17:54 y `turbulence_off` —el aviso que libera a los pasajeros— a las
+13:19:12, **2 min después del despegue y a 5 200 ft subiendo a 1 800 fpm**. En el disparo, el avión
+marcaba **`g 0,83`** y **`VS 5221 fpm`**.
 
-Eso funciona en cualquier avión, publique los letreros o no. El ancla de los umbrales es del propio
-proyecto: **~100 fpm de ruido de VS es turbulencia leve** —es la cifra con la que la máquina de fases
-evita falsas transiciones—, así que un golpe cuenta a partir de 150 fpm y ese ruido **no** dispara;
-hay un test que lo fija.
+La versión anterior contaba muestras con `|g − 1| ≥ 0,15` y reversos de VS en 6 s. En un ascenso
+acelerando g se queda **por debajo de 1 de forma sostenida**, así que *todas* las muestras de la
+ventana (120 a 20 Hz) estaban «desviadas»: el detector declaraba turbulencia permanente mientras
+duró la subida, y la «superó» cuando g volvió a 1. Los reversos de VS encajaban por lo mismo —el
+perfil real salta entre **717 y 5 536 fpm**—. Un `level-off`, una aceleración o un cambio de empuje
+dan exactamente la misma firma: **con un desvío estático no se distingue un bache de una maniobra**.
 
-**La densidad es el «sostenido» (corregido en el mismo cambio).** La primera versión evaluaba la
-señal sobre una ventana de 20 s y exigía 3 s seguidos: un bache de 3 s dejaba sus golpes en la
-ventana y seguía contando como turbulencia **20 s después de haber terminado**, de modo que anunciaba
-un bache corto y además retrasaba el «ya pasó». Ahora la señal se mide sobre **6 s** y hacen falta
-**6 reversiones del VS** o **4 muestras con g fuera de 1** *dentro de esos 6 s* —un bache de 3 s da 5
-reversiones y 3 muestras, o sea que no llega—. El resto de reglas:
+Ahora se cuentan **oscilaciones**: el estado pasa a «por encima» con `g ≥ 1,10`, a «por debajo» con
+`g ≤ 0,90`, y una oscilación es **cruzar de una banda a la otra**; hacen falta **3 cruces en 6 s**
+—media oscilación por segundo, lo que hace el aire turbulento y lo que no hace ninguna maniobra—.
+Un ascenso deja dos cruces en un minuto como mucho, un golpe aislado ninguno. Sin dato de g (addon
+que no escribe `0x11BA`) no hay oscilación y **no se anuncia nada**: se calla en vez de suponer.
 
-- **60 s lisos** para anunciar el final: una tregua de diez segundos no es el final de nada.
+El resto de reglas:
+
+- **60 s sin oscilar** para anunciar el final: una tregua de diez segundos no es el final de nada.
 - **10 min de enfriamiento** entre anuncios de entrada: una zona de media hora no se anuncia seis veces.
 - **AGL mínimo 1 000 ft** y avión en el aire, medido contra el terreno (`0x0020`): en la final se
   vuela, no se anuncia.
+- **El aviso de fin solo se da en crucero** (`Helpers/CabinCalloutPolicy`): «pueden moverse por la
+  cabina» es un permiso y en subida o descenso es falso —en descenso la cabina dice justo lo
+  contrario—. En el resto de fases el estado se cierra igual (para que una zona posterior pueda
+  anunciarse) pero no se habla. La **entrada** no se filtra: una salida turbulenta se anuncia en
+  cualquier fase en el aire.
 
 El texto no dice «el comandante ha encendido la señal» —no se sabe—, dice lo que se acaba de medir:
 «estamos atravesando una zona de turbulencia». Y el final no da barra libre: «pueden moverse por la
