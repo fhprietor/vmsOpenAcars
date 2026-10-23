@@ -2,6 +2,50 @@
 
 ---
 
+## [0.9.54] — 22/10/2026
+
+### Fixed
+
+**El rodaje de salida cuenta desde que el avión se mueve, no desde que la fase lo dice.** Lo reportó un
+piloto sobre el PIREP real `rMBVEKj5PZzx0pX9` (SKRG→SKSM, A321 de Fenix): `TAXI OUT` se declaró cuando
+iba a **24 kt**, y todo lo rodado antes no contaba.
+
+Los tiempos del registro lo explican:
+
+| Hora | Qué pasó |
+|---|---|
+| 18:25:32 | `── PUSHBACK ──` |
+| 18:26:11 | último movimiento del empuje (GS 4) |
+| 18:26:40 | parado (GS 0) |
+| **18:28:41** | **empieza a rodar de verdad** (GS 6, y a 17, 22 y 24 kt) |
+| **18:30:31** | **`── TAXI OUT ──`** → **299 s** después de entrar en `Pushback` |
+
+O sea: la transición la hizo el **rescate de 300 s**, no el freno de parqueo, porque en ese vuelo **no
+hubo ningún evento de freno** — `0x0BC8` documenta `0 = off, 32767 = on` y el umbral del cliente es el
+60 %, así que o el avión no lo publica o el piloto no lo puso—. Resultado: **110 s** de rodaje real
+quedaban fuera de la fase y, por tanto, fuera de la métrica de motor único.
+
+- **`Helpers/TaxiStartAccrual.cs`** (puro, con test): durante `Pushback` acumula lo rodado **desde la
+  última parada** —una parada reinicia la racha— y lo vuelca a `TaxiOut` **una sola vez** cuando la fase
+  se declara, con su tiempo, sus metros y el reparto de motor único que de verdad hubo. No estima: los
+  ciclos de 50 ms ya traían el estado de los motores, solo que se tiraban por no estar en la fase.
+- **No se retrasa la fase**: `Block Off` y las líneas del registro se escriben con la hora de la
+  transición, y moverla haría que el PIREP dijera que el avión salió del puesto 110 s antes de moverse.
+  Solo se recupera la cuenta de la métrica.
+- Un ciclo con delta no creíble (reloj hacia atrás, `SampleClock`) sigue sin sumar.
+
+### Verificado
+
+**951 tests** (950 pasan, 0 fallan, 1 se omite sola), con `TaxiStartAccrualTests` nuevo: los 110 s del
+vuelo real, que cuenta desde la última parada y no desde el principio del empuje, una parada en medio,
+que sin movimiento no hay nada que volcar, que no se paga dos veces y que un vuelo nuevo vuelve a
+empezar.
+
+**Lo que NO está verificado**: el vuelo real con la corrección. Y queda sin explicar por qué no llegó el
+evento del freno de parqueo en un A321 de Fenix; si se repite, el siguiente paso es apuntar el valor
+crudo de `0x0BC8` en el diagnóstico.
+
+---
 ## [0.9.53] — 22/10/2026
 
 ### Fixed

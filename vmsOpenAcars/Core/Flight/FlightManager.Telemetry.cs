@@ -243,8 +243,26 @@ namespace vmsOpenAcars.Core.Flight
                                       _groundMotion.WindowMetres, data.Eng1Running, data.Eng2Running);
             bool noEngineMoving = moved && !anyEngine;
 
-            if (CurrentPhase == FlightPhase.TaxiOut)
+            if (CurrentPhase == FlightPhase.Pushback)
             {
+                // Rodando **antes** de que la fase cambie: se guarda desde la última parada y se vuelca
+                // a `TaxiOut` cuando la fase se declare (`Helpers/TaxiStartAccrual`). En el PIREP
+                // `rMBVEKj5PZzx0pX9` eran 110 s de rodaje real que se perdían porque `TAXI OUT` llegó
+                // 299 s tarde (sin evento de freno de parqueo, disparó el rescate de 300 s).
+                _taxiStart.Feed(dtSeconds, moving ? _groundMotion.StepMetres : 0.0, moving, oneEngineOnly);
+            }
+            else if (CurrentPhase == FlightPhase.TaxiOut)
+            {
+                // El tramo que se rodó antes de la transición entra aquí una sola vez, y entra con el
+                // tiempo y los metros que de verdad se hicieron, no con una estimación.
+                if (!_taxiStart.Consumed &&
+                    _taxiStart.Take(out double preMoving, out double preSingle, out double preMetres))
+                {
+                    _pen.TaxiOutMovingSeconds       += preMoving;
+                    _pen.TaxiOutSingleEngineSeconds += preSingle;
+                    _pen.TaxiOutMetres              += preMetres;
+                }
+
                 if (moving)
                 {
                     _pen.TaxiOutMovingSeconds += dtSeconds;
@@ -267,6 +285,9 @@ namespace vmsOpenAcars.Core.Flight
 
         /// <summary>El movimiento medido por **desplazamiento**, compartido con la gracia de las luces.</summary>
         private readonly GroundMotion _groundMotion = new GroundMotion();
+
+        /// <summary>El rodaje anterior a TaxiOut, guardado desde la última parada.</summary>
+        private readonly TaxiStartAccrual _taxiStart = new TaxiStartAccrual();
 
         /// <summary>Segundos que el avión lleva parado en tierra con una fase de vuelo.</summary>
         private double _stuckAirPhaseSeconds;

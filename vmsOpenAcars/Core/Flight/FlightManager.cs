@@ -969,7 +969,7 @@ namespace vmsOpenAcars.Core.Flight
         /// pueda distinguirlo de las filas `CHK` (que llevan el desglose del score). Hasta ahora los
         /// avisos solo vivían en el fichero de log local del piloto, así que no eran auditables desde
         /// el PIREP. Va con la posición y en segundo plano, para no bloquear el hilo de telemetría, y
-        /// se lee con `GET /acars/logs` —el endpoint que sirve los `type = 2`—, no con
+        /// se lee con `GET /api/pireps/{id}/acars/logs` —el que sirve los `type = 2`—, no con
         /// `/acars/position`: phpVMS añadió ese GET el 29/09/2026 al comprobar que nuestros avisos se
         /// guardaban sin que nadie pudiera leerlos.
         /// </summary>
