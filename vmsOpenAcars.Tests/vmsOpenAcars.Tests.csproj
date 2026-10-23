@@ -90,6 +90,7 @@
     <Compile Include="PirepMassUnitsTests.cs" />
     <!-- Anuncios de cabina locutados: las frases con datos opcionales y la elección de idioma
          según las voces instaladas. Se prueban sin tarjeta de sonido porque son puras. -->
+    <Compile Include="PushbackTaxiGateTests.cs" />
     <Compile Include="TaxiStartAccrualTests.cs" />
     <Compile Include="PmdgSdkTests.cs" />
     <Compile Include="AutopilotPanelTests.cs" />

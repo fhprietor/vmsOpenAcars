@@ -2,6 +2,38 @@
 
 ---
 
+## [0.9.55] — 23/10/2026
+
+### Fixed
+
+**La tercera puerta del `Pushback`: que el avión esté rodando de verdad.** Cierra el caso que dejó al
+descubierto el PIREP `rMBVEKj5PZzx0pX9`, donde `TAXI OUT` esperó **299 s** con el avión rodando desde
+hacía 110.
+
+La puerta del **freno de parqueo** solo reacciona al **cambio** de estado, y eso deja fuera a un piloto
+concreto: el que arranca el ACARS con el freno **ya liberado** (así fue en ese vuelo, y no lo volvió a
+poner en todo el trayecto). Sin cambio no hay evento, la puerta no se arma y solo queda el rescate de
+300 s. El avión no tiene la culpa: el mismo A321 reportó **cinco** eventos de freno en
+`6aB60vzYbAKm7Z71` y `FsuipcService.cs` **no ha cambiado** entre v0.9.46 y v0.9.54 (`git diff` vacío).
+
+- **`Helpers/PushbackTaxiGate.cs`** (puro, con test): **GS ≥ 8 kt sostenidos 15 s** (**62 m**) **con al
+  menos un motor en marcha**. Los números salen de los tres vuelos medidos: un tug empuja a **4-6 kt**
+  (`XPNkY9jDneZ6ByGQ` rozó 5 kt con **una sola muestra**, con los motores apagados) y el rodaje real va a
+  **9-24 kt**. La ventana se re-arma al bajar de 8 kt, así que mide el tramo continuo y no la suma.
+- **Sin dato de motores la puerta no se abre** y deciden las otras dos: es la misma regla de siempre, un
+  dato que falta no puede bloquear. Un addon que no publique motores conserva freno y rescate.
+- En `rMBVEKj5PZzx0pX9` habría cerrado a las **18:28:56**, **95 s** antes del rescate. En el remolque del
+  13/10 no habría disparado.
+
+### Verificado
+
+**957 tests** (956 pasan, 0 fallan, 1 se omite sola), con `PushbackTaxiGateTests` nuevo: el caso real con
+sus tiempos, el remolque del 13/10, el remolque incómodo **con** motores a 6 kt, el re-armado al frenar,
+la ausencia de dato de motores y el reset por empuje.
+
+**Lo que NO está verificado**: el vuelo real con la puerta nueva.
+
+---
 ## [0.9.54] — 22/10/2026
 
 ### Fixed

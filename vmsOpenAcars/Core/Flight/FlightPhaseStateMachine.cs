@@ -83,6 +83,9 @@ namespace vmsOpenAcars.Core.Flight
         // se **sostenga** (no una sola muestra como la que disparó el falso `TaxiOut` de 01:58:56).
         private DateTime _pushbackAboveSpeedStart = DateTime.MinValue;
 
+        /// <summary>La tercera puerta: rodaje de verdad (GS >= 8 kt, 15 s, con motor).</summary>
+        private readonly PushbackTaxiGate _pushbackTaxiGate = new PushbackTaxiGate();
+
         // ── Constants ─────────────────────────────────────────────────────────
         private const double PushbackMaxSpeed       = 6.0;
         private const int    PushbackMinSec         = 8;
@@ -192,6 +195,7 @@ namespace vmsOpenAcars.Core.Flight
             _descentToClimbStart  = DateTime.MinValue;
             _goAroundStart        = DateTime.MinValue;
             _pushbackStartTime           = DateTime.MinValue;
+            _pushbackTaxiGate.Reset();
             _stoppedStartTime            = DateTime.MinValue;
             _takeoffRollStart            = DateTime.MinValue;
             _touchAndGoStart             = DateTime.MinValue;
@@ -379,8 +383,15 @@ namespace vmsOpenAcars.Core.Flight
                     else
                         _pushbackAboveSpeedStart = DateTime.MinValue;
 
+                    // Tercera puerta (v0.9.55): el avion ya rueda de verdad. Necesaria porque el freno de
+                    // parqueo solo avisa del CAMBIO: el PIREP `rMBVEKj5PZzx0pX9` arranco con el freno ya
+                    // liberado y nunca lo volvio a poner, asi que esa puerta no pudo armarse y `TaxiOut`
+                    // espero el rescate de 300 s con el avion ya rodando (110 s fuera de la fase).
+                    bool taxiEvidence = _pushbackTaxiGate.Confirm(Now(), inp.GroundSpeed, inp.AreEnginesOn);
+
                     bool pushbackEnded = _pushbackEndedByBrake
-                                      || (Now() - _phaseStartTime).TotalSeconds >= PushbackMaxSec;
+                                     || taxiEvidence
+                                     || (Now() - _phaseStartTime).TotalSeconds >= PushbackMaxSec;
                     bool speedSustained = _pushbackAboveSpeedStart != DateTime.MinValue
                         && (Now() - _pushbackAboveSpeedStart).TotalSeconds >= PushbackToTaxiSustainSec;
 
@@ -628,6 +639,9 @@ namespace vmsOpenAcars.Core.Flight
         // ── Helpers ───────────────────────────────────────────────────────────
         private void TransitionTo(FlightPhase to, FlightPhase from)
         {
+            // La ventana de la puerta de rodaje es por empuje: no se hereda de uno a otro.
+            if (to == FlightPhase.Pushback || from == FlightPhase.Pushback) _pushbackTaxiGate.Reset();
+
             if (from == FlightPhase.Approach && to == FlightPhase.Climb)
                 OnApproachGateReset?.Invoke();
             CurrentPhase    = to;

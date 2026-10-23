@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.54  
+**Versión actual:** v0.9.55  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -499,7 +499,7 @@ panel con `AutoScroll` y `Dock.Fill` y los botones en `Dock.Bottom`, con la vent
 | Descent → Approach | dist<10% totalDist o AGL<aglThreshold | inmediato |
 | Approach → Go-around | VS>600 fpm + AGL 100–3000 ft + ≥30 s en Approach | 10 s |
 | TaxiOut → TakeoffRoll | GS>30 kt + Pitch<1.0° | 5 s (v0.9.2) |
-| Pushback → TaxiOut | **(freno de parqueo puesto —fin del empuje— o 300 s en la fase) + GS>5 kt** | 3 s (v0.9.40; tope 300 s desde v0.9.41) |
+| Pushback → TaxiOut | **(freno puesto —fin del empuje—, o 300 s en la fase, o rodaje real: GS ≥ 8 kt 15 s con motor) + GS>5 kt sostenido** | 3 s (v0.9.40/41/55) |
 
 **Gracia de entrada de fase (v0.9.40).** El −5 de «Luces TAXI APAGADAS durante el rodaje» del PIREP
 real `XPNkY9jDneZ6ByGQ` se cobró a las 01:58:56, en el mismo tick en que se declaró el (falso) rodaje
@@ -510,14 +510,13 @@ Desde v0.9.40 `ApproachValidator.CheckPhaseEntryLights(TaxiOut)` **no evalúa: a
 `TaxiOut`, se cancela sin cobrar. El **−5 de IVAO se difiere con la misma gracia**
 (`MainViewModel.CheckIvaoAtBlocksOffWithGrace`). Rodar >5 s con el taxi light apagado **sigue
 penalizando**. El helper puro es `Helpers/PhaseEntryGrace.cs` (reloj inyectable, con test).
-**El tope de `PushbackMaxSec` son 300 s desde v0.9.41, no 90**: con 90 s se disparaba a mitad de
-**todos** los pushbacks reales medidos —**142 s** en `XPNkY9jDneZ6ByGQ`, **148 s** en
-`wk0896ajpxKalPrp`—, así que **el timeout no es la puerta habitual, solo el rescate** del piloto que
-nunca pone el freno; la puerta normal es el **freno de parqueo**, que es la señal semántica correcta.
-**El estado de motores NO es puerta de `Pushback → TaxiOut`, y es una decisión**: `Eng1Running`/
-`Eng2Running` se derivan de N1/RPM/torque, así que «cero motores» y «el addon no lo publica» son
-indistinguibles; una puerta así dejaría atrapado en `Pushback` al que no publica motores, y en este
-caso no habría ayudado (a las 01:58:56 no había arrancado ninguno: arrancaron a las 01:59:06).
+**El tope de `PushbackMaxSec` son 300 s desde v0.9.41, no 90** (con 90 s se disparaba a mitad de todos los
+empujes: **142 s** y **148 s**): es el rescate, no la puerta habitual. La normal es el **freno de parqueo**, y
+desde v0.9.55 hay una **tercera** (`Helpers/PushbackTaxiGate`): **GS ≥ 8 kt sostenidos 15 s** (**62 m**)
+**con motor**, porque el freno solo avisa del **cambio** y `rMBVEKj5PZzx0pX9` arrancó con él ya liberado
+(rodó **110 s** fuera de fase; cierra **95 s** antes del rescate). Un tug va a **4-6 kt**; el rodaje, a **9-24**.
+**El estado de motores no decide por sí solo el fin del empuje**: «cero motores» y «el addon no lo publica» son
+indistinguibles, así que solo entra **dentro** de la puerta de rodaje; sin ese dato no se abre y deciden las otras.
 
 Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia leve (~100 fpm). **Tren y spoilers** pasan por `Helpers/StateChangeGate` (2,5 s; la 1.ª muestra siembra): el spoiler se leía como booleano y **`0x0BD8` es posición 0–16383** —se despliega al **10 %** (`Helpers/SpoilersPosition`) y `0x0BCC` es armado, no despliegue—. **Reversas**: al desplegarse (`FirstDetection`, 10 %), no en el tick del toque. **Panel (0.9.51/0.9.52)**: el AP se decide con las banderas `0x07BC`/`0x07C4..0x0804` (`AutopilotPanel`) y **nunca con `0x07CC` —es el rumbo del bug—**; autobrake `0x2F80` y carteles `0x341C`/`0x341D`, solo válidos si el valor **cambia**. **En PMDG eso no existe**: su bloque SDK (`Helpers/PmdgSdk`) se lee si está; si no, `---` — **ninguna función puede depender de que el piloto edite archivos del simulador**.
 
@@ -568,7 +567,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **951 tests** (1 se omite sola):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **957 tests** (1 se omite sola):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
