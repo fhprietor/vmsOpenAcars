@@ -35,12 +35,15 @@ tanto, tampoco para la bonificación de motor único.
 Con eso, en un vuelo como el de ayer el tiempo en movimiento empieza ~2 minutos antes y la métrica dice
 lo que el piloto hizo de verdad.
 
-## Lo que sigue pendiente (y quiero saber)
+## Una aclaración, por si te pasó lo mismo
 
-**Por qué no llegó el evento del freno de parqueo** en un A321 de Fenix. El offset es
-`0x0BC8` (`0 = off, 32767 = on`) y el umbral del cliente es el 60 %, así que o el avión no lo publica o
-el freno no se puso. Si te vuelve a pasar, avísame: el siguiente paso es apuntar el valor crudo en el
-registro para saber cuál de las dos es.
+En ese vuelo **no hubo ningún evento de freno de parqueo** porque el freno **ya estaba liberado cuando
+arrancó el ACARS** y no se volvió a poner en todo el trayecto. El ACARS registra **cambios de estado**:
+sin cambio, no hay línea. **El avión no tiene la culpa** — ese mismo A321 reportó **cinco** eventos de
+freno en otro vuelo, y el código que lo lee no ha cambiado entre la 0.9.46 y hoy.
+
+Por eso el `TAXI OUT` esperó los cinco minutos del rescate. Ya está corregido: la **0.9.55** cierra la
+fase también cuando el avión **rueda de verdad** (8 kt sostenidos 15 s con motor en marcha).
 
 ## Lo que no cambia
 
