@@ -13,15 +13,27 @@ namespace vmsOpenAcars.Models
     /// <c>InProgress</c> y <c>Paused</c>. Todo lo demás significa que el PIREP fue
     /// archivado.
     /// </summary>
-    public enum PirepState
-    {
-        InProgress = 0,
-        Paused     = 1,
-        Pending    = 2,
-        Accepted   = 3,
-        Rejected   = 4,
-        Cancelled  = 5,
-    }
+        /// <remarks>
+        /// Los valores son los de **phpVMS v7** (`app/Enums/PirepState.php`), leídos de su código el
+        /// 27/10/2026: `IN_PROGRESS=0, PENDING=1, ACCEPTED=2, CANCELLED=3, DELETED=4, DRAFT=5,
+        /// REJECTED=6, PAUSED=7`.
+        ///
+        /// Hasta v0.9.56 estaban **inventados** (`Paused=1`, `Pending=2`, `Accepted=3`…) y el error
+        /// tenía consecuencia: un PIREP en **`Pending` (1)** se leía como «pausado» = activo, así que
+        /// el fallback de `FilePirep()` lo tomaba por no archivado — y un vuelo enviado a revisión es
+        /// justo el que ahora se manda con `1`.
+        /// </remarks>
+        public enum PirepState
+        {
+            InProgress = 0,
+            Pending    = 1,
+            Accepted   = 2,
+            Cancelled  = 3,
+            Deleted    = 4,
+            Draft      = 5,
+            Rejected   = 6,
+            Paused     = 7,
+        }
 
     public class Pirep
     {

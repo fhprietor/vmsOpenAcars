@@ -269,6 +269,30 @@ namespace vmsOpenAcars.Core.Flight
         public bool AreEnginesOn => _areEnginesOn;
 
         /// <summary>
+        /// Zonas **acotadas** (prohibida, restringida, peligrosa) dentro de cuyas límites verticales
+        /// entró el avión en este vuelo. Cada entrada es una invasión y, si hay alguna, el PIREP se
+        /// filea como `PENDING` para que pase por revisión (`Helpers/PirepStatePolicy`).
+        ///
+        /// **No depende de los avisos del OSD**: el piloto puede apagar los avisos de espacio aéreo en
+        /// pantalla y la invasión se registra igual. El registro del vuelo y el mapa tampoco cambian.
+        /// </summary>
+        public int AirspaceViolations { get; private set; }
+
+        /// <summary>Última invasión registrada, como `RESTRICTED SKP35`, para el registro y el PIREP.</summary>
+        public string AirspaceViolationDetail { get; private set; } = "";
+
+        /// <summary>
+        /// Anota una invasión. Se llama desde el handler de `OnAirspaceAlert`, que es el que dispara
+        /// el servicio **solo** cuando el avión está dentro del polígono Y por debajo del techo:
+        /// sobrevolar por encima no es invadir.
+        /// </summary>
+        public void RegisterAirspaceViolation(string type, string icao)
+        {
+            AirspaceViolations++;
+            AirspaceViolationDetail = $"{(type ?? "").ToUpperInvariant()} {icao}".Trim();
+        }
+
+        /// <summary>
         /// El veredicto del rodaje **de salida**, con sus cifras. Lo consume el registro del
         /// aterrizaje (`AcarsReporter.SnapshotLandingRecord`) para que la base local guarde lo mismo
         /// que decidió la bonificación: la regla se evalúa en un solo sitio

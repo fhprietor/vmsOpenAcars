@@ -65,10 +65,11 @@ namespace vmsOpenAcars.Core.Flight
                            $"Flight: {a.ActualFlightTimeMinutes} min, Dist: {a.TotalDistanceNm:F1} NM";
             if (!string.IsNullOrEmpty(a.LandingWeatherLine))
                 notes += " | " + a.LandingWeatherLine;
+            if (!string.IsNullOrEmpty(a.AirspaceViolationDetail))
+                notes += " | AIRSPACE VIOLATION: " + a.AirspaceViolationDetail;
 
             var payload = new Dictionary<string, object>
             {
-                ["state"] = 2,
                 ["submitted_at"] = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
                 ["block_on_time"] = (a.BlockOnTime != default(DateTime) ? a.BlockOnTime : DateTime.UtcNow).ToString("yyyy-MM-dd HH:mm:ss"),
                 ["arr_airport_id"] = a.ArrivalAirport,
@@ -91,10 +92,16 @@ namespace vmsOpenAcars.Core.Flight
                                        ? a.LandingRateFpm.Value
                                        : 0,
                 ["score"] = a.Score,
-                ["notes"] = notes
+                ["notes"] = notes,
             };
             if (!string.IsNullOrEmpty(a.DiversionAirport))
                 payload["diversion-airport"] = a.DiversionAirport;
+            // La marca de revisión, si el vuelo invadió una zona acotada. La pone el SERVIDOR:
+            // `state` no se toca (phpVMS, 27/10/2026) y sin el campo el vuelo se auto-aprueba. Va
+            // fuera del inicializador para que un vuelo limpio no lleve ni `"fields": null`.
+            var reviewFields = PirepFields.ReviewMark(a.AirspaceViolations, a.AirspaceViolationDetail);
+            if (reviewFields != null) payload["fields"] = reviewFields;
+
             return payload;
         }
     }
@@ -117,5 +124,11 @@ namespace vmsOpenAcars.Core.Flight
         internal string   DiversionAirport;
         /// <summary>Línea compacta de la meteo del aterrizaje (`LandingWeatherLine.Build`), o null.</summary>
         internal string   LandingWeatherLine;
+
+        /// <summary>Invasiones de zonas acotadas en el vuelo: con una, el PIREP se filea en revisión.</summary>
+        internal int      AirspaceViolations;
+
+        /// <summary>La última invasión, como `RESTRICTED SKP35`, para el `notes` del PIREP.</summary>
+        internal string   AirspaceViolationDetail;
     }
 }

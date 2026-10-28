@@ -202,7 +202,7 @@ namespace vmsOpenAcars.ViewModels
                 OnLog?.Invoke(
                     $"⚠️ OVERFLIGHT  {a.Type.ToUpper()}  {icao}  [ABOVE {upper}]  DO NOT DESCEND",
                     Theme.Warning);
-                if (AppConfig.OsdAirspaceAlerts)
+                   if (AppConfig.OsdAirspaceAlerts && !AirspaceOsdPolicy.IsLogOnly(a.Type))
                     OnOsdMessage?.Invoke(
                         $"ABOVE  {icao}  DO NOT DESCEND",
                         OsdSeverity.Warning);
@@ -213,7 +213,11 @@ namespace vmsOpenAcars.ViewModels
                 string icao    = a.ExtractIcao() ?? a.Name;
                 string freqStr = freq != null ? $"  {freq.Mhz} MHz" : string.Empty;
                 OnLog?.Invoke($"📡 {a.Type}  {icao}{freqStr}", Theme.MainText);
-                OnOsdMessage?.Invoke($"{a.Type}  {icao}{freqStr}", OsdSeverity.Info);
+                   // El OSD de espacios aereos es opcional (Settings -> OSD) y las CTA no van nunca:
+                   // en el PIREP `nk2a96dl5vO0B2ab` el piloto apago la casilla y siguio viendo 19 avisos
+                   // en la llegada a TJSJ, casi todos fronteras de clase E que no piden nada.
+                   if (AppConfig.OsdAirspaceAlerts && !AirspaceOsdPolicy.IsLogOnly(a.Type))
+                       OnOsdMessage?.Invoke($"{a.Type}  {icao}{freqStr}", OsdSeverity.Info);
             };
 
             _airspaceMonitor.OnAirspaceExited += a =>
@@ -258,13 +262,17 @@ namespace vmsOpenAcars.ViewModels
         }
 
         private void LogBoundedAirspace(NavAirspace a, string tag, OsdSeverity sev)
-        {
+{
+    // La invasión de una zona acotada se anota **siempre**, antes de decidir si se pinta: el OSD se
+    // puede apagar en Settings y la infracción no. Con una invasión el PIREP se filea en revisión
+    // (`Helpers/PirepStatePolicy`).
+    if (tag == "AIRSPACE") _flightManager?.RegisterAirspaceViolation(a.Type, a.ExtractIcao() ?? a.Name);
             string icao   = a.ExtractIcao() ?? a.Name;
             string type   = a.Type.ToUpper();
             string bounds = $"[{a.LowerLimit?.Display ?? "SFC"} – {a.UpperLimit?.Display ?? "UNL"}]";
             OnLog?.Invoke($"⚠️ {tag}  {type}  {icao}  {bounds}", Theme.Warning);
 
-            // El OSD de zonas restringidas es opcional (Settings → OSD). El log de arriba y
+            // El OSD de espacios aéreos es opcional (Settings → OSD). El log de arriba y
             // el polígono en el mapa no se ven afectados: esto solo silencia el aviso en
             // pantalla, que es Crítico y con chime.
             if (AppConfig.OsdAirspaceAlerts)

@@ -560,7 +560,7 @@ namespace vmsOpenAcars.UI.Forms
             right.Controls.Add(chimesPanel, 1, 6);
 
             // row 7 — Restricted-zone alerts on the OSD
-            right.Controls.Add(CreateLabel("Restricted zones"), 0, 7);
+            right.Controls.Add(CreateLabel("Airspace zones"), 0, 7);
             chkOsdAirspace = new CheckBox
             {
                 Dock      = DockStyle.Fill,

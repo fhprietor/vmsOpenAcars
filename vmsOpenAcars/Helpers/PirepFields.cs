@@ -21,6 +21,32 @@ namespace vmsOpenAcars.Helpers
         internal const string TaxiRouteName       = "Taxi Route";
 
         /// <summary>
+        /// El campo con el que phpVMS **manda el vuelo a revisión**: lo confirmó su equipo el
+        /// 27/10/2026. Cualquier nombre que llegue en `fields` se guarda (no hay que crearlo antes en
+        /// el admin), y el servidor lo detecta para no auto-aprobar con `auto_approve_acars = true` y
+        /// para dejar la línea `[Revision obligatoria] Espacio restringido: <valor>` en las notas.
+        /// Ver <see cref="AirspaceReviewMark"/>.
+        /// </summary>
+        internal const string RestrictedAirspaceName = "restricted_airspace";
+
+        /// <summary>
+        /// **La marca que manda el vuelo a revisión**, o <c>null</c> si no hay nada que marcar. La
+        /// decisión la toma el SERVIDOR: aquí solo se arma el campo. Hasta v0.9.56 el cliente mandaba
+        /// `state = 2` —`ACCEPTED` en phpVMS— en todos los PIREP, y con `auto_approve_acars = true` en
+        /// todos los rangos ningún vuelo pasaba por revisión.
+        ///
+        /// El valor es texto libre: la zona tal cual («RESTRICTED SKEZ») o «1» si no hubiera detalle.
+        /// Vacío o «0» no cuenta, así que un vuelo limpio **omite el campo** en vez de mandarlo vacío.
+        /// </summary>
+        internal static Dictionary<string, string> ReviewMark(int airspaceViolations, string detail)
+        {
+            if (airspaceViolations <= 0) return null;
+
+            string value = string.IsNullOrWhiteSpace(detail) ? "1" : detail.Trim();
+            return new Dictionary<string, string> { { RestrictedAirspaceName, value } };
+        }
+
+        /// <summary>
         /// **Nombre del campo que habría que crear en phpVMS** para llevar la meteo del aterrizaje
         /// estructurada en vez de dentro de `notes`. Hoy **no se usa por defecto**: un campo de
         /// `pirep_fields` lo tiene que crear la aerolínea y mandar una clave desconocida **no da

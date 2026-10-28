@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.55  
+**Versión actual:** v0.9.56  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -338,15 +338,12 @@ TopMost, click-through, centrado en pantalla configurada, 40 px desde borde. Thr
 
 App.config: `osd_enabled`, `osd_sound_enabled`, `osd_duration_seconds` (def 4), `osd_screen_index`, `osd_opacity` (def 90), `osd_airspace_alerts` (def true).
 
-**Avisos de zona restringida en el OSD (v0.9.10):** `osd_airspace_alerts` (fila *Restricted zones*
-→ *Alert on the OSD* en Settings → OSD, claves `Restricted zones` y `Stg_AirspaceOsdAlerts`) silencia
-**solo el OSD** de las zonas acotadas —`AIRSPACE
-{PROHIBITED|RESTRICTED|DANGER}`, `AIRSPACE AHEAD` y `ABOVE … DO NOT DESCEND`—, que es el aviso
-intrusivo (severidad Crítica con chime). El log de vuelo y el polígono en el mapa **no** se
-suprimen: el piloto que apaga el OSD sigue teniendo el registro y la traza. Se evalúa en el
-momento de disparar (`MainViewModel.LogBoundedAirspace` y el handler de `OnAirspaceOverflight`),
-así que el cambio aplica en vuelo sin reiniciar. Las entradas/salidas de CTR/TMA/RMZ
-(`OnAirspaceEntered`, informativas) no dependen de este ajuste.
+**Avisos de espacio aéreo en el OSD (v0.9.10, +v0.9.56):** `osd_airspace_alerts` (fila *Airspace zones* →
+*Alert on the OSD*) silencia **todo** aviso de espacio aéreo en el OSD: las zonas acotadas y las entradas en
+CTR/TMA/ATZ/RMZ (`nk2a96dl5vO0B2ab`: **19** con la casilla apagada). Las **`CTA`** (clase E) van **solo al
+registro** (`Helpers/AirspaceOsdPolicy`). Log y polígono **no** se suprimen, aplica en vuelo, y una **invasión
+real** se anota igual: manda el vuelo a revisión.
+
 
 **Triggers OSD (MainViewModel → OnOsdMessage):**
 
@@ -567,7 +564,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **957 tests** (1 se omite sola):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **978 tests** (1 se omite sola):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
@@ -769,10 +766,11 @@ alineación casual con un aeródromo de la derrota, con dos casos reales (SKTL e
 - **`landing_rate = 0` en el payload** — cuando no hubo touchdown capturado, `PirepBuilder`
   normaliza el centinela `NoLandingData` a `0` porque phpVMS espera un número. Si se
   confirmara que acepta `null`, sería más honesto omitir el campo.
-- **Códigos de estado de phpVMS (`PirepState`)** — solo `InProgress = 0` está verificado
-  contra producción; el resto sigue la tabla del servidor. Un valor equivocado solo puede
-  hacer que un vuelo *no* se dé por enviado (lado conservador), nunca lo contrario.
-  Confirmar si se observa un PIREP real.
+- **`PirepState` VERIFICADO (v0.9.56)** (`app/Enums/PirepState.php`): `0 IN_PROGRESS, 1 PENDING, 2 ACCEPTED,
+  3 CANCELLED, 4 DELETED, 5 DRAFT, 6 REJECTED, 7 PAUSED`; la tabla del cliente estaba inventada (`Paused=1`).
+  **`state` no se manda: lo fija el servidor** (phpVMS, 27/10/2026). Un vuelo a revisión lleva
+  `fields.restricted_airspace` (`Helpers/PirepFields.ReviewMark`), y antes se mandaba **2 = aceptado** en
+  todos, así que ninguno pasaba por revisión. La marca se arma aunque el OSD esté apagado.
 
 Deuda estructural restante, sin impacto funcional conocido:
 

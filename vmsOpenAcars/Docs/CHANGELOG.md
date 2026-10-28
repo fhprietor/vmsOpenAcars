@@ -2,6 +2,74 @@
 
 ---
 
+## [0.9.56] — 27/10/2026
+
+### Fixed
+
+**La casilla de avisos de espacio aéreo no callaba lo que el piloto creía, y las fronteras de clase E
+eran ruido.** Lo reportó un piloto sobre el PIREP `nk2a96dl5vO0B2ab` (SKBO→TJSJ, B738, v0.9.55):
+desmarcó *Zonas restringidas → Avisar en el OSD* y los avisos seguían saliendo en la llegada a San Juan.
+
+Su registro lo confirma: entre 19:01 y 19:36 hay **19 entradas de espacio aéreo**, y **cuatro caen en
+los últimos tres minutos de la final** (`CTR SAN JUAN LUIS MUNOZ MARIN … CLASS C`,
+`TMA SAN JUAN LUIS MUNOZ MARIN`). Ninguna es una zona acotada: son entradas en `CTR`/`TMA`/`CTA`, y
+hasta la v0.9.55 el interruptor **solo** silenciaba las acotadas (`AIRSPACE …`, `AIRSPACE AHEAD`,
+`ABOVE … DO NOT DESCEND`). El interruptor no mentía; cubría menos de lo que prometía su rótulo. Las
+cuatro zonas restringidas de verdad de ese vuelo (`SKP35`, `SVR2513`, `SVR2511`, `SVR2509`, todas en
+ruta por Colombia) salieron **solo en el registro**, como debía ser.
+
+- **La casilla cubre ahora todos los avisos de espacio aéreo en el OSD**, no solo las zonas acotadas, y
+  se **relabela** a *Airspace zones* → *Espacios aéreos* (clave nueva en los dos idiomas;
+  `Restricted zones` queda en los `.json`, sin cablear). El log y el polígono del mapa siguen intactos.
+- **`Helpers/AirspaceOsdPolicy`** (puro, con test): las **`CTA`** —aquí todas de clase E: `CTA SAN JUAN
+  LOW`, `CTA PUERTO RICO CLASS E5`, `CTA PONCE CLASS E2`— van **solo al registro**, con la casilla
+  encendida o apagada. Cruzar una frontera de clase E no pide nada, y eran casi todos esos 19 avisos.
+  `CTR`/`TMA`/`ATZ`/`RMZ` se quedan en el OSD: llevan frecuencia y autorización.
+
+### Fixed (más grave, del mismo vuelo)
+
+**Ningún PIREP pasaba por revisión: se mandaba `state = 2`, que en phpVMS es «aceptado».**
+
+El cliente ponía `["state"] = 2` en **todos** los PIREP. Contra producción se comprueba: los vuelos
+`6aB60vzYbAKm7Z71` y `rMBVEKj5PZzx0pX9` llegaron con `state = 2`. Con `auto_approve_acars = true` en
+todos los rangos, ese 2 era la aceptación automática de todo lo que se fileaba.
+
+**El equipo de phpVMS confirmó el mecanismo (27/10/2026): el `state` lo fija el servidor y no se toca;
+la marca es un campo del PIREP.** Se manda `fields.restricted_airspace` con la zona como texto libre
+(«1» si no hay detalle); el servidor entonces **no auto-aprueba** —deja el PIREP en `PENDING`— y añade a
+las notas `[Revision obligatoria] Espacio restringido: <valor>`. El campo no hay que crearlo antes en el
+admin: cualquier nombre que llegue en `fields` se guarda. Vacío o «0» no cuenta, así que un vuelo limpio
+**omite el campo** en vez de mandarlo vacío.
+
+- **`PirepBuilder`**: fuera `["state"]`; la marca entra como `fields` **después** del inicializador, para
+  que un vuelo limpio no lleve ni `"fields": null`.
+- **`Helpers/PirepFields`**: `RestrictedAirspaceName` (`restricted_airspace`) y `ReviewMark(violaciones,
+  detalle)` — el valor, o `null` si no hay nada que marcar.
+- **La invasión se registra siempre**, también con el OSD apagado: `FlightManager.RegisterAirspaceViolation`
+  desde el handler de `OnAirspaceAlert`, que solo dispara con el avión **dentro** del polígono y **por
+  debajo** del techo. Sobrevolar por encima (`OVERFLIGHT`) no es invadir.
+- El piloto se entera al filear (`Log_PirepToReview`, con la zona) y el `notes` del PIREP lo repite
+  (`AIRSPACE VIOLATION: RESTRICTED SKP35`) para el revisor.
+- **No se penaliza la nota**: cambia el estado, no la puntuación. Lo que deduzca el staff, lo deduce él.
+- De paso, **`Models/Pirep.cs`**: el enum `PirepState` tenía los números **inventados** (`Paused=1`,
+  `Pending=2`), así que un PIREP en revisión se leía como «pausado» = activo y el fallback de
+  `FilePirep()` lo tomaba por no archivado. Ahora son los de `app/Enums/PirepState.php`
+  (`0 IN_PROGRESS, 1 PENDING, 2 ACCEPTED, 3 CANCELLED, 4 DELETED, 5 DRAFT, 6 REJECTED, 7 PAUSED`).
+### Verificado
+
+**978 tests** (977 pasan, 0 fallan, 1 se omite sola), con `AirspaceOsdPolicyTests` y
+`AirspaceReviewMarkTests` nuevos: los tipos del OSD con el interruptor encendido y apagado, la llegada a
+TJSJ entera en silencio con la casilla apagada, que el payload **no lleva `state`** y sí
+`fields.restricted_airspace` con la zona, el «1» sin detalle, y los números de `PirepState` contra phpVMS.
+
+**Lo que NO está verificado**: el viaje de ida y vuelta con el servidor. Su receta es prefilar y presentar
+un vuelo con `fields.restricted_airspace = "SKEZ"` y comprobar que queda pendiente y con la línea en las
+notas; presentarlo sin el campo debe auto-aprobarse. Tampoco está verificado el vuelo real con el OSD
+apagado.
+
+**Lo que NO está verificado**: el vuelo real con el cambio.
+
+---
 ## [0.9.55] — 23/10/2026
 
 ### Fixed

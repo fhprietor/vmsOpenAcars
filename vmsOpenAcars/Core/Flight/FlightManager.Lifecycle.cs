@@ -101,6 +101,8 @@ namespace vmsOpenAcars.Core.Flight
             // Reset all scoring state before the API call so stale data from a
             // previous flight never survives into a new one, even if prefileing fails.
             _apEngagedCounter = 0;
+                   AirspaceViolations    = 0;
+                   AirspaceViolationDetail = "";
             _taxiStart.Reset();
             _apDisengagedCounter = 0;
             _td.Reset();
@@ -281,6 +283,12 @@ namespace vmsOpenAcars.Core.Flight
                 // payload de /file — confirmado en un vuelo real desviado.
             }
 
+            // El registro lo dice ANTES de enviar: si el vuelo va a revisión, el piloto se entera
+            // en el momento y no cuando el PIREP no aparece aceptado. La invasión se cuenta aunque
+            // el piloto tenga apagados los avisos del OSD.
+            if (AirspaceViolations > 0)
+                OnLog?.Invoke(string.Format(_("Log_PirepToReview"), AirspaceViolationDetail), Theme.Warning);
+
             var finalData = PirepBuilder.BuildPayload(new PirepPayloadArgs
             {
                 TotalFlightTimeMinutes   = totalFlightTimeMinutes,
@@ -296,6 +304,8 @@ namespace vmsOpenAcars.Core.Flight
                 ArrivalAirport           = arrivalIcao,
                 DiversionAirport         = _divertedAirport,
                 LandingWeatherLine       = landingWeatherLine,
+                   AirspaceViolations       = AirspaceViolations,
+                   AirspaceViolationDetail  = AirspaceViolationDetail,
             });
 
             bool success = await _apiService.FilePirep(ActivePirepId, finalData);
