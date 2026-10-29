@@ -331,6 +331,9 @@ namespace vmsOpenAcars.ViewModels
         private bool     _cabinCruiseSent;
         private bool     _cabinOnRunwaySent;
         private bool     _cabinAfterTakeoffSent;
+        private bool     _cabinPushbackSent;
+        private bool     _cabinArrivalSent;
+        private DateTime _lastRunwayExitCheck = DateTime.MinValue;
         private DateTime _cabinCruiseCheckStart = DateTime.MinValue;
 
         /// <summary>Cuándo tiene sentido anunciar turbulencia (`Helpers/TurbulenceAdvisor`).</summary>
@@ -432,6 +435,9 @@ namespace vmsOpenAcars.ViewModels
             _cabinCruiseSent       = false;
             _cabinOnRunwaySent     = false;
             _cabinAfterTakeoffSent = false;
+            _cabinPushbackSent      = false;
+            _cabinArrivalSent       = false;
+            _lastRunwayExitCheck    = DateTime.MinValue;
             _cabinCruiseCheckStart = DateTime.MinValue;
             _turbulence.Reset();
 
@@ -548,7 +554,13 @@ namespace vmsOpenAcars.ViewModels
                 // seats for landing» en aproximación y bienvenida a puesto al llegar. Los tres que
                 // no tienen grabación en NavData se locutan con SAPI (`CabinVoice`).
                 case FlightPhase.Pushback:
-                    _cabinAnnouncements.QueueAnnouncement("pushback");
+                    // El anuncio se dispara ANTES, con el beacon o el freno liberado (CabinPushbackPolicy);
+                    // esto es solo la red si el avión ya venía empujado al conectar el ACARS.
+                    if (CabinPushbackPolicy.AnnounceOnPhaseEntry(_cabinPushbackSent))
+                    {
+                        _cabinPushbackSent = true;
+                        _cabinAnnouncements.QueueAnnouncement("pushback");
+                    }
                     break;
                 case FlightPhase.TaxiOut:
                     _cabinAnnouncements.QueueAnnouncement("taxi_out");
@@ -561,21 +573,49 @@ namespace vmsOpenAcars.ViewModels
                     _cabinAnnouncements.QueueAnnouncement("approach");
                     _airspaceMonitor.TriggerIvaoRefresh();
                     break;
-                // Orden del comandante a la tripulación al dejar la pista, no un PA a los pasajeros:
-                // es el «disarm slides and cross-check» de cualquier manual de operación. Va en
-                // AfterLanding y no en TaxiIn justo para no pisar la bienvenida al destino.
-                case FlightPhase.AfterLanding:
-                    _cabinAnnouncements.QueueAnnouncement("slides_disarm");
-                    break;
-                case FlightPhase.TaxiIn:
-                    _cabinAnnouncements.QueueAnnouncement("taxi_in");
-                    break;
+                // La llegada (orden de cabina + bienvenida) NO va en la entrada de fase: `AfterLanding`
+                // se declara en el tick del toque y `TaxiIn` a 40 kt, las dos con el avión aún en la
+                // pista. Las dispara `TickCabinArrival` cuando NavData dice que ya no está sobre
+                // ninguna (Helpers/CabinRunwayExitPolicy), y en ese orden: primero la tripulación.
                 case FlightPhase.OnBlock:
                     _cabinAnnouncements.QueueAnnouncement("on_block");
                     break;
             }
+
         }
 
+        /// <summary>
+        /// La llegada: orden de cabina («desarmar toboganes y verificar») y después la bienvenida a
+        /// destino, las dos cuando el avión **ya no está sobre la pista**. `AfterLanding` se declara en
+        /// el tick del toque (145 kt en `r4JNk2b2bBMJd8lD`) y `TaxiIn` a 40 kt, así que ninguna de las
+        /// dos sirve: el detector de pista de NavData es el que decide (`CabinRunwayExitPolicy`).
+        /// Se consulta a 2 Hz porque `FindRunwayEntry` recorre pistas y calles del aeropuerto.
+        /// </summary>
+        private void TickCabinArrival(RawTelemetryData e)
+        {
+            if (_cabinArrivalSent) return;
+
+            FlightPhase phase = _flightManager?.CurrentPhase ?? FlightPhase.Idle;
+            if (phase != FlightPhase.AfterLanding && phase != FlightPhase.TaxiIn) return;
+            if (e.GroundSpeedKt > CabinRunwayExitPolicy.MaxRolloutKt) return;
+            if ((DateTime.UtcNow - _lastRunwayExitCheck).TotalSeconds < 0.5) return;
+            _lastRunwayExitCheck = DateTime.UtcNow;
+
+            // `null` = no se pudo saber (sin NavData o sin aeropuerto de llegada): no bloquea.
+            bool? onRunway = null;
+            // El aeropuerto resuelto al tocar tierra manda: en un desvío el del plan ya no es el que
+            // se está rodando (`_approachDestination` lo fija `LookupRunwayData`).
+            string arrival = _approachDestination ?? _flightManager?.ActivePlan?.Destination;
+            if (_navDataService != null && _navDataService.IsAvailable && !string.IsNullOrEmpty(arrival))
+                onRunway = _navDataService.FindRunwayEntry(arrival, e.Latitude, e.Longitude,
+                                                            e.HeadingDeg) != null;
+
+            if (!CabinRunwayExitPolicy.IsClearOfRunway(phase, e.GroundSpeedKt, onRunway)) return;
+
+            _cabinArrivalSent = true;
+            _cabinAnnouncements.QueueAnnouncement("slides_disarm");
+            _cabinAnnouncements.QueueAnnouncement("taxi_in");
+        }
         // ── Raw data handler ──────────────────────────────────────────────────────
 
         private void OnRawDataUpdated(object sender, RawTelemetryData e)
@@ -623,6 +663,9 @@ namespace vmsOpenAcars.ViewModels
             LastGroundSpeedKt = e.GroundSpeedKt;
 
             EvaluateRaas(e);
+
+            // Llegada: cuando el avión ya no está sobre la pista (ni en el toque ni a 40 kt).
+            TickCabinArrival(e);
 
             // ── Cabin after-takeoff check ─────────────────────────────────────────
             // El anuncio que sí existe en una operación real y faltaba: «ya pueden usar sus
@@ -1316,6 +1359,10 @@ namespace vmsOpenAcars.ViewModels
             // ruta si el puesto de destino del pushback cambia la primera calle del rodaje.
             if (engaged && _flightManager != null && _flightManager.CurrentPhase == FlightPhase.Pushback)
                 RequestTaxiRoutePrompt("after pushback");
+
+            // Freno liberado con el avión todavía parado en el puesto: el remolcador engancha y
+            // empieza a tirar. Es el otro aviso temprano del pushback (aquí, 6 s antes de moverse).
+            if (!engaged) TryAnnouncePushback();
         }
 
         private void OnEnginesChanged(bool running) =>
@@ -1352,9 +1399,28 @@ namespace vmsOpenAcars.ViewModels
             }
         }
 
-        private void OnBeaconChanged(bool on) =>
+        private void OnBeaconChanged(bool on)
+        {
             _cb.Log?.Invoke(on ? _("Log_BeaconOn", AglSuffix()) : _("Log_BeaconOff", AglSuffix()),
                 Theme.MainText);
+
+            // Luz anti-colisión encendida = la tripulación va a mover el avión. Es la señal más
+            // temprana del pushback: en `r4JNk2b2bBMJd8lD` llegó 5 s antes que la fase.
+            if (on) TryAnnouncePushback();
+        }
+
+        /// <summary>
+        /// El PA de pushback se dice **antes** de que el avión se mueva, con la primera señal que
+        /// llegue (beacon o freno liberado). Si ninguna llega —el vuelo empezó con el empuje ya en
+        /// curso—, la entrada en fase hace de red (`CabinPushbackPolicy.AnnounceOnPhaseEntry`).
+        /// </summary>
+        private void TryAnnouncePushback()
+        {
+            if (!CabinPushbackPolicy.AnnounceBeforePush(_flightManager?.CurrentPhase ?? FlightPhase.Idle,
+                                                        _cabinPushbackSent)) return;
+            _cabinPushbackSent = true;
+            _cabinAnnouncements.QueueAnnouncement("pushback");
+        }
 
         // ── Taxi position tracking ─────────────────────────────────────────────────
 

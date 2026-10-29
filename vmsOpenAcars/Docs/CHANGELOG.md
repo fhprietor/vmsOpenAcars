@@ -2,6 +2,48 @@
 
 ---
 
+## [0.9.57] — 29/10/2026
+
+### Fixed
+
+**Dos anuncios de cabina llegaban con el avión ya en marcha.** Reportado con el PIREP `r4JNk2b2bBMJd8lD`
+(B738, SKCC→SKUC): el PA de pushback («cerramos puertas, vamos a empujar») sonaba **con el empuje
+hecho** y el de desarmar toboganes, **con el avión todavía frenando en la pista**.
+
+Los tiempos de su registro lo dicen todo. Salida: `01:54:34` freno liberado · `01:54:42` beacon ·
+`01:54:47` `── PUSHBACK ──` · `🔊 PA pushback` 01:55:03 · **freno puesto 01:55:24**. Llegada: toque
+`02:38:28` a **145 kt** · `── AFTER LANDING ──` 02:38:29 · `🔊 PA slides_disarm` 02:38:37 (con las
+reversas al 100 %) · `── TAXI IN ──` 02:38:51.
+
+La causa no era el audio: era **el disparador y la propia marca del registro**.
+
+- **`pushback` se anunciaba al entrar en fase `Pushback`**, y esa fase se declara cuando la GS lleva
+  **8 s** por debajo de 6 kt (`PushbackMinSec`) **más el debounce de 3 s**: ~11 s de empuje ya hechos
+  por construcción. Ahora se dice **antes de moverse**, con la primera señal que llegue —**beacon
+  encendido** o **freno de parqueo liberado** con el avión en `Boarding`— y la entrada en fase queda
+  como **red** para el vuelo que arrancó con el empuje en curso (`rMBVEKj5PZzx0pX9`). Helper:
+  `Helpers/CabinPushbackPolicy` (con test).
+- **`slides_disarm` iba en `AfterLanding`**, que se declara **en el mismo tick del toque**, y `taxi_in`
+  en `TaxiIn`, que la máquina entra a **40 kt** (aún en pista). Ahora los dos —primero la orden de
+  cabina, luego la bienvenida— esperan a **despejar la pista**: `Helpers/CabinRunwayExitPolicy` pide al
+  detector de pista de NavData (`FindRunwayEntry`, el que usa el RAAS) que no esté sobre ninguna, con
+  el techo de 40 kt para ni preguntar durante la carrera. **Sin dato de pista no bloquea** (degrada
+  al comportamiento anterior).
+- **La línea del log pasa a marcar el principio del audio, no el final.** `SpeakSync` es síncrono y
+  bloquea hasta terminar, así que el registro antiguo ponía la hora del **fin**: esos 16 s entre la fase
+  y el PA no eran latencia, eran el propio anuncio leído antes de escribir la línea. Con la marca al
+  principio el log sirve para juzgar la oportunidad del aviso.
+
+### Verificado
+
+**987 tests** (986 pasan, 0 fallan, 1 se omite sola), con `CabinAnnouncementTimingTests` nuevo: los
+tiempos reales de ese vuelo (toque a 145 kt, `TaxiIn` a 40 kt, despeje de pista) contra las dos reglas,
+la red de la entrada en fase, y que sin NavData el anuncio no se pierde.
+
+**Lo que NO está verificado**: un vuelo real con el cambio. Los tiempos de referencia están en el
+registro de ese PIREP y son los que hay que volver a medir.
+
+---
 ## [0.9.56] — 27/10/2026
 
 ### Fixed

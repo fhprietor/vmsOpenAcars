@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.56  
+**Versión actual:** v0.9.57  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -304,11 +304,14 @@ crédito**: al añadir uno nuevo al combo hay que darle el suyo. El rótulo es t
 
 ## CabinAnnouncementService — `Services/CabinAnnouncementService.cs` (v0.5.9, voz 0.9.48)
 
-**Clip si existe, voz SAPI si no.** Clips de `/briefing/check/` + `/briefing/download/` (caché `%TEMP%\vmsacars\briefing\`); NavData **no publicará más fases**, así que las que faltan las locuta `Services/CabinVoice` (`System.Speech`, ya referenciado) con el texto puro de `Helpers/CabinAnnouncementScript` (es/en, datos opcionales: sin dato la frase desaparece; destino **por su nombre** de `name`+`city`, que llegan abreviados y sin tildes; hora local de `Helpers/LocalTimeOfDay`, longitud ÷ 15°). `Helpers/SapiVoicePolicy` elige el idioma **contra las voces instaladas**: sin voz española se locuta el texto inglés.
+**Clip si existe, voz SAPI si no.** Clips de `/briefing/check/` + `/briefing/download/` (caché `%TEMP%\vmsacars\briefing\`); NavData **no publicará más fases**, así que las que faltan las locuta `CabinVoice` (`System.Speech`) con el texto puro de `Helpers/CabinAnnouncementScript` (es/en, datos opcionales: sin dato la frase desaparece; destino **por su nombre** de `name`+`city`, que llegan abreviados y sin tildes; hora local de `Helpers/LocalTimeOfDay`, longitud ÷ 15°). `Helpers/SapiVoicePolicy` elige el idioma **contra las voces instaladas**: sin voz española se locuta el texto inglés.
 
-**13 fases.** Por entrada de fase: `pushback`, `taxi_out`, `top_of_descent`, `approach`, `slides_disarm` (AfterLanding), `taxi_in`, `on_block`; `boarding` al acabar el prefetch; `after_takeoff` a 10 000 ft AGL (Climb/Enroute); `cruise` >10 000 ft AGL 30 s; `on_runway` a la 1.ª luz con GS ≤ 40 kt; y la turbulencia (`turbulence_on`/`turbulence_off`, evento por `Helpers/TurbulenceAdvisor`: **oscilaciones** de g `0x11BA` (3 cruces de banda en 6 s), 10 min de enfriamiento; el fin solo en crucero (`CabinCalloutPolicy`)). `top_of_descent`/`taxi_in` refrescan el METAR (3 s) y cada PA deja línea en el log.
+**13 fases.** Por entrada de fase: `pushback`, `taxi_out`, `top_of_descent`, `approach`, `on_block`; `boarding` al acabar el prefetch; `after_takeoff` a 10 000 ft AGL (Climb/Enroute); `cruise` >10 000 ft AGL 30 s; `on_runway` a la 1.ª luz con GS ≤ 40 kt; y la turbulencia (`turbulence_on`/`_off`, `Helpers/TurbulenceAdvisor`: **oscilaciones** de g `0x11BA` (3 cruces de banda en
+6 s), 10 min de enfriamiento; fin solo en crucero). `top_of_descent`/`taxi_in` refrescan el METAR (3 s); cada PA deja línea **al empezar** el audio.
+**`pushback`** antes de moverse (beacon o freno liberado, `CabinPushbackPolicy`), porque la fase entra con ~11 s de
+empuje; **`slides_disarm`+`taxi_in`**, al despejar la pista (`CabinRunwayExitPolicy`), no en el toque ni a 40 kt.
 
-**Idioma:** `Pilot.AirlineCountry` → `SpanishCountries` → `"es"`/`"en"` (internacional no anglohablante: inglés y luego nativo). **Supresión:** `aircraftSeats ∈ (0,40)`. **Settings:** `chkCabinAnnouncements`, `trkCabinVolume` (en caliente), `btnTestCabin` (13 fases). Claves: `cabin_announcements_enabled` / `_volume`.
+**Idioma:** `Pilot.AirlineCountry` → `SpanishCountries` → `"es"`/`"en"` (no anglohablante: inglés). **Supresión:** `aircraftSeats ∈ (0,40)`. **Settings:** `chkCabinAnnouncements`, `trkCabinVolume` (en caliente), `btnTestCabin` (13 fases). Claves: `cabin_announcements_enabled` / `_volume`.
 
 Detalle: `architecture.md` → "Los anuncios de cabina".
 
@@ -564,7 +567,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **978 tests** (1 se omite sola):
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **987 tests** (1 se omite sola):
 `ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
 casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
 (`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y

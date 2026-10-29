@@ -92,6 +92,7 @@
          según las voces instaladas. Se prueban sin tarjeta de sonido porque son puras. -->
     <Compile Include="AirspaceOsdPolicyTests.cs" />
     <Compile Include="AirspaceReviewMarkTests.cs" />
+    <Compile Include="CabinAnnouncementTimingTests.cs" />
     <Compile Include="PushbackTaxiGateTests.cs" />
     <Compile Include="TaxiStartAccrualTests.cs" />
     <Compile Include="PmdgSdkTests.cs" />

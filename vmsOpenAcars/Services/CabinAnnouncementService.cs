@@ -238,10 +238,11 @@ namespace vmsOpenAcars.Services
 
             if (clipNative != null || clipEn != null)
             {
+                // Igual que en la locución: la marca es el principio, no el final del audio.
+                Log?.Invoke($"🔊 PA {item.Phase} (grabación)");
                 PlayChime();
                 if (clipEn     != null) PlayAudioSync(clipEn);
                 if (clipNative != null) PlayAudioSync(clipNative);
-                Log?.Invoke($"🔊 PA {item.Phase} (grabación)");
                 return;
             }
 
@@ -286,11 +287,14 @@ namespace vmsOpenAcars.Services
                 return;
             }
 
+            // La línea se escribe ANTES de locutar: `SpeakSync` es síncrono y bloquea hasta el final
+            // del audio, así que el registro antiguo marcaba el **fin** del anuncio (en
+            // `r4JNk2b2bBMJd8lD`, 16 s después de la fase de pushback) y hacía imposible juzgar la
+            // oportunidad del aviso por el log.
             PlayChime();
-            bool spoken = CabinVoice.SpeakSync(text, voiceLang);
-            Log?.Invoke(spoken
-                ? $"🔊 PA {item.Phase} (voz {voiceLang})"
-                : $"🔇 PA {item.Phase}: la voz no pudo locutar");
+            Log?.Invoke($"🔊 PA {item.Phase} (voz {voiceLang})");
+            if (!CabinVoice.SpeakSync(text, voiceLang))
+                Log?.Invoke($"🔇 PA {item.Phase}: la voz no pudo locutar");
         }
 
         private static void PlayChime()

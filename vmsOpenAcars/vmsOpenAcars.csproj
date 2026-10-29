@@ -237,6 +237,8 @@
     <Compile Include="Helpers\SpoilersPosition.cs" />
     <Compile Include="Helpers\StateChangeGate.cs" />
     <Compile Include="Helpers\AirspaceOsdPolicy.cs" />
+    <Compile Include="Helpers\CabinPushbackPolicy.cs" />
+    <Compile Include="Helpers\CabinRunwayExitPolicy.cs" />
     <Compile Include="Helpers\PushbackTaxiGate.cs" />
     <Compile Include="Helpers\TaxiStartAccrual.cs" />
     <Compile Include="Helpers\PmdgSdk.cs" />
