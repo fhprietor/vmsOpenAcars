@@ -91,6 +91,8 @@
     <!-- Anuncios de cabina locutados: las frases con datos opcionales y la elección de idioma
          según las voces instaladas. Se prueban sin tarjeta de sonido porque son puras. -->
     <Compile Include="AirspaceOsdPolicyTests.cs" />
+    <!-- La fecha de vigencia del AIRAC en la línea de arranque: formato ISO fijo, degrada sin dato. -->
+    <Compile Include="AiracStatusLineTests.cs" />
     <Compile Include="AirspaceReviewMarkTests.cs" />
     <Compile Include="CabinAnnouncementTimingTests.cs" />
     <Compile Include="PushbackTaxiGateTests.cs" />

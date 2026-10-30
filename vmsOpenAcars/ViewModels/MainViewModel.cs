@@ -525,11 +525,26 @@ namespace vmsOpenAcars.ViewModels
                     OnLog?.Invoke(_("Log_NavDataApiNoKey"), Theme.Warning);
                 else
                 {
-                    OnLog?.Invoke(_("Log_NavDataApiOk", AppConfig.NavDataApiUrl, result.NavStatus?.AiracCycle), Theme.Success);
+                    // Una sola línea, y la que corresponde. Antes se imprimía siempre la de «activo» y
+                    // **además** la de expirado: dos renglones seguidos que se contradecían («AIRAC
+                    // 2611 — activo» arriba, «AIRAC 2611 expirado el …» abajo). Con el AIRAC vencido
+                    // manda la de expirado, que ya lleva ciclo y fecha; la de activo solo sale cuando
+                    // el ciclo está vigente.
                     if (NavDataClient.IsAiracExpired)
                     {
                         OnLog?.Invoke(_("Log_NavDataAiracExpired", NavDataClient.AiracCycle, NavDataClient.AiracValidUntil), Theme.Warning);
                         OnOsdMessage?.Invoke($"AIRAC {NavDataClient.AiracCycle}  EXPIRED", OsdSeverity.Warning);
+                    }
+                    else
+                    {
+                        // La vigencia va en la propia línea, y en formato ISO: el campo de NavData no
+                        // tiene formato fijo, y sin fecha el ciclo no dice hasta cuándo sirve. Si el
+                        // dato falta o no parsea, se usa la variante sin fecha —nunca «hasta » vacío—.
+                        string validUntil = AiracStatusLine.FormatValidUntil(NavDataClient.AiracValidUntil);
+                        OnLog?.Invoke(validUntil.Length > 0
+                                ? _("Log_NavDataApiOk", AppConfig.NavDataApiUrl, result.NavStatus?.AiracCycle, validUntil)
+                                : _("Log_NavDataApiOkNoDate", AppConfig.NavDataApiUrl, result.NavStatus?.AiracCycle),
+                            Theme.Success);
                     }
                 }
             });

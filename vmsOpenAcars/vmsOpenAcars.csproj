@@ -237,6 +237,8 @@
     <Compile Include="Helpers\SpoilersPosition.cs" />
     <Compile Include="Helpers\StateChangeGate.cs" />
     <Compile Include="Helpers\AirspaceOsdPolicy.cs" />
+    <!-- Fecha de vigencia del AIRAC: el formato de salida se decide en un helper puro, con su test. -->
+    <Compile Include="Helpers\AiracStatusLine.cs" />
     <Compile Include="Helpers\CabinPushbackPolicy.cs" />
     <Compile Include="Helpers\CabinRunwayExitPolicy.cs" />
     <Compile Include="Helpers\PushbackTaxiGate.cs" />

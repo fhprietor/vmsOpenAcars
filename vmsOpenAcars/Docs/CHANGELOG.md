@@ -2,6 +2,35 @@
 
 ---
 
+## [0.9.58] — 30/10/2026
+
+### Changed
+
+**La línea de arranque de NavData dice hasta cuándo vale el AIRAC.** Antes solo anunciaba el ciclo
+—`🗺️ NavData API: AIRAC 2611 — activo`—, que no contesta la pregunta que se hace el piloto: la fecha
+de vigencia ya viajaba en `airac_valid_until` y el cliente la recibía sin enseñarla. Ahora:
+
+```
+🗺️ NavData API: AIRAC 2611 — activo hasta 2026-11-12
+```
+
+**El formato es `yyyy-MM-dd` a propósito.** NavData no fija el formato del campo y el cliente lo
+compara con `DateTime.TryParse`, así que llega tanto `2026-11-12` como un instante ISO completo: se
+parsea **de forma tolerante**, pero se imprime siempre ISO porque `12/11/2026` es el 12 de noviembre
+en España y el 11 de diciembre en Estados Unidos. La decisión vive en `Helpers/AiracStatusLine`
+(puro, con test): usa `DateTimeOffset` —un `DateTime` con `DateTimeStyles.None` convierte
+`2026-11-12T00:00:00Z` a la hora local y en un huso al oeste de Greenwich devuelve **2026-11-11**— y
+**degrada sin dato**: si el campo falta o no parsea devuelve cadena vacía y se usa
+`Log_NavDataApiOkNoDate`, el texto de siempre, para no imprimir «hasta » vacío.
+
+### Fixed
+
+**Con el AIRAC vencido salían las dos líneas a la vez**, y se contradecían: la de «activo» arriba y
+la de «expirado» justo debajo. Ahora la de «activo» solo sale cuando el ciclo **no** está vencido; si
+lo está, queda únicamente la de expirado, que ya lleva ciclo y fecha.
+
+---
+
 ## [0.9.57] — 29/10/2026
 
 ### Fixed
