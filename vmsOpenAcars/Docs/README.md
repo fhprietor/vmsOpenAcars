@@ -20,6 +20,7 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 | `NOTAS-PILOTOS-0.9.57.md` | **Pilotos** | Los PA de pushback y de desarmar toboganes ya no llegan tarde: el primero antes de moverse, los de llegada al despejar la pista |
 | `NOTAS-PILOTOS-0.9.59.md` | **Pilotos** | La actualización automática ya no falla en el segundo intento (cada intento usa su propia carpeta temporal) y, si falla, el aviso dice qué hacer y trae el enlace de descarga manual |
 | `NOTAS-PILOTOS-0.9.60.md` | **Pilotos** | El aviso de «actualización disponible» muestra un resumen en texto plano en vez del Markdown en crudo |
+| `NOTAS-PILOTOS-0.9.61.md` | **Pilotos** | El OFP en PDF ya no cae con «excepción no controlada» (faltaba la librería de 32 bits) y, si vuelve a fallar, avisa sin cerrar la aplicación |
 | `NOTAS-PILOTOS-0.9.58.md` | **Pilotos** | La linea de NavData del conectar dice **hasta cuando** es valido el AIRAC, no solo el ciclo |
 | `NOTAS-PILOTOS-0.9.56.md` | **Pilotos** | La casilla de avisos de espacio aéreo en el OSD ya calla **todo** (antes solo las zonas restringidas), y las `CTA`/clase E dejan de pintarse: solo van al registro |
 | `NOTAS-PILOTOS-0.9.55.md` | **Pilotos** | Tercera puerta del `Pushback`: también cierra cuando el avión **rueda de verdad** (GS ≥ 8 kt 15 s con motor), sin depender de que el piloto toque el freno de parqueo |

@@ -174,6 +174,12 @@ namespace vmsOpenAcars.UI.Forms
             _uiService?.AddLog(SystemInfoHelper.OsSummary,  Theme.SecondaryText);
             _uiService?.AddLog(SystemInfoHelper.CpuSummary, Theme.SecondaryText);
             _uiService?.AddLog(SystemInfoHelper.GpuSummary, Theme.SecondaryText);
+            // La bitness deja de ser una hipótesis en el próximo reporte: el 0x8007000B de la 0.9.60
+            // (BadImageFormatException al cargar el OFP) solo encaja si el proceso va a 32 bits en un
+            // Windows de 32 bits y la nativa de PDF que encuentra es x64. Se registra en el arranque.
+            _uiService?.AddLog(_("Log_Bitness",
+                Environment.Is64BitProcess ? "64 bits" : "32 bits",
+                Environment.Is64BitOperatingSystem ? "64 bits" : "32 bits"), Theme.SecondaryText);
             _viewModel?.Start();
             // Verificar actualizaciones al iniciar (no bloquea la UI)
             this.Shown += async (s, e) => await CheckForUpdatesAsync();

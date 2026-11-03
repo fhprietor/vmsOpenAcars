@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="..\packages\PdfiumViewer.Native.x86_64.no_v8-no_xfa.2018.4.8.256\build\PdfiumViewer.Native.x86_64.no_v8-no_xfa.props" Condition="Exists('..\packages\PdfiumViewer.Native.x86_64.no_v8-no_xfa.2018.4.8.256\build\PdfiumViewer.Native.x86_64.no_v8-no_xfa.props')" />
+  <!-- La nativa de PDF de 32 bits (v0.9.61). El paquete x64 solo dejaba `x64\pdfium.dll` en la
+       salida; en un Windows de 32 bits el proceso va a 32 bits y `PdfiumViewer` busca
+       `x86\pdfium.dll`, que no existía → BadImageFormatException 0x8007000B al abrir el OFP. -->
+  <Import Project="..\packages\PdfiumViewer.Native.x86.no_v8-no_xfa.2018.4.8.256\build\PdfiumViewer.Native.x86.no_v8-no_xfa.props" Condition="Exists('..\packages\PdfiumViewer.Native.x86.no_v8-no_xfa.2018.4.8.256\build\PdfiumViewer.Native.x86.no_v8-no_xfa.props')" />
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -255,6 +259,8 @@
     <Compile Include="Helpers\SapiVoicePolicy.cs" />
     <Compile Include="Helpers\FireAndForget.cs" />
     <Compile Include="Helpers\SystemInfoHelper.cs" />
+    <!-- Decide qué fallo del PDF es «falta la nativa» (0x8007000B) y qué texto enseñar: puro, con test. -->
+    <Compile Include="Helpers\PdfNativeFailure.cs" />
     <Compile Include="Helpers\TransitionDefaults.cs" />
     <Compile Include="Helpers\UpdateIntervalPolicy.cs" />
     <Compile Include="Helpers\UpdateStaging.cs" />
@@ -454,10 +460,10 @@
     <Content Include="vmsOpenAcars.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="..\packages\PdfiumViewer.Native.x86_64.no_v8-no_xfa.2018.4.8.256\Build\x64\pdfium.dll">
-      <Link>pdfium.dll</Link>
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
+    <!-- Las dos nativas de PDF, cada una en su carpeta: `PdfiumViewer` elige `x86` o `x64` según
+         `IntPtr.Size`. Antes solo estaba la x64 y además copiada a la raíz del exe; esa copia de la
+         raíz es la que el P/Invoke de 32 bits cargaba para acabar en 0x8007000B. Las dos entradas
+         las aportan los `.props` de los paquetes. -->
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
@@ -469,6 +475,7 @@
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
     </PropertyGroup>
     <Error Condition="!Exists('..\packages\PdfiumViewer.Native.x86_64.no_v8-no_xfa.2018.4.8.256\build\PdfiumViewer.Native.x86_64.no_v8-no_xfa.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\PdfiumViewer.Native.x86_64.no_v8-no_xfa.2018.4.8.256\build\PdfiumViewer.Native.x86_64.no_v8-no_xfa.props'))" />
+    <Error Condition="!Exists('..\packages\PdfiumViewer.Native.x86.no_v8-no_xfa.2018.4.8.256\build\PdfiumViewer.Native.x86.no_v8-no_xfa.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\PdfiumViewer.Native.x86.no_v8-no_xfa.2018.4.8.256\build\PdfiumViewer.Native.x86.no_v8-no_xfa.props'))" />
     <Error Condition="!Exists('..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.119.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.119.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets'))" />
   </Target>
   <Import Project="..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.119.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets" Condition="Exists('..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.119.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets')" />

@@ -2,6 +2,74 @@
 
 ---
 
+## [0.9.61] — 03/11/2026
+
+### Fixed
+
+**El OFP reventaba con el diálogo genérico de .NET (`0x8007000B`) en Windows de 32 bits.** El
+reporte del piloto, con la 0.9.60, traía esta secuencia: en el log `Plan cargado. Destino: SKAR
+(elevación: 3976 ft)` y, al abrir el **OFP**, el diálogo del sistema:
+
+```
+Excepción no controlada en la aplicación. …
+Se ha intentado cargar un programa con un formato incorrecto.
+(Excepción de HRESULT: 0x8007000B)
+```
+
+`0x8007000B` es `ERROR_BAD_FORMAT`, o sea **`BadImageFormatException`**: una DLL **nativa** con la
+bitness equivocada. `UI/Forms/OFPViewerForm.cs` llamaba a `PdfDocument.Load(pdfPath)`
+(PdfiumViewer), y `PdfiumViewer.NativeMethods` resuelve la nativa así: primero `pdfium.dll` de la
+carpeta **`x86`/`x64` según `IntPtr.Size`** y, si esa carpeta no existe, por el
+`DllImport("pdfium.dll")` normal. El proyecto referenciaba **solo** el paquete x64
+(`packages\PdfiumViewer.Native.x86_64.no_v8-no_xfa.2018.4.8.256`, `pdfium.dll` de **4.294.144 B**,
+PE `0x8664`) y **`x86\pdfium.dll` no existía** ni en `packages\` ni en `bin\Release`; el `.exe` es
+`AnyCPU` con `Prefer32Bit=false`, así que en un Windows de 64 bits corre a 64 bits (donde todo
+funcionaba) y en un **Windows de 32 bits corre a 32 bits**, donde la carpeta `x86` falta y el
+P/Invoke acaba cargando el `pdfium.dll` x64 que la raíz de la salida recibía del `<Link>` →
+`0x8007000B`. Encaja con todo el reporte: `x86\SQLite.Interop.dll` **sí** existe y es x86 (por eso
+SQLite funcionaba en ese equipo) y el resto del cliente iba bien.
+
+Reproducido sin la interfaz, con el mismo layout y el mismo `PdfiumViewer` 2.13.0.0: en un host de
+PowerShell de **32 bits** con solo `x64\pdfium.dll` y el x64 en la raíz, `PdfDocument.Load` da
+exactamente `An attempt was made to load a program with an incorrect format. (Exception from
+HRESULT: 0x8007000B)`; con `x86\pdfium.dll` (**4.016.128 B**, PE `0x014C`) abre el PDF con las dos
+bitnesses, y sin ninguna copia en la raíz también.
+
+### Added
+
+- **La nativa de PDF de 32 bits**: `PdfiumViewer.Native.x86.no_v8-no_xfa` **2018.4.8.256** (la misma
+  versión que la x64), descargada de nuget.org e instalada en
+  `packages\PdfiumViewer.Native.x86.no_v8-no_xfa.2018.4.8.256\`, con su entrada en `packages.config`,
+  su `<Import>` del `.props` y su condición en `EnsureNuGetPackageBuildImports`. El `.props` copia
+  `Build\x86\pdfium.dll` a **`x86\pdfium.dll`** de la salida, que es donde `PdfiumViewer` lo busca
+  cuando el proceso va a 32 bits. Medido en `bin\Release`: `x86\pdfium.dll` 4.016.128 B y
+  `x64\pdfium.dll` 4.294.144 B.
+- **Se retiró la copia de `pdfium.dll` en la raíz de la salida** (el `<Content>` con
+  `<Link>pdfium.dll</Link>`): era la x64 y era justo la que el P/Invoke de 32 bits cargaba para
+  acabar en `0x8007000B`. Las dos nativas entran por los `.props` de sus paquetes, y se comprobó con
+  los dos hosts que el caso de 64 bits sigue abriendo el PDF **sin** la copia de la raíz.
+- **`Helpers/PdfNativeFailure.cs`** (puro, con test): `IsNativeLoadFailure(Exception)` —cierto para
+  `BadImageFormatException`, `DllNotFoundException`, `EntryPointNotFoundException` y para un
+  `TypeInitializationException` **cuyo `InnerException` sea alguno de esos**, recorriendo la cadena de
+  `InnerException`— y `MessageKeyFor(Exception)`, que devuelve `Ofp_PdfNativeMissing` cuando lo es y
+  `Ofp_PdfOpenFailed` cuando no.
+- **`OFPViewerForm` ya no deja subir el fallo**: envuelve `PdfDocument.Load` y, si falla, pinta en la
+  ventana el texto en el idioma del piloto —que falta la librería de PDF para su sistema, que el
+  ACARS y el vuelo **no** se ven afectados y que el OFP se puede ver en la web de SimBrief— con el
+  detalle técnico en gris para el próximo reporte. `es.json` y `en.json` siguen simétricos:
+  `Ofp_PdfNativeMissing`, `Ofp_PdfOpenFailed` y `Log_Bitness`.
+- **La bitness en el log de arranque**, junto a las líneas de sistema: `Log_Bitness` imprime
+  «Proceso: N bits · Windows: N bits» (`Environment.Is64BitProcess` y
+  `Environment.Is64BitOperatingSystem`). Este fallo pasa a ser un dato del siguiente reporte en vez
+  de una hipótesis.
+
+### Pendiente de verificación
+
+No se lanzó el cliente (proceso WinForms) en esta sesión: lo comprobado es el layout de
+`bin\Debug`/`bin\Release` y la carga real de PdfiumViewer con los dos hosts de PowerShell (32 y 64
+bits) sobre un PDF real del repositorio. Queda por confirmar en un Windows de 32 bits que el OFP
+abre con `x86\pdfium.dll` y que el aviso nuevo aparece cuando la nativa falta.
+
 ## [0.9.60] — 02/11/2026
 
 ### Fixed

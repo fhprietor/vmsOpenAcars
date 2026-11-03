@@ -151,6 +151,8 @@
   "Fp_NoOfp": "❌ No se encontró OFP. Genera primero un plan en SimBrief.",
   "Fp_OfpDownloadFailed": "No se pudo descargar el OFP.",
   "Fp_OfpDownloadError": "Error al descargar el OFP:\n{0}",
+  "Ofp_PdfNativeMissing": "No se pudo abrir el OFP porque falta la librería de PDF (pdfium) para su sistema.\n\nEl ACARS y el vuelo NO se ven afectados: puede seguir volando con normalidad.\n\nPuede ver el OFP en la web de SimBrief.",
+  "Ofp_PdfOpenFailed": "No se pudo abrir el OFP: el archivo PDF no se pudo cargar.\n\nEl ACARS y el vuelo NO se ven afectados: puede seguir volando con normalidad.\n\nPuede ver el OFP en la web de SimBrief.",
 
   "Fp_DispatchInvalidKey": "❌ Clave de API inválida. Revisa tu configuración de phpVMS.",
   "Fp_DispatchFlightNotFound": "❌ El vuelo ya no existe en el servidor. Actualiza la lista de vuelos.",
@@ -411,6 +413,7 @@
   "Log_EnginesShutdown":        "🔄 Motores apagados",
   "Log_SimulatorConnected":     "🛩️ Simulador: {0}",
   "Log_SimRunning":             "🖥️ {0}",
+  "Log_Bitness":                "🖥️ Proceso: {0} · Windows: {1}",
   "Log_FuelDiff":               "ℹ️ Diferencia de combustible: {0}{1} {2}",
   "Log_FuelValidOk":            "✅ Combustible validado (tolerancia: {0} kg)",
   "Log_FuelPlanned":            "📋 Combustible planificado: {0} {1} ({2} kg)",

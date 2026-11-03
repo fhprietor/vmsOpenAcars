@@ -151,6 +151,8 @@
   "Fp_NoOfp": "❌ No OFP found. Generate a plan in SimBrief first.",
   "Fp_OfpDownloadFailed": "Could not download the OFP.",
   "Fp_OfpDownloadError": "Error downloading the OFP:\n{0}",
+  "Ofp_PdfNativeMissing": "The OFP could not be opened because the PDF library (pdfium) for your system is missing.\n\nACARS and your flight are NOT affected: you can keep flying normally.\n\nYou can view the OFP on the SimBrief website.",
+  "Ofp_PdfOpenFailed": "The OFP could not be opened: the PDF file failed to load.\n\nACARS and your flight are NOT affected: you can keep flying normally.\n\nYou can view the OFP on the SimBrief website.",
 
   "Fp_DispatchInvalidKey": "❌ Invalid API key. Check your phpVMS configuration.",
   "Fp_DispatchFlightNotFound": "❌ The flight no longer exists on the server. Refresh the flight list.",
@@ -413,6 +415,7 @@
   "Log_EnginesShutdown":        "🔄 Engines shutdown",
   "Log_SimulatorConnected":     "🛩️ Simulator: {0}",
   "Log_SimRunning":             "🖥️ {0}",
+  "Log_Bitness":                "🖥️ Process: {0} · Windows: {1}",
   "Log_FuelDiff":               "ℹ️ Fuel difference from plan: {0}{1} {2}",
   "Log_FuelValidOk":            "✅ Fuel validation passed (tolerance: {0} kg)",
   "Log_FuelPlanned":            "📋 Planned fuel: {0} {1} ({2} kg)",

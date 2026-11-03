@@ -105,6 +105,8 @@
     <Compile Include="StateChangeGateTests.cs" />
     <Compile Include="ExcursionCounterTests.cs" />
     <Compile Include="SpoilersPositionTests.cs" />
+    <!-- El 0x8007000B del OFP en la 0.9.60: qué excepción es «falta la nativa de PDF» y qué texto va. -->
+    <Compile Include="PdfNativeFailureTests.cs" />
     <Compile Include="ThrustReverserMonitorTests.cs" />
     <Compile Include="CabinAnnouncementScriptTests.cs" />
     <Compile Include="LocalTimeOfDayTests.cs" />
