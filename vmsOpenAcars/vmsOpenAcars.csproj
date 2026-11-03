@@ -255,6 +255,7 @@
     <Compile Include="Helpers\SystemInfoHelper.cs" />
     <Compile Include="Helpers\TransitionDefaults.cs" />
     <Compile Include="Helpers\UpdateIntervalPolicy.cs" />
+    <Compile Include="Helpers\UpdateStaging.cs" />
     <Compile Include="Helpers\TouchdownZonePolicy.cs" />
     <Compile Include="Helpers\TouchdownCloseupGeometry.cs" />
     <Compile Include="Helpers\CloseupAxis.cs" />

@@ -518,5 +518,7 @@
   "Raas_TurnNowLeft": "GIRA AHORA A LA IZQUIERDA EN CALLE {0}",
   "Raas_TurnNowRight": "GIRA AHORA A LA DERECHA EN CALLE {0}",
   "Raas_TurnNowStraight": "CONTINÚA RECTO EN CALLE {0}",
-  "Raas_VoiceOn": "Voz (SAPI)"
+  "Raas_VoiceOn": "Voz (SAPI)",
+  "Upd_ErrorMsg": "No se pudo completar la actualización.\n\nCierra vmsOpenACars y vuelve a intentarlo. Si el aviso se repite, cierra también cualquier ventana de actualización que haya quedado abierta, por si un archivo está en uso. Como plan B, descarga la versión nueva a mano desde:\nhttps://github.com/fhprietor/vmsOpenACars/releases/latest\n\nDetalle técnico: {0}",
+  "Upd_ErrorTitle": "Error de actualización"
 }

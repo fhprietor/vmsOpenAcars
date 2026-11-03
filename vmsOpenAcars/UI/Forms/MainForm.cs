@@ -2621,14 +2621,31 @@ private void UpdateMetarPanel(MetarData[] metars)
         private async Task DownloadAndUpdate(string downloadUrl)
         {
             string tempZip = Path.Combine(Path.GetTempPath(), "vmsOpenAcars_update.zip");
-            string tempFolder = Path.Combine(Path.GetTempPath(), "vmsOpenAcars_update");
             string appFolder = AppDomain.CurrentDomain.BaseDirectory;
 
-            var progressForm = new ProgressForm();
-            progressForm.Show();
+            // La carpeta de trabajo es NUEVA en cada intento (UpdateStaging), no la fija
+            // %TEMP%\vmsOpenAcars_update de antes. El porqué es el fallo que llegó del mantenedor:
+            // se extraía con ZipFile.ExtractToDirectory(zip, carpeta) —la sobrecarga de dos
+            // argumentos, que NO sobrescribe— y bastaba con que quedara un fichero de un intento
+            // anterior para que fallara siempre con «The file '...\pdfium.dll' already exists».
+            // pdfium.dll va en el paquete y también en x64/, así que el choque es el primero que
+            // aparece. Ahora nadie borra ni limpia antes de extraer: no hay carpeta compartida que
+            // pueda estar sucia.
+            string tempFolder = null;
+
+            // El Updater se lanza con esta carpeta como ORIGEN y sigue copiando cuando el cliente ya
+            // se está cerrando: a partir de ahí la carpeta es suya y no se puede borrar aquí.
+            bool updaterOwnsWorkspace = false;
+
+            ProgressForm progressForm = null;
 
             try
             {
+                tempFolder = UpdateStaging.CreateWorkspace(Path.GetTempPath());
+
+                progressForm = new ProgressForm();
+                progressForm.Show();
+
                 // 1. Descargar ZIP
                 {
                     var response = await Services.Http.HttpClientProvider.General.GetAsync(
@@ -2658,9 +2675,11 @@ private void UpdateMetarPanel(MetarData[] metars)
 
                 progressForm.Close();
 
-                // 2. Extraer ZIP en carpeta temporal
-                if (Directory.Exists(tempFolder))
-                    Directory.Delete(tempFolder, true);
+                // 2. Extraer ZIP en la carpeta de trabajo del intento. La carpeta la acaba de crear
+                //    UpdateStaging y está vacía, así que aquí ya no puede haber un fichero que
+                //    choque: la sobrecarga de dos argumentos deja de ser una trampa. (La de
+                //    `overwrite: true` no está disponible en esta compilación: las fachadas
+                //    netstandard que resuelve MSBuild solo exponen la superficie portable.)
                 ZipFile.ExtractToDirectory(tempZip, tempFolder);
 
                 // 3. Obtener Updater.exe: preferir el del paquete de actualización (ya extraído
@@ -2689,19 +2708,41 @@ private void UpdateMetarPanel(MetarData[] metars)
 
                 Process.Start(psi);
 
+                // A partir de aquí la carpeta es del Updater: no se limpia en el finally.
+                updaterOwnsWorkspace = true;
+
                 Application.Exit();
             }
             catch (Exception ex)
             {
-                progressForm.Close();
+                if (progressForm != null)
+                    progressForm.Close();
+
+                // Primero la acción y el plan B; el texto técnico de la excepción va al final, entre
+                // paréntesis, porque sirve para soporte pero no le dice al piloto qué hacer. Antes se
+                // le enseñaba el `.Message` crudo y en inglés («The file '...pdfium.dll' already
+                // exists») con una ruta interna y sin ninguna salida.
+                //
+                // Las llaves se escapan porque `_()` acaba en `string.Format` y un mensaje de
+                // excepción que las traiga reventaría dentro del propio catch, sin diálogo ninguno.
+                string detail = (ex.Message ?? string.Empty)
+                    .Replace("{", "{{")
+                    .Replace("}", "}}");
+
                 MessageBox.Show(
-                    $"Error durante la actualización:\n{ex.Message}\n\n" +
-                    "Puedes actualizar manualmente desde:\n" +
-                    "https://github.com/fhprietor/vmsOpenAcars/releases/latest",
-                    "Error de actualización",
+                    _("Upd_ErrorMsg", detail),
+                    _("Upd_ErrorTitle"),
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning
                 );
+            }
+            finally
+            {
+                // Sin esto, cada intento fallido dejaba la carpeta en %TEMP% para siempre. Si algún
+                // fichero sigue bloqueado, Cleanup lo deja y no lanza: no hay nada que el piloto
+                // pueda hacer con ese error, y el intento siguiente estrena otra carpeta.
+                if (!updaterOwnsWorkspace)
+                    UpdateStaging.Cleanup(tempFolder);
             }
         }
 

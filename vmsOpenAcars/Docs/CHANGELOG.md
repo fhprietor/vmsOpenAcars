@@ -2,6 +2,58 @@
 
 ---
 
+## [0.9.59] — 02/11/2026
+
+### Fixed
+
+**La actualización automática fallaba en el segundo intento con `The file
+'C:\Temp\vmsOpenAcars_update\pdfium.dll' already exists`.** La carpeta de trabajo era **fija**
+(`%TEMP%\vmsOpenAcars_update`) y se extraía con `ZipFile.ExtractToDirectory(tempZip, tempFolder)`,
+la sobrecarga de **dos argumentos**, que **no sobrescribe**: lanza `IOException` en cuanto
+encuentra un fichero que ya existe. Bastaba con que quedara la carpeta de un intento anterior
+—una descarga fallida, un reintento, o el mismo zip extraído dos veces— para que a partir de ahí
+**fallara siempre**. El que chocó fue `pdfium.dll`, que va en el paquete y también en `x64/`, así
+que es el primer choque que aparece.
+
+El arreglo: **una carpeta nueva por intento** y **borrarla al terminar**, en vez de limpiar la
+fija y confiar en que el borrado funcione. `Helpers/UpdateStaging.cs` (puro, con test) es quien
+decide: `CreateWorkspace(baseTempDir)` devuelve `vmsOpenAcars_update_<8 hex>` recién creada y
+vacía, y `Cleanup(dir)` la tira. Ya no hay carpeta compartida que pueda estar sucia, así que la
+extracción no depende de que nadie la haya dejado limpia; `DownloadAndUpdate` la borra en un
+`finally` y **no** la borra cuando el `Updater.exe` ya se lanzó — desde ese momento la carpeta es
+su origen de copia y el cliente se está cerrando—. `Cleanup` **no lanza**: si un fichero sigue
+bloqueado, deja lo que haya y el intento siguiente estrena otra carpeta, porque el piloto no
+puede hacer nada con un error de borrado en `%TEMP%`.
+
+_Nota de toolchain:_ la sobrecarga `ExtractToDirectory(zip, carpeta, overwrite)` **no está
+disponible** en esta compilación (las fachadas netstandard que resuelve MSBuild solo exponen la
+superficie portable: `CS1503: cannot convert from 'bool' to 'System.Text.Encoding'`), y tampoco
+hace falta: la carpeta es nueva y está vacía por construcción.
+
+### Changed
+
+**El diálogo de error dice qué hacer.** Antes enseñaba el `.Message` crudo de la excepción —en
+inglés y con una ruta interna, `C:\Temp\...`— y una línea con la descarga manual. Ahora son las
+claves `Upd_ErrorMsg` / `Upd_ErrorTitle` (simétricas en `es.json` y `en.json`): primero la acción
+—cerrar la aplicación y reintentar—, luego el plan B (la descarga manual) y **al final**, entre
+paréntesis, el detalle técnico de la excepción para soporte. Texto real del diálogo en español:
+
+```
+No se pudo completar la actualización.
+
+Cierra vmsOpenACars y vuelve a intentarlo. Si el aviso se repite, cierra también
+cualquier ventana de actualización que haya quedado abierta, por si un archivo está en
+uso. Como plan B, descarga la versión nueva a mano desde:
+https://github.com/fhprietor/vmsOpenACars/releases/latest
+
+Detalle técnico: <mensaje de la excepción>
+```
+
+El nombre del zip, el del asset y la URL de descarga **no cambian**: solo el manejo de la carpeta
+de trabajo.
+
+---
+
 ## [0.9.58] — 30/10/2026
 
 ### Changed
