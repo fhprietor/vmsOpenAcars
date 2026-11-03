@@ -118,6 +118,9 @@
          se sostiene, y sigue penalizando el rodaje real con el taxi light apagado. -->
     <Compile Include="TaxiOutLightsGraceTests.cs" />
     <Compile Include="MapAttributionTests.cs" />
+    <!-- Las notas de la Release en texto plano para el aviso de actualización: el caso real de la
+         0.9.59, que se pintaba con las almohadillas y los asteriscos en crudo. -->
+    <Compile Include="MarkdownPlainTextTests.cs" />
     <!-- La barra de botones del ACARS: que quepa en el ancho mínimo de la ventana (con diez botones
          no cabía y START/CANCEL quedaban sin poder pulsarse) y que cada botón tenga su rótulo en los
          dos idiomas. -->

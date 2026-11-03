@@ -2584,6 +2584,13 @@ private void UpdateMetarPanel(MetarData[] metars)
 
         #region Actualización automática
 
+        // Las notas completas de una Release miden ~1,5 KB (las de la 0.9.59, 1.520 caracteres) y en un
+        // MessageBox eso es ilegible: el diálogo se estira más que la pantalla y el piloto deja de
+        // leerlo. 600 caracteres es lo que cabe en un aviso de ~15 líneas sin que el «¿Deseas
+        // actualizar ahora?» quede fuera de vista; el resto se recorta con `…` y el enlace de la
+        // Release sigue estando a un clic.
+        private const int UpdateNotesMaxChars = 600;
+
         private async Task CheckForUpdatesAsync()
         {
             try
@@ -2594,9 +2601,12 @@ private void UpdateMetarPanel(MetarData[] metars)
                 {
                     string currentVersion = UpdateChecker.GetLocalVersion().ToString(3);
                     string newVersion = info.Version.ToString(3);
+                    // El cuerpo de la Release es el `.md` de `Docs/NOTAS-PILOTOS-<versión>.md` tal cual.
+                    // Interpolarlo sin tratar pintaba en el aviso las almohadillas de los títulos, los
+                    // `**` de la negrita y la URL de los enlaces (visto en el aviso de la 0.9.59).
                     string notes = string.IsNullOrWhiteSpace(info.ReleaseNotes)
                                             ? "(sin notas de versión)"
-                                            : info.ReleaseNotes;
+                                            : MarkdownPlainText.ToPlainText(info.ReleaseNotes, UpdateNotesMaxChars);
 
                     var result = MessageBox.Show(
                         $"Nueva versión disponible: {newVersion}\n" +

@@ -2,6 +2,57 @@
 
 ---
 
+## [0.9.60] — 02/11/2026
+
+### Fixed
+
+**El aviso de «Actualización disponible» enseñaba el Markdown de las notas en crudo.** El cuerpo
+de la Release de GitHub es el `.md` de `Docs/NOTAS-PILOTOS-<versión>.md` tal cual, y se
+interpolaba sin tratar en el `MessageBox`:
+
+```
+Novedades:
+# Novedades de vmsOpenACARS — versión 0.9.59
+
+**En una frase:** la actualización automática deja de fallar en
+```
+
+—almohadillas, asteriscos y acentos graves a la vista—. Un `MessageBox` no interpreta Markdown y
+no hace falta un visor: lo que hay que hacer es aplanar el texto. `Helpers/MarkdownPlainText.cs`
+(puro, sin red ni WinForms) quita los `#` de los títulos, el énfasis (`**`, `__`, `*`, `_`), los
+acentos graves del código en línea, la URL de los enlaces, las líneas de separación (`---`) y
+convierte las viñetas en `• `; une las líneas del mismo párrafo —el `.md` viene cortado a ~90
+columnas y en el diálogo se veía una columna rota—, colapsa los saltos repetidos y recorta a un
+límite **cortando en un espacio** y marcando con `…`.
+
+El límite vive en `MainForm.UpdateNotesMaxChars` (**600**): las notas completas de la 0.9.59 miden
+**1.520 caracteres** y en un aviso eso es un muro de texto. Las tres etiquetas cableadas del
+diálogo («Nueva versión disponible», «Novedades», «Actualización disponible») **no se tocan**:
+pasarlas a los `.json` es deuda aparte.
+
+Texto resultante de las notas reales de la 0.9.59 con el helper (598 caracteres, con el `…` del
+recorte):
+
+```
+Novedades de vmsOpenACARS — versión 0.9.59
+
+En una frase: la actualización automática deja de fallar en el segundo intento y, si algo sale
+mal, el aviso te dice qué hacer en vez de enseñarte un error en inglés con una ruta interna.
+
+Lo que hay que saber
+
+• Qué fallaba. La actualización descomprimía el paquete en una carpeta temporal siempre con el
+mismo nombre, y al descomprimir no se permitía sobrescribir. Si quedaba algo de un intento
+anterior —una descarga que se cortó, un reintento—, la segunda vez fallaba siempre, con el
+mensaje The file 'C:\Temp\vmsOpenAcars_update\pdfium.dll' already…
+```
+
+`MarkdownPlainTextTests` (11 tests, sin abrir ventanas) fija una regla por test y el caso central
+es el texto literal de las notas de la 0.9.59, comprobando que no queda `**` ni `#`. La suite pasa
+de **1008** a **1019** tests (1018 pasan, 1 se omite sola).
+
+---
+
 ## [0.9.59] — 02/11/2026
 
 ### Fixed

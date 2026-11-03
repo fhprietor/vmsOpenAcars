@@ -51,6 +51,30 @@ El zip se llama **`vmsOpenACars.zip`** (el Updater busca ese nombre de asset) y 
 **68 entradas**: los ficheros de `bin\Release`, con `Languages/`, `nl/`, `x64/` y `x86/`. Se comprueba
 que el `.exe` de dentro dice la versión nueva y que **no** hay ningún `.config` del cliente.
 
+> **Cómo se comprime el zip: no da igual (lección de la 0.9.58 y la 0.9.59, dos releases rotas).**
+> `Compress-Archive -Path <rutas completas>` **aplana el árbol**: los 67 ficheros entraron todos en la
+> raíz, así que `x64\pdfium.dll` y `x86\SQLite.Interop.dll` se convirtieron en `pdfium.dll` y
+> `SQLite.Interop.dll` duplicados en la raíz, y `nl\` y `Languages\` desaparecieron. El paquete quedó
+> doblemente roto:
+> - **La actualización falla siempre** con `The file '…\pdfium.dll' already exists`:
+>   `ZipFile.ExtractToDirectory` lanza en cuanto el zip trae **dos entradas con el mismo nombre**,
+>   aunque la carpeta de destino esté vacía. La 0.9.57 y la 0.9.58 **sí** borran esa carpeta antes de
+>   extraer —son el mismo blob, `f66f3907`—, así que el fallo nunca fue una carpeta sucia: era el zip.
+>   Consecuencia operativa: **quien esté en una versión anterior no puede actualizarse**, porque el
+>   arreglo viaja en el paquete que no se puede instalar.
+> - Y aunque hubiera extraído, la instalación quedaba **sin `x64\` ni `nl\`**.
+>
+> **La forma correcta**: copiar `bin\Release` a una carpeta de staging (fuera del repo) **sin** el
+> `.config` del cliente, y comprimir esa carpeta con
+> `[IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)`,
+> que **conserva las subcarpetas**.
+>
+> **La comprobación que lo detecta**: el **número de entradas no lo prueba** —los zips rotos tenían
+> **67** entradas, las mismas que el bueno—. Hay que verificar **las dos cosas**: que no hay
+> **entradas duplicadas** (sin distinguir mayúsculas, que es como las ve NTFS) y que **existen**
+> `x64\`, `x86\`, `nl\` y `Languages\`. Un asset ya publicado se sustituye **sin publicar versión
+> nueva**: `gh release upload v<versión> <zip> --clobber`.
+
 ## 6. Commit y push
 
 `git add -A` y mensaje en el estilo del repo (`tipo(alcance): …`, sin acentos). Ver la trampa de
