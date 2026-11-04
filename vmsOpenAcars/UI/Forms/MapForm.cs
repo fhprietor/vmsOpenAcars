@@ -71,14 +71,30 @@ namespace vmsOpenAcars.UI.Forms
 
             Padding = new Padding(6);
 
-            BuildLayout();
+            try
+            {
+                // El `try` envuelve la **creación** del control, no solo su uso (v0.9.64). GMapControl
+                // tiene un constructor estático que llama a `GMaps.Instance.SQLitePing()` → 
+                // `SQLitePureImageCache.Ping()`, y con una nativa `SQLite.Interop.dll` de bitness
+                // equivocada lanza BadImageFormatException (0x8007000B) desde `new GMapControl`, antes
+                // de que exista cualquier `try` de inicialización. La traza real de la 0.9.63 lo
+                // demostró: el fallo era de SQLite, no de pdfium, y tumbaba el mapa y con él el ACARS.
+                // Si el control no se puede crear, `ShowMapUnavailable` deja una ventana que informa y
+                // el resto del cliente (y el vuelo) siguen.
+                BuildLayout();
 
-            _spinner = new SpinnerOverlay();
-            Controls.Add(_spinner);
-            Resize += (s, e) => CenterSpinner();
-            Load   += (s, e) => CenterSpinner();
+                _spinner = new SpinnerOverlay();
+                Controls.Add(_spinner);
+                Resize += (s, e) => CenterSpinner();
+                Load   += (s, e) => CenterSpinner();
 
-            InitMap();
+                InitMap();
+            }
+            catch (Exception ex)
+            {
+                try { ShowMapUnavailable(ex); }
+                catch { /* la ventana del mapa no puede tumbar el ACARS */ }
+            }
 
             // Icono de barra de tareas — mismo logo.png que MainForm
             try
@@ -94,6 +110,90 @@ namespace vmsOpenAcars.UI.Forms
                 }
             }
             catch { }
+        }
+
+        /// <summary>
+        /// La ventana que queda cuando `GMapControl` no se pudo crear. No es un diálogo: es el propio
+        /// formulario, con su barra de título y un panel que explica el fallo, para que cerrar el mapa
+        /// sea tan fácil como siempre. La clave la decide `NativeFailure`: si el módulo es
+        /// `SQLite.Interop.dll` el texto dice reinstalar en una carpeta limpia y borrar la copia suelta
+        /// de la raíz, y en todos los casos recuerda que el ACARS y el vuelo continúan.
+        /// </summary>
+        private void ShowMapUnavailable(Exception ex)
+        {
+            // El control pudo crearse a medias (o haber dejado `_overlayManager`/`_routeController`
+            // construidos): se libera y se anula para que los métodos públicos que llama `MainForm`
+            // —SetAirspaces, LoadRoute, UpdatePosition— no toquen un mapa roto.
+            try { if (_map != null) _map.Dispose(); } catch { }
+            _map             = null;
+            _overlayManager  = null;
+            _routeController = null;
+            _sidebar         = null;
+            _spinner         = null;
+
+            SuspendLayout();
+            Controls.Clear();
+
+            var titleBar = new Panel
+            {
+                Dock      = DockStyle.Top,
+                Height    = 35,
+                BackColor = Color.FromArgb(20, 28, 36),
+            };
+            var lblTitle = new Label
+            {
+                Text      = "vmsOpenACars — MAP",
+                ForeColor = Color.Cyan,
+                Font      = new Font("Consolas", 9, FontStyle.Bold),
+                Location  = new Point(10, 9),
+                AutoSize  = true,
+            };
+            var btnClose = MakeTitleBtn("✕", McduLegend.Danger);
+            btnClose.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
+            btnClose.Location = new Point(Math.Max(0, titleBar.Width - 34), 5);
+            btnClose.Click   += (s, e) => Close();
+            titleBar.Resize  += (s, e) =>
+                btnClose.Location = new Point(Math.Max(0, titleBar.Width - 34), 5);
+            titleBar.Controls.Add(lblTitle);
+            titleBar.Controls.Add(btnClose);
+
+            var body = new FlowLayoutPanel
+            {
+                Dock           = DockStyle.Fill,
+                BackColor      = Color.FromArgb(15, 20, 25),
+                FlowDirection  = FlowDirection.TopDown,
+                WrapContents   = false,
+                AutoScroll     = true,
+                Padding        = new Padding(24, 20, 24, 20),
+            };
+
+            int wrapWidth = Math.Max(320, ClientSize.Width - 90);
+
+            var message = new Label
+            {
+                AutoSize      = true,
+                MaximumSize   = new Size(wrapWidth, 0),
+                ForeColor     = Color.Gainsboro,
+                Font          = new Font("Segoe UI", 10f),
+                Text          = L._(NativeFailure.MessageKeyFor(ex, NativeFailure.MapMessageKey)),
+            };
+
+            var detail = new Label
+            {
+                AutoSize      = true,
+                MaximumSize   = new Size(wrapWidth, 0),
+                ForeColor     = Color.FromArgb(130, 136, 150),
+                Font          = new Font("Consolas", 8f),
+                Text          = NativeFailure.DescribeFailure(
+                                    ex, AppDomain.CurrentDomain.BaseDirectory),
+            };
+
+            body.Controls.Add(message);
+            body.Controls.Add(detail);
+
+            Controls.Add(body);
+            Controls.Add(titleBar);   // Top — se añade al final para quedarse el borde superior
+            ResumeLayout();
         }
 
         private void CenterSpinner()
@@ -352,6 +452,16 @@ namespace vmsOpenAcars.UI.Forms
 
         private void InitMap()
         {
+            // **La caché de GMap se queda: no se puede quitar la dependencia de SQLite (v0.9.64).**
+            // Se comprobó con el código delante: el constructor estático de `GMapControl` llama
+            // `GMaps.Instance.SQLitePing()` en cuanto el tipo se usa fuera del diseñador, y eso es
+            // `SQLitePureImageCache.Ping()` directo —no pasa por `GMaps.Instance.Mode`—. Poner
+            // `AccessMode.ServerOnly` **no evita** ese inicializador: `new GMapControl` ya lo dispara,
+            // y con una `SQLite.Interop.dll` de bitness equivocada revienta igual. Además la caché es
+            // obligatoria para cumplir el TTL de 30 días que CARTO impone a través de NavData (abajo).
+            // El proxy de teselas de NavData sirve los PNG por HTTP y no necesita la caché para
+            // funcionar, pero quitarla no eliminaría el `Ping` y sí perdería el borrado de 30 días:
+            // por eso se deja `ServerAndCache` y el arreglo es proteger la creación del control.
             GMaps.Instance.Mode = AccessMode.ServerAndCache;
 
             // ── La obligación de los 30 días que CARTO nos puso a través de NavData ───────────────
@@ -433,7 +543,7 @@ namespace vmsOpenAcars.UI.Forms
 
         private void UpdateZoomInStatus()
         {
-            if (_lblStatus.IsDisposed) return;
+            if (_map == null || _lblStatus == null || _lblStatus.IsDisposed) return;
             string t = _lblStatus.Text;
             int zIdx = t.IndexOf("  Z:");
             if (zIdx >= 0) t = t.Substring(0, zIdx);
@@ -443,6 +553,7 @@ namespace vmsOpenAcars.UI.Forms
 
         private void OnProviderChanged(object sender, EventArgs e)
         {
+            if (_map == null) return;
             _map.MapProvider = ProviderForIndex(_cmbProvider.SelectedIndex);
             SaveMapProviderPref(_cmbProvider.SelectedIndex);
             UpdateAttribution();   // el satélite de ESRI y las basemaps de CARTO no acreditan lo mismo
@@ -455,14 +566,14 @@ namespace vmsOpenAcars.UI.Forms
         /// </summary>
         private void UpdateAttribution()
         {
-            if (_lblAttribution == null || _lblAttribution.IsDisposed) return;
+            if (_map == null || _lblAttribution == null || _lblAttribution.IsDisposed) return;
             _lblAttribution.Text = Helpers.MapAttribution.For(_map.MapProvider?.Copyright);
             PositionAttribution();
         }
 
         private void PositionAttribution()
         {
-            if (_lblAttribution == null || _lblAttribution.IsDisposed) return;
+            if (_map == null || _lblAttribution == null || _lblAttribution.IsDisposed) return;
             _lblAttribution.Location = new Point(
                 Math.Max(0, _map.ClientSize.Width  - _lblAttribution.Width  - 4),
                 Math.Max(0, _map.ClientSize.Height - _lblAttribution.Height - 4));
@@ -539,7 +650,8 @@ namespace vmsOpenAcars.UI.Forms
             string altIcao    = null,
             string sidName    = null, string starName     = null)
         {
-            if (IsDisposed || !IsHandleCreated) return;
+            if (_map == null || _routeController == null || _sidebar == null || IsDisposed || !IsHandleCreated)
+                return;
             if (waypoints == null || waypoints.Count < 2) return;
 
             bool airportChanged = originIcao != _currentOriginIcao || destIcao != _currentDestIcao;
@@ -573,7 +685,7 @@ namespace vmsOpenAcars.UI.Forms
 
         public void CenterOnAirport(string icao)
         {
-            if (string.IsNullOrEmpty(icao) || IsDisposed || !IsHandleCreated) return;
+            if (_map == null || string.IsNullOrEmpty(icao) || IsDisposed || !IsHandleCreated) return;
             System.Threading.Tasks.Task.Run(() =>
             {
                 NavDataClient.PrefetchAirport(icao);
@@ -585,7 +697,7 @@ namespace vmsOpenAcars.UI.Forms
                     if (IsDisposed || !IsHandleCreated) return;
                     BeginInvoke((Action)(() =>
                     {
-                        if (IsDisposed) return;
+                        if (IsDisposed || _map == null) return;
                         _map.Position = new PointLatLng(lat, lon);
                         _map.Zoom = 13;
                     }));
@@ -596,19 +708,19 @@ namespace vmsOpenAcars.UI.Forms
         // ── Position update ───────────────────────────────────────────────────────
 
         public void UpdatePosition(double lat, double lon, double heading)
-            => _routeController.UpdatePosition(lat, lon, heading);
+            => _routeController?.UpdatePosition(lat, lon, heading);
 
         // ── Approach overlay ─────────────────────────────────────────────────────────
 
-        private void ClearApproachOverlay() => _routeController.ClearApproachOverlay();
+        private void ClearApproachOverlay() => _routeController?.ClearApproachOverlay();
 
         private void DrawApproachOverlay(
             NavApproach app, NavApproachTransition trans, NavRunway rwy, NavIls ils)
-            => _routeController.DrawApproachOverlay(app, trans, rwy, ils);
+            => _routeController?.DrawApproachOverlay(app, trans, rwy, ils);
 
         private void OpenApproachChart()
         {
-            if (string.IsNullOrEmpty(_currentDestIcao)) return;
+            if (_sidebar == null || string.IsNullOrEmpty(_currentDestIcao)) return;
             new ApproachChartForm(
                 _currentDestIcao,
                 _sidebar.GetSelectedApproach(),
@@ -616,14 +728,14 @@ namespace vmsOpenAcars.UI.Forms
         }
 
         internal void SetAirspaces(IList<NavAirspace> airspaces) =>
-            _overlayManager.SetAirspaces(airspaces);
+            _overlayManager?.SetAirspaces(airspaces);
 
-        internal void SetAircraftCategory(FsuipcService.AircraftCategory cat)
-            => _routeController.SetAircraftCategory(cat);
+        internal void SetAircraftCategory(FsuipcService.AircraftCategory cat) =>
+            _routeController?.SetAircraftCategory(cat);
 
         internal void SetAtcStations(IList<IvaoAtcStation> stations)
         {
-            _overlayManager.SetAtcStations(stations);
+            _overlayManager?.SetAtcStations(stations);
             // El panel lateral es el único sitio donde el ATIS completo se lee entero;
             // se repuebla con cada poll de IVAO.
             _atcPanel?.SetStations(stations);
@@ -632,7 +744,7 @@ namespace vmsOpenAcars.UI.Forms
         public void SetMetarData(int? originWindDir, int? originWindSpeedKt,
                                  int? destWindDir,   int? destWindSpeedKt)
         {
-            if (IsDisposed || !IsHandleCreated) return;
+            if (_sidebar == null || IsDisposed || !IsHandleCreated) return;
             BeginInvoke((Action)(() =>
             {
                 if (IsDisposed) return;
@@ -643,7 +755,7 @@ namespace vmsOpenAcars.UI.Forms
 
         private void RedrawRoute()
         {
-            if (_currentWaypoints == null) return;
+            if (_sidebar == null || _currentWaypoints == null) return;
             OnProcedureChanged?.Invoke(
                 _sidebar.SelOriginRunway, _sidebar.SelSidName,
                 _sidebar.SelDestRunway,   _sidebar.SelStarName);

@@ -180,6 +180,17 @@ namespace vmsOpenAcars.UI.Forms
             _uiService?.AddLog(_("Log_Bitness",
                 Environment.Is64BitProcess ? "64 bits" : "32 bits",
                 Environment.Is64BitOperatingSystem ? "64 bits" : "32 bits"), Theme.SecondaryText);
+            // Las cuatro nativas del paquete, una línea junto a OS/CPU/GPU/bitness (v0.9.64). El
+            // 0x8007000B de la 0.9.63 era SQLite.Interop, no pdfium: el reporte traía la traza pero no
+            // el estado de los archivos, y hubo que reconstruirlo a mano. Solo informa: si una falta o
+            // tiene la bitness cruzada, se ve aquí desde el primer arranque y nada se bloquea.
+            try
+            {
+                _uiService?.AddLog(
+                    _("Log_Natives", NativeFailure.BuildInventory(AppDomain.CurrentDomain.BaseDirectory)),
+                    Theme.SecondaryText);
+            }
+            catch { /* el inventario no puede impedir que arranque el ACARS */ }
             _viewModel?.Start();
             // Verificar actualizaciones al iniciar (no bloquea la UI)
             this.Shown += async (s, e) => await CheckForUpdatesAsync();

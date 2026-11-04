@@ -259,8 +259,9 @@
     <Compile Include="Helpers\SapiVoicePolicy.cs" />
     <Compile Include="Helpers\FireAndForget.cs" />
     <Compile Include="Helpers\SystemInfoHelper.cs" />
-    <!-- Decide qué fallo del PDF es «falta la nativa» (0x8007000B) y qué texto enseñar: puro, con test. -->
-    <Compile Include="Helpers\PdfNativeFailure.cs" />
+    <!-- Diagnóstico de nativas (0x8007000B): qué módulo falló de verdad y qué texto enseñar.
+         Puro en sus decisiones, con test; sustituye a PdfNativeFailure, que asumía pdfium. -->
+    <Compile Include="Helpers\NativeFailure.cs" />
     <Compile Include="Helpers\TransitionDefaults.cs" />
     <Compile Include="Helpers\UpdateIntervalPolicy.cs" />
     <Compile Include="Helpers\UpdateStaging.cs" />

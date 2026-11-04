@@ -155,6 +155,7 @@
   "Ofp_PdfOpenFailed": "No se pudo abrir el OFP: el archivo PDF no se pudo cargar.\n\nEl ACARS y el vuelo NO se ven afectados: puede seguir volando con normalidad.\n\nPuede ver el OFP en la web de SimBrief.",
   "Err_UnhandledTitle": "vmsOpenACars — error inesperado",
   "Err_UnhandledMsg": "Se ha producido un error inesperado, pero el ACARS y el vuelo CONTINÚAN: no hace falta cerrar la aplicación.\n\nSi el aviso se repite, cierra vmsOpenACars y vuelve a abrirlo.\n\nDetalle técnico:\n{0}",
+  "Err_SqliteNativeMissing": "No se pudo cargar la librería nativa de SQLite (SQLite.Interop.dll), que el cliente necesita para el mapa y el registro de aterrizajes.\n\nEl ACARS y el vuelo CONTINÚAN: no hace falta cerrar la aplicación. El mapa no estará disponible en esta sesión.\n\nReinstala vmsOpenACars en una carpeta limpia y borra cualquier SQLite.Interop.dll suelta en la raíz de la instalación: las copias correctas viven en x86\\ y x64\\.",
 
   "Fp_DispatchInvalidKey": "❌ Clave de API inválida. Revisa tu configuración de phpVMS.",
   "Fp_DispatchFlightNotFound": "❌ El vuelo ya no existe en el servidor. Actualiza la lista de vuelos.",
@@ -176,6 +177,7 @@
   "Map_LayerRoute": "RUTA",
   "Map_LayerSpaces": "ESPACIOS",
   "Map_LayerIvao": "IVAO",
+  "Map_MapUnavailable": "No se pudo abrir el mapa en esta sesión.\n\nEl ACARS y el vuelo NO se ven afectados: puedes seguir volando con normalidad. Abajo está el detalle técnico para el reporte.",
 
   "Panel_Progress": "📊 PROGRESO",
   "Panel_Aero": "✈️ AERODINÁMICA",
@@ -416,6 +418,7 @@
   "Log_SimulatorConnected":     "🛩️ Simulador: {0}",
   "Log_SimRunning":             "🖥️ {0}",
   "Log_Bitness":                "🖥️ Proceso: {0} · Windows: {1}",
+  "Log_Natives":                "🧩 Nativas: {0}",
   "Log_FuelDiff":               "ℹ️ Diferencia de combustible: {0}{1} {2}",
   "Log_FuelValidOk":            "✅ Combustible validado (tolerancia: {0} kg)",
   "Log_FuelPlanned":            "📋 Combustible planificado: {0} {1} ({2} kg)",

@@ -43,10 +43,16 @@ namespace vmsOpenAcars
 
         /// <summary>
         /// Excepción que nadie capturó en el hilo de la UI. Registra la excepción completa en el log,
-        /// avisa al piloto en su idioma con el detalle técnico (bitness del proceso, ruta de la nativa
-        /// de PDF que se esperaba y si existe) y **devuelve el control**: al salir de aquí
-        /// `Application.Run` sigue, así que el vuelo en curso no se pierde. Todo va en `try/catch` mudo
-        /// porque este es el último recurso: si el aviso mismo falla, la aplicación se queda viva.
+        /// avisa al piloto en su idioma y **devuelve el control**: al salir de aquí `Application.Run`
+        /// sigue, así que el vuelo en curso no se pierde.
+        ///
+        /// El texto depende del **módulo que de verdad falló**, no de una suposición (v0.9.64): la traza
+        /// real de la 0.9.63 era `System.Data.SQLite.UnsafeNativeMethods.sqlite3_libversion()` desde el
+        /// constructor estático de `GMapControl`, y el aviso decía pdfium porque el helper lo asumía.
+        /// `NativeFailure` detecta `SQLite.Interop`, `pdfium` o «no identificado» en la traza, y el
+        /// detalle técnico lleva la bitness y el estado de las cuatro nativas del paquete. Todo va en
+        /// `try/catch` mudo porque este es el último recurso: si el aviso mismo falla, la aplicación se
+        /// queda viva.
         /// </summary>
         private static void OnThreadException(object sender, ThreadExceptionEventArgs e)
         {
@@ -58,11 +64,19 @@ namespace vmsOpenAcars
                 Exception ex = e != null ? e.Exception : null;
                 LogToAppLog(ex);
 
-                string detail = PdfNativeFailure.DescribeFailure(
+                string detail = NativeFailure.DescribeFailure(
                     ex, AppDomain.CurrentDomain.BaseDirectory);
 
+                string key = NativeFailure.MessageKeyFor(ex, NativeFailure.GlobalGenericMessageKey);
+                string message = L._(key);
+                // Las claves de módulo no llevan hueco: el detalle se añade debajo para que nunca se
+                // pierda. La genérica sí lo lleva (`{0}`) y se formatea como siempre.
+                message = message.IndexOf("{0}", StringComparison.Ordinal) >= 0
+                    ? L._(key, detail)
+                    : message.TrimEnd() + "\n\n" + detail;
+
                 MessageBox.Show(
-                    L._("Err_UnhandledMsg", detail),
+                    message,
                     L._("Err_UnhandledTitle"),
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);

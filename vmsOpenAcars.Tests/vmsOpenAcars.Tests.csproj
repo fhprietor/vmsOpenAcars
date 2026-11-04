@@ -105,8 +105,9 @@
     <Compile Include="StateChangeGateTests.cs" />
     <Compile Include="ExcursionCounterTests.cs" />
     <Compile Include="SpoilersPositionTests.cs" />
-    <!-- El 0x8007000B del OFP en la 0.9.60: qué excepción es «falta la nativa de PDF» y qué texto va. -->
-    <Compile Include="PdfNativeFailureTests.cs" />
+    <!-- El 0x8007000B de la 0.9.63: el módulo real era SQLite.Interop (no pdfium), las cuatro
+         nativas con su tamaño y machine, y qué texto va en cada caso. Sin abrir ventanas. -->
+    <Compile Include="NativeFailureTests.cs" />
     <Compile Include="ThrustReverserMonitorTests.cs" />
     <Compile Include="CabinAnnouncementScriptTests.cs" />
     <Compile Include="LocalTimeOfDayTests.cs" />

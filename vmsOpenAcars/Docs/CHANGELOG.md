@@ -2,6 +2,71 @@
 
 ---
 
+## [0.9.64] — 03/11/2026
+
+### Fixed
+
+**El `0x8007000B` que tumbaba el mapa no era pdfium: era `SQLite.Interop.dll`, y el diagnóstico
+mentía por asumir pdfium.** El manejador global de la 0.9.63 capturó esta traza real de un piloto:
+
+```
+System.BadImageFormatException: … (Excepción de HRESULT: 0x8007000B)
+   en System.Data.SQLite.UnsafeNativeMethods.sqlite3_libversion()
+   en GMap.NET.CacheProviders.SQLitePureImageCache.Ping()
+   en GMap.NET.WindowsForms.GMapControl..cctor()
+```
+
+El módulo que no cargó fue **`SQLite.Interop.dll`**, no `pdfium.dll`. El disparador es el
+**constructor estático de `GMapControl`**, que llama a `SQLitePureImageCache.Ping()` porque GMap usa
+SQLite para su caché de teselas; el `try` de `OFPViewerForm` no cubría ese camino. El paquete **no**
+lleva `SQLite.Interop.dll` en la raíz: solo `x86\` (**1.592.504 B**) y `x64\` (**2.005.688 B**). Una
+copia de 32 bits suelta en la raíz de la instalación explica el `0x8007000B` en un proceso de 64 bits.
+El aviso, además, decía `pdfium expected: … (exists)` porque `Helpers/PdfNativeFailure.DescribeFailure`
+**asumía** pdfium: indujo a error al diagnosticar y se retira.
+
+- **`MapForm`: el `try` envuelve la creación entera del control**, no solo su uso, igual que el
+  arreglo de `OFPViewerForm` en la 0.9.63. `new GMapControl` (línea de `BuildLayout`) es lo que
+  dispara el constructor estático; si falla, `ShowMapUnavailable` deja la ventana con su barra de
+  título y un panel que informa, y `MainForm`, el ACARS y el vuelo siguen. Los métodos que
+  `BtnMap_Click` llama después (`SetAirspaces`, `SetAtcStations`, `LoadRoute`, `CenterOnAirport`,
+  `UpdatePosition`, `SetMetarData`) toleran un mapa nulo.
+- **La caché SQLite de GMap se queda: no se puede quitar la dependencia.** Se comprobó con el código
+  delante (IL de `GMap.NET.WindowsForms.dll`): `GMapControl..cctor` llama a
+  `GMaps.Instance.SQLitePing()` en cuanto el tipo se usa fuera del diseñador, y `SQLitePing` es
+  `SQLitePureImageCache.Ping()` directo —no pasa por `GMaps.Instance.Mode`—. Poner
+  `AccessMode.ServerOnly` **no evita** ese inicializador; el `new GMapControl` ya lo dispara y con una
+  nativa de bitness equivocada revienta igual. Además `ServerAndCache` es lo que permite cumplir el
+  TTL de **30 días** que CARTO impone a través de NavData. El proxy de teselas sirve los PNG por HTTP
+  y no necesita la caché para funcionar, pero quitarla no eliminaría el `Ping` y sí perdería el
+  borrado de 30 días: se deja igual y el arreglo es proteger la creación.
+- **`Helpers/NativeFailure` sustituye a `PdfNativeFailure`** (helper puro, con test). El módulo sale
+  de `ex.StackTrace` / `InnerException` —`SQLite.Interop`, `pdfium`— y si no aparece ninguno dice
+  **«no identificado»**: nunca inventa pdfium. El detalle añade la bitness del proceso y de Windows y
+  el estado de las **cuatro nativas** del paquete (`x86`/`x64` × `pdfium`/`SQLite.Interop`) con
+  **tamaño real** y **machine del PE** (`0x14c` x86, `0x8664` x64; `0x?` si el archivo no es un PE
+  legible), y distingue `OK` / `falta` / `bitness cruzada` / `ilegible`. Un archivo truncado o un
+  directorio sin permisos no lanzan: el manejador global es la última red.
+- **Una línea al arrancar, junto a OS/CPU/GPU/bitness:** `🧩 Nativas: …` con el resultado de las
+  cuatro. Solo informa: no bloquea nada y no impide volar.
+- **Textos con la acción correcta.** Si el módulo es `SQLite.Interop`, el aviso
+  (`Err_SqliteNativeMissing`, es/en simétricos) dice que se reinstale en una carpeta limpia y se
+  borre cualquier `SQLite.Interop.dll` suelta en la raíz, y que **el ACARS y el vuelo continúan**. El
+  mapa tiene su clave genérica (`Map_MapUnavailable`) y el arranque la suya (`Log_Natives`):
+  **520 claves** en cada idioma.
+- Tests nuevos en `NativeFailureTests` (13, sustituyen a los 7 de `PdfNativeFailureTests`): traza de
+  SQLite, traza de pdfium, `0x8007000B` sin módulo, archivo de bitness cruzada, archivo ausente,
+  tamaño raro, detalle de las cuatro nativas, línea de arranque y textos simétricos. La suite pasa de
+  **1035 a 1041** (1 se omite sola).
+
+### Pendiente de verificación
+
+No se puede reproducir aquí el escenario exacto (una `SQLite.Interop.dll` de 32 bits suelta en la
+raíz de una instalación de 64 bits) ni verse la ventana del mapa en ese estado. Lo verificado es que
+compila en **Debug y Release**, que `ProductVersion` es **0.9.64** y que la suite pasa (**1041**, 1 se
+omite sola). Queda pendiente un arranque real en ese escenario.
+
+---
+
 ## [0.9.63] — 03/11/2026
 
 ### Fixed

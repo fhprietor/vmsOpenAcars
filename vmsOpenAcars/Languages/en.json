@@ -155,6 +155,7 @@
   "Ofp_PdfOpenFailed": "The OFP could not be opened: the PDF file failed to load.\n\nACARS and your flight are NOT affected: you can keep flying normally.\n\nYou can view the OFP on the SimBrief website.",
   "Err_UnhandledTitle": "vmsOpenACars — unexpected error",
   "Err_UnhandledMsg": "An unexpected error occurred, but ACARS and your flight are still running: you do not need to close the application.\n\nIf the message keeps appearing, close vmsOpenACars and open it again.\n\nTechnical detail:\n{0}",
+  "Err_SqliteNativeMissing": "The SQLite native library (SQLite.Interop.dll), which the client needs for the map and the landing log, could not be loaded.\n\nACARS and your flight CONTINUE: there is no need to close the application. The map will not be available in this session.\n\nReinstall vmsOpenACars into a clean folder and delete any loose SQLite.Interop.dll in the installation root: the correct copies live in x86\\ and x64\\.",
 
   "Fp_DispatchInvalidKey": "❌ Invalid API key. Check your phpVMS configuration.",
   "Fp_DispatchFlightNotFound": "❌ The flight no longer exists on the server. Refresh the flight list.",
@@ -176,6 +177,7 @@
   "Map_LayerRoute": "ROUTE",
   "Map_LayerSpaces": "SPACES",
   "Map_LayerIvao": "IVAO",
+  "Map_MapUnavailable": "The map could not be opened in this session.\n\nACARS and your flight are NOT affected: you can keep flying normally. The technical detail is below for the report.",
 
   "Panel_Progress": "📊 PROGRESS",
   "Panel_Aero": "✈️ AERODYNAMICS",
@@ -418,6 +420,7 @@
   "Log_SimulatorConnected":     "🛩️ Simulator: {0}",
   "Log_SimRunning":             "🖥️ {0}",
   "Log_Bitness":                "🖥️ Process: {0} · Windows: {1}",
+  "Log_Natives":                "🧩 Native DLLs: {0}",
   "Log_FuelDiff":               "ℹ️ Fuel difference from plan: {0}{1} {2}",
   "Log_FuelValidOk":            "✅ Fuel validation passed (tolerance: {0} kg)",
   "Log_FuelPlanned":            "📋 Planned fuel: {0} {1} ({2} kg)",

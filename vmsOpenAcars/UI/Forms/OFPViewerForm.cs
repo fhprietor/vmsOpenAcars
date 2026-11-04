@@ -88,10 +88,10 @@ namespace vmsOpenAcars.UI.Forms
         }
 
         /// <summary>
-        /// El aviso que sustituye al diálogo de .NET. La clave la decide `PdfNativeFailure` (helper puro
-        /// con su test): la específica de «falta la librería de PDF» o la genérica de «no se pudo abrir».
-        /// El detalle técnico va en gris para que el próximo reporte traiga el tipo de excepción y no
-        /// solo una captura del diálogo del sistema.
+        /// El aviso que sustituye al diálogo de .NET. La clave la decide `NativeFailure` (helper puro
+        /// con su test): la de pdfium solo si la traza nombra pdfium, y la genérica de «no se pudo
+        /// abrir» cuando el módulo no se identifica. Desde la 0.9.64 el detalle técnico no supone
+        /// pdfium: dice el módulo detectado y el estado de las cuatro nativas del paquete.
         /// </summary>
         private Panel BuildFailurePanel(Exception ex)
         {
@@ -109,20 +109,20 @@ namespace vmsOpenAcars.UI.Forms
                 AutoSize = false,
                 ForeColor = Color.Gainsboro,
                 Font = new Font("Segoe UI", 10f),
-                Text = L._(PdfNativeFailure.MessageKeyFor(ex))
+                Text = L._(NativeFailure.MessageKeyFor(ex, NativeFailure.OfpGenericMessageKey))
             };
 
             var detail = new Label
             {
                 Dock = DockStyle.Bottom,
                 AutoSize = false,
-                Height = 60,
+                Height = 125,
                 ForeColor = Color.FromArgb(130, 136, 150),
                 Font = new Font("Consolas", 8f),
-                // Desde v0.9.63 el detalle lleva, además de la excepción, la bitness del proceso y la
-                // ruta de la nativa que se esperaba con si existe: el próximo reporte ya no obliga a
-                // adivinar por qué Windows de 32 bits no encuentra `x86\pdfium.dll`.
-                Text = PdfNativeFailure.DescribeFailure(ex, AppDomain.CurrentDomain.BaseDirectory)
+                // Desde v0.9.64 el detalle lleva el módulo realmente detectado, la bitness y las
+                // cuatro nativas con su tamaño y machine: el 0x8007000B de la 0.9.63 era SQLite y el
+                // aviso decía pdfium porque el helper lo asumía.
+                Text = NativeFailure.DescribeFailure(ex, AppDomain.CurrentDomain.BaseDirectory)
             };
 
             panel.Controls.Add(message);

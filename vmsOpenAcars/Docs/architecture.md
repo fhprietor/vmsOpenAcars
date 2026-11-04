@@ -3094,3 +3094,70 @@ cabina, **mantengan el cinturón abrochado** mientras estén sentados».
   descargar 7–14 ficheros por vuelo. Con la voz duele menos, pero sigue siendo red evitable.
 - **No se ha escuchado en vuelo con simulador**: la lógica está probada en seco (33 tests, la
   síntesis a fichero y el texto leído del `.exe` compilado por reflexión); los disparadores nuevos, no.
+
+---
+
+## Detección de fases: gracia de entrada, el tope del pushback y el panel (v0.9.40–v0.9.55)
+
+*(Movido aquí desde `CLAUDE.md` el 12/10/2026 para liberar el presupuesto de instrucciones del agente;
+allí queda la tabla de umbrales —que es la regla— con un puntero a esta sección. El texto está copiado
+literal.)*
+
+**Gracia de entrada de fase (v0.9.40).** El −5 de «Luces TAXI APAGADAS durante el rodaje» del PIREP
+real `XPNkY9jDneZ6ByGQ` se cobró a las 01:58:56, en el mismo tick en que se declaró el (falso) rodaje
+con el avión aún **remolcado** y los motores apagados: al ser una entrada de fase, era irreversible.
+Desde v0.9.40 `ApproachValidator.CheckPhaseEntryLights(TaxiOut)` **no evalúa: arma**
+(`ArmTaxiOutLightsCheck`), y `TickDeferredTaxiOutLights` —desde el ciclo de telemetría— decide
+`TaxiOutLightsGraceSec = 5` s después, con el estado de luces **vivo**; si la fase dejó de ser
+`TaxiOut`, se cancela sin cobrar. El **−5 de IVAO se difiere con la misma gracia**
+(`MainViewModel.CheckIvaoAtBlocksOffWithGrace`). Rodar >5 s con el taxi light apagado **sigue
+penalizando**. El helper puro es `Helpers/PhaseEntryGrace.cs` (reloj inyectable, con test).
+**El tope de `PushbackMaxSec` son 300 s desde v0.9.41, no 90** (con 90 s se disparaba a mitad de todos los
+empujes: **142 s** y **148 s**): es el rescate, no la puerta habitual. La normal es el **freno de parqueo**, y
+desde v0.9.55 hay una **tercera** (`Helpers/PushbackTaxiGate`): **GS ≥ 8 kt sostenidos 15 s** (**62 m**)
+**con motor**, porque el freno solo avisa del **cambio** y `rMBVEKj5PZzx0pX9` arrancó con él ya liberado
+(rodó **110 s** fuera de fase; cierra **95 s** antes del rescate). Un tug va a **4-6 kt**; el rodaje, a **9-24**.
+**El estado de motores no decide por sí solo el fin del empuje**: «cero motores» y «el addon no lo publica» son
+indistinguibles, así que solo entra **dentro** de la puerta de rodaje; sin ese dato no se abre y deciden las otras.
+
+Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia leve (~100 fpm). **Tren y spoilers** pasan por `Helpers/StateChangeGate` (2,5 s; la 1.ª muestra siembra): el spoiler se leía como booleano y **`0x0BD8` es posición 0–16383** —se despliega al **10 %** (`Helpers/SpoilersPosition`) y `0x0BCC` es armado, no despliegue—. **Reversas**: al desplegarse (`FirstDetection`, 10 %), no en el tick del toque. **Panel (0.9.51/0.9.52)**: el AP se decide con las banderas `0x07BC`/`0x07C4..0x0804` (`AutopilotPanel`) y **nunca con `0x07CC` —es el rumbo del bug—**; autobrake `0x2F80` y carteles `0x341C`/`0x341D`, solo válidos si el valor **cambia**. **En PMDG eso no existe**: su bloque SDK (`Helpers/PmdgSdk`) se lee si está; si no, `---` — **ninguna función puede depender de que el piloto edite archivos del simulador**.
+
+---
+
+## Las suites de tests y sus casos reales
+
+*(Movido aquí desde `CLAUDE.md` el 12/10/2026 para liberar el presupuesto de instrucciones del agente;
+allí quedan el recuento —**1035 tests**, 1 se omite sola—, cómo se corre, `InternalsVisibleTo` y el
+`ProjectReference`, con un puntero a esta sección. El texto está copiado literal.)*
+
+`ScoringService` (17 criterios, umbrales en ambos lados, bonus de single-engine, suelo de 0,
+casos de "sin datos de aterrizaje"), la clasificación de estado de PIREP
+(`Pirep.IsActiveState`, que decide el fallback de `FilePirep()`), la geometría flat-earth y
+el respaldo regional de TA/TL, el orden de posiciones ATC, la definición de "está en final"
+(`SelectApproachThreshold` + `IsWithinFinalCone` + `IsPlausibleDiversionDescent` +
+`IsPlausibleDiversionDistance`), el corredor de la llegada planificada (`RouteCorridor`), la puerta
+de la consulta de aeropuerto de aproximación (`DiversionQueryGateTests`, con el caso real
+`wk0896ajpxKalPrp`) y la cadena que decide el desvío en ese mismo vuelo
+(`SkrmRealDiversionChainTests`: los cuatro filtros geométricos reproducibles offline, el cono que
+para a SKCZ y el corredor ULQ4E a 285 NM; el filtro 5 —`along ≤ 0`, pediría las pistas de SKMR— y el
+6 —persistencia, privada— no se pueden re-ejecutar sin red), la
+comparación entre la aeronave del simulador y la del OFP (`AircraftTypeMatchTests`), la pintura del
+título (`AircraftLiveryTests`), la URL de teselas de CARTO con su clave (`CartoTileUrlTests`), el
+muestreo de la ruta para espacios aéreos (`AirspaceRouteSamplerTests`, con el SKCG→KBOS real), el
+crédito de las teselas por proveedor (`MapAttributionTests`), el punto de espera del rodaje
+(`HoldShortSelectorTests`, con los 26 puntos reales de SKBO y el inventario fijado), el reparto de
+espacio del popup de confirmación (`EcamDialogTests`, el único que mide un formulario WinForms: por
+eso el proyecto de tests referencia `System.Windows.Forms`) y el
+RAAS con la guía de rodaje (`RaasTests`: grafo, ruta editable y avisos; `RaasReplayTests`: el
+rodaje real del `MNjR664PBAr25RbD` entero contra el motor de avisos, volcado a
+`%TEMP%\raas_replay_MNjR664.txt`; `TaxiRouteCaseTests`: el caso G74 → A3 de la 14L con 237 segmentos
+reales de SKBO en `Fixtures/SKBO-taxi-2026-09-29.csv`).
+Y desde v0.9.43, las reglas de la fase con el avión en el suelo y del motor único:
+`TouchAndGoTests` (la carrera de aterrizaje del BE58 contra la máquina), `AirPhaseRescueTests`,
+`GroundContactGateTests`, `StuckAirPhasePolicyTests`, `SampleClockTests`,
+`SingleEngineTaxiPolicyTests` (el 46 % real, el umbral exacto, el truncado y la propiedad de que la
+suma no puede aprobar lo que una fase no apruebe), `TerrainReferenceTests` (**264 ft** fantasma contra
+**3 ft** reales), `ManualOnBlockTests` y `MainButtonBarTests`.
+Los casos centrales usan **coordenadas, altitudes y navlogs de vuelos reales**, no geometría
+inventada: el falso SKTL, el SKCG legítimo, los tres falsos de KBOS y el rodaje completo del
+`MNjR664PBAr25RbD` (106 segmentos reales de SKBO y las posiciones del pushback y del rodaje).
