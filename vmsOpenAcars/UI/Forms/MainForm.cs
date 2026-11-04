@@ -642,6 +642,38 @@ namespace vmsOpenAcars.UI.Forms
             _notifyIcon.ShowBalloonTip(3000); // 3 segundos
         }
 
+        /// <summary>
+        /// Vuelca al log de la aplicación —el mismo que ve el piloto y que se reenvía al ACARS del
+        /// vuelo activo— una excepción que nadie capturó. Lo llaman los manejadores de `Program`,
+        /// que no tienen acceso al `UIService`.
+        ///
+        /// La excepción va **completa** (`ToString()`, con la pila): es el dato que faltaba en el
+        /// reporte del 0x8007000B, donde solo llegó una captura del diálogo de .NET. Todo va envuelto
+        /// en `try/catch` mudo y desde otro hilo usa `BeginInvoke` (nunca `Invoke`): este método se
+        /// ejecuta cuando la aplicación ya está en apuros y no puede bloquearse esperando a la UI.
+        /// </summary>
+        internal void LogUnhandledException(Exception ex)
+        {
+            if (ex == null) return;
+
+            try
+            {
+                if (InvokeRequired)
+                {
+                    if (!IsHandleCreated || IsDisposed) return;
+                    BeginInvoke(new Action<Exception>(LogUnhandledException), ex);
+                    return;
+                }
+
+                _uiService?.AddLog($"💥 {ex}", Theme.Warning);
+            }
+            catch
+            {
+                // Si el log mismo falla (o la UI ya no atiende) no hay nada más que hacer aquí:
+                // el aviso al piloto lo da `Program` y la aplicación sigue.
+            }
+        }
+
 
         private void InitializeHeader()
         {

@@ -2,6 +2,60 @@
 
 ---
 
+## [0.9.63] — 03/11/2026
+
+### Fixed
+
+**El cuadro genérico de .NET (`0x8007000B`) seguía saliendo al cargar el OFP: el arreglo de la
+0.9.61 protegía el sitio equivocado.** El `try` de `UI/Forms/OFPViewerForm` envolvía **solo**
+`_pdfViewer.Document = PdfDocument.Load(pdfPath)`, pero la línea que revienta es anterior: crear el
+control `PdfViewer` ya toca los tipos de PdfiumViewer y dispara su **constructor estático**, que es
+el que carga la nativa `pdfium.dll`. Con una nativa de bitness equivocada eso lanza
+`BadImageFormatException` —`ERROR_BAD_FORMAT`, `HRESULT 0x8007000B`— desde el **constructor del
+formulario**, cuando el `try` aún no existe, y la excepción sube por `BtnOfp_Click` (`async void`)
+hasta `Program`. Y `Program.Main` no tenía red: `Application.Run(new MainForm())` sin
+`SetUnhandledExceptionMode`, sin `Application.ThreadException` y sin
+`AppDomain.CurrentDomain.UnhandledException`, así que el framework pintaba su diálogo y con él se
+podía perder el vuelo en curso. Detalle del propio `catch` de la 0.9.61: `_pdfViewer.Visible = false`
+con el campo `readonly` sin asignar habría dado `NullReferenceException` si el fallo era crear el
+control, que es justo el caso real.
+
+- **`OFPViewerForm`: toda la vida del visor dentro de la protección.** El `try` abarca ahora la
+  creación de `PdfViewer`, su `Controls.Add` y la carga del documento. El campo deja de ser
+  `readonly` y puede quedar en `null`; si el control llegó a crearse se retira y se libera, y si no,
+  se pinta el aviso legible (`Ofp_PdfNativeMissing` / `Ofp_PdfOpenFailed`) sobre el panel de error.
+  `OnFormClosed` tolera `null` en `_pdfViewer` (antes, cerrar la ventana en ese estado daba
+  `NullReferenceException`). El resto del formulario y el ACARS siguen funcionando.
+- **Manejadores globales en `Program.Main`**, antes de `Application.Run`:
+  `Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException)`;
+  `Application.ThreadException` → vuelca la excepción completa al log del ACARS
+  (`MainForm.LogUnhandledException`, el mismo log que el piloto ve), avisa con
+  `Err_UnhandledMsg`/`Err_UnhandledTitle` en su idioma y **devuelve el control**, así que la
+  aplicación sigue viva; y `AppDomain.CurrentDomain.UnhandledException` → registra la excepción
+  completa (sin `Invoke` bloqueante: usa `BeginInvoke`) y se calla, porque en un hilo que no es el
+  de la UI ya no se puede continuar. Los dos van en `try/catch` mudo y con un guardia de
+  reentrada: el manejador no puede recursar.
+- **Diagnóstico en el mensaje, para no volver a adivinar.** `Helpers/PdfNativeFailure` gana
+  `ExpectedNativePath(string baseDir, bool is64Bit)` → `<base>\x86\pdfium.dll` o
+  `<base>\x64\pdfium.dll` (tolera la barra final), `BuildDiagnosticDetail(...)` —excepción, bitness
+  del **proceso** y de Windows, ruta esperada y si el fichero existe— y `DescribeFailure(ex, baseDir)`,
+  que lo resuelve en una llamada. Lo usan el aviso global y el panel del visor.
+- **Claves nuevas, simétricas**: `Err_UnhandledTitle` y `Err_UnhandledMsg` en `es.json`/`en.json`.
+  Dicen qué pasó, que ACARS y el vuelo siguen, que si el aviso se repite se cierre y se reabra, y
+  llevan el detalle técnico en `{0}`.
+- Tests nuevos en `PdfNativeFailureTests` (2): la ruta por bitness con y sin barra final, y el
+  contenido del detalle (32/64 bits, ruta esperada, `exists`/`missing`); la comprobación de idiomas
+  pasa a exigir también las dos claves nuevas. La suite pasa de **1033 a 1035** (1 se omite sola).
+
+### Pendiente de verificación
+
+No se puede provocar aquí el fallo de la nativa (haría falta un Windows de 32 bits sin
+`x86\pdfium.dll`) ni verse los diálogos: lo verificado es que compila en Debug y Release y que la
+suite pasa. La ruta de `BadImageFormatException` desde el constructor del visor y la del manejador
+global quedan pendientes de un arranque real en ese escenario.
+
+---
+
 ## [0.9.62] — 03/11/2026
 
 ### Added

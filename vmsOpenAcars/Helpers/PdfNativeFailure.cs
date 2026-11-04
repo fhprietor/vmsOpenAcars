@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Text;
 
 namespace vmsOpenAcars.Helpers
 {
@@ -63,6 +65,74 @@ namespace vmsOpenAcars.Helpers
         internal static string MessageKeyFor(Exception ex)
         {
             return IsNativeLoadFailure(ex) ? NativeMessageKey : OtherMessageKey;
+        }
+
+        /// <summary>
+        /// Ruta exacta de la nativa que PdfiumViewer habría cargado según la bitness del **proceso**:
+        /// `<base>\x86\pdfium.dll` o `<base>\x64\pdfium.dll`.
+        ///
+        /// El piloto de la 0.9.60 reportó el 0x8007000B y no había forma de saber, sin otra ida y
+        /// vuelta, si su equipo era de 32 bits y qué ruta se había intentado. La decisión es pura
+        /// —bitness y ruta base, nada de IO— para poder fijarla con tests; la existencia la comprueba
+        /// `DescribeFailure`, que sí toca el disco. `Path.Combine` tolera la barra final de
+        /// `AppDomain.CurrentDomain.BaseDirectory`, así que la ruta sale igual con barra o sin ella.
+        /// </summary>
+        internal static string ExpectedNativePath(string baseDir, bool is64Bit)
+        {
+            return Path.Combine(baseDir ?? string.Empty, is64Bit ? "x64" : "x86", "pdfium.dll");
+        }
+
+        /// <summary>
+        /// El bloque de diagnóstico que va detrás del aviso: tipo y mensaje de la excepción, la
+        /// bitness del **proceso** y la de Windows, y la ruta de la nativa que se esperaba **con si
+        /// existe o no**. Es lo que convierte un «no se pudo abrir el OFP» en un dato accionable.
+        ///
+        /// Va en el formato técnico de siempre (el mismo `Tipo: mensaje` que ya se pintaba en gris),
+        /// sin pasar por `L` a propósito: lo lee quien mantiene el cliente, no el piloto, y así el
+        /// diagnóstico no cambia con el idioma ni depende del servicio de idiomas, que en el manejador
+        /// global puede no estar listo.
+        /// </summary>
+        internal static string BuildDiagnosticDetail(
+            Exception ex, string baseDir, bool is64BitProcess, bool is64BitOs, bool nativeExists)
+        {
+            string path = ExpectedNativePath(baseDir, is64BitProcess);
+
+            var sb = new StringBuilder();
+            if (ex != null)
+                sb.AppendFormat("{0}: {1}", ex.GetType().Name, ex.Message).AppendLine();
+
+            sb.AppendFormat("bitness: process {0} bits · Windows {1} bits",
+                is64BitProcess ? 64 : 32, is64BitOs ? 64 : 32).AppendLine();
+
+            sb.AppendFormat("pdfium expected: {0} ({1})",
+                path, nativeExists ? "exists" : "missing");
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// El diagnóstico listo para pintar: resuelve la bitness del proceso y de Windows, comprueba
+        /// si la nativa de ESA bitness está en su carpeta y compone el detalle. Lo usan el visor del
+        /// OFP y el manejador global de excepciones, para que un reporte de los dos caminos traiga
+        /// los mismos datos. `File.Exists` va en su propio `try` porque un directorio sin permisos no
+        /// puede tumbar el manejador que, por definición, es la última red.
+        /// </summary>
+        internal static string DescribeFailure(Exception ex, string baseDir)
+        {
+            bool is64BitProcess = Environment.Is64BitProcess;
+            bool nativeExists = false;
+            try
+            {
+                nativeExists = File.Exists(ExpectedNativePath(baseDir, is64BitProcess));
+            }
+            catch
+            {
+                // Sin poder mirar el disco el diagnóstico sigue sirviendo: dirá «missing», que es
+                // justo lo que se verifica a mano en el próximo reporte.
+            }
+
+            return BuildDiagnosticDetail(
+                ex, baseDir, is64BitProcess, Environment.Is64BitOperatingSystem, nativeExists);
         }
     }
 }

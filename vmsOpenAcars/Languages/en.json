@@ -153,6 +153,8 @@
   "Fp_OfpDownloadError": "Error downloading the OFP:\n{0}",
   "Ofp_PdfNativeMissing": "The OFP could not be opened because the PDF library (pdfium) for your system is missing.\n\nACARS and your flight are NOT affected: you can keep flying normally.\n\nYou can view the OFP on the SimBrief website.",
   "Ofp_PdfOpenFailed": "The OFP could not be opened: the PDF file failed to load.\n\nACARS and your flight are NOT affected: you can keep flying normally.\n\nYou can view the OFP on the SimBrief website.",
+  "Err_UnhandledTitle": "vmsOpenACars — unexpected error",
+  "Err_UnhandledMsg": "An unexpected error occurred, but ACARS and your flight are still running: you do not need to close the application.\n\nIf the message keeps appearing, close vmsOpenACars and open it again.\n\nTechnical detail:\n{0}",
 
   "Fp_DispatchInvalidKey": "❌ Invalid API key. Check your phpVMS configuration.",
   "Fp_DispatchFlightNotFound": "❌ The flight no longer exists on the server. Refresh the flight list.",

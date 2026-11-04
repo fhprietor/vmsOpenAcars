@@ -85,6 +85,76 @@ namespace vmsOpenAcars.Tests
         }
 
         /// <summary>
+        /// La ruta de la nativa es `<base>\x86\pdfium.dll` o `<base>\x64\pdfium.dll` según la bitness
+        /// del **proceso**, que es como la busca PdfiumViewer. Y la barra final de la carpeta base no
+        /// puede cambiar el resultado: `AppDomain.CurrentDomain.BaseDirectory` la lleva y otras
+        /// llamadas no, así que el aviso no puede depender de por dónde entró.
+        /// </summary>
+        [TestMethod]
+        public void LaNativaEsperadaDependeDeLaBitnessYNoDeLaBarraFinal()
+        {
+            string baseSinBarra = @"C:\juegos\vmsOpenAcars";
+
+            // Proceso de 32 bits: la carpeta `x86`, que es la que faltaba en el equipo del reporte.
+            Assert.AreEqual(@"C:\juegos\vmsOpenAcars\x86\pdfium.dll",
+                PdfNativeFailure.ExpectedNativePath(baseSinBarra, false));
+
+            // Proceso de 64 bits: `x64`.
+            Assert.AreEqual(@"C:\juegos\vmsOpenAcars\x64\pdfium.dll",
+                PdfNativeFailure.ExpectedNativePath(baseSinBarra, true));
+
+            // Con barra final, exactamente la misma ruta.
+            Assert.AreEqual(
+                PdfNativeFailure.ExpectedNativePath(baseSinBarra, false),
+                PdfNativeFailure.ExpectedNativePath(baseSinBarra + @"\", false));
+            Assert.AreEqual(
+                PdfNativeFailure.ExpectedNativePath(baseSinBarra, true),
+                PdfNativeFailure.ExpectedNativePath(baseSinBarra + @"\", true));
+
+            // Las dos bitness nunca apuntan al mismo fichero.
+            Assert.AreNotEqual(
+                PdfNativeFailure.ExpectedNativePath(baseSinBarra, false),
+                PdfNativeFailure.ExpectedNativePath(baseSinBarra, true));
+        }
+
+        /// <summary>
+        /// El detalle técnico tiene que permitir responder sin otra ida y vuelta: qué excepción fue,
+        /// con qué bitness corría el proceso, qué nativa se esperaba y si estaba. Es el dato que
+        /// faltaba en el reporte del 0x8007000B, donde solo llegó la captura del diálogo.
+        /// </summary>
+        [TestMethod]
+        public void ElDetalleLlevaLaBitnessLaRutaYSiElFicheroExiste()
+        {
+            string baseDir = @"C:\Program Files (x86)\vmsOpenAcars\";
+            var ex = new BadImageFormatException("0x8007000B");
+
+            string de32SinNativa = PdfNativeFailure.BuildDiagnosticDetail(
+                ex, baseDir, is64BitProcess: false, is64BitOs: false, nativeExists: false);
+
+            StringAssert.Contains(de32SinNativa, "BadImageFormatException");
+            StringAssert.Contains(de32SinNativa, "0x8007000B");
+            StringAssert.Contains(de32SinNativa, "process 32 bits");
+            StringAssert.Contains(de32SinNativa, "Windows 32 bits");
+            StringAssert.Contains(de32SinNativa, @"\x86\pdfium.dll");
+            StringAssert.Contains(de32SinNativa, "missing");
+
+            // El mismo proceso de 32 bits en un Windows de 64 bits: la línea distingue las dos cosas,
+            // que es justo la confusión que hubo que deshacer a mano en el reporte.
+            string mixto = PdfNativeFailure.BuildDiagnosticDetail(
+                ex, baseDir, is64BitProcess: false, is64BitOs: true, nativeExists: false);
+            StringAssert.Contains(mixto, "process 32 bits");
+            StringAssert.Contains(mixto, "Windows 64 bits");
+
+            // Con la nativa de la bitness correcta presente, dice `exists` y la ruta del x64.
+            string de64ConNativa = PdfNativeFailure.BuildDiagnosticDetail(
+                ex, baseDir, is64BitProcess: true, is64BitOs: true, nativeExists: true);
+            StringAssert.Contains(de64ConNativa, @"\x64\pdfium.dll");
+            StringAssert.Contains(de64ConNativa, "exists");
+            Assert.IsFalse(de64ConNativa.Contains("missing"),
+                "si la nativa existe no puede decir «missing»");
+        }
+
+        /// <summary>
         /// Las claves del aviso y de la línea de bitness existen en **los dos** ficheros de idioma, con
         /// texto y sin caer al marcador `[[Clave]]`. Se leen del repositorio porque el proyecto de tests
         /// no despliega toda la carpeta `Languages\` (misma búsqueda de rutas que
@@ -107,6 +177,8 @@ namespace vmsOpenAcars.Tests
                     PdfNativeFailure.NativeMessageKey,
                     PdfNativeFailure.OtherMessageKey,
                     "Log_Bitness",
+                    "Err_UnhandledTitle",
+                    "Err_UnhandledMsg",
                 })
                 {
                     Assert.IsTrue(file.ContainsKey(key), $"falta «{key}»");
@@ -127,6 +199,13 @@ namespace vmsOpenAcars.Tests
                 // La línea de bitness lleva los dos huecos: proceso y Windows.
                 StringAssert.Contains(file["Log_Bitness"], "{0}");
                 StringAssert.Contains(file["Log_Bitness"], "{1}");
+
+                // El aviso global remite al detalle técnico y dice que el vuelo sigue: es lo que
+                // impide que el piloto cierre la aplicación por miedo a perder el vuelo.
+                string avisoGlobal = file["Err_UnhandledMsg"];
+                StringAssert.Contains(avisoGlobal, "{0}");
+                StringAssert.Contains(avisoGlobal, "ACARS");
+                Assert.IsFalse(string.IsNullOrWhiteSpace(file["Err_UnhandledTitle"]));
             }
         }
 

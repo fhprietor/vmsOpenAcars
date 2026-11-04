@@ -10,7 +10,9 @@ namespace vmsOpenAcars.UI.Forms
 {
     public class OFPViewerForm : Form
     {
-        private readonly PdfViewer _pdfViewer;
+        // No es `readonly` a propósito (v0.9.63): si crear el control PdfViewer revienta porque la
+        // nativa de PDF no carga, el campo se queda en null y la ventana sigue viva con el aviso.
+        private PdfViewer _pdfViewer;
         private readonly string _tempFilePath;
 
         public OFPViewerForm(string pdfPath, string title)
@@ -44,27 +46,40 @@ namespace vmsOpenAcars.UI.Forms
                 Margin = Padding.Empty
             });
 
-            // El PDF se carga AQUÍ, en el constructor, y hasta v0.9.60 cualquier fallo de la nativa
-            // subía sin control hasta `BtnOfp_Click` (un `async void`) y acababa en el diálogo genérico
-            // de .NET: «Se ha intentado cargar un programa con un formato incorrecto (0x8007000B)».
-            // Es lo que le pasó al piloto de la 0.9.60 en un Windows de 32 bits: el paquete solo traía
-            // `pdfium.dll` x64, así que el proceso de 32 bits no tenía nativa que cargar. La ventana se
-            // abre igual, con el texto en su idioma y el ACARS intacto; el vuelo no depende de esto.
+            // El visor se construye DENTRO del try desde v0.9.63. La 0.9.61 solo protegía
+            // `PdfDocument.Load`, y ahí no estaba el fallo: crear el control `PdfViewer` ya toca los
+            // tipos de PdfiumViewer y dispara su constructor estático, que carga `pdfium.dll`. En un
+            // Windows de 32 bits sin `x86\pdfium.dll` eso lanza `BadImageFormatException`
+            // (0x8007000B, el mismo del reporte) desde el constructor de ESTE formulario, fuera del
+            // try, y el cuadro genérico de .NET se comía el vuelo. Ahora la creación, el `Add` y la
+            // carga van juntos: si algo falla, `_pdfViewer` queda en null, se pinta el aviso legible
+            // y el resto del formulario —y el ACARS— sigue funcionando.
             var content = new Panel { Dock = DockStyle.Fill, BackColor = BackColor };
-            _pdfViewer = new PdfViewer
-            {
-                Dock = DockStyle.Fill,
-                ShowToolbar = true
-            };
-            content.Controls.Add(_pdfViewer);
-
             try
             {
+                _pdfViewer = new PdfViewer
+                {
+                    Dock = DockStyle.Fill,
+                    ShowToolbar = true
+                };
+                content.Controls.Add(_pdfViewer);
                 _pdfViewer.Document = PdfDocument.Load(pdfPath);
             }
             catch (Exception ex)
             {
-                _pdfViewer.Visible = false;
+                if (_pdfViewer != null)
+                {
+                    // El control pudo llegar a crearse y ser el `Document` lo que falló: se retira para
+                    // que no tape el aviso y se libera. `Visible = false` a secas dejaría el control
+                    // (y su nativa) vivo debajo del panel de error.
+                    try
+                    {
+                        content.Controls.Remove(_pdfViewer);
+                        _pdfViewer.Dispose();
+                    }
+                    catch { }
+                    _pdfViewer = null;
+                }
                 content.Controls.Add(BuildFailurePanel(ex));
             }
 
@@ -101,10 +116,13 @@ namespace vmsOpenAcars.UI.Forms
             {
                 Dock = DockStyle.Bottom,
                 AutoSize = false,
-                Height = 44,
+                Height = 60,
                 ForeColor = Color.FromArgb(130, 136, 150),
                 Font = new Font("Consolas", 8f),
-                Text = $"{ex.GetType().Name}: {ex.Message}"
+                // Desde v0.9.63 el detalle lleva, además de la excepción, la bitness del proceso y la
+                // ruta de la nativa que se esperaba con si existe: el próximo reporte ya no obliga a
+                // adivinar por qué Windows de 32 bits no encuentra `x86\pdfium.dll`.
+                Text = PdfNativeFailure.DescribeFailure(ex, AppDomain.CurrentDomain.BaseDirectory)
             };
 
             panel.Controls.Add(message);
@@ -114,7 +132,17 @@ namespace vmsOpenAcars.UI.Forms
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
-            _pdfViewer.Document?.Dispose();
+            // `_pdfViewer` puede ser null: es el caso en que la nativa no cargó y la ventana se quedó
+            // con el aviso. Sin esta guarda, cerrar la ventana daría NullReferenceException.
+            try
+            {
+                if (_pdfViewer != null)
+                {
+                    _pdfViewer.Document?.Dispose();
+                    _pdfViewer.Dispose();
+                }
+            }
+            catch { }
             base.OnFormClosed(e);
             try { if (File.Exists(_tempFilePath)) File.Delete(_tempFilePath); }
             catch { }
