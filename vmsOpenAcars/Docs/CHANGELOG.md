@@ -2,6 +2,58 @@
 
 ---
 
+## [0.9.65] — 03/11/2026
+
+### Fixed
+
+**«El cliente no detecta el simulador a menos que lo ejecute como administrador».** El síntoma es
+del piloto y la causa no está en el simulador: el **simulador o FSUIPC7 corre elevado y el ACARS
+no**. Windows (UIPI) impide abrir la tubería de FSUIPC entre procesos de **distinto nivel de
+integridad** y devuelve **acceso denegado**, sin ningún aviso de UAC; al elevar el ACARS los dos
+quedan al mismo nivel y funciona. El proyecto no tiene `app.manifest`, así que el cliente siempre
+corre `asInvoker`.
+
+El defecto de nuestro lado era el `catch`: `FSUIPCConnection.Open()` (`Services/FsuipcService.cs`)
+solo ponía el estado en `Disconnected` y **tiraba la excepción**, así que el piloto veía «simulador
+desconectado» sin poder distinguir «el sim no está abierto» de «Windows me bloquea».
+
+- **La excepción ya no se pierde.** `TryConnect` captura `Exception ex`, la conserva en
+  `LastConnectionFailure` y emite `ConnectionFailed` con el **tipo y el mensaje reales**. Se registra
+  **una vez por causa distinta** (clave tipo+mensaje): el reintento tiene backoff de hasta 30 s y
+  repetir la misma línea en cada intento no añadiría nada; un fallo nuevo, o reconectar y volver a
+  fallar, sí se registra.
+- **`Helpers/SimLinkFailure`** (nuevo, puro, sin red ni WinForms, con test):
+  `internal static bool IsAccessDenied(Exception ex)` → `true` para `UnauthorizedAccessException` y
+  para `IOException`/`Win32Exception` cuyo mensaje contenga «access is denied» o «acceso denegado»
+  (el texto llega en el idioma del sistema; también se recorre `InnerException`); `null` devuelve
+  `false` y no lanza. `internal static string MessageKeyFor(Exception ex)` → `SimLink_AccessDenied`
+  o `SimLink_Unavailable`.
+- **Aviso accionable al piloto**, en el log y en el OSD: el simulador/FSUIPC7 corre como
+  administrador y el ACARS no; lo preferible es abrir el simulador **sin elevación**, y si la
+  instalación lo exige, abrir el ACARS **como administrador** para igualar el nivel. **El vuelo no
+  se bloquea**: el servicio sigue reintentando con backoff.
+- **La línea de arranque dice si vamos elevados.** `Log_Bitness` pasa a
+  `Proceso: 64 bits · Windows: 64 bits · elevado: no`; `SystemInfoHelper.ElevationLabel` usa
+  `WindowsIdentity`/`WindowsPrincipal` (`WindowsBuiltInRole.Administrator`) con `try/catch` y
+  **degrada a «?»** si no puede saberlo. Sin este dato, un reporte de «no detecta el sim» no permite
+  ver si los dos procesos comparten nivel de integridad.
+- **Textos es/en simétricos**, **526 claves** en cada uno: `Log_Yes`, `Log_No`, `Log_SimLinkFailed`,
+  `SimLink_AccessDenied`, `SimLink_Unavailable` y `Osd_SimLinkAccessDenied`.
+- Tests nuevos en `SimLinkFailureTests` (6): `UnauthorizedAccessException`, `IOException` con
+  «Access is denied», `IOException` con «Acceso denegado», acceso denegado anidado en
+  `InnerException`, `IOException` genérico (no se clasifica como permisos) y `null`. La suite pasa
+  de **1041 a 1047** (1 se omite sola).
+
+### Pendiente de verificación
+
+No se puede reproducir aquí el escenario real (un simulador/FSUIPC7 elevado contra un ACARS sin
+elevar): hace falta un Windows con ese desnivel de integridad y el simulador cargado. Lo verificado
+es que compila en **Debug y Release**, que `ProductVersion` es **0.9.65**, que los dos idiomas siguen
+simétricos y que la suite pasa (**1047**, 1 se omite sola). Queda pendiente un arranque real en ese
+escenario para ver el aviso y la línea `elevado: sí/no`.
+
+---
+
 ## [0.9.64] — 03/11/2026
 
 ### Fixed

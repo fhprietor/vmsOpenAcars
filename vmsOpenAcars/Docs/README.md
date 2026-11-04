@@ -24,6 +24,7 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 | `NOTAS-PILOTOS-0.9.62.md` | **Pilotos** | El análisis del aterrizaje informa el viento de la final (cruzada y cola máximas con su distancia al umbral), no solo el del toque |
 | `NOTAS-PILOTOS-0.9.63.md` | **Pilotos** | Un fallo al abrir el OFP en PDF ya no cierra el ACARS: aviso claro, el vuelo sigue y el detalle técnico queda en el registro |
 | `NOTAS-PILOTOS-0.9.64.md` | **Pilotos** | El mapa ya no cierra el ACARS si falla una librería, y el aviso dice qué archivo está mal y para qué sistema está compilado |
+| `NOTAS-PILOTOS-0.9.65.md` | **Pilotos** | Si no detecta el simulador, ahora dice por qué (casi siempre el sim o FSUIPC abierto como administrador) y la línea de arranque informa de si el ACARS va elevado |
 | `NOTAS-PILOTOS-0.9.58.md` | **Pilotos** | La linea de NavData del conectar dice **hasta cuando** es valido el AIRAC, no solo el ciclo |
 | `NOTAS-PILOTOS-0.9.56.md` | **Pilotos** | La casilla de avisos de espacio aéreo en el OSD ya calla **todo** (antes solo las zonas restringidas), y las `CTA`/clase E dejan de pintarse: solo van al registro |
 | `NOTAS-PILOTOS-0.9.55.md` | **Pilotos** | Tercera puerta del `Pushback`: también cierra cuando el avión **rueda de verdad** (GS ≥ 8 kt 15 s con motor), sin depender de que el piloto toque el freno de parqueo |

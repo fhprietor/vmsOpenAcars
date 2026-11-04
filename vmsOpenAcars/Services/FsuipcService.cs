@@ -287,6 +287,7 @@ namespace vmsOpenAcars.Services
         private int _connectionRetryCount;
         private int _currentBackoffMs = 1000;
         private bool _isReconnecting;
+        private string _lastConnectionFailureKey;
 
         // -- Telemetría --
         private int _positionOrder;
@@ -500,6 +501,25 @@ namespace vmsOpenAcars.Services
 
         public event EventHandler Connected;
         public event EventHandler Disconnected;
+
+        /// <summary>
+        /// **El fallo real de `FSUIPCConnection.Open()`**, con su excepción y no con un «desconectado».
+        ///
+        /// Antes el `catch` de <see cref="TryConnect"/> tiraba la excepción y el piloto solo veía que
+        /// el simulador estaba desconectado, sin poder distinguir «el sim no está abierto» de «Windows
+        /// me bloquea la tubería porque el sim/FSUIPC corre elevado» (UIPI, que devuelve acceso
+        /// denegado sin ningún aviso de UAC). Se emite **una vez por causa distinta**, no por sondeo:
+        /// el reintento tiene backoff y repetir la misma línea cada 30 s no añadiría nada; si el fallo
+        /// cambia —o se reconecta y vuelve a fallar— se registra de nuevo.
+        /// </summary>
+        public event Action<Exception> ConnectionFailed;
+
+        /// <summary>
+        /// La última excepción del enlace con el simulador, conservada para poder clasificarla
+        /// (<see cref="SimLinkFailure"/>) sin depender de que el evento estuviera suscrito.
+        /// Se limpia al conectar.
+        /// </summary>
+        public Exception LastConnectionFailure { get; private set; }
         public event EventHandler<TelemetryData> TelemetryUpdated;
         public event EventHandler<RawTelemetryData> RawDataUpdated;
         public event EventHandler<TakeoffData> TakeoffDetected;
@@ -1805,14 +1825,28 @@ namespace vmsOpenAcars.Services
                 _currentBackoffMs = 1000;
                 _isReconnecting = false;
                 _lastTelemetrySend = DateTime.MinValue;
+                LastConnectionFailure = null;
+                _lastConnectionFailureKey = null;
 
                 Connected?.Invoke(this, EventArgs.Empty);
             }
-            catch
+            catch (Exception ex)
             {
                 _connectionState = ConnectionState.Disconnected;
                 _isReconnecting = false;
                 _connectionRetryCount++;
+
+                // El tipo y el mensaje se registran TAL CUAL: es lo único que distingue el acceso
+                // denegado de UIPI (sim/FSUIPC elevado, ACARS no) de un simulador cerrado, y hasta
+                // v0.9.64 se perdían aquí. Una vez por causa distinta: la deduplicación evita la
+                // misma línea en cada reintento del backoff sin ocultar un fallo nuevo.
+                LastConnectionFailure = ex;
+                string failureKey = ex.GetType().FullName + "|" + ex.Message;
+                if (failureKey != _lastConnectionFailureKey)
+                {
+                    _lastConnectionFailureKey = failureKey;
+                    try { ConnectionFailed?.Invoke(ex); } catch { }
+                }
 
                 _currentBackoffMs = Math.Min(
                     30000,

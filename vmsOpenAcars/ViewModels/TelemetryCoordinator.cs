@@ -387,6 +387,7 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.TelemetryUpdated    += OnTelemetryUpdated;
             _fsuipc.Connected           += OnFsuipcConnected;
             _fsuipc.Disconnected        += OnFsuipcDisconnected;
+            _fsuipc.ConnectionFailed    += OnFsuipcConnectionFailed;
             _fsuipc.TakeoffDetected     += OnTakeoffDetectedEvent;
             _fsuipc.TouchdownDetected   += OnTouchdownDetectedEvent;
             _fsuipc.GearChanged         += OnGearChanged;
@@ -408,6 +409,7 @@ namespace vmsOpenAcars.ViewModels
             _fsuipc.TelemetryUpdated    -= OnTelemetryUpdated;
             _fsuipc.Connected           -= OnFsuipcConnected;
             _fsuipc.Disconnected        -= OnFsuipcDisconnected;
+            _fsuipc.ConnectionFailed    -= OnFsuipcConnectionFailed;
             _fsuipc.TakeoffDetected     -= OnTakeoffDetectedEvent;
             _fsuipc.TouchdownDetected   -= OnTouchdownDetectedEvent;
             _fsuipc.GearChanged         -= OnGearChanged;
@@ -1256,6 +1258,31 @@ namespace vmsOpenAcars.ViewModels
             _cb.SimulatorNameChanged?.Invoke("AWAITING SIM");
             _cb.AcarsStatusChanged?.Invoke(false);
             _cb.ValidationStatusChanged?.Invoke(_flightManager.PositionValidationStatus);
+        }
+
+        /// <summary>
+        /// **El piloto se entera de por qué no hay simulador.** La excepción real va al log (tipo y
+        /// mensaje) y, si es acceso denegado, además el aviso accionable: el sim o FSUIPC7 corre
+        /// elevado y el ACARS no, así que Windows (UIPI) corta la tubería sin diálogo. Lo preferible
+        /// es abrir el simulador sin elevación; si su instalación lo exige, elevar el ACARS iguala el
+        /// nivel. Nada de esto bloquea el vuelo: el servicio sigue reintentando con backoff y el
+        /// piloto puede filear cuando el enlace se abra.
+        /// </summary>
+        private void OnFsuipcConnectionFailed(Exception ex)
+        {
+            _cb.Log?.Invoke(
+                _("Log_SimLinkFailed", ex.GetType().Name, ex.Message),
+                Theme.SecondaryText);
+
+            bool denied = SimLinkFailure.IsAccessDenied(ex);
+            if (denied)
+            {
+                _cb.Log?.Invoke(_(SimLinkFailure.MessageKeyFor(ex)), Theme.Warning);
+                _cb.OsdMessage?.Invoke(_("Osd_SimLinkAccessDenied"), OsdSeverity.Warning);
+                return;
+            }
+
+            _cb.Log?.Invoke(_(SimLinkFailure.MessageKeyFor(ex)), Theme.SecondaryText);
         }
 
         // ── Aircraft info ─────────────────────────────────────────────────────────

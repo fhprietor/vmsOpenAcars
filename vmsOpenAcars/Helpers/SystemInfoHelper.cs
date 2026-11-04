@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Text;
 using Microsoft.Win32;
 using vmsOpenAcars.Core.Helpers;
@@ -13,6 +14,35 @@ namespace vmsOpenAcars.Helpers
         public static string CpuSummary { get; private set; } = string.Empty;
         public static string GpuSummary { get; private set; } = string.Empty;
         public static string SimSummary { get; private set; } = string.Empty;
+
+        /// <summary>
+        /// **Si el ACARS corre elevado**, para la línea de arranque. No es un dato decorativo: el
+        /// simulador o FSUIPC7 elevado y el ACARS sin elevar es exactamente el escenario en que
+        /// Windows (UIPI) devuelve acceso denegado al abrir la tubería, sin ningún aviso de UAC, y el
+        /// piloto ve «simulador desconectado» engañoso. Sin este dato, un reporte no permite saber si
+        /// los dos procesos comparten nivel de integridad.
+        ///
+        /// Degrada a `"?"` si la consulta falla (identidad restringida, política de grupo): no poder
+        /// saberlo no puede impedir que arranque el ACARS ni inventarse un «no».
+        /// </summary>
+        public static string ElevationLabel
+        {
+            get
+            {
+                try
+                {
+                    using (var identity = WindowsIdentity.GetCurrent())
+                    {
+                        if (identity == null) return "?";
+                        var principal = new WindowsPrincipal(identity);
+                        return principal.IsInRole(WindowsBuiltInRole.Administrator)
+                            ? L._("Log_Yes")
+                            : L._("Log_No");
+                    }
+                }
+                catch { return "?"; }
+            }
+        }
 
         public static void Initialize()
         {

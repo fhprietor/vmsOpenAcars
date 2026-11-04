@@ -195,6 +195,7 @@
     <Compile Include="UpdateIntervalPolicyTests.cs" />
     <Compile Include="UpdateStagingTests.cs" />
     <Compile Include="DiversionQueryGateTests.cs" />
+    <Compile Include="SimLinkFailureTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

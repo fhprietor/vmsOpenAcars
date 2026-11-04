@@ -199,6 +199,9 @@
     <Compile Include="Helpers\HoldShortSelector.cs" />
     <Compile Include="Helpers\PirepFields.cs" />
     <Compile Include="Helpers\PirepMassUnits.cs" />
+    <!-- Qué fallo del enlace con el simulador es «Windows me bloquea» (UIPI, sim/FSUIPC elevado y
+         el ACARS no) y cuál es «el sim no está abierto»: antes solo quedaba «desconectado». -->
+    <Compile Include="Helpers\SimLinkFailure.cs" />
     <Compile Include="Helpers\SimbriefDispatchPolicy.cs" />
     <Compile Include="Helpers\MapAttribution.cs" />
     <!-- La barra de botones del ACARS y el ancho que necesita: con diez botones no cabía en el

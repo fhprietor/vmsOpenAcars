@@ -177,9 +177,13 @@ namespace vmsOpenAcars.UI.Forms
             // La bitness deja de ser una hipótesis en el próximo reporte: el 0x8007000B de la 0.9.60
             // (BadImageFormatException al cargar el OFP) solo encaja si el proceso va a 32 bits en un
             // Windows de 32 bits y la nativa de PDF que encuentra es x64. Se registra en el arranque.
+            // Desde 0.9.65 también la elevación: si el sim/FSUIPC7 corre como administrador y el ACARS
+            // no, Windows (UIPI) devuelve acceso denegado al abrir la tubería y el «simulador
+            // desconectado» del piloto no lo distingue de un sim cerrado.
             _uiService?.AddLog(_("Log_Bitness",
                 Environment.Is64BitProcess ? "64 bits" : "32 bits",
-                Environment.Is64BitOperatingSystem ? "64 bits" : "32 bits"), Theme.SecondaryText);
+                Environment.Is64BitOperatingSystem ? "64 bits" : "32 bits",
+                SystemInfoHelper.ElevationLabel), Theme.SecondaryText);
             // Las cuatro nativas del paquete, una línea junto a OS/CPU/GPU/bitness (v0.9.64). El
             // 0x8007000B de la 0.9.63 era SQLite.Interop, no pdfium: el reporte traía la traza pero no
             // el estado de los archivos, y hubo que reconstruirlo a mano. Solo informa: si una falta o
