@@ -614,6 +614,102 @@ namespace vmsOpenAcars.Tests
             }
         }
 
+        // ── El viento por punto de la traza de aproximación (v0.9.62) ──────────────
+
+        /// <summary>
+        /// **La traza de 2 s gana el viento por punto sobre una base vieja.** Hasta v0.9.61 la tabla
+        /// `approach_track` no tenía `wind_dir_deg` ni `wind_speed_kt`, así que el análisis del
+        /// aterrizaje solo podía enseñar el viento del toque. Aquí se reproduce la tabla vieja
+        /// —con una fila dentro— y se comprueba que al abrir la base las dos columnas aparecen, que
+        /// la fila vieja sigue ahí y que sus huecos vuelven como **NULL** (no como 0, que sería un
+        /// viento del norte en calma), y que una traza nueva viaja de ida y vuelta conservando el
+        /// hueco del punto sin lectura.
+        /// </summary>
+        [TestMethod]
+        public void LaTrazaDeAproximacion_GanaElVientoEnUnaBaseViejaYConservaElHueco()
+        {
+            string path = Path.Combine(Path.GetTempPath(),
+                                       "vmsopenacars_trackwind_" + Guid.NewGuid().ToString("N") + ".sqlite");
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={path};Version=3;"))
+                {
+                    conn.Open();
+                    using (var cmd = conn.CreateCommand())
+                    {
+                        // El esquema EXACTO de `approach_track` antes de este cambio: sin viento.
+                        cmd.CommandText = @"
+                            CREATE TABLE approach_track (
+                                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                                flight_id   INTEGER NOT NULL,
+                                seq_no      INTEGER NOT NULL,
+                                lat         REAL,
+                                lon         REAL,
+                                alt_ft      REAL,
+                                agl_ft      REAL,
+                                ias_kt      REAL,
+                                vs_fpm      REAL,
+                                heading_deg REAL,
+                                dist_nm     REAL,
+                                lateral_ft  REAL
+                            )";
+                        cmd.ExecuteNonQuery();
+
+                        cmd.CommandText = @"
+                            INSERT INTO approach_track
+                                (flight_id, seq_no, lat, lon, alt_ft, agl_ft, ias_kt,
+                                 vs_fpm, heading_deg, dist_nm, lateral_ft)
+                            VALUES (7, 0, 4.70000, -74.14000, 8600.0, 2600.0, 180.0,
+                                    -700.0, 127.2, 4.0, 12.0)";
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                var svc = new LandingLogService(path);   // aquí corre la migración
+
+                Assert.IsTrue(HasColumnIn(path, "wind_dir_deg",  "approach_track"),
+                    "una `approach_track` vieja tiene que ganar `wind_dir_deg` al abrir la base");
+                Assert.IsTrue(HasColumnIn(path, "wind_speed_kt", "approach_track"),
+                    "una `approach_track` vieja tiene que ganar `wind_speed_kt` al abrir la base");
+
+                // La fila vieja sobrevive y su viento es un hueco, no un 0/0.
+                var vieja = svc.GetTrackPoints(7);
+                Assert.AreEqual(1, vieja.Count, "la fila que ya estaba no puede desaparecer");
+                Assert.IsNull(vieja[0].WindDirDeg, "sin columna en la base vieja el viento es NULL");
+                Assert.IsNull(vieja[0].WindSpeedKt);
+
+                // Y la traza nueva viaja con el viento del punto y con el hueco del que no tuvo.
+                int id = svc.SaveFlight(new FlightRecord
+                {
+                    FlightNumber = "9247", Origin = "SKRG", Destination = "SKBO", RunwayName = "14R",
+                    FlightDate = new DateTime(2026, 10, 20, 1, 46, 6, DateTimeKind.Utc),
+                }, new List<ApproachTrackPoint>
+                {
+                    new ApproachTrackPoint
+                    {
+                        SeqNo = 0, DistNm = 3.2,
+                        WindDirDeg = 217.231532474263, WindSpeedKt = 14,
+                    },
+                    new ApproachTrackPoint
+                    {
+                        SeqNo = 1, DistNm = 1.8,
+                        WindDirDeg = null, WindSpeedKt = null,
+                    },
+                });
+
+                var nueva = svc.GetTrackPoints(id);
+                Assert.AreEqual(2, nueva.Count);
+                Assert.AreEqual(217.231532474263, nueva[0].WindDirDeg.Value, 1e-9);
+                Assert.AreEqual(14.0,            nueva[0].WindSpeedKt.Value, 1e-9);
+                Assert.IsNull(nueva[1].WindDirDeg, "el punto sin lectura vuelve NULL, no 0");
+                Assert.IsNull(nueva[1].WindSpeedKt);
+            }
+            finally
+            {
+                try { if (File.Exists(path)) File.Delete(path); } catch { }
+            }
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────────
 
         private static readonly string[] NewColumns =

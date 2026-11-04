@@ -175,6 +175,7 @@
     <Compile Include="SimbriefDispatchPolicyTests.cs" />
     <Compile Include="SettingsFormLayoutTests.cs" />
     <Compile Include="WindComponentsTests.cs" />
+    <Compile Include="FinalWindSummaryTests.cs" />
     <Compile Include="LandingHeaderTests.cs" />
     <Compile Include="LandingUploadPayloadTests.cs" />
     <Compile Include="LandingBackfillToolTests.cs" />

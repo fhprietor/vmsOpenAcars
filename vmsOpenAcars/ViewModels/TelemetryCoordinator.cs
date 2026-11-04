@@ -808,6 +808,21 @@ namespace vmsOpenAcars.ViewModels
                             Theme.Success);
                     }
 
+                    // El viento **de este punto**, no el del toque: la traza existe para contar la
+                    // evolución entre 5 NM y el umbral, y hasta v0.9.61 solo se guardaba la lectura
+                    // del contacto. Se copia de `FsuipcService` en el mismo ciclo (el offset ya
+                    // viene en el `Process()` de 20 Hz, así que no cuesta una lectura más) y se
+                    // guarda NULL cuando el simulador publica el centinela 0/0 o no hay conexión:
+                    // un 0/0 persistido sería un viento del norte en calma inventado.
+                    double? windDirDeg  = null;
+                    double? windSpeedKt = null;
+                    if (!FinalWindSummary.IsMissingSample(
+                            _fsuipc.IsConnected, _fsuipc.CurrentWindSpeedKt, _fsuipc.CurrentWindDirDeg))
+                    {
+                        windDirDeg  = _fsuipc.CurrentWindDirDeg;
+                        windSpeedKt = _fsuipc.CurrentWindSpeedKt;
+                    }
+
                     AddApproachPoint(new ApproachTrackPoint
                     {
                         Lat        = e.Latitude,
@@ -818,7 +833,9 @@ namespace vmsOpenAcars.ViewModels
                         VsFpm      = e.VerticalSpeedFpm,
                         HeadingDeg = e.HeadingDeg,
                         DistNm     = distNm,
-                        LateralFt  = lateralFt
+                        LateralFt  = lateralFt,
+                        WindDirDeg = windDirDeg,
+                        WindSpeedKt = windSpeedKt
                     });
                 }
             }

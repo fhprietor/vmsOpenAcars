@@ -2,6 +2,51 @@
 
 ---
 
+## [0.9.62] — 03/11/2026
+
+### Added
+
+**El viento de la aproximación, punto a punto, y su resumen en el análisis del aterrizaje.** Hasta
+v0.9.61 el ACARS leía el viento del simulador **en cada ciclo** (`FsuipcService`: `0x0E90` INT16 en
+nudos y `0x0E92` USHORT × 360/65536 en grados) pero solo lo guardaba en el **instante del toque**
+(`flights.landing_wind_dir_deg / _speed_kt / _gust_kt / _headwind_kt / _crosswind_kt`). La traza de
+aproximación —muestras cada 2 s por debajo de 3 000 ft AGL— **no llevaba viento**, así que se perdía
+cómo evolucionó entre ~5 NM y el umbral: una racha que entra en la final, un giro de dirección o una
+cizalladura no dejaban rastro en la base. El promedio del descenso tampoco es la racha que el piloto
+vio.
+
+- **`approach_track` gana dos columnas `REAL` nullable**, `wind_dir_deg` y `wind_speed_kt`, con la
+  lectura **cruda** del simulador (dirección de donde viene y nudos). Las componentes cara/cruzada
+  no se guardan: se calculan al pintar con `Helpers/WindComponents`, que sigue siendo la única regla
+  de descomposición y la que documenta el signo.
+- **La migración es `EnsureColumn`** (`PRAGMA table_info` + `ALTER TABLE ... ADD COLUMN` solo si
+  falta), el mismo patrón que las columnas de `flights`. Las bases y las trazas existentes se
+  migran solas al abrir la base y sus filas quedan con **NULL**, que es el caso que el análisis
+  tiene que saber degradar.
+- **El muestreo guarda el viento de cada punto** en `TelemetryCoordinator`: se copia de
+  `FsuipcService` en el mismo ciclo que ya trae todos los offsets con un `Process()` de 20 Hz (no
+  cuesta una lectura nueva). Si FSUIPC no está conectado o publica el centinela **0/0**, se guarda
+  **NULL**, no un cero: un 0/0 persistido sería un viento del norte en calma inventado en todo el
+  descenso.
+- **`Helpers/FinalWindSummary.cs`** (puro, con test): el resumen de la final —máximo de cruzada y
+  máximo de cola **en valor absoluto**, cada uno con su distancia al umbral—, ignorando los puntos
+  sin dato y distinguiendo la **calma** (0 kt con dirección, un dato) del **hueco** (NULL). La cola
+  llega negativa en el convenio de `WindComponents` y el resumen se queda con su magnitud.
+- **Una franja nueva en `LandingAnalysisForm`**, debajo de la cabecera del vuelo:
+  `VIENTO EN LA FINAL · máx cruzada 14 kt @ 3,2 NM · máx cola 6 kt @ 1,8 NM`. Va en su propio panel
+  acoplado y no dentro de los cuatro gráficos `Chart`: una quinta serie de viento obligaría a tocar
+  ejes, leyendas y escalas de los cuatro, y la línea cuenta lo mismo sin riesgo de romper el
+  pintado. **Sin datos de viento la franja no se crea** (vuelos anteriores a las columnas, trazas
+  muestreadas con FSUIPC desconectado, o sin rumbo verdadero de pista para descomponer). En calma
+  dice `VIENTO EN LA FINAL · calma`; si no hubo cola no se escribe «máx cola 0 kt», que inventaría
+  un dato.
+- Claves nuevas en los dos idiomas: `LandingFinalWind_Head`, `LandingFinalWind_Cross`,
+  `LandingFinalWind_Tail` y `LandingFinalWind_Calm`.
+- Tests nuevos: `FinalWindSummaryTests` (8) y la migración/ida y vuelta de la traza con viento y
+  con hueco en `LandingLogServiceTests` (1). La suite pasa de **1024 a 1033** (1 se omite sola).
+
+---
+
 ## [0.9.61] — 03/11/2026
 
 ### Fixed

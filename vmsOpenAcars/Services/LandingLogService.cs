@@ -67,7 +67,9 @@ namespace vmsOpenAcars.Services
                             vs_fpm      REAL,
                             heading_deg REAL,
                             dist_nm     REAL,
-                            lateral_ft  REAL
+                            lateral_ft  REAL,
+                            wind_dir_deg   REAL,
+                            wind_speed_kt  REAL
                         )");
 
                     // ── La traza FINA del flare ───────────────────────────────────────
@@ -226,6 +228,21 @@ namespace vmsOpenAcars.Services
                     EnsureColumn(conn, "flights", "taxi_in_single_sec",   "REAL");
                     EnsureColumn(conn, "flights", "single_engine_bonus",  "INTEGER");
 
+                    // ── El viento por punto de la traza de aproximación ────────────────
+                    // Hasta v0.9.61 el viento solo se guardaba **en el instante del toque**
+                    // (`flights.landing_wind_*`); la traza de 2 s no llevaba ninguno, así que se
+                    // perdía cómo evolucionó entre 5 NM y el umbral: el giro de dirección, la
+                    // racha y la cizalladura no dejaban rastro. Se guarda la lectura **cruda** del
+                    // simulador (dirección de donde viene y nudos); las componentes cara/cruzada se
+                    // calculan al pintar con `Helpers/WindComponents`, que es la única regla de
+                    // descomposición y no se duplica en la base.
+                    //
+                    // Nullable y migrada con `EnsureColumn`: las trazas de los vuelos anteriores se
+                    // quedan en NULL y el análisis del aterrizaje degrada sin la línea de viento en
+                    // vez de fallar. Un 0 sería un viento del norte en calma, que es un dato.
+                    EnsureColumn(conn, "approach_track", "wind_dir_deg",  "REAL");
+                    EnsureColumn(conn, "approach_track", "wind_speed_kt", "REAL");
+
                     // La traza del flare también se migra por si la tabla viene de una versión
                     // anterior con menos columnas: `CREATE TABLE IF NOT EXISTS` no toca una tabla que
                     // ya está, exactamente el mismo caso que el de `flights`.
@@ -321,10 +338,11 @@ namespace vmsOpenAcars.Services
                             cmd.CommandText = @"
                                 INSERT INTO approach_track
                                     (flight_id, seq_no, lat, lon, alt_ft, agl_ft, ias_kt,
-                                     vs_fpm, heading_deg, dist_nm, lateral_ft)
+                                     vs_fpm, heading_deg, dist_nm, lateral_ft,
+                                     wind_dir_deg, wind_speed_kt)
                                 VALUES
                                     (@fid, @seq, @lat, @lon, @alt, @agl, @ias,
-                                     @vs, @hdg, @dist, @lat2)";
+                                     @vs, @hdg, @dist, @lat2, @wdir, @wspd)";
 
                             foreach (var pt in track)
                             {
@@ -340,6 +358,12 @@ namespace vmsOpenAcars.Services
                                 cmd.Parameters.AddWithValue("@hdg",  pt.HeadingDeg);
                                 cmd.Parameters.AddWithValue("@dist", pt.DistNm);
                                 cmd.Parameters.AddWithValue("@lat2", pt.LateralFt);
+                                // El hueco viaja como `DBNull`, no como 0: el análisis distingue «no
+                                // hubo lectura» de «soplaba en calma» por la presencia del dato.
+                                cmd.Parameters.AddWithValue("@wdir",
+                                    pt.WindDirDeg.HasValue ? (object)pt.WindDirDeg.Value : DBNull.Value);
+                                cmd.Parameters.AddWithValue("@wspd",
+                                    pt.WindSpeedKt.HasValue ? (object)pt.WindSpeedKt.Value : DBNull.Value);
                                 cmd.ExecuteNonQuery();
                             }
                         }
@@ -651,7 +675,8 @@ namespace vmsOpenAcars.Services
                 {
                     cmd.CommandText = @"
                         SELECT flight_id, seq_no, lat, lon, alt_ft, agl_ft, ias_kt,
-                               vs_fpm, heading_deg, dist_nm, lateral_ft
+                               vs_fpm, heading_deg, dist_nm, lateral_ft,
+                               wind_dir_deg, wind_speed_kt
                         FROM approach_track
                         WHERE flight_id = @fid
                         ORDER BY seq_no";
@@ -673,7 +698,11 @@ namespace vmsOpenAcars.Services
                                 VsFpm      = r.GetDouble(7),
                                 HeadingDeg = r.GetDouble(8),
                                 DistNm     = r.GetDouble(9),
-                                LateralFt  = r.GetDouble(10)
+                                LateralFt  = r.GetDouble(10),
+                                // Un `wind_dir_deg` NULL es «no hubo dato», y así vuelve: no se
+                                // convierte en 0, que sería un viento del norte.
+                                WindDirDeg = r.IsDBNull(11) ? (double?)null : r.GetDouble(11),
+                                WindSpeedKt = r.IsDBNull(12) ? (double?)null : r.GetDouble(12)
                             });
                         }
                     }

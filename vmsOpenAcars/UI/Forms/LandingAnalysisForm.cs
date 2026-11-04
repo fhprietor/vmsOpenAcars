@@ -158,6 +158,7 @@ namespace vmsOpenAcars.UI.Forms
             // METAR strip — single flight only
             Panel pnlMetar = null;
             Panel pnlWind  = null;
+            Panel pnlFinalWind = null;
             if (!IsComparison)
             {
                 pnlMetar = new Panel { Dock = DockStyle.Top, Height = 24, BackColor = Color.FromArgb(15, 22, 32) };
@@ -177,10 +178,9 @@ namespace vmsOpenAcars.UI.Forms
                 // (Helpers/WindComponents). Se pinta **debajo** del METAR: el orden de apilado de
                 // `Dock.Top` va del último añadido al primero, así que el METAR se añade después.
                 //
-                // Es una línea de texto y no un gráfico a propósito: la traza de la aproximación
-                // (`approach_track`) no guarda viento por punto —solo hay una medida, la del
-                // touchdown—, así que un gráfico tendría un único valor y no aportaría nada que la
-                // línea no diga ya.
+                // Es una línea de texto y no un gráfico a propósito: es **una** medida, la del
+                // instante del contacto. La evolución del viento durante la final, que ahora sí se
+                // guarda por punto en `approach_track`, tiene su propia franja debajo (v0.9.62).
                 pnlWind = new Panel { Dock = DockStyle.Top, Height = 22, BackColor = Color.FromArgb(15, 22, 32) };
                 pnlWind.Controls.Add(new Label
                 {
@@ -191,6 +191,14 @@ namespace vmsOpenAcars.UI.Forms
                     TextAlign = ContentAlignment.MiddleLeft,
                     Padding   = new Padding(8, 0, 0, 0)
                 });
+
+                // La línea del **viento de la final** (v0.9.62): máximos de cruzada y de cola de
+                // toda la traza de aproximación, con la distancia al umbral donde ocurrieron. Se
+                // elige una línea y no una tira dentro del gráfico porque los cuatro gráficos son
+                // `Chart` de WinForms y una quinta serie de viento obligaría a tocar ejes, leyendas
+                // y escalas de los cuatro; la línea va en su propia franja y **no aparece** si no
+                // hay ni un punto con viento (vuelos anteriores a `approach_track.wind_*`).
+                pnlFinalWind = BuildFinalWindStrip(first);
             }
 
             // 2×2 chart grid
@@ -223,11 +231,72 @@ namespace vmsOpenAcars.UI.Forms
             _pnlCloseup = IsComparison ? null : BuildCloseupBar();
             if (_pnlCloseup != null) Controls.Add(_pnlCloseup);
             // Orden de apilado de `Dock.Top`: el último añadido queda arriba. Así el METAR va encima
-            // de la franja del viento, y las dos debajo de la cabecera del vuelo.
-            if (pnlWind  != null) Controls.Add(pnlWind);
-            if (pnlMetar != null) Controls.Add(pnlMetar);
+            // de la franja del viento, y las dos debajo de la cabecera del vuelo. La franja del
+            // viento de la final se añade **antes** de la cabecera para quedar justo debajo de ella.
+            if (pnlWind      != null) Controls.Add(pnlWind);
+            if (pnlMetar     != null) Controls.Add(pnlMetar);
+            if (pnlFinalWind != null) Controls.Add(pnlFinalWind);
             Controls.Add(pnlHeader);
             Controls.Add(pnlTitle);
+        }
+
+        // ── Viento de la final ────────────────────────────────────────────────────
+
+        /// <summary>
+        /// La franja con el resumen de viento de la aproximación, o `null` si este vuelo no tiene
+        /// ni un punto con viento. El cálculo es de <see cref="FinalWindSummary"/> (puro, con test);
+        /// aquí solo se traduce a texto. El rumbo con el que se descomponen las componentes es el
+        /// **verdadero** que quedó guardado en el toque (`LandingRunwayTrueDeg`): si no está, el
+        /// helper degrada sin resumen y la franja no se pinta.
+        /// </summary>
+        private Panel BuildFinalWindStrip(FlightRecord rec)
+        {
+            var summary = FinalWindSummary.Compute(
+                _flights[0].Track, rec != null ? rec.LandingRunwayTrueDeg : null);
+            if (!summary.HasWind) return null;
+
+            var pnl = new Panel
+            {
+                Dock      = DockStyle.Top,
+                Height    = 22,
+                BackColor = Color.FromArgb(15, 22, 32)
+            };
+            pnl.Controls.Add(new Label
+            {
+                Text      = FinalWindLine(summary),
+                Font      = new Font("Consolas", 9),
+                ForeColor = Color.FromArgb(238, 208, 140),
+                Dock      = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding   = new Padding(8, 0, 0, 0)
+            });
+            return pnl;
+        }
+
+        /// <summary>
+        /// El texto de la franja. En calma se dice «calma»: dos ceros con una distancia («máx
+        /// cruzada 0 kt @ 4,2 NM») parecerían una medida recortada, y la calma es una observación
+        /// distinta de la ausencia de dato. La cola solo se escribe si de verdad hubo cola: cuando
+        /// todo el descenso fue en cara, añadir «máx cola 0 kt» inventaría un dato.
+        /// </summary>
+        private static string FinalWindLine(FinalWindReport summary)
+        {
+            string head = _("LandingFinalWind_Head");
+            if (summary.AllCalm) return head + " · " + _("LandingFinalWind_Calm");
+
+            var parts = new List<string>
+            {
+                _("LandingFinalWind_Cross",
+                  Math.Round(summary.MaxCrosswindKt, MidpointRounding.AwayFromZero),
+                  summary.MaxCrosswindDistNm)
+            };
+            if (summary.HasTailwind)
+            {
+                parts.Add(_("LandingFinalWind_Tail",
+                            Math.Round(summary.MaxTailwindKt, MidpointRounding.AwayFromZero),
+                            summary.MaxTailwindDistNm));
+            }
+            return head + " · " + string.Join(" · ", parts);
         }
 
         // ── Closeup ───────────────────────────────────────────────────────────────

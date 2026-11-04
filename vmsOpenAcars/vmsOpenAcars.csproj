@@ -279,6 +279,7 @@
     <Compile Include="Helpers\FlapTrackSummary.cs" />
     <Compile Include="Helpers\PowerCut.cs" />
     <Compile Include="Helpers\WindComponents.cs" />
+    <Compile Include="Helpers\FinalWindSummary.cs" />
     <Compile Include="Helpers\MetarObservationTime.cs" />
     <Compile Include="Helpers\LandingHeader.cs" />
     <Compile Include="Helpers\LandingUploadPayload.cs" />
