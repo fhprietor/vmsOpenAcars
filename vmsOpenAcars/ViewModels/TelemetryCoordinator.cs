@@ -332,7 +332,16 @@ namespace vmsOpenAcars.ViewModels
         private bool     _cabinOnRunwaySent;
         private bool     _cabinAfterTakeoffSent;
         private bool     _cabinPushbackSent;
-        private bool     _cabinArrivalSent;
+        private bool     _cabinSlidesDisarmSent;
+        private bool     _cabinTaxiInSent;
+        /// <summary>
+        /// Disparador de puertas del PA de pushback: se arma al **ver** una salida abierta y no se
+        /// desarma en el vuelo (`CabinPushbackPolicy.ArmOnOpenDoors`). Si el addon no publica
+        /// `0x3367` nunca se arma y el aviso lo deciden las otras cuatro señales.
+        /// </summary>
+        private bool     _cabinDoorsSeenOpen;
+        /// <summary>Vimos el freno de parqueo puesto: convierte su lectura en «se acaba de soltar».</summary>
+        private bool     _cabinParkingBrakeWasSet;
         private DateTime _lastRunwayExitCheck = DateTime.MinValue;
         private DateTime _cabinCruiseCheckStart = DateTime.MinValue;
 
@@ -438,7 +447,10 @@ namespace vmsOpenAcars.ViewModels
             _cabinOnRunwaySent     = false;
             _cabinAfterTakeoffSent = false;
             _cabinPushbackSent      = false;
-            _cabinArrivalSent       = false;
+            _cabinSlidesDisarmSent  = false;
+            _cabinTaxiInSent        = false;
+            _cabinDoorsSeenOpen     = false;
+            _cabinParkingBrakeWasSet = false;
             _lastRunwayExitCheck    = DateTime.MinValue;
             _cabinCruiseCheckStart = DateTime.MinValue;
             _turbulence.Reset();
@@ -555,15 +567,10 @@ namespace vmsOpenAcars.ViewModels
                 // puerta cerrada al empujar (aquí no había nada), rodaje de salida, «cabin crew
                 // seats for landing» en aproximación y bienvenida a puesto al llegar. Los tres que
                 // no tienen grabación en NavData se locutan con SAPI (`CabinVoice`).
-                case FlightPhase.Pushback:
-                    // El anuncio se dispara ANTES, con el beacon o el freno liberado (CabinPushbackPolicy);
-                    // esto es solo la red si el avión ya venía empujado al conectar el ACARS.
-                    if (CabinPushbackPolicy.AnnounceOnPhaseEntry(_cabinPushbackSent))
-                    {
-                        _cabinPushbackSent = true;
-                        _cabinAnnouncements.QueueAnnouncement("pushback");
-                    }
-                    break;
+                // El pushback NO va aquí: lo decide `CabinPushbackPolicy` con las cinco señales
+                // (puertas, beacon con freno puesto, beacon, freno liberado y esta entrada en fase
+                // como red) desde `TickCabinPushback`. Así el aviso puede sonar en `Boarding`, antes
+                // de que la fase llegue —y de que el avión se mueva—.
                 case FlightPhase.TaxiOut:
                     _cabinAnnouncements.QueueAnnouncement("taxi_out");
                     break;
@@ -587,15 +594,18 @@ namespace vmsOpenAcars.ViewModels
         }
 
         /// <summary>
-        /// La llegada: orden de cabina («desarmar toboganes y verificar») y después la bienvenida a
-        /// destino, las dos cuando el avión **ya no está sobre la pista**. `AfterLanding` se declara en
-        /// el tick del toque (145 kt en `r4JNk2b2bBMJd8lD`) y `TaxiIn` a 40 kt, así que ninguna de las
-        /// dos sirve: el detector de pista de NavData es el que decide (`CabinRunwayExitPolicy`).
+        /// La bienvenida a destino (`taxi_in`): cuando el avión **ya no está sobre la pista**.
+        /// `AfterLanding` se declara en el tick del toque (145 kt en `r4JNk2b2bBMJd8lD`) y `TaxiIn` a
+        /// 40 kt, así que ninguna de las dos sirve: el detector de pista de NavData es el que decide
+        /// (`CabinRunwayExitPolicy`). El desarme de toboganes **ya no va aquí** (v0.9.66): lo dispara
+        /// el freno de parqueo en `TaxiIn` (`CabinArrivalPolicy`), porque esta señal geométrica es
+        /// sensible al rumbo y en el retroceso de pista de `3b0oBlXD5ZolKPM4` sonó con la pista por
+        /// delante.
         /// Se consulta a 2 Hz porque `FindRunwayEntry` recorre pistas y calles del aeropuerto.
         /// </summary>
         private void TickCabinArrival(RawTelemetryData e)
         {
-            if (_cabinArrivalSent) return;
+            if (_cabinTaxiInSent) return;
 
             FlightPhase phase = _flightManager?.CurrentPhase ?? FlightPhase.Idle;
             if (phase != FlightPhase.AfterLanding && phase != FlightPhase.TaxiIn) return;
@@ -614,9 +624,40 @@ namespace vmsOpenAcars.ViewModels
 
             if (!CabinRunwayExitPolicy.IsClearOfRunway(phase, e.GroundSpeedKt, onRunway)) return;
 
-            _cabinArrivalSent = true;
-            _cabinAnnouncements.QueueAnnouncement("slides_disarm");
+            _cabinTaxiInSent = true;
             _cabinAnnouncements.QueueAnnouncement("taxi_in");
+        }
+
+        /// <summary>
+        /// El PA de pushback, con la primera de sus cinco señales: puertas cerradas, beacon con el
+        /// freno puesto, beacon, freno liberado y entrada en fase (`CabinPushbackPolicy`). Se evalúa
+        /// en cada tick crudo **y no en el evento del freno o de la luz** porque así no se pierde la
+        /// transición de las puertas ni hay que repetir la decisión en tres sitios.
+        /// </summary>
+        private void TickCabinPushback(RawTelemetryData e)
+        {
+            if (_cabinPushbackSent) return;
+
+            // El disparador de puertas se arma al ver una abierta y no se desarma en el vuelo: un
+            // «todas cerradas» sin haberlas visto abiertas no prueba nada (offset sin publicar).
+            _cabinDoorsSeenOpen = CabinPushbackPolicy.ArmOnOpenDoors(_cabinDoorsSeenOpen, e.AnyExitOpen);
+            if (e.ParkingBrakeOn) _cabinParkingBrakeWasSet = true;
+
+            FlightPhase phase = _flightManager?.CurrentPhase ?? FlightPhase.Idle;
+            var state = new CabinPushbackState
+            {
+                Announced          = false,
+                BeaconOn           = e.BeaconLightOn,
+                ParkingBrakeSet    = e.ParkingBrakeOn,
+                ParkingBrakeWasSet = _cabinParkingBrakeWasSet,
+                DoorsSeenOpen      = _cabinDoorsSeenOpen,
+            };
+
+            if (CabinPushbackPolicy.Decide(phase, state, !e.AnyExitOpen)
+                == CabinPushbackTrigger.None) return;
+
+            _cabinPushbackSent = true;
+            _cabinAnnouncements.QueueAnnouncement("pushback");
         }
         // ── Raw data handler ──────────────────────────────────────────────────────
 
@@ -665,6 +706,10 @@ namespace vmsOpenAcars.ViewModels
             LastGroundSpeedKt = e.GroundSpeedKt;
 
             EvaluateRaas(e);
+
+            // Pushback: la primera de sus cinco señales, también en el tick crudo porque las puertas
+            // no tienen evento propio y la transición se perdería (v0.9.66).
+            TickCabinPushback(e);
 
             // Llegada: cuando el avión ya no está sobre la pista (ni en el toque ni a 40 kt).
             TickCabinArrival(e);
@@ -1404,9 +1449,27 @@ namespace vmsOpenAcars.ViewModels
             if (engaged && _flightManager != null && _flightManager.CurrentPhase == FlightPhase.Pushback)
                 RequestTaxiRoutePrompt("after pushback");
 
-            // Freno liberado con el avión todavía parado en el puesto: el remolcador engancha y
-            // empieza a tirar. Es el otro aviso temprano del pushback (aquí, 6 s antes de moverse).
-            if (!engaged) TryAnnouncePushback();
+            // Freno puesto con el avión rodando la llegada = en el puesto: la orden de desarmar
+            // toboganes (v0.9.66). La fase lo separa del freno que se pone al acabar el pushback
+            // (en `3b0oBlXD5ZolKPM4`, 01:57:51 en `Pushback`, que no debe anunciar la llegada).
+            if (engaged) TryAnnounceSlidesDisarm();
+        }
+
+        /// <summary>
+        /// «Desarmen los toboganes y realicen el chequeo cruzado»: en el puesto, con el freno de
+        /// parqueo recién puesto y la fase de llegada rodando (`CabinArrivalPolicy`). Antes colgaba
+        /// de `CabinRunwayExitPolicy`, que declara «fuera de pista» por geometría y es sensible al
+        /// rumbo: en el retroceso de `3b0oBlXD5ZolKPM4` sonó con la pista todavía por delante.
+        /// </summary>
+        private void TryAnnounceSlidesDisarm()
+        {
+            FlightPhase phase    = _flightManager?.CurrentPhase ?? FlightPhase.Idle;
+            bool        hasLanded = _flightManager?.HasTouchedDownThisFlight ?? false;
+            if (!CabinArrivalPolicy.ShouldAnnounceSlidesDisarm(
+                    phase, hasLanded, true, _cabinSlidesDisarmSent)) return;
+
+            _cabinSlidesDisarmSent = true;
+            _cabinAnnouncements.QueueAnnouncement("slides_disarm");
         }
 
         private void OnEnginesChanged(bool running) =>
@@ -1448,22 +1511,9 @@ namespace vmsOpenAcars.ViewModels
             _cb.Log?.Invoke(on ? _("Log_BeaconOn", AglSuffix()) : _("Log_BeaconOff", AglSuffix()),
                 Theme.MainText);
 
-            // Luz anti-colisión encendida = la tripulación va a mover el avión. Es la señal más
-            // temprana del pushback: en `r4JNk2b2bBMJd8lD` llegó 5 s antes que la fase.
-            if (on) TryAnnouncePushback();
-        }
-
-        /// <summary>
-        /// El PA de pushback se dice **antes** de que el avión se mueva, con la primera señal que
-        /// llegue (beacon o freno liberado). Si ninguna llega —el vuelo empezó con el empuje ya en
-        /// curso—, la entrada en fase hace de red (`CabinPushbackPolicy.AnnounceOnPhaseEntry`).
-        /// </summary>
-        private void TryAnnouncePushback()
-        {
-            if (!CabinPushbackPolicy.AnnounceBeforePush(_flightManager?.CurrentPhase ?? FlightPhase.Idle,
-                                                        _cabinPushbackSent)) return;
-            _cabinPushbackSent = true;
-            _cabinAnnouncements.QueueAnnouncement("pushback");
+            // El PA de pushback no se dispara aquí: `TickCabinPushback` lo decide con el estado
+            // completo —beacon, freno, puertas y fase— y así el orden de los cinco disparadores vive
+            // en un único helper puro (v0.9.66).
         }
 
         // ── Taxi position tracking ─────────────────────────────────────────────────

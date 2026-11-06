@@ -240,7 +240,9 @@ namespace vmsOpenAcars.Services
             {
                 // Igual que en la locución: la marca es el principio, no el final del audio.
                 Log?.Invoke($"🔊 PA {item.Phase} (grabación)");
-                PlayChime();
+                // El pushback se locuta sin chime: los 2,93 s del aviso se comían el margen de un
+                // PA que tiene que sonar antes de que el avión se mueva (v0.9.66).
+                if (CabinChimePolicy.ShouldPlayChime(item.Phase)) PlayChime();
                 if (clipEn     != null) PlayAudioSync(clipEn);
                 if (clipNative != null) PlayAudioSync(clipNative);
                 return;
@@ -291,7 +293,9 @@ namespace vmsOpenAcars.Services
             // del audio, así que el registro antiguo marcaba el **fin** del anuncio (en
             // `r4JNk2b2bBMJd8lD`, 16 s después de la fase de pushback) y hacía imposible juzgar la
             // oportunidad del aviso por el log.
-            PlayChime();
+            // El pushback va directo, sin los 2,93 s del chime: es el único PA que tiene que sonar
+            // antes de que el avión se mueva (v0.9.66).
+            if (CabinChimePolicy.ShouldPlayChime(item.Phase)) PlayChime();
             Log?.Invoke($"🔊 PA {item.Phase} (voz {voiceLang})");
             if (!CabinVoice.SpeakSync(text, voiceLang))
                 Log?.Invoke($"🔇 PA {item.Phase}: la voz no pudo locutar");

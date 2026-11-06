@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.65  
+**Versión actual:** v0.9.66  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -308,8 +308,9 @@ crédito**: al añadir uno nuevo al combo hay que darle el suyo. El rótulo es t
 
 **13 fases.** Por entrada de fase: `pushback`, `taxi_out`, `top_of_descent`, `approach`, `on_block`; `boarding` al acabar el prefetch; `after_takeoff` a 10 000 ft AGL (Climb/Enroute); `cruise` >10 000 ft AGL 30 s; `on_runway` a la 1.ª luz con GS ≤ 40 kt; y la turbulencia (`turbulence_on`/`_off`, `Helpers/TurbulenceAdvisor`: **oscilaciones** de g `0x11BA` (3 cruces de banda en
 6 s), 10 min de enfriamiento; fin solo en crucero). `top_of_descent`/`taxi_in` refrescan el METAR (3 s); cada PA deja línea **al empezar** el audio.
-**`pushback`** antes de moverse (beacon o freno liberado, `CabinPushbackPolicy`), porque la fase entra con ~11 s de
-empuje; **`slides_disarm`+`taxi_in`**, al despejar la pista (`CabinRunwayExitPolicy`), no en el toque ni a 40 kt.
+**`pushback`** antes de moverse y **sin chime** (puertas, beacon con freno puesto, beacon, freno o fase,
+`CabinPushbackPolicy`); **`slides_disarm`** al poner el freno en `TaxiIn` (`CabinArrivalPolicy`) y
+**`taxi_in`** al despejar la pista (`CabinRunwayExitPolicy`), no en el toque ni a 40 kt.
 
 **Idioma:** `Pilot.AirlineCountry` → `SpanishCountries` → `"es"`/`"en"` (no anglohablante: inglés). **Supresión:** `aircraftSeats ∈ (0,40)`. **Settings:** `chkCabinAnnouncements`, `trkCabinVolume` (en caliente), `btnTestCabin` (13 fases). Claves: `cabin_announcements_enabled` / `_volume`.
 
@@ -552,7 +553,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1047 tests** (1 se omite sola).
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1059 tests** (1 se omite sola).
 
 **Qué cubre la suite** — cada bloque con sus casos reales, sus fixtures y lo que no se puede
 re-ejecutar sin red: **`Docs/architecture.md`** → "Las suites de tests y sus casos reales".

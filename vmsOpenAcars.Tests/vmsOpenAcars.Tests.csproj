@@ -95,6 +95,9 @@
     <Compile Include="AiracStatusLineTests.cs" />
     <Compile Include="AirspaceReviewMarkTests.cs" />
     <Compile Include="CabinAnnouncementTimingTests.cs" />
+    <Compile Include="CabinPushbackPolicyTests.cs" />
+    <Compile Include="CabinArrivalPolicyTests.cs" />
+    <Compile Include="CabinChimePolicyTests.cs" />
     <Compile Include="PushbackTaxiGateTests.cs" />
     <Compile Include="TaxiStartAccrualTests.cs" />
     <Compile Include="PmdgSdkTests.cs" />

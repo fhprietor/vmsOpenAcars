@@ -3019,14 +3019,61 @@ sola: **«Es la una»**, no «Son la una».
 
 | Fase | Disparo | Por qué |
 |---|---|---|
-| `pushback` | entrada en `FlightPhase.Pushback` | es el «cabin crew, doors for departure» real |
+| `pushback` | cinco señales, la primera que llegue (`CabinPushbackPolicy`, v0.9.66) | es el «cabin crew, doors for departure» real y tiene que sonar **antes** de moverse |
 | `after_takeoff` | 10 000 ft AGL en `Climb` o `Enroute`, una vez | donde deja de haber restricción de dispositivos; **no** se espera al crucero, entre los 10 000 ft y el nivel de crucero pueden pasar veinte minutos |
-| `slides_disarm` | entrada en `FlightPhase.AfterLanding` | la orden del comandante **a la tripulación**, no un PA a los pasajeros: «desarmen los toboganes y realicen el chequeo cruzado». Va en `AfterLanding` y no en `TaxiIn` para no pisar la bienvenida al destino |
+| `slides_disarm` | **freno de parqueo puesto en `TaxiIn`**, solo si ya hubo aterrizaje (`CabinArrivalPolicy`, v0.9.66) | la orden del comandante **a la tripulación**, no un PA a los pasajeros: «desarmen los toboganes y realicen el chequeo cruzado». En el puesto y no en la pista |
 | `on_block` | entrada en `FlightPhase.OnBlock` | el PA de desembarco |
 
 Cada anuncio deja línea en el log de vuelo —`🔊 PA taxi_in (grabación)`, `🔊 PA pushback (voz es)`,
 `🔇 PA cruise: no hay voz de Windows disponible`—, que es lo que permite auditar después si sonó y
 en qué modo.
+
+### El pushback y el desarme, medidos contra el PIREP `3b0oBlXD5ZolKPM4` (v0.9.66)
+
+El vuelo real (AT76, SKUC→SKBO, 05/11/2026) dejó las dos marcas que mandan sobre estas dos reglas:
+
+```
+01:57:06  Parking Brake: RELEASED
+01:57:09  🔊 PA pushback (voz es)        ← +3,0 s; 2,93 s eran el chime
+01:57:19  BEACON ON  ·  ── PUSHBACK ──   ← 13 s después del freno
+01:57:51  Parking Brake: SET             ← fin del empuje, fase Pushback
+...
+03:24:43  TOUCHDOWN
+03:25:29  ── TAXI IN ──
+03:25:31  ↩️ BACKTRACK RWY 32R           ← sigue en pista, retrocediendo
+03:25:37  🔊 PA slides_disarm
+03:25:39  ↳ TWY A6                       ← aquí sale de verdad
+03:28:57  Parking Brake: SET             ← el puesto: el desarme correcto
+```
+
+**El chime.** `CabinChimePolicy` (puro) deja el PA de pushback **sin** el aviso previo de
+`chime_warning.wav`; los demás lo conservan. En este vuelo la voz habría empezado en el 01:57:06 en
+vez de tres segundos después. No hay clave nueva en los `.json`: es una decisión de código.
+
+**Los cinco disparadores del pushback**, por orden y una sola vez por vuelo:
+
+1. **Puertas cerradas** (`0x3367`): se arma al **ver** una salida abierta y dispara cuando están todas
+   cerradas. El offset **no se ha podido verificar en simulador**; si el addon no lo publica y devuelve
+   siempre el mismo valor, el disparador no se arma (0 constante) o no llega nunca a «todas cerradas»
+   (constante distinta de 0), y **deciden los otros cuatro**. Un cierre inventado anunciaría un
+   pushback que no existe.
+2. **Beacon ON con el freno de parqueo puesto** — requisito del mantenedor: si el piloto enciende el
+   beacon antes de soltar el freno, eso ya anuncia el cierre de puertas.
+3. **Beacon ON**, la señal clásica.
+4. **Freno liberado**, exigiendo haberlo visto **puesto** antes: así un addon que no publica `0x0BC8`
+   (0 constante) no se lee como «recién liberado» en el primer tick de `Boarding`.
+5. **Entrada en `Pushback`**, la red para el vuelo que empieza con el empuje ya en curso.
+
+**El desarme de toboganes** ya no cuelga de `CabinRunwayExitPolicy`. Esa política declara «fuera de
+pista» con `NavDataService.FindRunwayEntry == null`, que es **sensible al rumbo**: en el retroceso el
+avión giró a 158° contra los 127° de la 14L, salió del rectángulo y se declaró libre **con la pista
+por delante**. La señal nueva es operativa: **freno de parqueo puesto con la fase `TaxiIn` y un
+aterrizaje previo** (`CabinArrivalPolicy`). `taxi_in` no cambia: sigue saliendo al despejar la pista
+con `CabinRunwayExitPolicy`, con su propia bandera de «ya anunciado». El freno de las 01:57:51 no
+dispara la llegada porque su fase es `Pushback`; hay un test con ese instante.
+
+Los dos dispatchers viven en `ViewModels/TelemetryCoordinator.cs`: `TickCabinPushback` (cada tick
+crudo, porque las puertas no tienen evento propio) y `OnParkingBrakeChanged` → `TryAnnounceSlidesDisarm`.
 
 ### Turbulencia: se mide, no se lee el letrero
 

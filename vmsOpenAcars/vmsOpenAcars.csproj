@@ -249,6 +249,8 @@
     <!-- Notas de la Release a texto plano para el aviso de actualización: el cuerpo llega en Markdown. -->
     <Compile Include="Helpers\MarkdownPlainText.cs" />
     <Compile Include="Helpers\CabinPushbackPolicy.cs" />
+    <Compile Include="Helpers\CabinArrivalPolicy.cs" />
+    <Compile Include="Helpers\CabinChimePolicy.cs" />
     <Compile Include="Helpers\CabinRunwayExitPolicy.cs" />
     <Compile Include="Helpers\PushbackTaxiGate.cs" />
     <Compile Include="Helpers\TaxiStartAccrual.cs" />

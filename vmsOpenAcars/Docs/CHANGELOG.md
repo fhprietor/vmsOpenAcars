@@ -2,6 +2,72 @@
 
 ---
 
+## [0.9.66] — 05/11/2026
+
+### Fixed
+
+**A) El PA de pushback sonaba con el avión ya moviéndose.** Medido en el PIREP real
+`3b0oBlXD5ZolKPM4` (AT76, SKUC→SKBO, 05/11/2026): `Parking Brake: RELEASED` **01:57:06** →
+`🔊 PA pushback (voz es)` **01:57:09** (+3,0 s) → `BEACON ON` y `── PUSHBACK ──` **01:57:19**, 13 s
+después del freno. De esos 3,0 s, **2,93 s** eran el chime `Resources/Audio/chime_warning.wav` que
+`SpeakFallbackAsync` reproducía antes de locutar: el anuncio existía pero llegaba con el empuje en
+marcha. El disparo dependía solo del beacon y del freno liberado, y no se leían las puertas.
+
+- **El PA de pushback se locuta sin chime** (`Helpers/CabinChimePolicy`, puro y con test). Los
+  demás PA conservan el suyo; no hay clave nueva en los `.json`, se resuelve en código. En este
+  vuelo la voz habría empezado a las **01:57:06** en vez de a las 01:57:09.
+- **Cinco disparadores, el que llegue primero y una sola vez por vuelo** (`Helpers/CabinPushbackPolicy`,
+  puro, con estado explícito y test): **(i) puertas cerradas**, **(ii) beacon ON con el freno de
+  parqueo PUESTO** (requisito del mantenedor: encender el beacon antes de soltar el freno ya anuncia
+  el cierre de puertas), **(iii) beacon ON**, **(iv) freno liberado** —exige haberlo visto puesto
+  antes, para que un addon que no publica `0x0BC8` no se lea como «recién liberado»— y **(v) entrada
+  en fase**, que sigue siendo la red del vuelo que empieza con el empuje ya en curso.
+- **Puertas: offset `0x3367`** (8 bytes, uno por salida; 0 = cerrada). Se lee en
+  `FsuipcService.ReadAllOffsets` solo con la conexión activa. **No se ha podido verificar en
+  simulador**, así que el diseño degrada: el disparador **se arma al ver alguna puerta abierta** y
+  dispara cuando están todas cerradas; si nunca se vio una abierta —o el addon no publica el offset
+  y devuelve siempre el mismo valor— **no dispara jamás** y deciden los otros cuatro. Un cierre de
+  puertas inventado anunciaría un pushback que no existe.
+
+**B) `slides_disarm` sonaba aún en la pista.** En el mismo vuelo: `TOUCHDOWN` 03:24:43 ·
+`── TAXI IN ──` 03:25:29 · `↩️ BACKTRACK RWY 32R` **03:25:31** (seguía en la pista, retrocediendo) ·
+`🔊 PA slides_disarm` **03:25:37** · `↳ TWY A6` 03:25:39 (aquí salió de verdad). La causa raíz es
+que `Helpers/CabinRunwayExitPolicy` daba por «fuera de pista» con `FindRunwayEntry == null`, y ese
+detector es **sensible al rumbo**: al girar para el retroceso (158° contra los 127° de la 14L) la
+posición salió del rectángulo y se declaró libre con la pista por delante.
+
+- **`slides_disarm` pasa al puesto** (`Helpers/CabinArrivalPolicy`, puro y con test): se anuncia
+  cuando el **freno de parqueo se pone** con la fase **`TaxiIn`** y **solo si ya hubo aterrizaje**.
+  Deja de depender del rumbo y de `CabinRunwayExitPolicy`. En este vuelo: **03:28:57**.
+- **El freno que se pone tras el pushback no lo dispara**: en este mismo vuelo fue a las
+  **01:57:51**, en fase `Pushback`; la condición de fase es la que lo evita, y hay un test con ese
+  instante.
+- **`taxi_in` se queda como estaba**: al despejar la pista con su política actual, ahora con su
+  propia bandera de «ya anunciado» separada de la del desarme.
+
+### Tests
+
+Nuevos, con los datos de este vuelo y sin abrir ventanas: en `CabinPushbackPolicyTests`,
+`ElFrenoLiberadoDelVueloRealDisparaElAviso`, `ElBeaconConElFrenoPuestoDisparaElAvisoAntes`,
+`LasPuertasAbiertasYCerradasDisparanElAviso`,
+`SiNuncaSeVioUnaPuertaAbiertaElDisparadorDePuertasNoDispara`,
+`ElAvisoDePushbackSoloSeDiceUnaVezPorVuelo` y `EnElRodajeYaNoSeAnunciaElPushback`; en
+`CabinArrivalPolicyTests`, `ElFrenoPuestoEnTaxiInTrasAterrizarAnunciaDesarmarToboganes`,
+`ElFrenoDelPushbackNoAnunciaDesarmarToboganes`, `ElDesarmeDeToboganesNoSeRepite` y
+`SinAterrizajeNoSeAnuncia`; en `CabinChimePolicyTests`, `ElPushbackSeLocutaSinChime` y
+`LosDemasAnunciosConservanElChime`. La suite pasa de **1047 a 1059** (1 se omite sola).
+
+### Pendiente de verificación
+
+**`0x3367` no se ha podido verificar en simulador** (ni su layout de un byte por salida ni qué
+addons lo publican): el disparador de puertas solo se ha probado con el helper puro. Está diseñado
+para no disparar si el offset no publica nada, y en ese caso el PA lo deciden beacon, freno y fase.
+Lo verificado es que compila en **Debug y Release**, que `ProductVersion` es **0.9.66** y que la
+suite pasa (**1059**, 1 se omite sola). Queda pendiente un pushback real en el que se vean las
+puertas abrirse y cerrarse para confirmar el disparador (i).
+
+---
+
 ## [0.9.65] — 03/11/2026
 
 ### Fixed

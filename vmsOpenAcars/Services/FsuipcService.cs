@@ -186,6 +186,16 @@ namespace vmsOpenAcars.Services
         private readonly Offset<short> _brakeLeftOffset = new Offset<short>(0x0BC4);
         private readonly Offset<short> _brakeRightOffset = new Offset<short>(0x0BC6);
 
+        // ---- Puertas / salidas ----
+        // 0x3367 · 8 bytes · estado de las salidas 1–8, **un byte por puerta**: 0 = cerrada,
+        // distinto de 0 = abierta o en movimiento (abriendo/cerrando). Se lee para el PA de
+        // pushback (v0.9.66), que se arma al ver una puerta abierta y dispara cuando están todas
+        // cerradas. **No se ha podido verificar en simulador**: si el addon no publica el offset,
+        // devuelve siempre el mismo valor y el disparador no llega a disparar nunca; los otros
+        // cuatro disparadores de `Helpers/CabinPushbackPolicy` deciden entonces. No se supone
+        // disponibilidad ni se inventa un cierre: aquí solo se traduce «alguna abierta».
+        private readonly Offset<byte[]> _exitsOffset = new Offset<byte[]>(0x3367, 8);
+
         // ---- Autobrake y carteles de cabina ----
         private readonly Offset<string> _aircraftTitleOffset = new Offset<string>(0x3D00, 256);
         // 0x2F80 · 1 byte · AUTO BRAKE SWITCH CB (Responded): el **selector** (0=RTO, 1=Off, 2..5).
@@ -463,6 +473,14 @@ namespace vmsOpenAcars.Services
         public bool NoSmokingSignOn { get; private set; }
         /// <summary>El addon demostró que publica los carteles (alguno cambió en el vuelo).</summary>
         public bool CabinSignsAvailable { get; private set; }
+
+        // ---- Puertas / salidas (0x3367) ----
+        /// <summary>
+        /// Alguna salida publicada como abierta o en movimiento. **Sin dato fiable vale `false`**:
+        /// un addon que no escribe `0x3367` deja el bloque a 0 y aquí se lee «todas cerradas», que
+        /// por sí solo no prueba nada — el PA de pushback exige haber visto antes una abierta.
+        /// </summary>
+        public bool AnyExitOpen { get; private set; }
 
         // ---- Motores ----
         public EnginePower Engine1Power { get; private set; }
@@ -891,6 +909,7 @@ namespace vmsOpenAcars.Services
 
                 // ── Frenos, motores, autobrake ────────────────────────────────
                 ParkingBrakeOn = parkingBrakeOn,
+                AnyExitOpen = AnyExitOpen,
                 EnginesRunning = enginesRunning,
                 AutobrakeSetting = autobrakeSetting,
 
@@ -1015,6 +1034,23 @@ namespace vmsOpenAcars.Services
 
             // ---- Luces ----
             IsBeaconOn = (_lightsOffset.Value & 0x02) != 0;
+
+            // ---- Puertas / salidas (0x3367) ----
+            // `Offset<byte[]>` se rellena en `Process()`; un addon que no publica el bloque lo deja
+            // a 0 y se lee «todas cerradas». El valor no se interpreta aquí: `CabinPushbackPolicy`
+            // solo usa «alguna abierta» para armar el disparador.
+            byte[] exits = _exitsOffset.Value;
+            bool anyExitOpen = false;
+            if (exits != null)
+            {
+                for (int i = 0; i < exits.Length; i++)
+                {
+                    if (exits[i] == 0) continue;
+                    anyExitOpen = true;
+                    break;
+                }
+            }
+            AnyExitOpen = anyExitOpen;
 
             // ---- Controles ----
             CurrentGearPosition = DecodeGear(_gearOffset.Value);
@@ -2267,6 +2303,12 @@ namespace vmsOpenAcars.Services
 
         // Frenos y motores
         public bool ParkingBrakeOn { get; set; }
+        /// <summary>
+        /// `0x3367` · alguna salida abierta o en movimiento (8 bytes, uno por puerta). Sin dato
+        /// fiable vale `false`; el PA de pushback solo lo usa para **armar** el disparador, no para
+        /// decidir por sí solo (`Helpers/CabinPushbackPolicy`).
+        /// </summary>
+        public bool AnyExitOpen { get; set; }
         public bool EnginesRunning { get; set; }
         public string AutobrakeSetting { get; set; } = Helpers.AutobrakeSelector.NoData;
 

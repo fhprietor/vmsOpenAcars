@@ -19,18 +19,33 @@ namespace vmsOpenACars.Tests
     {
         // ── Pushback: se anuncia ANTES de moverse ────────────────────────────────
 
+        private static CabinPushbackState EnElPuesto()
+            => new CabinPushbackState
+            {
+                Announced          = false,
+                BeaconOn           = false,
+                ParkingBrakeSet    = false,
+                ParkingBrakeWasSet = true,
+                DoorsSeenOpen      = false,
+            };
+
         [TestMethod]
         public void ElPushbackSeAnunciaEstandoAunEnElPuesto()
         {
-            // 01:54:34 y 01:54:42 del vuelo real: el avión sigue parado (fase Boarding).
-            Assert.IsTrue(CabinPushbackPolicy.AnnounceBeforePush(FlightPhase.Boarding, false),
-                "con el beacon o el freno liberado y el avión aún en el puesto, es el momento");
+            // 01:54:34 y 01:54:42 del vuelo real: el avión sigue parado (fase Boarding) y acaba de
+            // soltarse el freno que antes estaba puesto.
+            Assert.AreEqual(CabinPushbackTrigger.ParkingBrakeReleased,
+                CabinPushbackPolicy.Decide(FlightPhase.Boarding, EnElPuesto(), allDoorsClosed: true),
+                "con el freno liberado y el avión aún en el puesto, es el momento");
         }
 
         [TestMethod]
         public void ElPushbackNoSeRepite()
         {
-            Assert.IsFalse(CabinPushbackPolicy.AnnounceBeforePush(FlightPhase.Boarding, true),
+            CabinPushbackState state = EnElPuesto();
+            state.Announced = true;
+            Assert.AreEqual(CabinPushbackTrigger.None,
+                CabinPushbackPolicy.Decide(FlightPhase.Boarding, state, allDoorsClosed: true),
                 "una vez dicho, no se vuelve a decir");
         }
 
@@ -38,8 +53,12 @@ namespace vmsOpenACars.Tests
         public void YaEnPushbackElAvisoNoEsTemprano()
         {
             // La fase `Pushback` solo se declara con ~11 s de movimiento: aquí el anuncio ya llega
-            // con el avión empujado, así que no cuenta como el aviso temprano.
-            Assert.IsFalse(CabinPushbackPolicy.AnnounceBeforePush(FlightPhase.Pushback, false));
+            // con el avión empujado, así que lo único que queda es la red de entrada en fase.
+            CabinPushbackState state = EnElPuesto();
+            state.ParkingBrakeWasSet = false;
+            state.ParkingBrakeSet    = true;
+            Assert.AreEqual(CabinPushbackTrigger.PhaseEntry,
+                CabinPushbackPolicy.Decide(FlightPhase.Pushback, state, allDoorsClosed: true));
         }
 
         [TestMethod]
@@ -47,8 +66,14 @@ namespace vmsOpenACars.Tests
         {
             // El vuelo que arrancó con el empuje ya en curso (`rMBVEKj5PZzx0pX9`) no tiene señal
             // temprana: mejor un aviso tarde que ninguno.
-            Assert.IsTrue(CabinPushbackPolicy.AnnounceOnPhaseEntry(false));
-            Assert.IsFalse(CabinPushbackPolicy.AnnounceOnPhaseEntry(true),
+            CabinPushbackState state = EnElPuesto();
+            state.ParkingBrakeWasSet = false;
+            state.ParkingBrakeSet    = true;
+            Assert.AreEqual(CabinPushbackTrigger.PhaseEntry,
+                CabinPushbackPolicy.Decide(FlightPhase.Pushback, state, allDoorsClosed: true));
+            state.Announced = true;
+            Assert.AreEqual(CabinPushbackTrigger.None,
+                CabinPushbackPolicy.Decide(FlightPhase.Pushback, state, allDoorsClosed: true),
                 "pero no repite el que ya se dijo antes de moverse");
         }
 
