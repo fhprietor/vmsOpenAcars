@@ -63,6 +63,39 @@ namespace vmsOpenAcars.Core.Flight
         // lector vea el valor publicado y no una copia en caché de registro.
         private volatile string _effectiveDestination = null;
         private volatile string _divertedAirport = null;
+
+        /// <summary>
+        /// **El campo de llegada, con la posición del toque**, para lo que se comprueba después de
+        /// aterrizar. Se publica como una referencia inmutable y `volatile` porque la escribe el
+        /// hilo de telemetría (`RegisterTouchdown`) y la puede leer la UI al refrescar la base.
+        /// Es la única coordenada de llegada que tenemos: el plan de SimBrief trae elevación pero
+        /// no lat/lon, y la base del piloto todavía dice SKBO hasta que phpVMS la actualiza.
+        /// Ver <see cref="PositionCheckPolicy"/>.
+        /// </summary>
+        private sealed class ArrivalPosition
+        {
+            internal readonly string Icao;
+            internal readonly double Lat;
+            internal readonly double Lon;
+
+            internal ArrivalPosition(string icao, double lat, double lon)
+            {
+                Icao = icao; Lat = lat; Lon = lon;
+            }
+        }
+
+        private volatile ArrivalPosition _arrivalPosition;
+
+        /// <summary>
+        /// **El vuelo ya se fileó.** Cierra la comprobación de posición: en el PIREP real
+        /// `nROPdk4GxYY5AOy1` el aviso «DEBERÍAS ESTAR EN SKBO (95,4 NM)» salió **dos segundos
+        /// después** de `PIREP filed`, con el avión en SKPE. Se limpia al empezar un vuelo.
+        /// </summary>
+        private volatile bool _pirepFiled;
+
+        /// <summary>La pista de llegada resuelta por la aproximación, para no perderla al guardar.</summary>
+        private volatile string _approachRunwayName;
+
         private const double UnknownElevation = double.NaN;
 
         // Elevación real del aeropuerto de llegada una vez confirmado un desvío.
@@ -200,6 +233,24 @@ namespace vmsOpenAcars.Core.Flight
         public double TouchdownDistanceFt   => _td.DistanceFt;
         public double TouchdownCenterlineFt => _td.CenterlineDeviationFt;
         public string TouchdownRunwayName   => _td.RunwayName;
+
+        /// <summary>
+        /// **La pista de llegada que ya se conocía antes del toque**, aunque la geometría de la
+        /// toma no se haya podido resolver. En el PIREP real `nROPdk4GxYY5AOy1` el log sabía la
+        /// pista desde `02:56:46 APPROACH CAPTURE: RWY 08` y `02:58:27 FLARE TRACK START: RWY 08`,
+        /// pero al guardar el vuelo salió `RWY ` **vacía** porque `LookupRunwayData` no rellenó la
+        /// geometría. La pista no se pierde cuando ya se tenía: ver `Helpers/LandingRunway`.
+        /// </summary>
+        public string ApproachRunwayName    => _approachRunwayName;
+
+        /// <summary>
+        /// Publica la pista de llegada resuelta por la aproximación (la que usan el log de captura
+        /// y el hold-short). Vive en `FlightManager` y no solo en `TelemetryCoordinator` porque el
+        /// registro del vuelo se guarda después de `FilePirep`, cuando ese coordinador ya soltó su
+        /// umbral al salir de la aproximación.
+        /// </summary>
+        public void SetApproachRunway(string runwayName)
+            => _approachRunwayName = string.IsNullOrWhiteSpace(runwayName) ? null : runwayName.Trim();
         /// <summary>Longitud de la pista de la toma, en pies; **0 = sin dato** (la puntuación
         /// «Touchdown Zone» degrada entonces a la regla de siempre).</summary>
         public double TouchdownRunwayLengthFt => _td.RunwayLengthFt;
@@ -629,8 +680,27 @@ namespace vmsOpenAcars.Core.Flight
         private void ValidateSimulatorPosition(double currentLat, double currentLon)
         {
             if (_activePilot == null) return;
+
+            // Cerrado el vuelo (fileado o en bloque) no hay nada que comprobar; y si ya aterrizó,
+            // la referencia es el campo de llegada —no la base, que phpVMS aún no ha movido—.
+            // Ver `PositionCheckPolicy` y el log del PIREP `nROPdk4GxYY5AOy1`.
+            bool             flightClosed = _pirepFiled
+                || CurrentPhase == FlightPhase.OnBlock
+                || CurrentPhase == FlightPhase.Completed;
+            ArrivalPosition  anchor       = _arrivalPosition;
+            PositionReference reference   = PositionCheckPolicy.Resolve(
+                flightClosed,
+                anchor != null ? anchor.Icao : null,
+                anchor != null ? (double?)anchor.Lat : null,
+                anchor != null ? (double?)anchor.Lon : null,
+                _activePilot.CurrentAirport,
+                _activePilot.CurrentAirportLat,
+                _activePilot.CurrentAirportLon);
+
+            if (reference == null) return;   // sin referencia creíble no se inventa un aviso
+
             var (isValid, distance, message, color) = _positionValidator.ValidatePosition(
-                _activePilot.CurrentAirport, _activePilot.CurrentAirportLat, _activePilot.CurrentAirportLon, currentLat, currentLon);
+                reference.Airport, reference.Lat, reference.Lon, currentLat, currentLon);
             bool changed = (PositionValidationStatus.GpsValid != isValid) || (Math.Abs(PositionValidationStatus.DistanceFromAirport - distance) > 0.01);
             PositionValidationStatus.GpsValid = isValid;
             PositionValidationStatus.DistanceFromAirport = distance;
@@ -692,6 +762,13 @@ namespace vmsOpenAcars.Core.Flight
             _activePlan = plan;
             if (plan != null)
             {
+                // Un plan nuevo se acepta en tierra: el cierre y el ancla de llegada del vuelo
+                // anterior ya no valen y la comprobación de posición vuelve a mirar la base.
+                if (string.IsNullOrEmpty(ActivePirepId))
+                {
+                    _pirepFiled      = false;
+                    _arrivalPosition = null;
+                }
                 _destinationElevation = plan.DestinationElevation;
                 OnLog?.Invoke(_("Log_PlanDestination", plan.Destination, _destinationElevation), Theme.MainText);
             }
@@ -704,13 +781,10 @@ namespace vmsOpenAcars.Core.Flight
             IsSimulatorConnected = connected;
             if (connected && latitude.HasValue && longitude.HasValue && _activePilot != null)
             {
-                if (_activePilot.CurrentAirportLat.HasValue && _activePilot.CurrentAirportLon.HasValue)
-                    ValidateSimulatorPosition(latitude.Value, longitude.Value);
-                else
-                {
-                    PositionValidationStatus.GpsValid = false;
-                    OnPositionValidated?.Invoke(PositionValidationStatus);
-                }
+                // La referencia (base o llegada) y la decisión de comprobar o no las pone
+                // `PositionCheckPolicy`: aquí no se filtra por las coordenadas de la base, porque
+                // ya aterrizado la referencia es el campo de llegada.
+                ValidateSimulatorPosition(latitude.Value, longitude.Value);
             }
             else
             {
@@ -752,6 +826,13 @@ namespace vmsOpenAcars.Core.Flight
         {
             _effectiveDestination = icao;
             _approachValidator.EffectiveDestination = icao;
+
+            // Si el aeropuerto de llegada se confirma después del toque (el fallback de
+            // `LookupRunwayData` corre en `Task.Run`), el ancla ya es de llegada: solo cambia el
+            // nombre con el que se compara, no la posición.
+            ArrivalPosition anchor = _arrivalPosition;
+            if (anchor != null && !string.IsNullOrEmpty(icao))
+                _arrivalPosition = new ArrivalPosition(icao, anchor.Lat, anchor.Lon);
         }
 
         /// <summary>

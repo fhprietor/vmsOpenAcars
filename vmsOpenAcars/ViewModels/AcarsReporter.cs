@@ -469,7 +469,7 @@ namespace vmsOpenAcars.ViewModels
                 FlightNumber    = plan?.FlightNumber     ?? "",
                 Origin          = plan?.Origin           ?? "",
                 Destination     = plan?.Destination      ?? "",
-                RunwayName      = fm.TouchdownRunwayName ?? "",
+                RunwayName      = LandingRunway.ForRecord(fm.TouchdownRunwayName, fm.ApproachRunwayName),
                 FlightDate      = DateTime.UtcNow,
                 // NoLandingData (-1) when no touchdown was captured — never 0, which would
                 // read as a real 0 fpm "Butter" landing in the logbook.

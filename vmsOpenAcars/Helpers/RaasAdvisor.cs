@@ -105,8 +105,14 @@ namespace vmsOpenAcars.Helpers
         internal const double TurnAheadM   = 250.0;
         internal const double TurnNowM     = 60.0;
 
-        /// <summary>Antirrebote: la misma situación no se repite antes de este tiempo.</summary>
-        internal const double RepeatCooldownSec = 20.0;
+        // Ya no hay enfriamiento por reloj (v0.9.67): con 20 s de cooldown y re-armado al terminar
+        // el aviso, un giro que sigue en banda se repetía cada 20 s. En el rodaje real
+        // `nROPdk4GxYY5AOy1` (AT76, SKBO→SKPE) `TAXIWAY K1 TO THE RIGHT IN 80 METERS` salió **6
+        // veces** (02:15:09, 02:15:30, 02:15:50, 02:16:11, 02:16:32, 02:16:49),
+        // `CONTINUE STRAIGHT ON TAXIWAY B11` **5** (02:03:21…02:04:44) y `APPROACHING RUNWAY 14R`
+        // **3**. La regla ahora es **una vez por maniobra**, y el re-armado lo decide el cambio de
+        // situación: pasar el cruce (cambia la calle y el índice de la ruta), cambiar de tramo o de
+        // pista, o salir de la banda de distancia. Ver `_turnManeuverKey` y `_holdShortStage`.
 
         // «Fuera de ruta» no se dice porque una calle no esté en la lista, sino porque el avión
         // se ha perdido. En el rodaje real del `MNjR664PBAr25RbD` la ruta que propuso el grafo
@@ -118,8 +124,26 @@ namespace vmsOpenAcars.Helpers
         /// <summary>Acercarse a la pista al menos esto reinicia la cuenta: no está perdido.</summary>
         internal const double OffRouteProgressM = 50.0;
 
-        private readonly Dictionary<string, DateTime> _spoken =
-            new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
+        /// La maniobra de giro que ya se anunció y hasta qué banda se dijo: `1` = «en 250 m»,
+        /// `2` = «ahora». La clave identifica la maniobra (`índice:calle`), no el texto: pasar el
+        /// cruce cambia el índice y la calle, así que la siguiente maniobra vuelve a sonar aunque
+        /// el avión no se haya movido de la calle. Que la distancia supere la banda (o la guía deje
+        /// de tener giro) borra el estado: es el re-armado por «la situación cambió», no por reloj.
+        /// </summary>
+        private string _turnManeuverKey = "";
+        private int    _turnStage;
+
+        /// <summary>
+        /// El hold-short que ya se anunció: pista → banda máxima dicha (`1` acercándose, `2` alto).
+        /// Un diccionario y no una clave suelta porque al cambiar de pista el aviso de la anterior
+        /// ya no aplica, y una pista puede volver a aparecer en una ruta que da la vuelta.
+        /// </summary>
+        private readonly Dictionary<string, int> _holdShortStage =
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>El desvío ya anunciado, por calle activa: se repite solo si cambia de calle.</summary>
+        private string _offRouteAnnouncedKey = "";
 
         private DateTime? _offRouteSince;
         private double    _offRouteBestM = double.NaN;
@@ -158,7 +182,9 @@ namespace vmsOpenAcars.Helpers
 
         /// <summary>
         /// Devuelve el aviso que toca, o uno con <see cref="RaasCalloutType.None"/> si no hay
-        /// nada que decir (o ya se dijo hace menos de <see cref="RepeatCooldownSec"/>).
+        /// nada que decir. **Una vez por maniobra**: el mismo aviso no se repite mientras la
+        /// situación siga siendo la misma, y vuelve a sonar cuando cambia de verdad (ver
+        /// <see cref="_turnManeuverKey"/> y <see cref="_holdShortStage"/>).
         /// </summary>
         internal RaasCallout Evaluate(Inputs i, DateTime utcNow)
         {
@@ -175,8 +201,6 @@ namespace vmsOpenAcars.Helpers
             {
                 if (_routeCompleteAnnounced) return none;
                 _routeCompleteAnnounced = true;
-                _spoken.Clear();
-                _spoken[candidate.Key] = utcNow;
                 return candidate;
             }
 
@@ -189,33 +213,68 @@ namespace vmsOpenAcars.Helpers
 
                 TrackOffRoute(i, utcNow);
                 if (!OffRouteConfirmed(utcNow)) return none;   // todavía puede estar acercándose
-            }
-            else
-            {
-                _offRouteSince = null;
-                _offRouteBestM = double.NaN;
-            }
 
-            if (candidate.Type == RaasCalloutType.None)
-            {
-                _spoken.Clear();     // la situación terminó: el próximo aviso vuelve a sonar
+                // El desvío se dice una vez por calle activa: mientras el avión siga en la misma
+                // calle fuera de ruta no hay nada nuevo que contar. Volver a la ruta (candidato
+                // distinto) borra la marca y rearma el aviso para el próximo desvío.
+                if (string.Equals(_offRouteAnnouncedKey, candidate.Key,
+                                  StringComparison.OrdinalIgnoreCase))
+                    return none;
+                _offRouteAnnouncedKey = candidate.Key;
                 return candidate;
             }
 
-            if (_spoken.TryGetValue(candidate.Key, out DateTime last)
-                && (utcNow - last).TotalSeconds < RepeatCooldownSec)
-                return new RaasCallout { Type = RaasCalloutType.None };
+            _offRouteSince = null;
+            _offRouteBestM = double.NaN;
+            _offRouteAnnouncedKey = "";
 
-            // Cambió la situación: lo anterior ya no aplica y no debe bloquear al nuevo aviso.
-            _spoken.Clear();
-            _spoken[candidate.Key] = utcNow;
-            return candidate;
+            if (candidate.Type == RaasCalloutType.HoldShortApproaching ||
+                candidate.Type == RaasCalloutType.HoldShortStop)
+            {
+                int stage = candidate.Type == RaasCalloutType.HoldShortStop ? 2 : 1;
+                _holdShortStage.TryGetValue(candidate.Key, out int said);
+                if (said >= stage) return none;      // ya se dijo en esta banda o en una más cercana
+
+                _holdShortStage[candidate.Key] = stage;
+                return candidate;
+            }
+
+            // Sin hold-short en banda, cualquier aviso de espera anterior deja de aplicar: el avión
+            // se alejó (o ya lo pasó) y si vuelve a acercarse es una situación nueva. Es el
+            // re-armado por «salir de la banda de distancia», no por reloj.
+            _holdShortStage.Clear();
+
+            if (candidate.Type == RaasCalloutType.TurnAhead ||
+                candidate.Type == RaasCalloutType.TurnNow)
+            {
+                // Pasar el cruce cambia el índice y la calle: la maniobra es otra y vuelve a sonar.
+                if (!string.Equals(_turnManeuverKey, candidate.Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    _turnManeuverKey = candidate.Key;
+                    _turnStage       = 0;
+                }
+
+                int stage = candidate.Type == RaasCalloutType.TurnNow ? 2 : 1;
+                if (stage <= _turnStage) return none;    // ya se dijo en esta banda o una más cercana
+                _turnStage = stage;
+                return candidate;
+            }
+
+            // La maniobra de giro ya no está en banda (o no hay guía): se rearma para cuando
+            // vuelva a estarlo, que es lo que hace sonar el aviso al entrar en los 250 m.
+            _turnManeuverKey = "";
+            _turnStage       = 0;
+
+            return candidate;      // None
         }
 
         /// <summary>Vuelo nuevo o guía reiniciada: no se arrastra nada del rodaje anterior.</summary>
         internal void ResetRouteState()
         {
-            _spoken.Clear();
+            _turnManeuverKey        = "";
+            _turnStage              = 0;
+            _holdShortStage.Clear();
+            _offRouteAnnouncedKey   = "";
             _offRouteSince          = null;
             _offRouteBestM          = double.NaN;
             _routeCompleteAnnounced = false;
@@ -276,14 +335,16 @@ namespace vmsOpenAcars.Helpers
                     {
                         Type = RaasCalloutType.HoldShortStop, Runway = i.HoldShortRunway,
                         DistanceM = i.HoldShortDistanceM,
-                        Key = "hs-stop:" + i.HoldShortRunway
+                        // La clave identifica la **pista**, no la banda: acercarse y luego parar son
+                        // dos bandas del mismo hold-short, y `Evaluate` guarda hasta cuál se dijo.
+                        Key = "hs:" + i.HoldShortRunway
                     };
                 if (i.HoldShortDistanceM <= ApproachingM)
                     return new RaasCallout
                     {
                         Type = RaasCalloutType.HoldShortApproaching, Runway = i.HoldShortRunway,
                         DistanceM = i.HoldShortDistanceM,
-                        Key = "hs-appr:" + i.HoldShortRunway
+                        Key = "hs:" + i.HoldShortRunway
                     };
             }
 
@@ -313,14 +374,17 @@ namespace vmsOpenAcars.Helpers
                 {
                     Type = RaasCalloutType.TurnNow, Taxiway = g.NextTaxiway,
                     DistanceM = g.DistanceToTurnM, Side = g.Side,
-                    Key = "turn-now:" + g.NextTaxiway
+                    // La clave lleva el **índice en la ruta** además de la calle: una ruta que vuelve
+                    // a pisar la misma calle tiene dos maniobras distintas, y pasar el cruce es
+                    // justamente que el índice avance.
+                    Key = "turn:" + g.IndexOnRoute + ":" + g.NextTaxiway
                 };
             if (g.DistanceToTurnM <= TurnAheadM)
                 return new RaasCallout
                 {
                     Type = RaasCalloutType.TurnAhead, Taxiway = g.NextTaxiway,
                     DistanceM = g.DistanceToTurnM, Side = g.Side,
-                    Key = "turn-ahead:" + g.NextTaxiway
+                    Key = "turn:" + g.IndexOnRoute + ":" + g.NextTaxiway
                 };
 
             return none;

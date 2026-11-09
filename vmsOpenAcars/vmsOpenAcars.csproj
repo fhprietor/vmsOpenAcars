@@ -238,6 +238,12 @@
     <Compile Include="Helpers\TaxiRouteObservation.cs" />
     <Compile Include="Helpers\TaxiPlannedObservationPolicy.cs" />
     <Compile Include="Helpers\RaasAdvisor.cs" />
+    <!-- Referencia de la comprobación de posición (v0.9.67): después de filear comparaba con la
+         base del piloto y avisaba «deberías estar en SKBO» con el avión en SKPE. -->
+    <Compile Include="Helpers\PositionCheckPolicy.cs" />
+    <!-- Pista del registro del vuelo (v0.9.67): si la geometría del toque no se resolvió, se usa
+         la que ya conocía la aproximación; no se inventa ninguna. -->
+    <Compile Include="Helpers\LandingRunway.cs" />
     <!-- Anuncios de cabina: las frases y la política de voz son puras y se prueban sin tarjeta de sonido. -->
     <Compile Include="Helpers\CabinCalloutPolicy.cs" />
     <Compile Include="Helpers\ExcursionCounter.cs" />

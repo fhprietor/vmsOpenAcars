@@ -156,6 +156,11 @@
     <Compile Include="RouteCorridorTests.cs" />
     <Compile Include="RaasTests.cs" />
     <Compile Include="RaasReplayTests.cs" />
+    <!-- La comprobación de posición compara con la llegada y no con la base, y deja de avisar
+         con el vuelo fileado (v0.9.67). -->
+    <Compile Include="PositionCheckPolicyTests.cs" />
+    <!-- La pista del registro no se pierde si la geometría del toque no se resolvió. -->
+    <Compile Include="LandingRunwayTests.cs" />
     <Compile Include="PirepStateTests.cs" />
     <Compile Include="ScoringServiceTests.cs" />
     <Compile Include="TouchdownZonePolicyTests.cs" />

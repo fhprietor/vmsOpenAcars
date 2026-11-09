@@ -30,6 +30,8 @@ namespace vmsOpenAcars.Core.Flight
             CurrentFuel = 0;
             _effectiveDestination = null;
             _divertedAirport = null;
+            _arrivalPosition = null;
+            _approachRunwayName = null;
             Interlocked.Exchange(ref _arrivalAirportElevationBits, BitConverter.DoubleToInt64Bits(UnknownElevation));
             _td.Reset();
             _pen.Reset();
@@ -111,6 +113,12 @@ namespace vmsOpenAcars.Core.Flight
 
             _activePlan = plan;
             _activePilot = pilot;
+
+            // Vuelo nuevo: ni el cierre del anterior ni su ancla de llegada pueden sobrevivir.
+            _pirepFiled         = false;
+            _arrivalPosition    = null;
+            _approachRunwayName = null;
+
             OnLog?.Invoke($"{_("SendingPrefile")}...", Theme.MainText);
 
             double plannedFuel = plan.BlockFuel;
@@ -182,6 +190,9 @@ namespace vmsOpenAcars.Core.Flight
             // los datos de la sesión anterior)
             _effectiveDestination = null;
             _divertedAirport = null;
+            _pirepFiled         = false;
+            _arrivalPosition    = null;
+            _approachRunwayName = null;
             Interlocked.Exchange(ref _arrivalAirportElevationBits, BitConverter.DoubleToInt64Bits(UnknownElevation));
             _td.Reset();
             _pen.Reset();
@@ -330,6 +341,9 @@ namespace vmsOpenAcars.Core.Flight
             if (success)
             {
                 ActivePirepId = "";          // impide que CancelFlight borre el PIREP si falla algo después
+                // El vuelo está cerrado: la comprobación de posición deja de tener sentido y no
+                // puede avisar «deberías estar en la base» con el avión en el destino.
+                _pirepFiled = true;
                 OnLog?.Invoke(_("Log_PirepFiled"), Theme.Success);
                 ResetFlightState();
                 return true;

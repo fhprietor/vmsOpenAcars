@@ -2,6 +2,121 @@
 
 ---
 
+## [0.9.67] — 08/11/2026
+
+Cuatro defectos medidos en el PIREP real **`nROPdk4GxYY5AOy1`** (AT76 en MSFS 2024,
+**SKBO→SKPE**, cliente v0.9.66). No se ha re-investigado ninguno: las horas y las cifras son las
+del log que reportó el mantenedor.
+
+### Fixed
+
+**A) Los avisos de la guía de rodaje se repetían cada 20 s mientras la condición siguiera.** Del log:
+`TAXIWAY K1 TO THE RIGHT IN 80 METERS` **6 veces** (`02:15:09`, `02:15:30`, `02:15:50`, `02:16:11`,
+`02:16:32`, `02:16:49`); `CONTINUE STRAIGHT ON TAXIWAY B11` **5** (`02:03:21`, `02:03:42`,
+`02:04:03`, `02:04:23`, `02:04:44`); `APPROACHING RUNWAY 14R` **3** (`02:15:01`, `02:16:42`,
+`02:16:56`); y a las `02:16:49`, a la vez, `K1 TO THE RIGHT` y `HOLDING SHORT RWY 14R at K1`. La
+causa era el enfriamiento de **20 s con re-armado** de `Helpers/RaasAdvisor.cs`: al caducar el
+tiempo y seguir la situación, el mismo aviso volvía a sonar.
+
+- **Una vez por maniobra, sin reloj.** Se elimina `RepeatCooldownSec`. La maniobra se identifica por
+  `Guidance.IndexOnRoute` + `NextTaxiway` (la clave `turn:índice:calle`) y se recuerda **hasta qué
+  banda** se dijo (`1` = «en 250 m», `2` = «ahora»). El hold-short se identifica por **pista** y su
+  banda máxima (`1` acercándose, `2` alto), así que acercarse después de parar no repite.
+- **El re-armado lo decide un cambio de situación**, no el reloj: (i) **pasar el cruce** cambia el
+  índice y la calle, y la maniobra siguiente suena; (ii) **cambiar de tramo o de pista** cambia la
+  clave; (iii) **salir de la banda de distancia** (más de 250 m en un giro, más de 150 m en el
+  hold-short) borra el estado y volver a entrar vuelve a avisar, que es lo legítimo: el avión se
+  había alejado. `FUERA DE RUTA` se dice **una vez por calle activa** y solo se rearma al volver a
+  la ruta.
+- **El hold-short manda sobre el giro que lleva a él.** A las `02:16:49` con el avión a 22 m del
+  hold-short de la 14R y el cruce de K1 a 80 m, `Evaluate` devuelve solo el aviso de espera; el
+  giro no se cuela en el sondeo siguiente. La prioridad ya existía en `Decide`; ahora es estable.
+
+**B) Aviso falso de base después de filear el PIREP.** Secuencia del log: `03:04:58 PIREP filed` →
+`03:05:00 ⚠️ YOU SHOULD BE AT SKBO (95.4 NM)` → `03:05:03 VALID POSITION SKPE (0.2 NM)` →
+`03:05:03 Home base updated: SKPE`. El vuelo era **SKBO→SKPE**: la comprobación comparaba con la
+**base del piloto** (`Pilot.CurrentAirport`) y seguía viva después de terminar el vuelo, porque el
+único guard era «no hay PIREP activo» y `ResetFlightState` deja la base intacta.
+
+- **`Helpers/PositionCheckPolicy.cs`** (nuevo, puro y con test) decide la referencia: (1) **vuelo
+  cerrado** (fileado o en bloque) → `null`, no se avisa; (2) **ya aterrizó** → el **aeropuerto de
+  llegada**, con la **posición del toque** como ancla (el plan de SimBrief trae elevación pero no
+  lat/lon, y la base de phpVMS tarda en moverse); (3) **antes de aterrizar** → la base, que es el
+  campo asignado y lo que habilita el START. Sin coordenadas → `null` y no se avisa.
+- `FlightManager` publica el ancla de llegada en `RegisterTouchdown` (`ArrivalPosition`, referencia
+  inmutable y `volatile`) y la actualiza si el aeropuerto de llegada se confirma después
+  (`SetEffectiveDestination`). `_pirepFiled` cierra la comprobación al filear y se limpia al empezar
+  vuelo (`StartFlight`/`ResumeFlight`).
+- `ValidateSimulatorPosition` ya no filtra por las coordenadas de la base y delega la decisión en la
+  política.
+
+**C) La pintura imprimía el fabricante.** El título real es `ATR 72-600 Passenger` y el log decía
+`🎨 Livery: ATR`. Es la misma clase de fallo de la v0.9.16 (`Helpers/AircraftLivery.cs`, «una
+pintura no lleva dígitos») que seguía viva para **fabricantes de 3–4 letras**: `ATR` no lleva
+dígitos, así que pasaba el filtro.
+
+- **Lista de tokens que nunca son pintura**: `ATR`, `BOEING`, `AIRBUS`, `EMBRAER`, `CESSNA`,
+  `BEECHCRAFT`, `BOMBARDIER`, `DEHAVILLAND`, `PIPER`, `CIRRUS`, `DASSAULT`, `FOKKER`, `SAAB`,
+  `SUKHOI`, `TUPOLEV`, `ANTONOV`, `COMAC`, `MITSUBISHI`, `LEARJET`, `GULFSTREAM`, `HAWKER`,
+  `PIAGGIO`, `PILATUS`, `ROBINSON`, `MOONEY`, `SOCATA`, `AVIAT`, `EXTRA`.
+- **También se rechaza el token que coincide con el modelo o con el designador ICAO del propio
+  avión** (`72`, `600`, `738`, `AT76`): `FsuipcService.GetAircraftLivery` pasa ahora
+  `AircraftModel` y `AircraftIcao` a `AircraftLivery.FromTitle`. Sin pintura creíble no se pinta la
+  línea (`Unknown`).
+
+**D) La pista se perdía al guardar el registro.** `03:04:58 Landing log: flight #51 saved (55
+points, RWY )` con la pista **vacía**, aunque `02:56:46 APPROACH CAPTURE: RWY 08` y `02:58:27 FLARE
+TRACK START: RWY 08` ya la conocían. La columna sale de `FlightRecord.RunwayName`, alimentado por
+`FlightManager.TouchdownRunwayName`, que es la geometría que escribe `TelemetryCoordinator.
+LookupRunwayData` en un `Task.Run` al detectar el toque: si `FindTouchdownRunway` no encuentra el
+rectángulo de la pista, esa geometría **nunca se escribe** y el registro queda vacío, mientras la
+pista resuelta por la aproximación solo vivía en `_approachThreshold`, que se suelta al salir de la
+aproximación.
+
+- **`Helpers/LandingRunway.cs`** (nuevo, puro y con test): la pista del toque si se resolvió; si no,
+  la que ya conocía la aproximación; `""` si no hay ninguna —no se inventa—.
+- `FlightManager.SetApproachRunway` publica la pista resuelta (`ReconfirmApproachRunway`) en un
+  campo que sobrevive al reset de la aproximación; `AcarsReporter.SnapshotLandingRecord` usa
+  `LandingRunway.ForRecord(fm.TouchdownRunwayName, fm.ApproachRunwayName)`.
+
+### Tests
+
+Nuevos, con los datos de este vuelo y sin abrir ventanas: en `RaasTests`,
+`Advisor_TurnAhead_OnTheRealK1_IsSaidOnceWhileTheCrossingStaysInBand`,
+`Advisor_TurnNowStraight_OnB11_IsSaidOnceWhileTheBandHolds`,
+`Advisor_Turn_RearmsOnlyWhenTheSituationChanges_NotByClock`,
+`Advisor_HoldingShortAndTurningAtTheSameCrossing_SaysOnlyTheHoldShort` y
+`Advisor_ApproachingRunway_SeDiceUnaVezEnLaBanda_YSeRearmaAlSalirDeElla`; en
+`AircraftLiveryTests`, `FromTitle_TheManufacturerIsNeverTheLivery`,
+`FromTitle_TheModelOrTheIcaoDesignatorIsNotALivery` y
+`FromTitle_WithAManufacturerAndAnAirline_ReturnsTheAirline`; en `PositionCheckPolicyTests`, cuatro
+casos con SKBO/SKPE y el umbral real de 2,7 NM; en `LandingRunwayTests`, tres casos con la 08 del
+log. La suite pasa de **1059 a 1074** (1 se omite sola).
+
+### Pendiente (anotado, NO implementado)
+
+- **El ATR no tiene spoilers.** Los `Spoilers: DEPLOYED/RETRACTED` del log son ruido de la lectura
+  de `0x0BD8`, no un despliegue real. No se toca el detector en esta entrega.
+- **En el ATR las únicas posiciones de flaps son 15 % y 30 %**, no 0/25/40/100 como imprime el log.
+  Eso sugiere que la escala normalizada se está calculando mal para este avión y **afecta al
+  criterio `flaps < 50 %` de la puerta de estabilización**: con 30 % real el avión se declara no
+  estabilizado. Queda anotado **sin tocar el scoring** en esta entrega.
+
+El extracto del log entregado **no trae la hora** de las líneas `Spoilers: …` ni de las de flaps,
+ni la de la línea `🎨 Pintura`; no se inventan. Las horas de los otros tres puntos son las del
+mismo extracto.
+
+### Pendiente de verificación
+
+Los cuatro arreglos están cubiertos por helpers puros y por la suite, pero **no se han podido
+reproducir en vuelo**: exigen un rodaje real con guía activa (los avisos), un PIREP fileado con la
+base desactualizada (la comprobación de posición) y un toque en el que `FindTouchdownRunway` no
+resuelva el rectángulo (la pista del registro). Lo verificado es que compila en **Debug y Release**,
+que `ProductVersion` es **0.9.67** y que la suite pasa (**1074**, 1 se omite sola). La línea de
+`🎨 Livery` se probó con el título exacto del ATR, pero el extracto del log no trae su hora.
+
+---
+
 ## [0.9.66] — 05/11/2026
 
 ### Fixed

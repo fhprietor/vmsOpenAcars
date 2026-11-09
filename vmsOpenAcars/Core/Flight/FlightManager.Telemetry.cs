@@ -36,6 +36,14 @@ namespace vmsOpenAcars.Core.Flight
             if (_td.Captured) return;
             double gforce = CalculateGForce(verticalSpeed);
             _td.Capture(verticalSpeed, _currentPitch, _currentBank, gforce, CurrentLat, CurrentLon, CurrentHeading);
+
+            // El campo de llegada, con la posición del toque: es la referencia de la comprobación
+            // de posición desde aquí en adelante (nunca la base del piloto, que phpVMS tarda en
+            // actualizar). Ver `PositionCheckPolicy`.
+            string arrivalIcao = _effectiveDestination ?? _activePlan?.Destination ?? _currentAirport;
+            if (!string.IsNullOrEmpty(arrivalIcao))
+                _arrivalPosition = new ArrivalPosition(arrivalIcao, CurrentLat, CurrentLon);
+
             _approachValidator.ClearBelowMinimumsIfLanded();
             _reverserMonitor.OnTouchdown();
             OnLog?.Invoke("Reversa: monitoreando despliegue post-aterrizaje (offset 0x207C/0x217C)", Theme.MainText);

@@ -316,6 +316,190 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
+        public void Advisor_TurnAhead_OnTheRealK1_IsSaidOnceWhileTheCrossingStaysInBand()
+        {
+            // Las seis horas exactas del log del PIREP `nROPdk4GxYY5AOy1`, con el avión a 80 m del
+            // cruce de K1 durante 100 s: antes salía «TAXIWAY K1 TO THE RIGHT IN 80 METERS» seis
+            // veces (02:15:09, 02:15:30, 02:15:50, 02:16:11, 02:16:32, 02:16:49) por el cooldown de
+            // 20 s. Ahora es **una vez por maniobra**. La fecha no la fija el log; lo que se fija
+            // son las horas.
+            var advisor = new RaasAdvisor();
+            var dia = new DateTime(2026, 11, 5, 0, 0, 0, DateTimeKind.Utc);
+            DateTime[] horas =
+            {
+                dia.AddHours(2).AddMinutes(15).AddSeconds(9),
+                dia.AddHours(2).AddMinutes(15).AddSeconds(30),
+                dia.AddHours(2).AddMinutes(15).AddSeconds(50),
+                dia.AddHours(2).AddMinutes(16).AddSeconds(11),
+                dia.AddHours(2).AddMinutes(16).AddSeconds(32),
+                dia.AddHours(2).AddMinutes(16).AddSeconds(49),
+            };
+
+            int avisos = 0;
+            RaasCallout primero = null;
+            foreach (var when in horas)
+            {
+                var c = advisor.Evaluate(new RaasAdvisor.Inputs
+                {
+                    GroundSpeedKt  = 10,
+                    ActiveTaxiway  = "B11",
+                    Guidance = new RouteGuidance
+                    {
+                        HasRoute = true, OnRoute = true, IndexOnRoute = 5,
+                        NextTaxiway = "K1", DistanceToTurnM = 80, Side = TurnSide.Right
+                    }
+                }, when);
+                if (c.Type == RaasCalloutType.None) continue;
+                avisos++;
+                primero = primero ?? c;
+            }
+
+            Assert.AreEqual(1, avisos, "la misma maniobra se dice una vez, no cada 20 s");
+            Assert.AreEqual(RaasCalloutType.TurnAhead, primero.Type);
+            Assert.AreEqual("K1", primero.Taxiway);
+            Assert.AreEqual(TurnSide.Right, primero.Side);
+        }
+
+        [TestMethod]
+        public void Advisor_TurnNowStraight_OnB11_IsSaidOnceWhileTheBandHolds()
+        {
+            // `CONTINUE STRAIGHT ON TAXIWAY B11` salió **5 veces** en el log
+            // (02:03:21, 02:03:42, 02:04:03, 02:04:23, 02:04:44): es el aviso de «gira ahora»
+            // recto, que no lleva distancia. La banda de 60 m se mantuvo los 83 s.
+            var advisor = new RaasAdvisor();
+            var dia = new DateTime(2026, 11, 5, 0, 0, 0, DateTimeKind.Utc);
+            DateTime[] horas =
+            {
+                dia.AddHours(2).AddMinutes(3).AddSeconds(21),
+                dia.AddHours(2).AddMinutes(3).AddSeconds(42),
+                dia.AddHours(2).AddMinutes(4).AddSeconds(3),
+                dia.AddHours(2).AddMinutes(4).AddSeconds(23),
+                dia.AddHours(2).AddMinutes(4).AddSeconds(44),
+            };
+
+            int avisos = 0;
+            RaasCallout primero = null;
+            foreach (var when in horas)
+            {
+                var c = advisor.Evaluate(new RaasAdvisor.Inputs
+                {
+                    GroundSpeedKt = 12,
+                    ActiveTaxiway = "B",
+                    Guidance = new RouteGuidance
+                    {
+                        HasRoute = true, OnRoute = true, IndexOnRoute = 3,
+                        NextTaxiway = "B11", DistanceToTurnM = 45, Side = TurnSide.Straight
+                    }
+                }, when);
+                if (c.Type == RaasCalloutType.None) continue;
+                avisos++;
+                primero = primero ?? c;
+            }
+
+            Assert.AreEqual(1, avisos, "recto también es una maniobra: se dice una vez");
+            Assert.AreEqual(RaasCalloutType.TurnNow, primero.Type);
+            Assert.AreEqual("B11", primero.Taxiway);
+            Assert.AreEqual(TurnSide.Straight, primero.Side);
+        }
+
+        [TestMethod]
+        public void Advisor_Turn_RearmsOnlyWhenTheSituationChanges_NotByClock()
+        {
+            // El re-armado no es por tiempo: es porque la situación cambió. Tres cambios posibles,
+            // los tres del enunciado del defecto.
+            var advisor = new RaasAdvisor();
+            var t = new DateTime(2026, 11, 5, 2, 15, 9, DateTimeKind.Utc);
+            Func<double, int, string, DateTime, RaasCallout> eval = (dist, index, next, when) =>
+                advisor.Evaluate(new RaasAdvisor.Inputs
+                {
+                    GroundSpeedKt = 10,
+                    ActiveTaxiway = "B11",
+                    Guidance = new RouteGuidance
+                    {
+                        HasRoute = true, OnRoute = true, IndexOnRoute = index,
+                        NextTaxiway = next, DistanceToTurnM = dist, Side = TurnSide.Right
+                    }
+                }, when);
+
+            Assert.AreEqual(RaasCalloutType.TurnAhead, eval(80, 5, "K1", t).Type);
+
+            // (1) Sale de la banda de distancia (más de 250 m): se rearma y, al volver a entrar,
+            // vuelve a sonar. Es el único caso en que el mismo cruce se repite, y es legítimo:
+            // el avión se había alejado.
+            Assert.AreEqual(RaasCalloutType.None, eval(300, 5, "K1", t.AddSeconds(5)).Type);
+            Assert.AreEqual(RaasCalloutType.TurnAhead, eval(80, 5, "K1", t.AddSeconds(10)).Type);
+
+            // (2) Pasa el cruce: el índice de la ruta avanza y el próximo giro es otro. La maniobra
+            // nueva se anuncia aunque el avión no haya cambiado de calle.
+            var siguiente = eval(80, 6, "V", t.AddSeconds(15));
+            Assert.AreEqual(RaasCalloutType.TurnAhead, siguiente.Type);
+            Assert.AreEqual("V", siguiente.Taxiway);
+
+            // (3) Se acerca a la nueva maniobra: cambia de banda, no de maniobra → «gira ahora».
+            Assert.AreEqual(RaasCalloutType.TurnNow, eval(40, 6, "V", t.AddSeconds(20)).Type);
+        }
+
+        [TestMethod]
+        public void Advisor_HoldingShortAndTurningAtTheSameCrossing_SaysOnlyTheHoldShort()
+        {
+            // 02:16:49 del mismo log: a la vez `HOLDING SHORT RWY 14R at K1` y `TAXIWAY K1 TO THE
+            // RIGHT`. El aviso de espera tiene prioridad: mientras el hold-short está en banda, el
+            // giro que lleva a él no se anuncia, y el segundo sondeo no repite ninguno.
+            var advisor = new RaasAdvisor();
+            var t = new DateTime(2026, 11, 5, 2, 16, 49, DateTimeKind.Utc);
+            Func<DateTime, RaasCallout> eval = when => advisor.Evaluate(new RaasAdvisor.Inputs
+            {
+                GroundSpeedKt          = 8,
+                HoldShortRunway        = "14R",
+                HoldShortDistanceM     = 22,
+                HeadingTowardHoldShort = true,
+                ActiveTaxiway          = "K1",
+                Guidance = new RouteGuidance
+                {
+                    HasRoute = true, OnRoute = true, IndexOnRoute = 6,
+                    NextTaxiway = "K1", DistanceToTurnM = 80, Side = TurnSide.Right
+                }
+            }, when);
+
+            var c = eval(t);
+            Assert.AreEqual(RaasCalloutType.HoldShortStop, c.Type,
+                "manda el hold-short, no el giro que lleva a él");
+            Assert.AreEqual(RaasCalloutType.None, eval(t.AddSeconds(1)).Type,
+                "ni se repite él ni se cuela el giro en el sondeo siguiente");
+        }
+
+        [TestMethod]
+        public void Advisor_ApproachingRunway_SeDiceUnaVezEnLaBanda_YSeRearmaAlSalirDeElla()
+        {
+            // `APPROACHING RUNWAY 14R` salió **3 veces** (02:15:01, 02:16:42, 02:16:56). La banda
+            // de acercamiento es 150 m: mientras el avión siga dentro, se dice una vez; salir de
+            // ella y volver a entrar es un cambio de situación y rearma el aviso.
+            var advisor = new RaasAdvisor();
+            var dia = new DateTime(2026, 11, 5, 0, 0, 0, DateTimeKind.Utc);
+            Func<DateTime, double, RaasCallout> eval = (when, dist) =>
+                advisor.Evaluate(new RaasAdvisor.Inputs
+                {
+                    GroundSpeedKt          = 10,
+                    HoldShortRunway        = "14R",
+                    HoldShortDistanceM     = dist,
+                    HeadingTowardHoldShort = true
+                }, when);
+
+            var t1 = dia.AddHours(2).AddMinutes(15).AddSeconds(1);
+            var t2 = dia.AddHours(2).AddMinutes(16).AddSeconds(42);
+            var t3 = dia.AddHours(2).AddMinutes(16).AddSeconds(56);
+
+            Assert.AreEqual(RaasCalloutType.HoldShortApproaching, eval(t1, 120).Type);
+            Assert.AreEqual(RaasCalloutType.None, eval(t2, 120).Type,
+                "sigue en la misma banda: no se repite");
+
+            Assert.AreEqual(RaasCalloutType.None, eval(t2.AddSeconds(5), 200).Type,
+                "a 200 m está fuera de la banda: el aviso anterior ya no aplica");
+            Assert.AreEqual(RaasCalloutType.HoldShortApproaching, eval(t3, 120).Type,
+                "al volver a entrar en la banda es una situación nueva");
+        }
+
+        [TestMethod]
         public void Advisor_GuidesTheTurnAndThenTheNextOne()
         {
             var advisor = new RaasAdvisor();

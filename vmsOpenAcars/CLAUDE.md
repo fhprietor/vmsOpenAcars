@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.66  
+**Versión actual:** v0.9.67  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -429,8 +429,7 @@ Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el
 - **Avisos** (`Helpers/RaasAdvisor.cs`, puro y con estado): `APROXIMANDO PISTA` y `ESPERA ANTES DE
   PISTA` a 150 m / 40 m del hold-short **yendo hacia él**; `CALLE X A LA DERECHA/IZQUIERDA EN N M`
   a 250 m del cruce y `GIRA AHORA` a 60 m; `FUERA DE RUTA` (15 s fuera de ruta y **≥50 m** de
-  progreso hacia el umbral); `RUTA COMPLETA`. Uno por situación, con **20 s** de enfriamiento y
-  re-armado al terminar: nunca repite el mismo aviso cada sondeo. Se evalúan a **1 Hz sobre la
+  progreso hacia el umbral); `RUTA COMPLETA`. Uno por situación y **una vez por maniobra** (v0.9.67): cada giro se identifica por `turn:<índice>:<calle>` y el hold-short por pista, y solo se re-arma cuando la situación cambia —pasar el cruce, cambiar de tramo o de pista, o salir de la banda de distancia y volver a entrar—, nunca por reloj (con los 20 s de antes, `K1 A LA DERECHA EN 80 M` salió 6 veces en `nROPdk4GxYY5AOy1`). Se evalúan a **1 Hz sobre la
   telemetría cruda**, no sobre el envío de posiciones a phpVMS; **con la guía activa ese envío baja
   a 5 s desde 0.9.23** (`UpdateIntervalPolicy`, que decide las **tres** puertas que lo frenaban: el
   intervalo, el suelo de envío y el umbral de deduplicación de `HasSignificantChange`); **sin guía
@@ -553,7 +552,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1059 tests** (1 se omite sola).
+`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1074 tests** (1 se omite sola).
 
 **Qué cubre la suite** — cada bloque con sus casos reales, sus fixtures y lo que no se puede
 re-ejecutar sin red: **`Docs/architecture.md`** → "Las suites de tests y sus casos reales".

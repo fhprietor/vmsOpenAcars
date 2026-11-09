@@ -1111,6 +1111,11 @@ namespace vmsOpenAcars.ViewModels
                 bool wasResolved = _approachThreshold != null;
                 _approachThreshold   = newThreshold;
                 _approachDestination = match.Icao;
+
+                // La pista resuelta se publica también en `FlightManager`: es la que el registro
+                // del vuelo usará si la geometría del toque no llega a resolverse, y ese registro
+                // se guarda después de que este coordinador haya soltado el umbral.
+                _flightManager.SetApproachRunway(newThreshold.RunwayName);
                 ClearApproachBuffer();
                 _lastApproachCapture = DateTime.MinValue;
 

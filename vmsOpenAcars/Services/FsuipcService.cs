@@ -2186,7 +2186,11 @@ namespace vmsOpenAcars.Services
             return AircraftCategory.Unknown;
         }
 
-        public string GetAircraftLivery() => Helpers.AircraftLivery.FromTitle(AircraftTitle);
+        // El modelo y el designador ICAO van a la regla porque el título del propio avión los
+        // escribe sueltos (`ATR 72-600`): sin ese contexto, `72` o `600` solo se distinguen de una
+        // pintura por llevar dígitos, y el fabricante `ATR` se colaba como si fuera una (v0.9.67).
+        public string GetAircraftLivery() =>
+            Helpers.AircraftLivery.FromTitle(AircraftTitle, AircraftModel, AircraftIcao);
 
         /// <summary>
         /// El desarrollador del addon según el **título**, o vacío si el título no lo nombra.
