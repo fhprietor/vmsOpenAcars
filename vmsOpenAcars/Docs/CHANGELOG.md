@@ -2,6 +2,83 @@
 
 ---
 
+## [0.9.69] — 10/11/2026
+
+La actualización se quedaba a medias con la aplicación todavía viva. El piloto vio, con la
+instalación en **`F:\FS\vmsOpenAcars`**:
+
+```
+Esperando que la aplicación cierre...
+Error durante la actualización: The process cannot access the file
+'F:\FS\vmsOpenAcars\fsuipcClient.dll' because it is being used by another process.
+```
+
+Eran **dos** defectos encadenados en `Updater/Program.cs` (81 líneas antes de este cambio), y el
+segundo es el que explica el mensaje exacto:
+
+**A) Se esperaba a la app sin comprobar el resultado (`Updater/Program.cs:33`).** El bucle hacía
+`p.WaitForExit(30000)` y **descartaba el valor de retorno**: si el cliente no había terminado en
+30 s, el actualizador seguía adelante igual y empezaba a copiar con la aplicación en marcha. Peor
+aún, el `foreach` esperaba **30 s por cada proceso con ese nombre**: con dos instancias abiertas
+podía tardar un minuto y aun así no comprobaba si alguna seguía viva. El `Thread.Sleep(500)`
+posterior (`L36`) no arregla nada, porque el bloqueo no es momentáneo.
+
+**B) `File.Copy(file, destFile, overwrite: true)` (`Updater/Program.cs:60`) no puede sustituir una
+DLL nativa cargada.** `fsuipcClient.dll` está **mapeada como imagen** en el proceso del cliente, y
+Windows no permite reemplazar la imagen de un módulo en uso: devuelve *sharing violation*. Los dos
+reintentos de 500 ms (`L63-65`) no ayudaban porque el bloqueo no caduca. **El dato clave: una DLL
+mapeada no se puede sobrescribir, pero sí renombrar** — el cargador abre las imágenes con
+`FILE_SHARE_DELETE`, así que mover el archivo de sitio deja libre el nombre que necesita la copia.
+
+### Fixed
+
+- **La espera se comprueba y, si no cierra, se aborta sin copiar nada.** `WaitForAppToClose` mira
+  el estado cada 500 ms con un presupuesto **total** de 30 s (no 30 s por proceso) y solo deja
+  continuar cuando no queda ninguna instancia. Si al agotarse el plazo sigue alguna viva, escribe
+  qué proceso es (nombre y PID) y qué debe hacer el piloto —cerrarlo desde el Administrador de
+  tareas, `Ctrl+Mayús+Esc` → pestaña *Detalles* → *Finalizar tarea*— y **no copia ni un archivo**.
+- **La app se reconoce por su carpeta, no solo por el nombre.** Además de `GetProcessesByName`,
+  se pide la ruta de cada proceso con `QueryFullProcessImageName` (el actualizador es de 32 bits y
+  `Process.MainModule` falla al leer procesos de 64 bits, que es justo el cliente): una copia
+  renombrada del `.exe` **también bloquea y también se nombra** en el mensaje. Un proceso con el
+  nombre esperado pero sin ruta legible por permisos se trata como bloqueante para no copiar a
+  ciegas.
+- **Si el destino está bloqueado, se renombra y se vuelve a copiar.** En el bucle de copia: primero
+  la copia normal con sus tres intentos de 500 ms; si falla por `IOException` /
+  `UnauthorizedAccessException`, el destino se mueve a `<nombre>.old` (o `<nombre>.2.old`,
+  `<nombre>.3.old`… si ya existía) y se copia otra vez. Si tampoco se puede renombrar, el error
+  nombra el archivo, el motivo y el proceso sospechoso, en vez del mensaje genérico.
+- **Los `.old` se limpian al arrancar** (y otra vez justo antes de copiar, por si la app aún tenía
+  uno bloqueado): si un borrado falla, se ignora en silencio, porque una limpieza cosmética no
+  puede impedir la actualización.
+- **Mensajes útiles.** Se dice qué archivo se está copiando cuando algo falla, se avisa al
+  renombrar (`Archivo en uso: fsuipcClient.dll → renombrado a fsuipcClient.dll.old`) y, al
+  terminar, se listan los `.old` que quedaron pendientes y cómo eliminarlos. No se añaden rutas ni
+  claves: las rutas son las que llegan por argumentos.
+
+El uso no cambia: `Updater.exe <origen> <destino> <app.exe>`, el orden lo fija
+`MainForm.DownloadAndUpdate`.
+
+### Verificación
+
+- Build **Debug y Release** con el `MSBuild.exe` de VS2017: sin errores, y `Updater.exe` sale en
+  `vmsOpenACars\bin\Release`. El proyecto `Updater` no lleva versionado propio: su
+  `AssemblyInfo` se queda en 1.0.0.0 y la versión de producto que se comprueba es la del cliente.
+- **Renombrado probado de verdad, con una DLL nativa mapeada** (`LoadLibrary` sobre una copia de
+  `version.dll`): la copia encima falla con el mensaje literal del piloto
+  (`The process cannot access the file ... because it is being used by another process`) y el
+  renombrado funciona. Después, con el `Updater.exe` compilado: renombra `fsuipcClient.dll` a
+  `fsuipcClient.dll.old`, deja la versión nueva en su sitio (hash verificado), conserva el
+  contenido viejo en el `.old`, copia el archivo nuevo y borra el `.old` de la ejecución anterior.
+- **Aborto probado** con un proceso de prueba vivo en la carpeta destino y con otro nombre
+  (`renombrada.exe`): a los 30 s aborta sin copiar, lo nombra por PID y no toca el paquete.
+- **No verificado:** no hay FSUIPC en este equipo, así que no se ha reproducido con el
+  `fsuipcClient.dll` real de `F:\FS\vmsOpenAcars` ni con el cliente de 64 bits real; la prueba es
+  la misma situación (imagen mapeada) con una DLL nativa equivalente. La suite sigue en **1086**
+  tests (1085 pasan, 1 se omite sola): el actualizador es un ejecutable aparte y no tiene tests.
+
+---
+
 ## [0.9.68] — 10/11/2026
 
 El METAR se quedaba en la observación anterior y el botón de refrescar no lo cambiaba. Medido hoy

@@ -2653,6 +2653,47 @@ el `.config` no aparece en ningún paquete publicado (comprobado en los de 0.9.4
 Por eso `Helpers/AppConfig.cs` **no** debe tener credenciales
 como valor por defecto: un default en código sobrevive aunque el despliegue limpie su `.config`.
 
+### El actualizador: esperar de verdad y renombrar la DLL en uso (v0.9.69)
+
+`Updater/Program.cs` es una consola **aparte** que copia el paquete sobre la instalación cuando el
+cliente ya se ha cerrado. Su uso no ha cambiado: `Updater.exe <origen> <destino> <app.exe>`, con el
+orden que fija `MainForm.DownloadAndUpdate`. Dos fallos encadenados producían el error real de un
+piloto con la instalación en `F:\FS\vmsOpenAcars`:
+
+```
+Error durante la actualización: The process cannot access the file
+'F:\FS\vmsOpenAcars\fsuipcClient.dll' because it is being used by another process.
+```
+
+1. **Se esperaba a la app sin mirar el resultado.** `p.WaitForExit(30000)` descartaba el valor de
+   retorno y el `foreach` esperaba **30 s por proceso**: con dos instancias abiertas podía tardar un
+   minuto y aun así copiar con la app viva. Ahora `WaitForAppToClose` sondea cada 500 ms con un
+   presupuesto **total** de 30 s y, si al agotarse queda alguna instancia, **aborta sin copiar**,
+   diciendo nombre y PID y que se cierre desde el Administrador de tareas.
+2. **`File.Copy(..., overwrite: true)` no puede sustituir una DLL cargada.** `fsuipcClient.dll`
+   está **mapeada como imagen** en el proceso: Windows no permite reemplazar la imagen de un módulo
+   en uso (de ahí la *sharing violation*, que los dos reintentos de 500 ms no curan). **Una DLL
+   mapeada no se puede sobrescribir, pero sí renombrar**: el cargador abre las imágenes con
+   `FILE_SHARE_DELETE`. El bucle de copia intenta la copia normal y, si falla con `IOException` /
+   `UnauthorizedAccessException`, mueve el destino a `<nombre>.old` (con contador si ya existía) y
+   copia otra vez; si tampoco puede renombrar, el error nombra el archivo, el motivo y el proceso
+   sospechoso.
+
+Detalles que importan:
+
+- **La app se reconoce por su carpeta, no solo por el nombre.** El `.exe` se busca por
+  `GetProcessesByName`, pero además se pide la ruta de cada proceso con
+  `QueryFullProcessImageName`: una copia renombrada del cliente (o cualquier proceso lanzado desde
+  la carpeta de instalación) también mantiene mapeadas sus DLL. **No se usa `Process.MainModule`**
+  porque este actualizador es de 32 bits (`AnyCPU` con `Prefer32Bit` por defecto) y `MainModule`
+  falla al leer procesos de 64 bits —incluido el cliente—, que es la mayoría de la máquina.
+- **Los `.old` se limpian al arrancar** y otra vez antes de copiar; un borrado que falla se ignora
+  en silencio (la DLL puede seguir mapeada). Al terminar se listan los `.old` pendientes. Un `.old`
+  no se puede borrar mientras el proceso siga vivo, por eso el renombrado usa un contador y la
+  limpieza es oportunista.
+- La verificación (DLL nativa mapeada de verdad, `Updater.exe` de Release, aborto con proceso vivo)
+  está contada en `Docs/CHANGELOG.md` → `[0.9.69]`.
+
 ### Binding Redirects y SQLite (v0.6.3)
 
 El `.csproj` tiene `<AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>`, que hace que MSBuild genere redirects automáticamente analizando el árbol de dependencias. El problema: si el equipo del desarrollador no tiene `System.Data.SQLite` en su GAC, el auto-generador no produce ninguna entrada para SQLite y, al volcar el resultado sobre el `exe.config` de salida, elimina el redirect manual que sí estaba en `App.config`.

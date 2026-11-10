@@ -28,6 +28,7 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 | `NOTAS-PILOTOS-0.9.66.md` | **Pilotos** | Los anuncios de cabina llegan a tiempo: el de pushback antes de moverse (puertas cerradas, beacon con freno puesto) y el de desarmar toboganes en el puesto, no en la pista |
 | `NOTAS-PILOTOS-0.9.67.md` | **Pilotos** | Los avisos de rodaje se dicen una sola vez, desaparece el aviso de base tras enviar el PIREP y la pista se guarda en el análisis del aterrizaje |
 | `NOTAS-PILOTOS-0.9.68.md` | **Pilotos** | El botón de refrescar del METAR funciona de verdad y el informe se actualiza al publicarse, incluido el viento variable (`VRB`) que antes no se podía leer |
+| `NOTAS-PILOTOS-0.9.69.md` | **Pilotos** | La actualización ya no se atasca cuando el cliente tiene una librería en uso: espera de verdad a que cierre, aparta el archivo bloqueado como `.old` y dice qué hacer si algo falla |
 | `NOTAS-PILOTOS-0.9.58.md` | **Pilotos** | La linea de NavData del conectar dice **hasta cuando** es valido el AIRAC, no solo el ciclo |
 | `NOTAS-PILOTOS-0.9.56.md` | **Pilotos** | La casilla de avisos de espacio aéreo en el OSD ya calla **todo** (antes solo las zonas restringidas), y las `CTA`/clase E dejan de pintarse: solo van al registro |
 | `NOTAS-PILOTOS-0.9.55.md` | **Pilotos** | Tercera puerta del `Pushback`: también cierra cuando el avión **rueda de verdad** (GS ≥ 8 kt 15 s con motor), sin depender de que el piloto toque el freno de parqueo |
