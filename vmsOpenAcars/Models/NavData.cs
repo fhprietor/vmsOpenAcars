@@ -386,7 +386,11 @@ namespace vmsOpenAcars.Models.NavData
     {
         [JsonProperty("raw_metar")]     public string  RawMetar     { get; set; }
         [JsonProperty("icao")]          public string  Icao         { get; set; }
-        [JsonProperty("wind_dir")]      public int?    WindDir      { get; set; }
+        // El servicio publica este campo como entero (`180`) o como texto (`"VRB"`, viento variable;
+        // medido en SKRG el 10/11/2026). Tiparlo `int?` hacía que Json.NET lanzara con `VRB` y que
+        // `GetWeatherAsync` devolviera la caché vieja para siempre. Se lee tal cual y
+        // `Helpers/MetarWindDirection` decide: `VRB` es «sin dirección fija» → null, no 0.
+        [JsonProperty("wind_dir")]      public string  WindDir      { get; set; }
         [JsonProperty("wind_speed_kt")] public int?    WindSpeedKt  { get; set; }
         [JsonProperty("wind_gust_kt")]  public int?    WindGustKt   { get; set; }
         [JsonProperty("visibility_m")]  public int?    VisibilityM  { get; set; }

@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.67  
+**Versión actual:** v0.9.68  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -185,7 +185,7 @@ static Task<NavAirspacesResult> GetAirspacesAsync(lat, lon)
 static Task<NavApiTestResult>   TestApiAsync(apiKeyOverride, urlOverride = null)  // llama NavDataCache.SyncAirac()
 static Task<BriefingCheckResult> CheckAnnouncementAsync(phase, lang)
 static Task<byte[]>              FetchBytesAsync(path)
-static Task<NavWeather>          GetWeatherAsync(icao)        // TTL 5 min en memoria
+static Task<NavWeather>          GetWeatherAsync(icao, forceRefresh = false)  // TTL 5 min + hora de observación
 ```
 
 Caché por capas: (1) `ConcurrentDictionary` en sesión por ICAO → (2) `NavDataCache` SQLite por AIRAC → para airspaces: (3) `_airspaceMemCache` en sesión + (4) `airspace_entries` SQLite TTL 7 días.
@@ -552,7 +552,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenAcars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1074 tests** (1 se omite sola).
+`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1086 tests** (1 se omite sola).
 
 **Qué cubre la suite** — cada bloque con sus casos reales, sus fixtures y lo que no se puede
 re-ejecutar sin red: **`Docs/architecture.md`** → "Las suites de tests y sus casos reales".

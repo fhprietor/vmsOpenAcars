@@ -60,7 +60,10 @@ namespace vmsOpenAcars.Services
         private static readonly ConcurrentDictionary<string, List<NavAirspace>> _airspaceMemCache
             = new ConcurrentDictionary<string, List<NavAirspace>>(StringComparer.Ordinal);
 
-        // Weather cache — keyed by ICAO, stores result + fetch timestamp for 5-min TTL.
+        // Weather cache — keyed by ICAO, stores result + fetch timestamp.
+        // El TTL de 5 min es la red de seguridad; la caducidad principal es la hora de observación
+        // del METAR (`WeatherCacheFreshness`), porque un METAR horario deja de ser el vigente a las
+        // :00 aunque se haya descargado 20 s antes.
         private static readonly ConcurrentDictionary<string, (NavWeather Data, DateTime FetchedAt)> _weatherCache
             = new ConcurrentDictionary<string, (NavWeather, DateTime)>(StringComparer.OrdinalIgnoreCase);
         private static readonly TimeSpan _weatherTtl = TimeSpan.FromMinutes(5);
@@ -344,16 +347,31 @@ namespace vmsOpenAcars.Services
 
         /// <summary>
         /// Obtiene datos meteorológicos desde /weather/{icao}/.
-        /// Resultado cacheado 5 minutos (igual al TTL del servidor).
-        /// En caso de fallo devuelve el último valor exitoso o null.
+        ///
+        /// **La entrada se descarta por dos relojes** (v0.9.68): el TTL de 5 minutos —red de
+        /// seguridad— y la **hora de observación** del propio `raw_metar`. El 10/11/2026 a las
+        /// 03:36 UTC el servicio ya publicaba `METAR SKRG 100300Z …` y el cliente seguía sirviendo el
+        /// de las 0200Z: la caché solo caducaba por reloj y **nadie la invalidaba**, así que el
+        /// refresco manual volvía a entrar, encontraba la entrada fresca y no salía a la red. La
+        /// regla vive en <see cref="WeatherCacheFreshness"/> (pura, con test).
+        ///
+        /// **`forceRefresh` es el refresco explícito** —el botón/REFRESH del piloto y el temporizador
+        /// de `MetarService`, que pasan por `MetarService.FetchNowAsync`/su timer—: se salta la caché
+        /// y pide red aunque la entrada sea válida. Los consumidores que no son un refresco
+        /// (`WeatherService`, `MainViewModel` al cargar el plan) lo dejan en `false` y siguen
+        /// beneficiándose del TTL.
+        ///
+        /// En caso de fallo (red, o un payload que no se pueda leer) devuelve el último valor
+        /// exitoso o null: degradar es preferible a dejar la pantalla sin METAR.
         /// </summary>
-        public static async Task<NavWeather> GetWeatherAsync(string icao)
+        public static async Task<NavWeather> GetWeatherAsync(string icao, bool forceRefresh = false)
         {
             if (string.IsNullOrWhiteSpace(icao)) return null;
             string key = icao.ToUpperInvariant();
 
             if (_weatherCache.TryGetValue(key, out var cached)
-                && DateTime.UtcNow - cached.FetchedAt < _weatherTtl)
+                && WeatherCacheFreshness.CanUseCached(
+                       forceRefresh, cached.Data?.RawMetar, cached.FetchedAt, DateTime.UtcNow, _weatherTtl))
                 return cached.Data;
 
             string url = $"{AppConfig.NavDataApiUrlEffective.TrimEnd('/')}/weather/{key}/";

@@ -293,6 +293,10 @@
     <Compile Include="Helpers\WindComponents.cs" />
     <Compile Include="Helpers\FinalWindSummary.cs" />
     <Compile Include="Helpers\MetarObservationTime.cs" />
+    <!-- La caché del METAR se caduca por observación, no solo por reloj, y el refresco explícito
+         se salta la caché; `wind_dir` puede venir como "VRB". -->
+    <Compile Include="Helpers\WeatherCacheFreshness.cs" />
+    <Compile Include="Helpers\MetarWindDirection.cs" />
     <Compile Include="Helpers\LandingHeader.cs" />
     <Compile Include="Helpers\LandingUploadPayload.cs" />
     <Compile Include="Helpers\LandingWeatherLine.cs" />

@@ -588,6 +588,44 @@ static void ClearMemoryCache()
 - Auth: cabeceras `X-API-Key` + `X-Origin-Domain`.
 - Todos los endpoints usan la forma singular `/airport/` (no `/airports/`).
 
+### La caché del METAR: dos relojes (v0.9.68)
+
+El 10/11/2026 a las 03:36 UTC `GET /weather/SKRG/` ya devolvía
+`METAR SKRG 100300Z VRB01KT 9999 NSC 14/12 Q1028` y el cliente seguía pintando el de las **0200Z**;
+el botón REFRESH no cambiaba nada. Eran **dos defectos encadenados**:
+
+1. **La caché solo caducaba por reloj y nadie la invalidaba.** `_weatherCache` (por ICAO) vivía
+   5 minutos (`DateTime.UtcNow - cached.FetchedAt < _weatherTtl`) y en todo el proyecto no había
+   ningún `Clear`/`Invalidate`/`ForceRefresh` de esa caché. Con `MetarService.RefreshMs` también en
+   5 minutos, el refresco manual y el temporizador caían en la misma ventana y recibían la
+   observación vieja sin salir a la red.
+2. **`"wind_dir":"VRB"` no se podía deserializar.** `NavWeather.WindDir` era `int?` y la misma
+   respuesta trae `"VRB"` (viento variable): Json.NET lanzaba
+   `Could not convert string to integer: VRB. Path 'wind_dir'` y `GetWeatherAsync` caía en su
+   `catch` devolviendo la entrada vieja, así que la nueva **no se guardaba nunca**. Verificado con
+   el JSON real en una compilación aparte: fallaba siempre.
+
+Lo que quedó:
+
+- **`GetWeatherAsync(icao, forceRefresh = false)`**. El refresco explícito —`FetchNowAsync` del botón
+  REFRESH y el temporizador de `MetarService`, ambos en `FetchByIcaoAsync`— pasa `forceRefresh: true`
+  y pide red aunque la entrada sea válida. `WeatherService` y `MainViewModel` (contexto de cabina)
+  lo dejan en `false` y siguen usando el TTL.
+- **`Helpers/WeatherCacheFreshness`** (puro, `internal static`, con test): la entrada caduca si la
+  observación del `ddHHMMZ` es **anterior a la última hora en punto UTC**. A las 03:00:20 el
+  `100200Z` ya no sirve aunque tenga 40 s; el `100300Z` sí. La comparación es entre instantes
+  completos, así que el cambio de día/mes queda resuelto por `MetarObservationTime` (que ancla el
+  `dd` al mes de la captura y lo manda al anterior si saldría en el futuro). **Sin grupo de hora no
+  caduca por esta vía**: decide el TTL, que se conserva como red.
+- **`MetarService.RefreshMs` = 3 minutos**, deliberadamente distinto del TTL de 5 min. Se eligen las
+  dos medidas a la vez: `forceRefresh` porque la caché no debe filtrar un refresco explícito, y 3
+  min porque acotan cuánto puede tardar en verse un METAR horario recién publicado.
+- **`"wind_dir"` se lee como texto** en `NavWeather` y `Helpers/MetarWindDirection` (puro, con test)
+  lo convierte: `VRB` → `null` (sin dirección fija; 0 sería norte), no numérico → `null`. El DTO ya
+  deserializa la respuesta real, y el test lo fija con el JSON literal del servicio para que no
+  vuelva a romperse en silencio.
+
+
 ### NavDataCache — `Services/NavDataCache.cs`
 
 Caché SQLite persistente (`NavData_cache.sqlite` junto al exe) para datos estáticos de NavData, renovados con el ciclo AIRAC.

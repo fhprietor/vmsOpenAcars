@@ -184,6 +184,9 @@
     <Compile Include="SimbriefDispatchPolicyTests.cs" />
     <Compile Include="SettingsFormLayoutTests.cs" />
     <Compile Include="WindComponentsTests.cs" />
+    <!-- La caché del METAR: caducidad por la hora de observación, `forceRefresh` y el `wind_dir`
+         real de NavData (`"VRB"`). Con los METAR de SKRG del 10/11/2026 (0200Z y 0300Z). -->
+    <Compile Include="WeatherCacheFreshnessTests.cs" />
     <Compile Include="FinalWindSummaryTests.cs" />
     <Compile Include="LandingHeaderTests.cs" />
     <Compile Include="LandingUploadPayloadTests.cs" />

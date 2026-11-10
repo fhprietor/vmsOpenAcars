@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Models.NavData;
 using vmsOpenAcars.Services.Http;
@@ -25,7 +26,12 @@ namespace vmsOpenAcars.Services
         private Timer _refreshTimer;
         private int _retryCount;
         private const int MaxRetries = 3;
-        private const int RefreshMs  = 5 * 60 * 1000;
+        // 3 minutos, deliberadamente **distinto** del TTL de la caché de `NavDataClient` (5 min).
+        // Antes coincidían los dos en 5 min, así que temporizador y caché caducaban a la vez y todo
+        // lo que cayera en esa ventana recibía la observación vieja. Y cada tick pide red con
+        // `forceRefresh` (ver `FetchByIcaoAsync`), de modo que la caché no filtra el temporizador;
+        // los 3 min solo acotan cuánto puede tardar en verse un METAR horario recién publicado.
+        private const int RefreshMs  = 3 * 60 * 1000;
         private const int RetryMs    = 30 * 1000;
 
         private string _origin, _dest, _alternate;
@@ -174,7 +180,11 @@ namespace vmsOpenAcars.Services
             {
                 try
                 {
-                    var weather = await NavDataClient.GetWeatherAsync(icao);
+                    // `forceRefresh: true` siempre: este servicio es el refresco (el botón/REFRESH
+                    // del piloto y el temporizador de 3 min llaman a este mismo camino). Sin esto,
+                    // la entrada de 5 min de `NavDataClient` devolvía el METAR anterior sin salir a
+                    // la red —caso medido: 0200Z en pantalla con el 0300Z ya publicado—.
+                    var weather = await NavDataClient.GetWeatherAsync(icao, forceRefresh: true);
                     if (weather != null)
                         return ParseNavDataWeather(weather, label, icao);
                 }
@@ -207,7 +217,7 @@ namespace vmsOpenAcars.Services
                     TempC         = w.TemperatureC,
                     DewPointC     = w.DewpointC,
                     QnhHpa        = w.QnhHpa,
-                    WindDir       = w.WindDir,
+                    WindDir       = MetarWindDirection.Parse(w.WindDir),
                     WindSpeedKt   = w.WindSpeedKt,
                     WindGustKt    = w.WindGustKt,
                     CeilingFt     = w.CeilingFt,

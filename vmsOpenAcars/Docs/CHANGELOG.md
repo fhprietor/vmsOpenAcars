@@ -2,6 +2,68 @@
 
 ---
 
+## [0.9.68] — 10/11/2026
+
+El METAR se quedaba en la observación anterior y el botón de refrescar no lo cambiaba. Medido hoy
+contra el servicio en vivo (03:36 UTC), con las cabeceras `X-API-Key` y `X-Origin-Domain` (la clave
+no se escribe en el repo):
+
+- `GET https://navdata.vholar.co/api/v1/weather/SKRG/` →
+  `METAR SKRG 100300Z VRB01KT 9999 NSC 14/12 Q1028`, con `"observed_at":"2026-11-10T03:00:00.000Z"`.
+  SKBO y SKPE igual, también 0300Z.
+- El cliente seguía sirviendo `METAR SKRG 100200Z VRB01KT 9999 NSC 14/12 Q1028`.
+
+### Fixed
+
+**A) El refresco no tenía por dónde entrar porque nadie invalida la caché.** `Services/NavDataClient.cs:64-66`
+guardaba `_weatherCache` por ICAO con un **TTL de 5 minutos**, y la entrada solo caducaba por reloj
+(`L355-356`: `DateTime.UtcNow - cached.FetchedAt < _weatherTtl`). **En todo el proyecto no existía
+ningún `Clear`, `Invalidate` ni `ForceRefresh` de esa caché**, así que pulsar REFRESH volvía a entrar,
+encontraba la entrada fresca y devolvía lo mismo **sin salir a la red**. Además
+`Services/MetarService.cs:28` tenía `RefreshMs = 5 * 60 * 1000`, **el mismo periodo que el TTL**:
+temporizador y caché caducaban a la vez y todo lo que cayera en esa ventana recibía la observación
+vieja.
+
+- **`GetWeatherAsync(icao, bool forceRefresh = false)`**: el refresco explícito se salta la caché y
+  pide red. Lo usan el botón/REFRESH del piloto (`MainForm.BtnWeather_Click` →
+  `TriggerMetarFetchAsync` → `FetchNowAsync`) y el temporizador de `MetarService`, que comparten el
+  mismo camino (`FetchByIcaoAsync`, ahora con `forceRefresh: true`). Los consumidores que **no** son
+  un refresco —`WeatherService` y `MainViewModel.RefreshCabinContextAsync`— se quedan en `false` y
+  siguen beneficiándose del TTL.
+- **Caducidad por observación** (`Helpers/WeatherCacheFreshness.cs`, puro y con test): una entrada
+  está caducada si la hora del grupo `ddHHMMZ` del `raw_metar` es **anterior a la última hora en
+  punto UTC**. A las 03:00:20 el de las `100200Z` ya no sirve aunque se trajera hace 40 s; el de las
+  `100300Z` sí. El cambio de día/mes lo resuelve la comparación entre instantes completos
+  (`MetarObservationTime` ancla el `dd` al mes de la captura), y **sin grupo de hora no se caduca
+  por esta vía**: decide el TTL de 5 minutos, que se conserva como red.
+- **El temporizador deja de coincidir con el TTL**: `MetarService.RefreshMs` baja a **3 minutos**.
+  Se eligen las dos cosas a la vez —3 min **y** `forceRefresh` en cada tick— porque la caché no debe
+  filtrar un refresco explícito, y los 3 min solo acotan cuánto puede tardar en verse un METAR
+  horario recién publicado (el TTL de 5 min queda como respaldo para los demás consumidores).
+
+**B) `"wind_dir":"VRB"` rompía el parseo del METAR.** La misma consulta real devuelve
+`"wind_dir":"VRB"` —viento variable— en un campo que otros METAR traen como entero, y
+`NavWeather.WindDir` era `int?`: Json.NET lanzaba
+`Could not convert string to integer: VRB. Path 'wind_dir'` y `GetWeatherAsync` caía en su `catch`,
+devolviendo la entrada vieja **sin llegar a guardar nunca la nueva**. Reproducido con el JSON real:
+el parseo fallaba siempre. `Helpers/MetarWindDirection.cs` (puro, con test) lee el campo como texto:
+`VRB` es «sin dirección fija» → `null` (no 0, que es norte), un valor no numérico tampoco inventa
+rumbo y fuera de 0..360 se descarta. Sin esta segunda corrección, la caducidad por observación sola
+no habría bastado: la entrada nueva no se podía ni deserializar.
+
+### Tests
+
+`WeatherCacheFreshnessTests` y `MetarWindDirectionTests` (12 nuevos, sin red y sin ventanas), con los
+dos METAR reales de este caso (`100200Z` / `100300Z`, forma `VRB01KT 9999 NSC 14/12 Q1028`):
+`CacheDeLas0200Z_PasadasLas0300_EstaCaducada`,
+`CacheDeLas0200Z_40SegundosDespuesDeLas0300_SigueCaducada`, `CacheDeLas0300Z_A_Las0336_EsValida`,
+`JustoAlas0300_ElMetarDeLas0300SigueValido`, `MetarSinGrupoDeHora_NoCaducaPorObservacion`,
+`ForceRefresh_IgnoraUnaEntradaValida`, `CambioDeDia_UnaObservacionDeAyerEsCaducada`,
+`Ttl_SigueSiendoLaRedDeSeguridad`, `Vrb_NoEsUnaDireccion`, `GradosComoTexto_SeLeeComoEntero`,
+`ValorNoNumerico_NoInventaRumbo` y `PayloadRealDeNavData_SeDeserializaEntero`.
+
+---
+
 ## [0.9.67] — 08/11/2026
 
 Cuatro defectos medidos en el PIREP real **`nROPdk4GxYY5AOy1`** (AT76 en MSFS 2024,
