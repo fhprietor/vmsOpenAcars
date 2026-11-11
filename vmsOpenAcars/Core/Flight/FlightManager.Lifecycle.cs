@@ -140,6 +140,11 @@ namespace vmsOpenAcars.Core.Flight
                 _approachValidator.VmoKts       = perf.VmoKts;
                 _approachValidator.AircraftIcao = _activePlan?.AircraftIcao;
                 _approachValidator.DestIcao     = _activePlan?.Destination;
+                // El Vref del plan y el peso al que corresponde: con ellos la compuerta de 1.000 ft
+                // usa una ventana dependiente del peso en vez de la de la categoría del tipo. Sin
+                // TLR ambos quedan `null` y la compuerta sigue con la tabla (degradar sin datos).
+                _approachValidator.VrefKt        = _activePlan?.VrefKt;
+                _approachValidator.VrefWeightLbs = _activePlan?.PlannedLandingWeightLbs;
                 _phaseMachine.Reset();
                 _phaseMachine.SetPhase(FlightPhase.Boarding);
                 FlightStartTime = DateTime.Now;
@@ -185,6 +190,11 @@ namespace vmsOpenAcars.Core.Flight
             _approachValidator.VmoKts       = perf.VmoKts;
             _approachValidator.AircraftIcao = pirep.AircraftType;
             _approachValidator.DestIcao     = _activePlan?.Destination;
+            // Un vuelo retomado no trae el OFP, así que no hay Vref del plan: `null` y la compuerta
+            // cae en la tabla por tipo. **No se rellena** con el Vref de otra sesión ni con uno
+            // deducido — un Vref inventado es peor que no tener ventana de peso.
+            _approachValidator.VrefKt        = null;
+            _approachValidator.VrefWeightLbs = null;
 
             // El scoring de esta sesión arranca limpio (no podemos recuperar
             // los datos de la sesión anterior)

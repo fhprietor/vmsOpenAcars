@@ -182,6 +182,23 @@ namespace vmsOpenAcars.Models
         public int? VrefKt { get; set; }
 
         /// <summary>
+        /// **El peso de aterrizaje al que corresponde <see cref="VrefKt"/>, en libras**
+        /// (`tlr.landing.conditions.planned_weight`, convertido desde la unidad del plan).
+        ///
+        /// Existe para poder **auditar la ventana de velocidad** de la compuerta de 1.000 ft: con el
+        /// Vref del plan la ventana es `[Vref − 5, Vref + 15]`, y un «Vref 136» sin el peso al que
+        /// pertenece no se puede defender ni rebatir — el Vref de un avión de 400.000 lb no es el de
+        /// 330.000. Se publica al lado del Vref en la línea de la compuerta.
+        ///
+        /// **`null` sin TLR.** La unidad del bloque TLR es la del plan (`params.units`), no libras
+        /// fijas: medido en el OFP real del 11/10/2026, `planned_weight = 247261` con la tabla del
+        /// propio informe en `LDW 2400 → 146 · 2440 → 147 · 2480 → 148`, o sea **kg** (247.261 lb
+        /// serían 112 t y no casan con esos 240–256); lo convierte
+        /// `SimbriefEnhancedService.PlannedWeightLbsFromOfp`.
+        /// </summary>
+        public double? PlannedLandingWeightLbs { get; set; }
+
+        /// <summary>
         /// Gets or sets the fuel on board at departure (may be same as BlockFuel).
         /// </summary>
         public double DepartureFuel { get; set; }

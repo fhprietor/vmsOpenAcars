@@ -2,6 +2,49 @@
 
 ---
 
+## [0.9.71] — 11/11/2026
+
+### Fixed
+
+- **La compuerta de 1.000 ft usaba una ventana fija por TIPO de avión y contradecía el Vref del propio
+  cliente.** `GetApproachSpeedRange` es una tabla de categorías PANS-OPS y devuelve **[140–185] kt a
+  cualquier wide-body**, sea un A339 a 400.000 lb o vacío. Pero el cliente ya publica el **Vref del
+  plan** (`metrics.vref_kt`, del TLR de SimBrief) desde v0.9.38. Medido en el PIREP que lo destapó
+  —reportado por el equipo de phpVMS el 11/10/2026—: ESSA→LIRF, **A339**, `vref_kt = 136`,
+  `landing_weight_lbs = 400.100`, el piloto a **137 kt (Vref+1)** y −5 por «fuera de [140–185]». La
+  ventana estaba **3 kt por encima de su propio Vref**: el avión no podía cumplirla sin volar por
+  encima de su velocidad de referencia.
+  **Fix:** `Helpers/ApproachSpeedWindow.cs` (puro, con test). Con un Vref usable la ventana es
+  **[Vref − 5, Vref + 15]**, la que pidió phpVMS; **sin Vref** (plan sin TLR, vuelo retomado, que no
+  tiene OFP) manda la tabla por tipo **exactamente como estaba**. Un Vref fuera de **60–200 kt** no es
+  un Vref y también degrada a la tabla: no se construye una ventana `[0–20]` alrededor de un campo
+  corrupto. El margen de +15 **no** se suma aparte al viento a propósito: absorbe la corrección de
+  Vapp (1/3 del viento en cara) y mover la ventana con la meteo haría que el mismo pilotaje puntuara
+  distinto según el día, que es lo que no se puede auditar. La **misma** fuente alimenta
+  `FlightManager.IsApproachStabilized`, así que el STABLE/UNSTABLE del MCDU no puede separarse del −5.
+- **La Vref y el peso con el que se juzgó, en la propia línea del veredicto.** El renglón del criterio
+  pasa de `Velocidad 137 kts fuera de [131–151] kts (−5)` a
+  `… fuera de [131–151] kts (Vref 136 kt, peso de planeo 400.100 lb) (−5)`, y la línea del veredicto
+  cierra con `· Vref 136 kt, ventana 131–151 kt, peso de planeo 400.100 lb`. Sin Vref no se añade
+  nada: las líneas quedan **literalmente** como estaban. El peso sale de
+  `tlr.landing.conditions.planned_weight` (`SimbriefPlan.PlannedLandingWeightLbs`) y **se convierte**,
+  no se etiqueta: el bloque TLR va en la unidad del plan y el dato medido —`247261` junto a la tabla
+  del propio informe en `LDW 2400 → 146 · 2480 → 148 · 2560 → 151`— son **kg**; 247.261 lb serían 112 t
+  y no casan con esos 240–256. Sin `params.units` se asume KG, el mismo defecto que el resto del mapeo.
+- **`metrics` ya viaja en todos los PIREPs desde 0.9.38, y lo de «5 de 15 heavies sin fila» no es una
+  regresión del cliente actual.** La subida (`POST /pireps/{id}/landing`) es incondicional al filear
+  —`pirep_landing_analysis_enabled`, encendido por defecto— y no depende del log local. En los 60
+  PIREPs más recientes del entorno de desarrollo hay clientes desde **0.9.1**, y la función nació en
+  la **0.9.38** (11/10/2026): un vuelo anterior a esa versión no tiene fila. **Lo que sigue faltando
+  sin traza del flare son los `flaps_*`** (salen de `FlapTrackSummary.Compute(trace)`), y `vref_kt`
+  va `null` sin TLR —no se deriva del tipo, por decisión ya escrita en v0.9.38—. Queda pendiente
+  mandar el ajuste de flaps del toque sin depender de la traza.
+
+- **1124 tests** (1123 pasan, 1 se omite sola): +18 en `ApproachSpeedWindowTests` (el caso real
+  137/Vref136, las dos fronteras en sus dos lados, el camino sin Vref, el Vref implausible y los
+  bordes 60/200) y +3 en `SimbriefVrefTests` (el peso en kg→lb del TLR real, un plan en libras que
+  **no** se convierte, y las formas de no tener peso).
+
 ## [0.9.70] — 11/11/2026
 
 Cuatro defectos medidos en el PIREP real **`D0Wy9Pa7GNB5pYEo`** (AT76 en MSFS 2024,

@@ -200,11 +200,13 @@ namespace vmsOpenAcars.Core.Flight
                 double agl = CurrentAltitude - ReferenceAirportElevation;
                 if (agl > 1000) return true;   // por encima del gate — aún no aplica
 
-                // Misma ventana de Vapp que el gate de scoring: antes estaba fijada a
-                // 100–160 kt, de modo que el indicador STABLE/UNSTABLE de la UI podía
-                // marcar estable un avión que el gate sí habría penalizado (y al revés
-                // en una aeronave ligera). Fuente única: la tabla de performance.
-                var (vappMin, vappMax) = AircraftPerformanceTable.GetApproachSpeedRange(_approachValidator.AircraftIcao);
+                // Misma ventana que el gate de scoring, y **de la misma fuente**: antes estaba fijada
+                // a 100–160 kt y el indicador STABLE/UNSTABLE de la UI podía marcar estable un avión
+                // que el gate habría penalizado (y al revés en una aeronave ligera). Desde v0.9.71 el
+                // gate usa el Vref del plan cuando lo hay ([Vref − 5, Vref + 15]) y la tabla por tipo
+                // cuando no; leerlas de sitios distintos volvería a separar el indicador del −5.
+                var (vappMin, vappMax) = ApproachSpeedWindow.For(
+                    _approachValidator.VrefKt, _approachValidator.AircraftIcao);
                 bool speedOk = CurrentIndicatedAirspeed >= vappMin &&
                                CurrentIndicatedAirspeed <= vappMax;
                 bool vsOk = CurrentVerticalSpeed >= -1000 &&

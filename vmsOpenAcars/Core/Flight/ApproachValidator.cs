@@ -47,6 +47,24 @@ namespace vmsOpenAcars.Core.Flight
         public string EffectiveDestination;
         public Func<bool> IsOnAtcFrequency;
 
+        /// <summary>
+        /// **El Vref del plan** (SimBrief TLR, `tlr.landing.distance_dry.speeds_vref`), en nudos, al
+        /// **peso de planeo**. `null` sin plan o sin TLR, y entonces la ventana sale de la tabla por
+        /// tipo (`Helpers/ApproachSpeedWindow`).
+        ///
+        /// Se lee del plan al empezar el vuelo, no se deduce del tipo: un Vref derivado de la tabla
+        /// de categorías sería un número inventado con la apariencia de una medida.
+        /// </summary>
+        public int? VrefKt;
+
+        /// <summary>
+        /// El peso al que corresponde <see cref="VrefKt"/>, en **libras**
+        /// (`tlr.landing.conditions.planned_weight`, ya convertido de la unidad del plan). Va al
+        /// renglón de la compuerta porque un «Vref 136» sin el peso al que pertenece no se puede
+        /// auditar: el Vref de un avión de 400.000 lb no es el de 330.000.
+        /// </summary>
+        public double? VrefWeightLbs;
+
         private readonly HashSet<string> _beaconStrobeSharedAircraft;
 
         // ── Scoring counters (public read, private write) ─────────────────────────
@@ -404,7 +422,10 @@ namespace vmsOpenAcars.Core.Flight
 
             _approachGateEvaluated = true;
 
-            var (vappMin, vappMax) = AircraftPerformanceTable.GetApproachSpeedRange(AircraftIcao);
+            // La ventana de velocidad **del peso**, no la del tipo: con el Vref del plan delante,
+            // [Vref − 5, Vref + 15]; sin él, la tabla por categoría de siempre. Ver
+            // `Helpers/ApproachSpeedWindow` para por qué el margen de arriba es 15.
+            var (vappMin, vappMax) = ApproachSpeedWindow.For(VrefKt, AircraftIcao);
             int deductions = 0;
 
             // 1. ILS tuning check — must run first so subsequent criteria know approach type
@@ -430,7 +451,7 @@ namespace vmsOpenAcars.Core.Flight
             if (ctx.IAS < vappMin || ctx.IAS > vappMax)
             {
                 if (IsOnAtcFrequency?.Invoke() != true) deductions += 5;
-                OnLog?.Invoke(_("Log_ApproachGateSpeed", ctx.IAS, vappMin, vappMax), Theme.Warning);
+                OnLog?.Invoke(_("Log_ApproachGateSpeed", ctx.IAS, vappMin, vappMax, SpeedBasisDetail()), Theme.Warning);
             }
 
             // 3. Descent rate
@@ -477,10 +498,10 @@ namespace vmsOpenAcars.Core.Flight
             StabilizedDeductions = deductions;
 
             if (deductions == 0)
-                OnLog?.Invoke(_("Log_ApproachGateOk", (int)agl), Theme.Success);
+                OnLog?.Invoke(_("Log_ApproachGateOk", (int)agl, VerdictBasis(vappMin, vappMax)), Theme.Success);
             else
             {
-                OnLog?.Invoke(_("Log_ApproachGateUnstable", (int)agl, deductions), Theme.Warning);
+                OnLog?.Invoke(_("Log_ApproachGateUnstable", (int)agl, deductions, VerdictBasis(vappMin, vappMax)), Theme.Warning);
                 OnOsdMessage?.Invoke($"UNSTABILIZED  −{deductions} PTS", OsdSeverity.Critical);
             }
 
@@ -493,6 +514,36 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             _prevApproachAgl = agl;
+        }
+
+        /// <summary>
+        /// El detalle del **origen de la ventana** para el renglón del criterio: con Vref, de dónde
+        /// salió y a qué peso. Vacío sin Vref, para que la línea quede exactamente como estaba.
+        /// </summary>
+        private string SpeedBasisDetail()
+        {
+            if (!ApproachSpeedWindow.IsUsable(VrefKt)) return "";
+
+            // Formato del **piloto**, no invariante: el separador de miles de la línea sale como el
+            // del resto del log (`400.100 lb` en español, `400,100` en inglés).
+            return VrefWeightLbs.HasValue
+                ? string.Format(" (Vref {0} kt, peso de planeo {1:N0} lb)", VrefKt.Value, VrefWeightLbs.Value)
+                : string.Format(" (Vref {0} kt)", VrefKt.Value);
+        }
+
+        /// <summary>
+        /// El mismo detalle en la línea del **veredicto**, con la ventana entera. Es lo que permite
+        /// auditar el −5 desde el log sin reconstruir la tabla de categorías: phpVMS lo pidió el
+        /// 11/10/2026 («hoy no se puede auditar el veredicto desde el log»).
+        /// </summary>
+        private string VerdictBasis(int min, int max)
+        {
+            if (!ApproachSpeedWindow.IsUsable(VrefKt)) return "";
+
+            string weight = VrefWeightLbs.HasValue
+                ? string.Format(", peso de planeo {0:N0} lb", VrefWeightLbs.Value)
+                : "";
+            return string.Format(" · Vref {0} kt, ventana {1}–{2} kt{3}", VrefKt.Value, min, max, weight);
         }
 
         public void CheckApproachBelowGate(ApproachContext ctx)

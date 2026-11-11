@@ -74,6 +74,8 @@
     <Compile Include="XPlaneAcfIdentityTests.cs" />
     <Compile Include="AirspaceRouteSamplerTests.cs" />
     <Compile Include="ApproachThresholdTests.cs" />
+    <!-- La ventana de velocidad de la compuerta de 1.000 ft: del Vref del plan, no del tipo. -->
+    <Compile Include="ApproachSpeedWindowTests.cs" />
     <!-- La regla de mínimos del validador + el toque: el marcador que solo sobrevive sin aterrizar. -->
     <Compile Include="ApproachValidatorMinimumsTests.cs" />
     <Compile Include="AtcPanelTests.cs" />

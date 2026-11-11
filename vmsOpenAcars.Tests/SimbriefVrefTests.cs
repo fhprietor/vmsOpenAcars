@@ -1,4 +1,4 @@
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using vmsOpenAcars.Services;
 
 namespace vmsOpenAcars.Tests
@@ -46,6 +46,52 @@ namespace vmsOpenAcars.Tests
                 "con el campo vacío");
             Assert.IsNull(SimbriefEnhancedService.VrefFromOfpJson(null), "sin json");
             Assert.IsNull(SimbriefEnhancedService.VrefFromOfpJson("no soy json"), "json ilegible");
+        }
+
+        // ── El peso al que corresponde el Vref ────────────────────────────────────
+
+        /// <summary>
+        /// **El peso de planeo del TLR, en libras**, que es lo que hace auditable la ventana de
+        /// velocidad de la compuerta. El bloque real trae `planned_weight = 247261`, y ese número está
+        /// en **kg**: la tabla del propio informe va en `LDW 2400 → 146 · 2480 → 148`, o sea cientos de
+        /// kg, y 247 261 lb serían 112 t (imposible para un avión con Vref 148 a 248 t).
+        ///
+        /// El plan del fixture **no trae `params.units`**, así que se aplica el mismo defecto que el
+        /// resto del mapeo: KG. Es el caso que más importa, porque un plan sin el campo no puede
+        /// publicar el peso 2,2 veces por debajo en silencio.
+        /// </summary>
+        [TestMethod]
+        public void ElPesoDePlaneoDelTlr_SaleEnLibras()
+        {
+            double? lbs = SimbriefEnhancedService.PlannedWeightLbsFromOfpJson(TlrReal);
+
+            Assert.IsTrue(lbs.HasValue, "el TLR del fixture trae planned_weight");
+            Assert.AreEqual(545116.5, lbs.Value, 2.0,
+                "247 261 kg en libras; la tabla del informe (2400/2480/2560) confirma que es kg");
+        }
+
+        /// <summary>Un plan en libras publica el número **tal cual**: no se convierte dos veces.</summary>
+        [TestMethod]
+        public void UnPlanEnLibras_NoSeConvierte()
+        {
+            const string enLibras = @"{ ""params"": { ""units"": ""LBS"" },
+                ""tlr"": { ""landing"": { ""conditions"": { ""planned_weight"": ""400100"" } } } }";
+
+            Assert.AreEqual(400100.0, SimbriefEnhancedService.PlannedWeightLbsFromOfpJson(enLibras).Value, 0.01,
+                "400.100 lb es el peso del A339 del PIREP que abrió esto");
+        }
+
+        /// <summary>Sin TLR, sin campo o con un valor que no crece: `null`, nunca 0.</summary>
+        [TestMethod]
+        public void SinPesoDePlaneo_NoSeInventa()
+        {
+            Assert.IsNull(SimbriefEnhancedService.PlannedWeightLbsFromOfpJson(@"{ ""general"": {} }"), "sin tlr");
+            Assert.IsNull(SimbriefEnhancedService.PlannedWeightLbsFromOfpJson(
+                @"{ ""tlr"": { ""landing"": { ""conditions"": { } } } }"), "sin planned_weight");
+            Assert.IsNull(SimbriefEnhancedService.PlannedWeightLbsFromOfpJson(
+                @"{ ""tlr"": { ""landing"": { ""conditions"": { ""planned_weight"": ""0"" } } } }"), "cero");
+            Assert.IsNull(SimbriefEnhancedService.PlannedWeightLbsFromOfpJson(null), "sin json");
+            Assert.IsNull(SimbriefEnhancedService.PlannedWeightLbsFromOfpJson("no soy json"), "json ilegible");
         }
     }
 }

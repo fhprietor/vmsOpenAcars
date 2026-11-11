@@ -185,6 +185,7 @@
     <Compile Include="Helpers\AircraftLivery.cs" />
     <Compile Include="Helpers\AircraftTypeMatch.cs" />
     <Compile Include="Helpers\AircraftTypeSource.cs" />
+    <Compile Include="Helpers\ApproachSpeedWindow.cs" />
     <Compile Include="Helpers\XPlaneAcfIdentity.cs" />
     <Compile Include="Helpers\AirspaceRouteSampler.cs" />
     <Compile Include="Helpers\CartoTileUrl.cs" />

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Configuration;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
@@ -167,6 +168,10 @@ namespace vmsOpenAcars.Services
                         // el 11/10/2026 para poder juzgar la velocidad del umbral. Sin TLR se queda
                         // null y no se estima: ver `VrefFromOfp`.
                         VrefKt = VrefFromOfp(json),
+
+                        // El peso al que corresponde ese Vref: se imprime junto a él en la compuerta
+                        // de 1.000 ft para que la ventana de velocidad se pueda auditar.
+                        PlannedLandingWeightLbs = PlannedWeightLbsFromOfp(json),
 
                         // Tiempos - CORREGIDO: usar times.est_time_enroute
                         EstTimeEnroute = json["times"]?["est_time_enroute"]?.Value<int>() ?? 0,
@@ -358,6 +363,47 @@ namespace vmsOpenAcars.Services
         {
             if (string.IsNullOrWhiteSpace(ofpJson)) return null;
             try { return VrefFromOfp(JObject.Parse(ofpJson)); }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// **El peso de aterrizaje al que corresponde el Vref, en LIBRAS**
+        /// (`tlr.landing.conditions.planned_weight`).
+        ///
+        /// **La unidad del TLR es la del plan** (`params.units`), así que el número se convierte, no
+        /// se etiqueta: medido en el OFP real del 11/10/2026, `planned_weight = 247261` junto a la
+        /// tabla del propio informe (`LDW 2400 → VREF 146 · 2480 → 148 · 2560 → 151`), que está en
+        /// **kg** en cientos: 247.261 lb serían 112 t y no casan con esos 240–256; 247.261 kg sí.
+        /// Con el plan en libras va tal cual. Un valor que no crece no se publica: `null`.
+        ///
+        /// Es opcional, como el Vref: sin TLR no hay peso, la compuerta usa la ventana por tipo y
+        /// nada falla.
+        /// </summary>
+        internal static double? PlannedWeightLbsFromOfp(JObject json)
+        {
+            string raw = json?["tlr"]?["landing"]?["conditions"]?["planned_weight"]?.ToString();
+            if (!double.TryParse((raw ?? "").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture,
+                                 out double value) || value <= 0)
+                return null;
+
+            string units = json?["params"]?["units"]?.ToString()?.Trim() ?? "";
+            // **Sin `params.units` se asume KG**, que es el mismo defecto que usa el mapeo del plan
+            // (`Units = ... ?? "KG"`): un plan de SimBrief siempre trae el campo, y asumir libras
+            // cuando falta multiplicaría el peso por 2,2 sin que nada lo delatara.
+            bool inLbs = units.Equals("LBS", StringComparison.OrdinalIgnoreCase) ||
+                         units.Equals("LB",  StringComparison.OrdinalIgnoreCase);
+            return inLbs ? value : Helpers.PirepMassUnits.KgToLbs(value);
+        }
+
+        /// <summary>
+        /// El mismo peso, desde el **texto** del OFP: es la forma en la que entra de verdad (la
+        /// respuesta de red) y la que usa `SimbriefVrefTests` para probar la ruta completa. Un OFP
+        /// ilegible devuelve `null` en vez de reventar — el peso es opcional.
+        /// </summary>
+        internal static double? PlannedWeightLbsFromOfpJson(string ofpJson)
+        {
+            if (string.IsNullOrWhiteSpace(ofpJson)) return null;
+            try { return PlannedWeightLbsFromOfp(JObject.Parse(ofpJson)); }
             catch { return null; }
         }
 
