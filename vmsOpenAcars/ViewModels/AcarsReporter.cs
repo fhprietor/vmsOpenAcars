@@ -541,6 +541,9 @@ namespace vmsOpenAcars.ViewModels
                 // El Vref del plan (SimBrief, TLR del aterrizaje). Es una lectura del plan al peso de
                 // planeo; sin TLR se queda null y no se deriva del tipo de avión.
                 VrefKt               = plan?.VrefKt,
+                // Y el peso **al que corresponde ese Vref** (el de planeo del plan): va con él en el
+                // payload y en la línea de la compuerta, para poder auditar la ventana sin el log.
+                PlannedLandingWeightLbs = plan?.PlannedLandingWeightLbs,
 
                 // El rodaje con un solo motor, con las cifras que decidieron la bonificación. Se
                 // guardan siempre —se cobre o no—: el vuelo real `lA4ZVAzgxYzlG4vD` se quedó en 46 %

@@ -79,6 +79,16 @@ namespace vmsOpenAcars.Models
         public double?   OffsetThresholdFt { get; set; }
 
         /// <summary>
+        /// **El peso de planeo al que corresponde <see cref="VrefKt"/>, en libras**
+        /// (`tlr.landing.conditions.planned_weight`, ya convertido desde la unidad del plan).
+        ///
+        /// Va aparte de <see cref="LandingWeightLbs"/> —el peso **medido** en el toque—: uno dice a qué
+        /// peso se refería el plan y el otro cuánto pesaba el avión de verdad. Lo pidió phpVMS el
+        /// 11/11/2026 para auditar la ventana de velocidad sin depender del log. `null` sin TLR.
+        /// </summary>
+        public double?   PlannedLandingWeightLbs { get; set; }
+
+        /// <summary>
         /// **El Vref del plan**, en nudos, tal y como lo publica SimBrief en el análisis de
         /// aterrizaje del OFP (`tlr.landing.distance_dry.speeds_vref`).
         ///

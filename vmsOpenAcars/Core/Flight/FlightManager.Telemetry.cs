@@ -416,6 +416,9 @@ namespace vmsOpenAcars.Core.Flight
             FlapsPosition    = data.FlapsPercent,
             QnhMb            = AircraftQnhMb,
             Nav1FreqMhz      = data.Nav1FrequencyMhz,
+            // Viento del simulador, solo para la Vapp informativa del registro de la compuerta.
+            WindDirDeg       = data.WindDirDeg,
+            WindSpeedKt      = data.WindSpeedKt,
             ActivePirepPresent = !string.IsNullOrEmpty(ActivePirepId),
         };
     }

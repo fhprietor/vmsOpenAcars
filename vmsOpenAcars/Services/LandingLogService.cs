@@ -210,6 +210,12 @@ namespace vmsOpenAcars.Services
                     // aproximación no es un Vref.
                     EnsureColumn(conn, "flights", "vref_kt", "INTEGER");
 
+                    // **El peso de planeo al que corresponde ese Vref** (`planned_weight` del TLR),
+                    // en libras. Va aparte del medido (`landing_weight_lbs`): uno dice a qué peso se
+                    // refería el plan y el otro cuánto pesaba el avión. Lo pidió phpVMS el 11/11/2026
+                    // para auditar la ventana de velocidad sin depender del log. NULL sin TLR.
+                    EnsureColumn(conn, "flights", "planned_landing_weight_lbs", "REAL");
+
                     // **Por qué se cerró la captura de la traza** (`stopped:post-touchdown 2.0s`,
                     // `stopped:cap`, …). Se guarda aquí porque es lo que deja distinguir un final
                     // normal de una traza truncada al releer el vuelo semanas después —el estado en
@@ -480,7 +486,7 @@ namespace vmsOpenAcars.Services
                          offset_threshold_ft, vref_kt, trace_stop_reason,
                          taxi_out_moving_sec, taxi_out_single_sec,
                          taxi_in_moving_sec, taxi_in_single_sec, single_engine_bonus,
-                         aircraft_type_source)
+                         aircraft_type_source, planned_landing_weight_lbs)
                     VALUES
                         (@fn, @org, @dest, @rwy, @dt,
                          @rate, @gf, @dist, @cl,
@@ -492,7 +498,7 @@ namespace vmsOpenAcars.Services
                          @offset, @vref, @stopReason,
                          @taxiOutMoving, @taxiOutSingle,
                          @taxiInMoving, @taxiInSingle, @seBonus,
-                         @typeSource)";
+                         @typeSource, @plw)";
 
                 cmd.Parameters.AddWithValue("@fn",    r.FlightNumber ?? "");
                 cmd.Parameters.AddWithValue("@org",   r.Origin ?? "");
@@ -539,6 +545,8 @@ namespace vmsOpenAcars.Services
                 cmd.Parameters.AddWithValue("@offset", (object)r.OffsetThresholdFt ?? DBNull.Value);
                 // El Vref del plan. Sin TLR va NULL, y no se estima.
                 cmd.Parameters.AddWithValue("@vref",   (object)r.VrefKt            ?? DBNull.Value);
+                // El peso de planeo, en libras, aparte del medido. NULL sin TLR.
+                cmd.Parameters.AddWithValue("@plw",    (object)r.PlannedLandingWeightLbs ?? DBNull.Value);
                 // El motivo del cierre de la captura, recortado a 64 (el vocabulario real son ~30).
                 // Vacío es «no lo sé» y va NULL, como el resto de textos que pueden faltar.
                 cmd.Parameters.AddWithValue("@stopReason",
@@ -588,7 +596,7 @@ namespace vmsOpenAcars.Services
                                offset_threshold_ft, vref_kt, trace_stop_reason,
                                taxi_out_moving_sec, taxi_out_single_sec,
                                taxi_in_moving_sec, taxi_in_single_sec, single_engine_bonus,
-                               aircraft_type_source
+                               aircraft_type_source, planned_landing_weight_lbs
                         FROM flights
                         ORDER BY flight_date DESC";
 
@@ -654,7 +662,10 @@ namespace vmsOpenAcars.Services
                                 // como siempre (`AtcModel`): el historial viejo no cambia.
                                 TypeSource                 = r.IsDBNull(33)
                                                                  ? AircraftTypeSource.Unknown
-                                                                 : (AircraftTypeSource)r.GetInt32(33)
+                                                                 : (AircraftTypeSource)r.GetInt32(33),
+                                // El peso de planeo, al final para no mover índices. NULL en las filas
+                                // anteriores a la columna y en los vuelos sin TLR.
+                                PlannedLandingWeightLbs    = r.IsDBNull(34) ? (double?)null : r.GetDouble(34)
                             });
                         }
                     }

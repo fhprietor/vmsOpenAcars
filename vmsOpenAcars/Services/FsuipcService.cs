@@ -920,6 +920,10 @@ namespace vmsOpenAcars.Services
                 Transponder = _transponderOffset.Value,
                 RadarAltitudeFeet = CurrentRadarAltitudeFeet,
                 GroundAltitudeFeet = CurrentGroundAltitudeFeet,
+                // Viento tal cual lo publica el simulador: la compuerta lo usa solo para la Vapp
+                // informativa del registro (ver `RawTelemetryData.WindDirDeg`).
+                WindDirDeg = CurrentWindDirDeg,
+                WindSpeedKt = CurrentWindSpeedKt,
                 PitchDeg = CurrentPitch,
                 BankDeg = CurrentBank,
                 SpoilersDeployed = CurrentSpoilersDeployed,
@@ -2344,6 +2348,18 @@ namespace vmsOpenAcars.Services
         public double RadarAltitudeFeet { get; set; }
         /// <summary>Terrain elevation below the aircraft in feet (FSUIPC 0x0020). Used for AGL in Enroute.</summary>
         public double GroundAltitudeFeet { get; set; }
+        /// <summary>
+        /// **Viento del simulador** en grados (de donde viene) e intensidad en nudos, tal y como salen
+        /// de `0x0E92`/`0x0E90`.
+        ///
+        /// Los usa la compuerta de 1.000 ft **solo** para publicar la **Vapp informativa** del
+        /// registro (`Vref + clamp(en cara/3, 5, 15)`, la fórmula que fijó phpVMS el 11/11/2026). El
+        /// **criterio** de velocidad no depende del viento: su ventana es `[Vref − 5, Vref + 15]` y no
+        /// se mueve con la meteo, que es lo que la hace auditable.
+        /// </summary>
+        public double WindDirDeg { get; set; }
+        /// <summary>Intensidad del viento del simulador, en nudos. Ver <see cref="WindDirDeg"/>.</summary>
+        public double WindSpeedKt { get; set; }
         public double PitchDeg { get; set; }
         public double BankDeg { get; set; }
         public bool SpoilersDeployed { get; set; }

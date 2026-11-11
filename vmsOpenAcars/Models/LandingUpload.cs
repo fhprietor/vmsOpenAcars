@@ -75,6 +75,18 @@ namespace vmsOpenAcars.Models
         /// </summary>
         public int?    vref_kt           { get; set; }
         public double? landing_weight_lbs{ get; set; }
+
+        /// <summary>
+        /// **El peso de planeo al que pertenece `vref_kt`**, en libras
+        /// (`tlr.landing.conditions.planned_weight`, convertido de la unidad del plan). Pedido por
+        /// phpVMS el 11/11/2026 para poder auditar la ventana **sin depender del log** y comparar plan
+        /// contra realidad.
+        ///
+        /// **Aditivo y aparte**: no sustituye a `landing_weight_lbs`, que es el peso **medido** en el
+        /// toque. Los dos juntos son el dato: uno dice a qué peso se refería el plan y el otro cuánto
+        /// pesaba el avión de verdad. `null` sin TLR.
+        /// </summary>
+        public double? planned_landing_weight_lbs { get; set; }
         public string  aircraft_icao     { get; set; }
         public string  aircraft_title    { get; set; }
         public string  aircraft_model    { get; set; }

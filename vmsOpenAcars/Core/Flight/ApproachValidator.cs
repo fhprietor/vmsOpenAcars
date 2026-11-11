@@ -27,6 +27,13 @@ namespace vmsOpenAcars.Core.Flight
         public double QnhMb;
         public double Nav1FreqMhz;
         public bool   ActivePirepPresent;
+
+        /// <summary>
+        /// Viento del simulador en el ciclo de la compuerta: dirección **de donde viene** (grados) e
+        /// intensidad (nudos). Se usa **solo** para publicar la **Vapp informativa** del registro
+        /// (`Helpers/ApproachSpeedWindow.Vapp`); la **ventana** de velocidad no depende del viento.
+        /// </summary>
+        public double WindDirDeg, WindSpeedKt;
     }
 
     // Validates approach and in-flight compliance rules.
@@ -426,6 +433,9 @@ namespace vmsOpenAcars.Core.Flight
             // [Vref − 5, Vref + 15]; sin él, la tabla por categoría de siempre. Ver
             // `Helpers/ApproachSpeedWindow` para por qué el margen de arriba es 15.
             var (vappMin, vappMax) = ApproachSpeedWindow.For(VrefKt, AircraftIcao);
+            // La Vapp es **informativa**: se publica en el registro y no toca la ventana. Ver
+            // `ApproachSpeedWindow.Vapp`.
+            int? vappKt = ApproachSpeedWindow.Vapp(VrefKt, HeadwindKt(ctx));
             int deductions = 0;
 
             // 1. ILS tuning check — must run first so subsequent criteria know approach type
@@ -451,7 +461,7 @@ namespace vmsOpenAcars.Core.Flight
             if (ctx.IAS < vappMin || ctx.IAS > vappMax)
             {
                 if (IsOnAtcFrequency?.Invoke() != true) deductions += 5;
-                OnLog?.Invoke(_("Log_ApproachGateSpeed", ctx.IAS, vappMin, vappMax, SpeedBasisDetail()), Theme.Warning);
+                OnLog?.Invoke(_("Log_ApproachGateSpeed", ctx.IAS, vappMin, vappMax, SpeedBasisDetail(vappKt)), Theme.Warning);
             }
 
             // 3. Descent rate
@@ -498,10 +508,10 @@ namespace vmsOpenAcars.Core.Flight
             StabilizedDeductions = deductions;
 
             if (deductions == 0)
-                OnLog?.Invoke(_("Log_ApproachGateOk", (int)agl, VerdictBasis(vappMin, vappMax)), Theme.Success);
+                OnLog?.Invoke(_("Log_ApproachGateOk", (int)agl, VerdictBasis(vappMin, vappMax, vappKt)), Theme.Success);
             else
             {
-                OnLog?.Invoke(_("Log_ApproachGateUnstable", (int)agl, deductions, VerdictBasis(vappMin, vappMax)), Theme.Warning);
+                OnLog?.Invoke(_("Log_ApproachGateUnstable", (int)agl, deductions, VerdictBasis(vappMin, vappMax, vappKt)), Theme.Warning);
                 OnOsdMessage?.Invoke($"UNSTABILIZED  −{deductions} PTS", OsdSeverity.Critical);
             }
 
@@ -518,17 +528,21 @@ namespace vmsOpenAcars.Core.Flight
 
         /// <summary>
         /// El detalle del **origen de la ventana** para el renglón del criterio: con Vref, de dónde
-        /// salió y a qué peso. Vacío sin Vref, para que la línea quede exactamente como estaba.
+        /// salió, con qué Vapp se leyó y a qué peso. Vacío sin Vref, para que la línea quede
+        /// exactamente como estaba.
         /// </summary>
-        private string SpeedBasisDetail()
+        private string SpeedBasisDetail(int? vappKt)
         {
             if (!ApproachSpeedWindow.IsUsable(VrefKt)) return "";
 
             // Formato del **piloto**, no invariante: el separador de miles de la línea sale como el
             // del resto del log (`400.100 lb` en español, `400,100` en inglés).
-            return VrefWeightLbs.HasValue
-                ? string.Format(" (Vref {0} kt, peso de planeo {1:N0} lb)", VrefKt.Value, VrefWeightLbs.Value)
-                : string.Format(" (Vref {0} kt)", VrefKt.Value);
+            var parts = new List<string> { string.Format("Vref {0} kt", VrefKt.Value) };
+            if (vappKt.HasValue)
+                parts.Add(string.Format("Vapp {0} kt", vappKt.Value));
+            if (VrefWeightLbs.HasValue)
+                parts.Add(string.Format("peso de planeo {0:N0} lb", VrefWeightLbs.Value));
+            return " (" + string.Join(", ", parts) + ")";
         }
 
         /// <summary>
@@ -536,14 +550,38 @@ namespace vmsOpenAcars.Core.Flight
         /// auditar el −5 desde el log sin reconstruir la tabla de categorías: phpVMS lo pidió el
         /// 11/10/2026 («hoy no se puede auditar el veredicto desde el log»).
         /// </summary>
-        private string VerdictBasis(int min, int max)
+        private string VerdictBasis(int min, int max, int? vappKt)
         {
             if (!ApproachSpeedWindow.IsUsable(VrefKt)) return "";
 
-            string weight = VrefWeightLbs.HasValue
-                ? string.Format(", peso de planeo {0:N0} lb", VrefWeightLbs.Value)
-                : "";
-            return string.Format(" · Vref {0} kt, ventana {1}–{2} kt{3}", VrefKt.Value, min, max, weight);
+            var parts = new List<string>
+            {
+                string.Format("Vref {0} kt", VrefKt.Value),
+                string.Format("ventana {0}–{1} kt", min, max),
+            };
+            if (vappKt.HasValue)
+                parts.Add(string.Format("Vapp {0} kt", vappKt.Value));
+            if (VrefWeightLbs.HasValue)
+                parts.Add(string.Format("peso de planeo {0:N0} lb", VrefWeightLbs.Value));
+            return " · " + string.Join(", ", parts);
+        }
+
+        /// <summary>
+        /// Componente **en cara** del viento del ciclo, en nudos, contra el rumbo del avión: en final
+        /// el morro está alineado con el eje, así que el ángulo de deriva solo escala el coseno.
+        /// `null` sin dato de viento.
+        ///
+        /// **No entra en la ventana** —solo alimenta la Vapp informativa—: la ventana es
+        /// `[Vref − 5, Vref + 15]` y no se mueve con la meteo. Hay un matiz de referencia que conviene
+        /// tener escrito: la dirección del viento viene del simulador y el rumbo del avión es
+        /// verdadero; si el simulador la diera magnética, el error de la variación local movería la
+        /// componente como mucho ~1 kt en el aditivo —que además cae en un suelo de 5 kt—, así que en
+        /// un dato **informativo** es irrelevante. En el criterio no entra.
+        /// </summary>
+        private static double? HeadwindKt(ApproachContext ctx)
+        {
+            var wind = WindComponents.Compute(ctx.WindDirDeg, ctx.WindSpeedKt, null, ctx.Heading);
+            return wind.Available ? wind.HeadwindKt : (double?)null;
         }
 
         public void CheckApproachBelowGate(ApproachContext ctx)

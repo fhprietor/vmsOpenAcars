@@ -2,6 +2,33 @@
 
 ---
 
+## [0.9.72] — 11/11/2026
+
+### Added
+
+- **La Vapp informativa en la línea del veredicto** (`Helpers/ApproachSpeedWindow.Vapp`):
+  **`Vref + clamp(round(viento en cara / 3), 5, 15)`**, la fórmula que fijó phpVMS el 11/11/2026. Con su
+  caso real —ESSA→LIRF, A339, `vref_kt` 136, `wind_dir` 109,98 y `wind_speed` 8 contra `runway_true_deg`
+  162,68 ⇒ **4,85 kt en cara**— da **Vapp 141**, y el piloto a 137 iba dentro de `[131–151]`.
+  **No toca el criterio**: la ventana sigue siendo `[Vref − 5, Vref + 15]` y **no se mueve con la
+  meteorología** —moverla haría que el mismo pilotaje puntuara distinto según el día, que es justo lo
+  que no se puede auditar—; hay un comentario en el código que lo dice para que nadie lo «mejore»
+  después. Detalles que se fijan con test: **redondeo alejándose del cero** (19,5 kt → 6,5 → **7**; el
+  bancario daría 6), y el viento es el **del simulador en el ciclo de la compuerta**
+  (`RawTelemetryData.WindDirDeg/WindSpeedKt`, nuevos) descompuesto contra el rumbo del avión. Sin viento
+  o sin Vref, la línea **no se alarga**: queda como estaba.
+- **`metrics.planned_landing_weight_lbs`**: el peso de planeo **al que pertenece `vref_kt`**
+  (`tlr.landing.conditions.planned_weight`, en libras), **aparte** de `landing_weight_lbs` —el medido en
+  el toque—. Aditivo: phpVMS lo guarda aparte y no sustituye al medido, y sirve para auditar la ventana
+  sin depender del log y para comparar plan contra realidad. `null` sin TLR. Se persiste también en el
+  log local (`flights.planned_landing_weight_lbs`, migración defensiva) para que la relectura y el
+  relleno histórico lo lleven.
+
+- **1127 tests** (1126 pasan, 1 se omite sola): +3 —la Vapp con el caso de ellos y los bordes del suelo
+  (0 y 14,9 kt → +5) y del techo (45 y 90 kt → +15), el `null` sin Vref o sin viento, y el peso de
+  planeo en el payload separado del medido— más las aserciones del peso añadidas al viaje de ida y
+  vuelta del Vref y a la lista de columnas.
+
 ## [0.9.71] — 11/11/2026
 
 ### Fixed

@@ -172,6 +172,9 @@ namespace vmsOpenAcars.Helpers
                     // El Vref del plan: entero, y `null` sin TLR.
                     vref_kt          = record.VrefKt,
                     landing_weight_lbs = FiniteOrNull(record.LandingWeightLbs),
+                    // El peso de planeo **al que pertenece la Vref**, aparte del medido: phpVMS lo
+                    // pidió el 11/11/2026 para auditar la ventana sin depender del log. Aditivo.
+                    planned_landing_weight_lbs = FiniteOrNull(record.PlannedLandingWeightLbs),
 
                     aircraft_icao  = ClipOrNull(record.AircraftIcao,  MaxAircraftIcao),
                     aircraft_title = ClipOrNull(record.AircraftTitle, MaxAircraftTitle),

@@ -200,11 +200,15 @@ namespace vmsOpenAcars.Tests
                 // Los 496 ft reales de la 17 de SKBG, y el Vref del TLR de ese plan.
                 OffsetThresholdFt = 496.0,
                 VrefKt = 148,
+                // El peso de planeo al que pertenece ese Vref (el `planned_weight` del TLR, en lb).
+                PlannedLandingWeightLbs = 545116.5,
             }, null);
 
             var guardado = svc.GetFlights().Find(f => f.Id == conDesfase);
             Assert.AreEqual(496.0, guardado.OffsetThresholdFt.Value, 1e-9);
             Assert.AreEqual(148, guardado.VrefKt.Value, "el Vref del plan viaja entero");
+            Assert.AreEqual(545116.5, guardado.PlannedLandingWeightLbs.Value, 1e-6,
+                "el peso de planeo viaja con el Vref: es lo que permite auditar la ventana sin el log");
 
             // Las dos formas de «no hay dato», que son cosas distintas de un 0.
             int sinDesfase = svc.SaveFlight(new FlightRecord
@@ -228,6 +232,8 @@ namespace vmsOpenAcars.Tests
             Assert.AreEqual(0.0, alineado.OffsetThresholdFt.Value, 1e-9,
                             "un 0 aquí es una medida y no se puede convertir en NULL");
             Assert.IsNull(alineado.VrefKt, "sin TLR no se guarda un Vref inventado");
+            Assert.IsNull(alineado.PlannedLandingWeightLbs,
+                "sin TLR tampoco hay peso de planeo: `null`, no 0");
 
             var desconocido = svc.GetFlights().Find(f => f.Id == sinPista);
             Assert.IsNull(desconocido.OffsetThresholdFt,
@@ -741,6 +747,9 @@ namespace vmsOpenAcars.Tests
             // pista»; en `vref_kt`, NULL es «el plan no traía TLR» y **no se estima**.
             "offset_threshold_ft",
             "vref_kt",
+            // El peso de planeo al que corresponde el Vref (`planned_weight` del TLR), en libras.
+            // Pedido por phpVMS el 11/11/2026, aparte del medido: uno es el plan y otro el avión.
+            "planned_landing_weight_lbs",
             // El motivo del cierre de la captura (`stopped:…`). Es lo que deja distinguir al releer un
             // vuelo una traza completa de una **truncada**, y phpVMS lo usa en su IA y su gráfico.
             "trace_stop_reason",

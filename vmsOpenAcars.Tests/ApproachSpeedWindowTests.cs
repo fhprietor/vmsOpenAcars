@@ -105,5 +105,45 @@ namespace vmsOpenAcars.Tests
             Assert.AreEqual((195, 215), ApproachSpeedWindow.For(200, Atr),
                 "con Vref manda el Vref aunque el tipo sea otro: 200 kt en un ATR es raro, pero la ventana es del peso");
         }
+
+        // ── La Vapp informativa (no es el criterio) ───────────────────────────────
+
+        /// <summary>
+        /// **El caso exacto de phpVMS**: Vref 136 con **4,85 kt en cara** → `1,62 → 2`, que cae en el
+        /// suelo de 5 → **Vapp 141**. Y el piloto iba a 137, dentro de `[131–151]`. La Vapp es
+        /// informativa: **no** mueve la ventana (eso lo fija
+        /// <see cref="ApproachSpeedWindowTests.ElCasoReal_Vref136_DejaPasarLos137KtQueAntesPenalizaba"/>).
+        /// </summary>
+        [TestMethod]
+        public void LaVapp_EsLaFormulaDePhpVms_YNoMueveLaVentana()
+        {
+            Assert.AreEqual(141, ApproachSpeedWindow.Vapp(136, 4.85).Value);
+
+            // El suelo de 5 manda por debajo de 15 kt de viento en cara (15/3 = 5 justo en el borde).
+            Assert.AreEqual(141, ApproachSpeedWindow.Vapp(136, 0).Value,     "sin viento, el suelo de 5");
+            Assert.AreEqual(141, ApproachSpeedWindow.Vapp(136, 14.9).Value,  "14,9 kt → 5");
+            // Y a partir de ahí, un tercio del viento.
+            Assert.AreEqual(146, ApproachSpeedWindow.Vapp(136, 30).Value,    "30 kt → +10");
+            Assert.AreEqual(151, ApproachSpeedWindow.Vapp(136, 45).Value,    "45 kt → +15, el techo");
+            Assert.AreEqual(151, ApproachSpeedWindow.Vapp(136, 90).Value,    "90 kt sigue en el techo");
+            // Redondeo alejándose del cero, no el bancario que trae .NET por defecto: 19,5 kt → 6,5 → **7**
+            // (el bancario daría 6, y el aditivo saldría 142 en vez de 143).
+            Assert.AreEqual(143, ApproachSpeedWindow.Vapp(136, 19.5).Value);
+            // Viento en cola: la fórmula que fijaron también cae en el suelo de 5.
+            Assert.AreEqual(141, ApproachSpeedWindow.Vapp(136, -12).Value);
+
+            // Y la ventana NO cambia por tener Vapp: sigue siendo la del Vref.
+            Assert.AreEqual((131, 151), ApproachSpeedWindow.For(136, A339));
+        }
+
+        /// <summary>Sin Vref o sin viento no hay Vapp: no se inventa. Y un dato roto tampoco.</summary>
+        [TestMethod]
+        public void SinVrefOSinViento_NoHayVapp()
+        {
+            Assert.IsNull(ApproachSpeedWindow.Vapp(null, 10), "sin Vref no hay Vapp");
+            Assert.IsNull(ApproachSpeedWindow.Vapp(5, 10),    "un Vref implausible tampoco");
+            Assert.IsNull(ApproachSpeedWindow.Vapp(136, null), "sin dato de viento, `null`");
+            Assert.IsNull(ApproachSpeedWindow.Vapp(136, double.NaN), "un NaN no es un viento");
+        }
     }
 }

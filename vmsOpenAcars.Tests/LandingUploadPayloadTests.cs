@@ -277,6 +277,32 @@ namespace vmsOpenAcars.Tests
                           "sin TLR no se inventa un Vref");
         }
 
+        /// <summary>
+        /// **El peso de planeo va aparte del medido**, y los dos en el mismo `metrics`: lo pidió phpVMS
+        /// el 11/11/2026 para auditar la ventana sin depender del log y comparar plan contra realidad.
+        /// `planned_landing_weight_lbs` (el del TLR, al que pertenece el Vref) **no** sustituye a
+        /// `landing_weight_lbs` (el medido en el toque).
+        /// </summary>
+        [TestMethod]
+        public void ElPesoDePlaneoViajaAparteDelMedido_Y_SinPlanVaNull()
+        {
+            var r = Vuelo44();
+            r.VrefKt = 136;
+            r.PlannedLandingWeightLbs = 400100.0;   // el A339 del caso real
+            r.LandingWeightLbs = 398500.0;          // y lo que pesó de verdad
+
+            var m = LandingUploadPayload.Build(r, Traza(), Version).metrics;
+
+            Assert.AreEqual(400100.0, m.planned_landing_weight_lbs.Value, 1e-9,
+                            "el peso al que pertenece la Vref");
+            Assert.AreEqual(398500.0, m.landing_weight_lbs.Value, 1e-9,
+                            "y el medido sigue siendo el medido: son dos datos, no uno");
+
+            r.PlannedLandingWeightLbs = null;
+            Assert.IsNull(LandingUploadPayload.Build(r, Traza(), Version).metrics.planned_landing_weight_lbs,
+                          "sin TLR no hay peso de planeo, y no se rellena con el medido");
+        }
+
         [TestMethod]
         public void ElCeroDeLaDistanciaDeTomaEsUnaMedida_YElDeLaDesviacionDeEjeNo()
         {

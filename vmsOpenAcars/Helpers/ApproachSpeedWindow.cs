@@ -57,6 +57,39 @@ namespace vmsOpenAcars.Helpers
                vrefKt.Value >= PlausibleMinKt &&
                vrefKt.Value <= PlausibleMaxKt;
 
+        /// <summary>Aditivo mínimo de Vapp: 5 kt aunque no haya viento (el suelo de la fórmula de phpVMS).</summary>
+        internal const int VappMinAdditiveKt = 5;
+
+        /// <summary>Aditivo máximo de Vapp: 15 kt. Por encima, la maniobra ya no es la misma aproximación.</summary>
+        internal const int VappMaxAdditiveKt = 15;
+
+        /// <summary>
+        /// **La Vapp informativa**: `Vref + clamp(round(viento en cara / 3), 5, 15)`, la fórmula que
+        /// fijó phpVMS el 11/11/2026.
+        ///
+        /// **No es el criterio, y esto es lo que hay que no perder de vista:** la ventana con la que se
+        /// puntúa es `[Vref − 5, Vref + 15]` y **no se mueve** con el viento (ver <see cref="For"/>).
+        /// Esto solo se publica en el registro, al lado de la velocidad, para poder leer el veredicto
+        /// con la velocidad que el piloto «debía» llevar. Con su caso real —Vref 136 y 4,85 kt en
+        /// cara— da **141 kt**, y el piloto a 137 kt pasaba igual.
+        ///
+        /// `null` sin Vref utilizable o sin dato de viento: no se inventa una Vapp.
+        /// </summary>
+        internal static int? Vapp(int? vrefKt, double? headwindKt)
+        {
+            if (!IsUsable(vrefKt)) return null;
+            if (!headwindKt.HasValue ||
+                double.IsNaN(headwindKt.Value) || double.IsInfinity(headwindKt.Value))
+                return null;
+
+            // Redondeo alejándose del cero, no el bancario que trae .NET por defecto: con 4,5 kt la
+            // cuenta es 1,5 y la fórmula de ellos espera 2.
+            int additive = (int)Math.Round(headwindKt.Value / 3.0, MidpointRounding.AwayFromZero);
+            if (additive < VappMinAdditiveKt) additive = VappMinAdditiveKt;
+            if (additive > VappMaxAdditiveKt) additive = VappMaxAdditiveKt;
+            return vrefKt.Value + additive;
+        }
+
         /// <summary>
         /// La ventana en nudos. **Con un Vref usable manda el Vref** (depende del peso, que es lo que
         /// se pedía); sin él, la tabla por tipo de siempre.
