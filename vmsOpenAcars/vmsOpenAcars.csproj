@@ -248,6 +248,13 @@
     <Compile Include="Helpers\CabinCalloutPolicy.cs" />
     <Compile Include="Helpers\ExcursionCounter.cs" />
     <Compile Include="Helpers\SpoilersPosition.cs" />
+    <!-- El ATR no tiene spoilers y su indicador oscila: lista de tipos que degrada sin datos. -->
+    <Compile Include="Helpers\SpoilerlessAircraft.cs" />
+    <!-- Una sola escala de flaps (el recorrido del mando) y el G medido del toque. -->
+    <Compile Include="Helpers\FlapsScale.cs" />
+    <Compile Include="Helpers\TouchdownGForceWindow.cs" />
+    <!-- Un aviso del RAAS, un registro: el log local no lo espeja al PIREP. -->
+    <Compile Include="Helpers\AcarsLogMirror.cs" />
     <Compile Include="Helpers\StateChangeGate.cs" />
     <Compile Include="Helpers\AirspaceOsdPolicy.cs" />
     <!-- Fecha de vigencia del AIRAC: el formato de salida se decide en un helper puro, con su test. -->

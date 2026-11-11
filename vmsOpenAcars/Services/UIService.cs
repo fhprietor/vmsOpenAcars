@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services.Interfaces;
 using vmsOpenAcars.UI;
@@ -58,7 +59,12 @@ namespace vmsOpenAcars.Services
                 _form.txtIncomingMsg.SelectionColor = color;
                 _form.txtIncomingMsg.SelectedText = $"{DateTime.UtcNow:HH:mm:ss} - {message}\n";
             }
-            if (!string.IsNullOrEmpty(_flightManager?.ActivePirepId))
+            // Cada línea del log se reenvía al PIREP (`type = 2`) mientras el vuelo está abierto…
+            // **salvo las que ya tienen su camino propio** (`Helpers/AcarsLogMirror`): el aviso del
+            // RAAS lo registra `FlightManager.LogRaasCallout` con el prefijo `RAAS:` que phpVMS
+            // distingue. Espejarlo además aquí lo dejaba dos veces en el mismo segundo.
+            if (!string.IsNullOrEmpty(_flightManager?.ActivePirepId)
+                && AcarsLogMirror.ShouldMirror(message))
             {
                 SendLogToAcars(message);
             }

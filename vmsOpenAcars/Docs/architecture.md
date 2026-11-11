@@ -3250,6 +3250,83 @@ Umbrales elevados evitan falsas transiciones por cambios de QNH o turbulencia le
 
 ---
 
+## Lo que se puntúa del toque: el G, la escala de flaps, los spoilers y el aviso del RAAS (v0.9.70)
+
+Cuatro defectos del PIREP real **`D0Wy9Pa7GNB5pYEo`** (AT76, MSFS 2024, SKPE→SKMD, cliente
+v0.9.67) que comparten una misma forma: **el mismo dato leído por dos caminos**. El contraste es el
+vuelo anterior `nROPdk4GxYY5AOy1`.
+
+### El G del toque
+
+```
+01:36:32  G-Force: 1.32g (Normal)                 ← 0x11BA / 625
+01:36:32  Landing recorded: -346 fpm, 1.85 G …    ← FlightManager.CalculateGForce(vs)
+01:43:04  −15 pts: G-Force (1.85g at touchdown)
+```
+
+`CalculateGForce` era una tabla del descenso: `vs <= 350 → 1,85 g`, de 1,00 g a 30 fpm hasta 2,50 g.
+El valor que **se veía** en la línea del bloque ACCURATE TOUCHDOWN DATA era el del acelerómetro, y el
+que **se puntuaba** el de la tabla. `−346 fpm` con `1,85 g` es físicamente incoherente; con `1,32 g`
+encaja, y el escalón `≤1.5g` del scoring son **0 puntos**, no 15. La tabla también explica el
+`1,05 G` sin penalización de `nROPdk4GxYY5AOy1` (`vs <= 90`).
+
+`Helpers/TouchdownGForceWindow` guarda las lecturas de `0x11BA` **solo con el avión en el aire** y
+devuelve el máximo de la **ventana de 1 s** que termina en el contacto. Dos decisiones:
+
+- **No el pico de todo el vuelo.** `_peakGforceApproach` se reiniciaba en el aterrizaje, así que
+  «el pico del toque» era el del vuelo entero: una racha en el ascenso decidía la nota.
+- **No después del contacto.** Lo que sigue al primer contacto es el rebote. El frame del contacto sí
+  entra, con `Math.Max(ventana, CurrentGForce)`, porque la bandera de suelo ya está puesta cuando se
+  confirma (`GroundContactGate` exige 3 frames).
+
+El valor se publica una vez (`FsuipcService.TouchdownGForce` → `RawTelemetryData.TouchdownGForce`) y
+lo consumen `TouchdownData.GForcePeak` (log y OSD) y `FlightManager.RegisterTouchdown` (scoring).
+**0 = no medido** → el criterio se omite y la línea imprime `—`.
+
+### La escala de flaps
+
+```
+01:36:32  Flaps: 40% | Spoilers: 0%        ← DecodeFlaps(0x0BDC): grados de Boeing
+01:36:32  … FLAPS 100%                     ← 0x0BDC / 16383 × 100
+```
+
+Los dos leían el **mismo offset**. `DecodeFlaps` devolvía {0,1,2,5,10,15,25,30,40} y se imprimía con
+un `%`; en el ATR (posiciones 15 % y 30 %) eso da 25 y 40 —la secuencia «hacia atrás» de las
+01:32:15/01:32:20/01:32:37.
+
+La escala única es `raw / 16383 × 100` (`Helpers/FlapsScale`): es lo único que el offset mide y ya
+está normalizada contra el recorrido real de cada avión, porque el addon declara su fondo de escala
+en esos 16 383. **El umbral del 50 % no se mueve** (`FlapsScale.StabilizedMinPercent`, usado por
+`FlightManager.IsApproachStabilized` y por `ApproachValidator`): a 1 000 ft el ATR llevaba el mando a
+fondo (100 %) y la puerta dijo `STABILIZED` con razón. El evento del log se cuantiza por bandas
+(`FlapsScale.BandKey`, las mismas de antes) para no escribir una línea por punto porcentual.
+
+### Los spoilers del ATR
+
+Seis pares `DEPLOYED`/`RETRACTED` entre 14 500 y 8 300 ft (`01:27:23→01:27:39`, `01:27:53→01:28:13`,
+`01:29:11→01:30:23`, `01:31:18→01:31:28`, `01:31:37→01:32:09`, `01:32:28→01:32:36`) con el avión
+limpio, y `Spoilers: 0%` en el toque. El ATR no tiene spoilers y su addon deja `0x0BD8` oscilando
+alrededor del 10 % que `SpoilersPosition` exige.
+
+`Helpers/SpoilerlessAircraft` es una **lista de tipos** —AT43/AT45/AT46/AT72/AT75/AT76 y la familia
+`AT4x`/`AT7x`—, igual que `BeaconStrobeSharedAircraft` con el DH8D, y fuerza la fracción a 0. Un tipo
+fuera de la lista se comporta como antes: la regla degrada sin datos, no adivina.
+
+### El aviso del RAAS
+
+```
+01:03:09  RAAS: APPROACHING RUNWAY 26
+01:03:09  🛫 APPROACHING RUNWAY 26
+```
+
+`UIService.AddLog` espeja al PIREP **todo** el log local (`POST /acars/position`, `type = 2`)
+mientras hay vuelo abierto, y `FlightManager.LogRaasCallout` manda el mismo aviso por
+`/acars/logs` con el prefijo `RAAS:` que phpVMS distingue de las filas `CHK`. El que sobra es el
+espejo: `Helpers/AcarsLogMirror` no reenvía la línea que empieza por `🎙️ RAAS:`. El audio no se
+duplicaba —una sola llamada a `RaasVoice.Speak` por aviso—; era solo el registro.
+
+---
+
 ## Las suites de tests y sus casos reales
 
 *(Movido aquí desde `CLAUDE.md` el 12/10/2026 para liberar el presupuesto de instrucciones del agente;
@@ -3284,6 +3361,9 @@ Y desde v0.9.43, las reglas de la fase con el avión en el suelo y del motor ún
 `SingleEngineTaxiPolicyTests` (el 46 % real, el umbral exacto, el truncado y la propiedad de que la
 suma no puede aprobar lo que una fase no apruebe), `TerrainReferenceTests` (**264 ft** fantasma contra
 **3 ft** reales), `ManualOnBlockTests` y `MainButtonBarTests`.
+Y desde v0.9.70, `TouchdownGForceWindowTests` (1,32 g medidos contra los 1,85 g que daba la tabla en
+`D0Wy9Pa7GNB5pYEo`), `FlapsScaleTests` (la escala única y el 50 % fijado), `SpoilerlessAircraftTests`
+(el ATR y la degradación) y `AcarsLogMirrorTests` (los cuatro avisos reales, una sola vez).
 Los casos centrales usan **coordenadas, altitudes y navlogs de vuelos reales**, no geometría
 inventada: el falso SKTL, el SKCG legítimo, los tres falsos de KBOS y el rodaje completo del
 `MNjR664PBAr25RbD` (106 segmentos reales de SKBO y las posiciones del pushback y del rodaje).

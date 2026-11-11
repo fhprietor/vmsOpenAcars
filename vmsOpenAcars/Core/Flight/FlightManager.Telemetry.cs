@@ -11,30 +11,18 @@ namespace vmsOpenAcars.Core.Flight
 {
     public partial class FlightManager
     {
-        private double CalculateGForce(int verticalSpeedFpm)
-        {
-            int vs = Math.Abs(verticalSpeedFpm);
-            if (vs <= 30) return 1.00;
-            if (vs <= 60) return 1.02;
-            if (vs <= 90) return 1.05;
-            if (vs <= 120) return 1.10;
-            if (vs <= 150) return 1.18;
-            if (vs <= 180) return 1.28;
-            if (vs <= 210) return 1.38;
-            if (vs <= 240) return 1.48;
-            if (vs <= 270) return 1.58;
-            if (vs <= 300) return 1.68;
-            if (vs <= 350) return 1.85;
-            if (vs <= 400) return 2.00;
-            if (vs <= 500) return 2.20;
-            if (vs <= 600) return 2.40;
-            return 2.50;
-        }
-
         private void RegisterTouchdown(int verticalSpeed)
         {
             if (_td.Captured) return;
-            double gforce = CalculateGForce(verticalSpeed);
+
+            // **El G que se puntúa es el que se mide**, no uno deducido del descenso. Hasta v0.9.69
+            // aquí había una tabla —`vs <= 350 → 1.85 g`— que en el PIREP `D0Wy9Pa7GNB5pYEo` penalizó
+            // 15 puntos un toque de **−346 fpm** cuyo acelerómetro decía **1,32 g** (escalón `≤1.5 g`:
+            // 0 puntos). La lectura llega en el mismo ciclo: `FsuipcService` publica la ventana de 1 s
+            // del contacto en `RawTelemetryData.TouchdownGForce`. **0 = no medido**, y el scoring lo
+            // omite en vez de inventar.
+            double gforce = LastRawData?.TouchdownGForce ?? 0.0;
+
             _td.Capture(verticalSpeed, _currentPitch, _currentBank, gforce, CurrentLat, CurrentLon, CurrentHeading);
 
             // El campo de llegada, con la posición del toque: es la referencia de la comprobación

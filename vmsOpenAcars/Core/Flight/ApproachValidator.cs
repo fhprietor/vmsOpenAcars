@@ -466,8 +466,9 @@ namespace vmsOpenAcars.Core.Flight
                 OnLog?.Invoke(_("Log_ApproachGateGear"), Theme.Warning);
             }
 
-            // 7. Flaps
-            if (ctx.FlapsPosition < 50)
+            // 7. Flaps — el 50 % es el histórico y **no se mueve**; lo que cambió en v0.9.70 es que
+            // este número y el que se imprime en el log son ya el mismo (`Helpers/FlapsScale`).
+            if (ctx.FlapsPosition < FlapsScale.StabilizedMinPercent)
             {
                 deductions += 4;
                 OnLog?.Invoke(_("Log_ApproachGateFlaps", ctx.FlapsPosition.ToString("F0")), Theme.Warning);

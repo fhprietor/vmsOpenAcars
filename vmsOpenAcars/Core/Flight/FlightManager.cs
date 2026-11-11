@@ -212,7 +212,10 @@ namespace vmsOpenAcars.Core.Flight
                 bool bankOk = Math.Abs(_currentBank) <= 7.0;
                 bool pitchOk = _currentPitch >= -2.5 && _currentPitch <= 10.0;
                 bool gearOk = IsGearDown;
-                bool configOk = CurrentFlapsPosition >= 50;
+                // El mismo umbral que el gate de scoring, en la escala única (`Helpers/FlapsScale`):
+                // el 50 % no se mueve —sigue siendo «medio recorrido de flaps»— y en el ATR el detente
+                // de 30 vale el 100 % de ese recorrido.
+                bool configOk = CurrentFlapsPosition >= FlapsScale.StabilizedMinPercent;
 
                 return speedOk && vsOk && bankOk && pitchOk && gearOk && configOk;
             }

@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.69  
+**Versión actual:** v0.9.70  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -117,12 +117,12 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
 | Criterio | Máx | Umbrales / condición |
 |---|---|---|
 | Landing Rate | 40 | ≤150=0, ≤250=5, ≤350=15, ≤450=25, ≤650=35, >650=40 |
-| G-Force | 15 | ≤1.5g=0, ≤1.7g=7, >1.7g=15 (omitido si dato=0) |
+| G-Force | 15 | ≤1.5g=0, ≤1.7g=7, >1.7g=15 (omitido si dato=0). **Es el G medido** (`0x11BA`, ventana de 1 s del contacto, `Helpers/TouchdownGForceWindow`): desde v0.9.70 no se deduce del descenso |
 | Bank Angle | 10 | ≤2°=0, ≤5°=5, >5°=10 |
 | Pitch Angle | 10 | 1°–7°=0; <−2°=10; −2°–1°=5; >8°=5 |
 | Overspeed | 15 | 0=0, 1=7, ≥2=15 |
 | Lights Compliance | 10 | 5 pts/violación cap 10; Beacon exempto en `BeaconStrobeSharedAircraft` (DH8D) |
-| Stabilized Approach 1000 ft | 15 | speed±Vref=−5, VS<−1000=−5, VS>−100=−5, bank>7°=−3, pitch±límites=−3, gear up=−5, flaps<50%=−4 |
+| Stabilized Approach 1000 ft | 15 | speed±Vref=−5, VS<−1000=−5, VS>−100=−5, bank>7°=−3, pitch±límites=−3, gear up=−5, flaps<50%=−4 (**umbral sin mover**; la escala es una sola desde v0.9.70: `Helpers/FlapsScale`, el % del recorrido del mando) |
 | QNH Compliance | 10 | Δ>2 hPa=−5 ×2: salida vs METAR origen; llegada vs QNH (bajo TL) |
 | Standard Pressure | 5 | −5 si no se aplica 1013 al cruzar la TA (`StdPressureViolation`) |
 | IVAO Offline | 5 | −5 si desconectado al iniciar TaxiOut |
@@ -442,6 +442,11 @@ Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el
 - **Voz SAPI** (`Services/RaasVoice.cs`): cola FIFO en hilo propio —el hilo de telemetría nunca se
   bloquea—, volumen propio, y **degrada en silencio** si el equipo no tiene voces (lo dice una vez
   en el log). Usa `System.Speech`, que va con .NET Framework: nada que distribuir.
+- **Un aviso, un registro (v0.9.70)**: el aviso viaja al PIREP por `/acars/logs` con el prefijo
+  `RAAS:` (`LogRaasCallout`) y el log local **no** lo espeja (`Helpers/AcarsLogMirror`). Antes se
+  registraba dos veces —`RAAS: APPROACHING RUNWAY 26` y `🛫 APPROACHING RUNWAY 26` a las 01:03:09
+  del PIREP `D0Wy9Pa7GNB5pYEo`— porque `UIService.AddLog` espeja al PIREP todo el log. La voz no se
+  duplicaba: hay una sola llamada a `RaasVoice.Speak`.
 
 > El detalle —historia del punto de espera, base de rutas, dos fuentes de coordenadas, empalmes,
 > `node_id` y el caso G74 → A3— está en **`Docs/architecture.md` → "El grafo de rodaje"**.
@@ -504,6 +509,9 @@ panel con `AutoScroll` y `Dock.Fill` y los botones en `Dock.Bottom`, con la vent
 > Detalle completo —la gracia de entrada de fase, el tope del pushback, el estado de motores,
 > el tren y los spoilers, las reversas y el panel de PMDG— en **`Docs/architecture.md`** →
 > "Detección de fases: gracia de entrada, el tope del pushback y el panel (v0.9.40–v0.9.55)".
+> **Los aviones sin spoilers son una lista de tipos** (`Helpers/SpoilerlessAircraft`, ATR): su
+> indicador fantasma escribía pares DEPLOYED/RETRACTED, y un tipo que no esté en la lista se
+> comporta como siempre (v0.9.70).
 
 ---
 
@@ -552,7 +560,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1086 tests** (1 se omite sola).
+`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1106 tests** (1 se omite sola).
 
 **Qué cubre la suite** — cada bloque con sus casos reales, sus fixtures y lo que no se puede
 re-ejecutar sin red: **`Docs/architecture.md`** → "Las suites de tests y sus casos reales".

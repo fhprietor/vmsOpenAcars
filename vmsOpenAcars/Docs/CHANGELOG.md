@@ -2,6 +2,134 @@
 
 ---
 
+## [0.9.70] — 11/11/2026
+
+Cuatro defectos medidos en el PIREP real **`D0Wy9Pa7GNB5pYEo`** (AT76 en MSFS 2024,
+**SKPE→SKMD**, cliente v0.9.67), con el vuelo anterior **`nROPdk4GxYY5AOy1`** (AT76, SKBO→SKPE)
+como contraste. No se ha re-investigado ninguno: las horas y las cifras son las del log que
+reportó el mantenedor.
+
+> **Aviso al mantenedor — esto cambia puntuaciones pasadas.** Los puntos A y B tocan lo que se
+> puntúa, así que **los PIREP ya fileados no se recalifican solos**: el mismo vuelo, con el cliente
+> de esta versión, habría sacado otra nota. En `D0Wy9Pa7GNB5pYEo` el criterio de G-Force pasa de
+> **−15** a **0** (1,85 g deducido → 1,32 g medido). El criterio de flaps **no cambia de valor**:
+> el umbral sigue en el 50 %; lo que cambia es que ahora se compara y se imprime la misma escala.
+> No se ha reenviado ni recalculado ningún PIREP.
+
+### Fixed
+
+**A) El G-Force que se puntuaba no era el que se medía.** Del log, en el mismo segundo:
+
+```
+01:36:32  G-Force: 1.32g (Normal)                 ← lectura del acelerómetro 0x11BA
+01:36:32  Landing recorded: -346 fpm, 1.85 G …    ← tabla del descenso
+01:43:04  −15 pts: G-Force (1.85g at touchdown)
+```
+
+Eran **dos números distintos del mismo toque**, y el que decidía la nota era el inventado.
+`FlightManager.CalculateGForce` (borrado) convertía el descenso en g con una tabla —`vs <= 350 →
+1,85 g`, de 1,00 g con 30 fpm a 2,50 g—, de ahí el 1,85 de un contacto de **−346 fpm**; el 1,32 era
+`0x11BA`. La física está del lado del medido: −346 fpm es un firme normal y 1,85 g le correspondería
+a uno mucho más duro. En `nROPdk4GxYY5AOy1` el registro decía **1,05 G** y no hubo penalización:
+también salía de la tabla (`vs <= 90`).
+
+- **`Helpers/TouchdownGForceWindow.cs`** (nuevo, puro y con test): el **pico del acelerómetro en la
+  ventana de 1 segundo que termina en el contacto**. Ni el pico de todo el vuelo —lo que acumulaba
+  `_peakGforceApproach`, que no se reiniciaba hasta aterrizar, así que una turbulencia del ascenso
+  podía decidir la nota— ni el de después del contacto, que ya es el rebote. A 20 Hz son ~20 muestras.
+- `FlightManager.RegisterTouchdown` ya no deduce nada: puntúa `RawTelemetryData.TouchdownGForce`,
+  la misma lectura que publica `FsuipcService.HandleTouchdown` en `TouchdownData.GForcePeak`. **Un
+  solo número** para el log, el OSD y el scoring.
+- **Sin lectura no hay penalización**: 0 es «no medido» (un addon que no escriba `0x11BA`) y el
+  criterio se omite, como ya hacía el scoring. La línea del aterrizaje imprime `—` en vez de `0.00 G`.
+
+**B) Los flaps estaban en dos escalas contradictorias.** En el mismo segundo del toque:
+
+```
+01:36:32  Flaps: 40% | Spoilers: 0%        ← DecodeFlaps
+01:36:32  … FLAPS 100%                     ← 0x0BDC / 16383 × 100
+```
+
+No era redondeo: eran **dos decodificadores del mismo offset**. `DecodeFlaps` devolvía
+{0, 1, 2, 5, 10, 15, 25, 30, 40} —las compuertas de un **Boeing**— y el cliente lo imprimía con un
+`%` detrás. En el ATR, cuyas únicas posiciones son **15 % y 30 %**, eso estiraba la escala: 15 → 25 y
+30 → 40, que es exactamente la secuencia «hacia atrás» de la aproximación (`0% → 40%` a las
+01:32:15, `40% → 25%` cinco segundos después, `25% → 40%` a las 01:32:37).
+
+- **`Helpers/FlapsScale.cs`** (nuevo, puro y con test): **una sola escala**, la del offset
+  (`raw / 16383 × 100`), que es lo único que el dato mide y que ya viene normalizada contra el
+  **recorrido real de cada avión** (el addon declara su fondo de escala en esos 16 383). El ATR con
+  el mando a fondo da **100 %**, no 40. **No hace falta ninguna tabla de «máximo por tipo»**, así
+  que no hay ningún caso en que falte el dato: no se degrada nada.
+- `FsuipcService.DecodeFlaps` **se retira**; `CurrentFlapsPercent` es ya el porcentaje del mando y
+  no hay un segundo número. El rótulo de vuelo (`DecodeFlapsByFamily`) no se toca: nunca publicó un
+  porcentaje.
+- **El umbral del 50 % no se mueve** (`Helpers/FlapsScale.StabilizedMinPercent`, con test que lo
+  fija). Y la puerta de estabilización **tenía razón**: a las 01:35:15, a 1 000 ft AGL, el avión
+  llevaba el mando a fondo —100 % de recorrido— y dijo `STABILIZED — all criteria met`; el `40 %`
+  que se imprimía al lado era el otro decodificador. En el ATR el detente de 30 vale 100 % y el de 15
+  ronda la mitad, así que el 50 % sigue siendo alcanzable y no hay motivo para bajarlo.
+- **La línea del log no escribe una línea por punto**: el mando se mueve en pasos de 0,006 % (1 de
+  16 383), así que el evento se cuantiza por bandas —las mismas que ya usaba el detector— y publica
+  el porcentaje real.
+
+**C) Spoilers fantasma en el ATR — el avión no tiene spoilers.** Seis pares
+`DEPLOYED`/`RETRACTED` en el descenso, entre 14 500 y 8 300 ft y con el avión limpio:
+`01:27:23→01:27:39`, `01:27:53→01:28:13`, `01:29:11→01:30:23`, `01:31:18→01:31:28`,
+`01:31:37→01:32:09` y `01:32:28→01:32:36`; en el toque, `Spoilers: 0%`. La lectura de `0x0BD8`
+oscila alrededor del 10 % que `SpoilersPosition` exige para decir «desplegado».
+
+- **`Helpers/SpoilerlessAircraft.cs`** (nuevo, puro y con test): lista de tipos sin spoilers
+  —`AT43`, `AT45`, `AT46`, `AT72`, `AT75`, `AT76`, más la familia `AT4x`/`AT7x`— y
+  `EffectiveFraction`, que fuerza la posición a 0. Es el mismo patrón que
+  `BeaconStrobeSharedAircraft` con el DH8D: **una lista de tipos, no un detector genérico**.
+- **Degrada sin datos**: un tipo que no esté en la lista se comporta exactamente como hoy. En el
+  test, el mismo valor (1 900 de 16 383, el 11,6 %) sigue contando como despliegue en un 737.
+
+**D) Cada aviso del RAAS se registraba dos veces.** Del log, en el mismo segundo:
+
+```
+01:03:09  RAAS: APPROACHING RUNWAY 26
+01:03:09  🛫 APPROACHING RUNWAY 26
+```
+
+y lo mismo con los otros tres avisos (`HOLD SHORT`, `OFF ROUTE`, `TAXI ROUTE COMPLETE`). Eran
+**dos caminos**: `UIService.AddLog` espeja al PIREP (`POST /acars/position`, `type = 2`) **toda**
+línea del log mientras hay vuelo abierto, y `FlightManager.LogRaasCallout` manda el aviso por
+`/acars/logs` con el prefijo `RAAS:` que phpVMS distingue de las filas `CHK`.
+
+- **`Helpers/AcarsLogMirror.cs`** (nuevo, puro y con test): el espejo **no** reenvía la línea del
+  aviso. La marca es el prefijo de la línea local, `🎙️ RAAS:`, que ahora se escribe así; el texto
+  del aviso cambia con el idioma y con la plantilla, el prefijo no. Nada más se calla: la guía de
+  rodaje, los anuncios de cabina y los avisos que no son un callout (`⚠️ RAAS: sin voz SAPI…`)
+  siguen espejándose.
+- **Era solo el registro, no el audio.** Hay **una sola** llamada a `RaasVoice.Speak` por aviso
+  (`TelemetryCoordinator.EvaluateRaas`), así que no se locutaba dos veces. No verificable con un
+  test —no hay tarjeta de sonido en la suite—: se comprobó leyendo el único punto de llamada.
+
+### Tests
+
+20 nuevos, sin red y sin ventanas, con las cifras reales de los dos vuelos:
+`TouchdownGForceWindowTests` (5: 1,32 g contra el 1,85 de la tabla, la racha del ascenso que no es
+el toque, el borde de la ventana, «sin muestras no hay medida» y el reset del despegue),
+`FlapsScaleTests` (7: 0/100 %, el ATR al 100 % con el mando a fondo, la escala normalizada contra el
+recorrido, el umbral del 50 % fijado, la cuantización del log y el recorte fuera de rango),
+`SpoilerlessAircraftTests` (5: el ATR y su familia, los demás aviones, sin tipo, la posición
+forzada a cero y la oscilación que ya no cruza el umbral) y `AcarsLogMirrorTests` (4: los cuatro
+avisos reales, lo que sigue espejándose, el prefijo con espacios y la línea vacía). La suite pasa de
+**1086** a **1106** (1 se omite sola).
+
+### Verificación
+
+- Build **Debug y Release** con el `MSBuild.exe` de VS2017: sin errores.
+  `(Get-Item bin\Release\vmsOpenACars.exe).VersionInfo` → **ProductVersion 0.9.70**.
+- Suite completa: **1106 tests, 1105 pasan, 1 se omite sola**.
+- **No verificado**: no hay FSUIPC en este equipo, así que no se ha volado con el cliente nuevo; el
+  G medido y la escala de flaps se han comprobado con las cifras del log, no con una toma real. El
+  ATR del mantenedor es el único caso de `SpoilerlessAircraft` que está medido.
+
+---
+
 ## [0.9.69] — 10/11/2026
 
 La actualización se quedaba a medias con la aplicación todavía viva. El piloto vio, con la

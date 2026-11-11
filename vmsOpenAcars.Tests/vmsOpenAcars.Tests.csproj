@@ -108,6 +108,12 @@
     <Compile Include="StateChangeGateTests.cs" />
     <Compile Include="ExcursionCounterTests.cs" />
     <Compile Include="SpoilersPositionTests.cs" />
+    <!-- v0.9.70: el ATR sin spoilers, la escala única de flaps, el G medido del toque y el aviso
+         del RAAS que no se espeja al PIREP. Datos reales de D0Wy9Pa7GNB5pYEo y nROPdk4GxYY5AOy1. -->
+    <Compile Include="SpoilerlessAircraftTests.cs" />
+    <Compile Include="FlapsScaleTests.cs" />
+    <Compile Include="TouchdownGForceWindowTests.cs" />
+    <Compile Include="AcarsLogMirrorTests.cs" />
     <!-- El 0x8007000B de la 0.9.63: el módulo real era SQLite.Interop (no pdfium), las cuatro
          nativas con su tamaño y machine, y qué texto va en cada caso. Sin abrir ventanas. -->
     <Compile Include="NativeFailureTests.cs" />

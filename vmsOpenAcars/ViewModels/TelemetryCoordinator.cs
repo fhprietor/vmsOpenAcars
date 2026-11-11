@@ -2093,7 +2093,12 @@ namespace vmsOpenAcars.ViewModels
                 if (callout.Type == RaasCalloutType.None) return;
 
                 string text = FormatCallout(callout);
-                _cb.Log?.Invoke("🎙️ " + text, Theme.Taxi);
+                // El prefijo `🎙️ RAAS:` es el que `Helpers/AcarsLogMirror` reconoce para **no**
+                // espejar esta línea al PIREP: el aviso ya viaja por `LogRaasCallout`, y espejarlo
+                // otra vez lo registraba dos veces (PIREP `D0Wy9Pa7GNB5pYEo`: `RAAS: APPROACHING
+                // RUNWAY 26` y `🛫 APPROACHING RUNWAY 26` en el mismo segundo, y lo mismo con los
+                // otros tres avisos).
+                _cb.Log?.Invoke("🎙️ RAAS: " + text, Theme.Taxi);
                 _cb.OsdMessage?.Invoke(text.ToUpperInvariant(), OsdSeverity.Info);
                 RaasVoice.Speak(text);
                 // Y queda en el PIREP, con el prefijo `RAAS:`: hasta v0.9.16 los avisos solo existían

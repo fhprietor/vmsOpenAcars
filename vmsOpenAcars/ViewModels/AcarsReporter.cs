@@ -135,7 +135,10 @@ namespace vmsOpenAcars.ViewModels
                 await _apiService.SendPositionUpdate(_flightManager.ActivePirepId, upd);
                 // La línea del aterrizaje gana el tiempo umbral→toma, los flaps y el corte de potencia,
                 // leídos del buffer del flare **en memoria**: en vuelo no hay que ir a la base.
-                _cb.Log?.Invoke(_("Log_LandingRecorded", verticalSpeed, $"{gforce:F2}",
+                //
+                // El G es el **medido** del contacto (`Helpers/TouchdownGForceWindow`) desde v0.9.70, y
+                // sin lectura va `—`, no un `0.00` que parecería una medida.
+                _cb.Log?.Invoke(_("Log_LandingRecorded", verticalSpeed, GForceText(gforce),
                     (int)_fsuipc.CurrentHeading, $"{pitch:F1}", $"{bank:F1}")
                     + LandingTrackNote(), Theme.Success);
             });
@@ -143,8 +146,16 @@ namespace vmsOpenAcars.ViewModels
             int abs = Math.Abs(verticalSpeed);
             OsdSeverity sev   = abs <= 300 ? OsdSeverity.Success : abs <= 600 ? OsdSeverity.Warning : OsdSeverity.Critical;
             string      label = abs <= 300 ? "TOUCHDOWN"         : abs <= 600 ? "FIRM LANDING"      : "HARD LANDING";
-            _cb.OsdMessage?.Invoke($"{label}  {verticalSpeed} FPM  {gforce:F2} G", sev);
+            _cb.OsdMessage?.Invoke($"{label}  {verticalSpeed} FPM  {GForceText(gforce)} G", sev);
         }
+
+        /// <summary>
+        /// El G del toque tal como se publica: con dos decimales, o **`—` si no se midió** (0). Desde
+        /// v0.9.70 el valor sale del acelerómetro, así que «0» ya no es un 1 g mal redondeado sino la
+        /// ausencia de lectura: imprimir `0.00 G` fingiría una medida que no existe.
+        /// </summary>
+        private static string GForceText(double gforce)
+            => gforce > 0.0 ? gforce.ToString("F2") : "—";
 
         /// <summary>
         /// **Lo que la traza fina del flare dice de este aterrizaje**, para la línea del log: el tiempo

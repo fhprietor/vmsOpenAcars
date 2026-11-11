@@ -138,7 +138,6 @@ namespace vmsOpenAcars.Services
 
         // ---- Controles ----
         private readonly Offset<int> _gearOffset = new Offset<int>(0x0BE8);
-        private readonly Offset<short> _flapsOffset = new Offset<short>(0x0BDC);
         // 0x0BD8 · INT32 · SPOILERS RIGHT POSITION — **posición** 0–16383 según la tabla de FSUIPC7, no
         // un booleano: leerla con `> 0` hacía que el 0,006 % de recorrido (una cuenta del indicador)
         // contara como «EXTENDIDOS».
@@ -348,6 +347,13 @@ namespace vmsOpenAcars.Services
         private DateTime _lastFlapsChangeTime = DateTime.MinValue;
         private const double FLAPS_DEBOUNCE_MS = 500;
         private const double FLAPS_HYSTERESIS = 1.0;
+        /// <summary>
+        /// La **banda** de <see cref="Helpers.FlapsScale.BandKey"/> de la última línea escrita. Se
+        /// cuantiza porque el mando se mueve en pasos de 0,006 % (1 de 16 383): sin banda, cada
+        /// selección escribiría decenas de líneas. Es la misma cuantización que ya existía; lo que
+        /// cambia es que el número publicado es el porcentaje real.
+        /// </summary>
+        private int _lastFlapsBand = -1;
 
         // -- Categoría de planta motriz (detectada por título del avión) --
         private AircraftCategory _currentEngineCategory = AircraftCategory.Unknown;
@@ -378,8 +384,14 @@ namespace vmsOpenAcars.Services
         /// </summary>
         private double _lastAirborneVsFpm = 0.0;
 
-        // -- G-Force peak durante approach --
-        private double _peakGforceApproach = 1.0;
+        // -- G-Force del toque --
+        /// <summary>
+        /// **La ventana del contacto** (`Helpers/TouchdownGForceWindow`): 1 s de lecturas del
+        /// acelerómetro `0x11BA` que termina en el toque. Sustituye al acumulador de todo el vuelo
+        /// (`_peakGforceApproach`), que podía coronar una turbulencia del ascenso como «el G del
+        /// aterrizaje».
+        /// </summary>
+        private readonly Helpers.TouchdownGForceWindow _touchdownG = new Helpers.TouchdownGForceWindow();
 
         // -- Constantes de detección --
         // La confirmación de la bandera de suelo vive en `Helpers/GroundContactGate.cs`, que la exige
@@ -436,6 +448,11 @@ namespace vmsOpenAcars.Services
 
         // ---- Controles ----
         public int CurrentGearPosition { get; private set; }
+        /// <summary>
+        /// Porcentaje del **recorrido del mando** de flaps (0–100), en la escala única de
+        /// <see cref="Helpers.FlapsScale"/>. Es el número que se publica, el que compara la puerta del
+        /// 50 % y el que se guarda en la traza del flare: uno solo.
+        /// </summary>
         public double CurrentFlapsPercent { get; private set; }
         public bool CurrentSpoilersDeployed { get; private set; }
         /// <summary>Posición real de los spoilers (0,0–1,0) según 0x0BD8.</summary>
@@ -449,6 +466,14 @@ namespace vmsOpenAcars.Services
 
         // ---- Entorno ----
         public double CurrentGForce { get; private set; }
+
+        /// <summary>
+        /// **El G medido del último toque** (`Helpers/TouchdownGForceWindow`), el mismo que viaja en
+        /// <see cref="TouchdownData.GForcePeak"/> y el que se puntúa. **0 = no medido**: sin muestras
+        /// del acelerómetro no se inventa un valor.
+        /// </summary>
+        public double TouchdownGForce { get; private set; }
+
         public bool IsBeaconOn { get; private set; }
 
         // ---- Meteorología (convertida) ----
@@ -888,6 +913,7 @@ namespace vmsOpenAcars.Services
                 HeadingDeg = CurrentHeading,
                 VerticalSpeedFpm = CurrentVerticalSpeedFpm,
                 GForce = CurrentGForce,
+                TouchdownGForce = TouchdownGForce,
                 IndicatedAirspeedKt = CurrentIndicatedAirspeed,
                 IsOnGround = _lastOnGround,
                 FuelLbs = CurrentFuelLbs,
@@ -1054,10 +1080,18 @@ namespace vmsOpenAcars.Services
 
             // ---- Controles ----
             CurrentGearPosition = DecodeGear(_gearOffset.Value);
-            CurrentFlapsPercent = DecodeFlaps(_flapsOffset.Value);
+            // **Una sola escala de flaps** (`Helpers/FlapsScale`): el porcentaje del recorrido del
+            // mando, que es lo único que mide `0x0BDC`. Hasta v0.9.69 esto pasaba por `DecodeFlaps`,
+            // una tabla de **grados de Boeing** que se imprimía con un `%` detrás: en el ATR del
+            // PIREP `D0Wy9Pa7GNB5pYEo` el mismo instante daba «Flaps: 40 %» aquí y «FLAPS 100 %» en
+            // la línea del aterrizaje. `FlapsPercent` (más abajo, en `ReadFlaps`) es ese mismo
+            // porcentaje, así que se asigna después.
             // La posición, no el booleano: `> 0` contaba como desplegado el 0,006 % de recorrido y el temblor
 // del indicador escribía una línea por rebote (`Helpers/SpoilersPosition`).
-            CurrentSpoilersPosition = Helpers.SpoilersPosition.FromRaw(_spoilersOffset.Value);
+            // Y **el ATR no tiene spoilers** (`Helpers/SpoilerlessAircraft`): su indicador oscila
+            // alrededor del 10 % y escribía seis pares DEPLOYED/RETRACTED en el descenso.
+            CurrentSpoilersPosition = Helpers.SpoilerlessAircraft.EffectiveFraction(
+                Helpers.SpoilersPosition.FromRaw(_spoilersOffset.Value), AircraftIcao);
             CurrentSpoilersDeployed = Helpers.SpoilersPosition.IsDeployed(CurrentSpoilersPosition);
 
             // ---- Motores ----
@@ -1071,6 +1105,9 @@ namespace vmsOpenAcars.Services
             ReadAutobrake();
             // ---- Flaps ----
             ReadFlaps();
+            // El porcentaje del mando queda **ya en la escala única** (`Helpers/FlapsScale`): es el
+            // mismo número que se publica en el bloque del toque y el que compara la puerta del 50 %.
+            CurrentFlapsPercent = FlapsPercent;
             // ---- Tracking para touchdown ----
             // Guardar VS del último frame aéreo: este es el valor correcto para
             // reportar en el landing (no el de cuando ya estamos frenando en tierra)
@@ -1078,9 +1115,11 @@ namespace vmsOpenAcars.Services
             {
                 _lastAirborneVsFpm = CurrentVerticalSpeedFpm;
 
-                // Acumular G-Force peak durante el vuelo (para landing rating)
-                if (CurrentGForce > _peakGforceApproach)
-                    _peakGforceApproach = CurrentGForce;
+                // **El G del toque se mide, no se deduce** (`Helpers/TouchdownGForceWindow`): se
+                // guarda la ventana de 1 s que termina en el contacto. Acumular el pico de todo el
+                // vuelo —como hasta v0.9.69— dejaba que una turbulencia del ascenso decidiera la
+                // nota del aterrizaje.
+                _touchdownG.Observe(CurrentGForce, DateTime.UtcNow);
             }
         }
 
@@ -1100,8 +1139,8 @@ namespace vmsOpenAcars.Services
             // Detectar si los flaps están en tránsito (diferencia entre handle y posición real)
             FlapsInTransit = Math.Abs(FlapsHandleRaw - FlapsActualRaw) > 200;
 
-            // Calcular porcentaje simple (0-100%)
-            FlapsPercent = (FlapsHandleRaw / 16383.0) * 100.0;
+            // El porcentaje del recorrido del mando, en la escala única (`Helpers/FlapsScale`).
+            FlapsPercent = Helpers.FlapsScale.PercentOfTravel(FlapsHandleRaw);
 
             // Decodificar el label según la familia del avión
             var family = DetectFlapsFamily();
@@ -1457,23 +1496,11 @@ namespace vmsOpenAcars.Services
         private static int DecodeGear(int raw)
             => raw > 8000 ? 1 : 0;
 
-        /// <summary>
-        /// 0x0BDC · INT16 · 0 = arriba, 16383 = fondo.
-        /// Mapea a detents Boeing (0,1,2,5,10,15,25,30,40).
-        /// </summary>
-        private static double DecodeFlaps(short raw)
-        {
-            double p = raw / 16383.0;
-            if (p < 0.02) return 0;
-            if (p < 0.13) return 1;
-            if (p < 0.26) return 2;
-            if (p < 0.22) return 5;
-            if (p < 0.32) return 10;
-            if (p < 0.45) return 15;
-            if (p < 0.62) return 25;
-            if (p < 0.78) return 30;
-            return 40;
-        }
+        // `DecodeFlaps` (0x0BDC → detentes de Boeing 0/1/2/5/10/15/25/30/40) **se retiró en
+        // v0.9.70**: su salida se publicaba como «porcentaje» y era otra escala, la que hacía que el
+        // mismo instante del PIREP `D0Wy9Pa7GNB5pYEo` dijera «Flaps: 40 %» y «FLAPS 100 %». La
+        // escala única vive en `Helpers/FlapsScale`; para el rótulo de vuelo sigue
+        // `DecodeFlapsByFamily`, que no publica ningún porcentaje.
 
         #endregion
 
@@ -1536,19 +1563,34 @@ namespace vmsOpenAcars.Services
 
         private void DetectFlapsChange()
         {
+            // **Una sola escala** (`Helpers/FlapsScale`): se publica el porcentaje del recorrido del
+            // mando, y la banda solo decide *cuándo* se escribe la línea. Antes de v0.9.70 esto
+            // publicaba la salida de `DecodeFlaps` —grados de Boeing— como si fuera un porcentaje, y
+            // de ahí el «0 % → 40 % → 25 % → 40 %» del PIREP `D0Wy9Pa7GNB5pYEo`, que iba hacia atrás
+            // porque las compuertas del ATR (15 y 30) caían en las bandas 25 y 40 del 737.
             double flaps = CurrentFlapsPercent;
-            double diff = Math.Abs(flaps - _lastFlapsPercent);
+            int    band  = Helpers.FlapsScale.BandKey(flaps);
+            if (band == _lastFlapsBand) return;
 
-            if (diff > FLAPS_HYSTERESIS ||
-                (diff > 0 && (DateTime.UtcNow - _lastFlapsChangeTime).TotalMilliseconds > FLAPS_DEBOUNCE_MS))
+            // Primera lectura del vuelo: siembra, no es un cambio que contarle al piloto.
+            if (_lastFlapsBand < 0)
             {
-                if (diff > 0)
-                {
-                    FlapsChanged?.Invoke(_lastFlapsPercent, flaps);
-                    _lastFlapsChangeTime = DateTime.UtcNow;
-                }
+                _lastFlapsBand    = band;
                 _lastFlapsPercent = flaps;
+                return;
             }
+
+            // Si el cambio llega demasiado pronto, no se pierde: no se actualiza la banda y el ciclo
+            // siguiente lo vuelve a intentar. Así el último valor de una selección siempre se publica.
+            if ((DateTime.UtcNow - _lastFlapsChangeTime).TotalMilliseconds < FLAPS_DEBOUNCE_MS) return;
+
+            double previous = _lastFlapsPercent;
+            _lastFlapsBand       = band;
+            _lastFlapsPercent    = flaps;
+            _lastFlapsChangeTime = DateTime.UtcNow;
+
+            if (Math.Abs(flaps - previous) >= FLAPS_HYSTERESIS)
+                FlapsChanged?.Invoke(previous, flaps);
         }
 
         private void DetectSpoilersChange()
@@ -1690,7 +1732,11 @@ namespace vmsOpenAcars.Services
             if (CurrentGroundSpeedKt < TAKEOFF_MIN_SPEED_KT) return;
 
             _lastTakeoffTime = DateTime.UtcNow;
-            _peakGforceApproach = 1.0; // reset para este vuelo
+            // La ventana del G del toque empieza aquí: no puede arrastrar nada del vuelo anterior ni,
+            // en un touch-and-go, el toque del que el avión acaba de despegar. El último G medido se
+            // borra por el mismo motivo: un toque que el detector rechace no puede heredar el de ayer.
+            _touchdownG.Reset();
+            TouchdownGForce = 0.0;
 
             TakeoffDetected?.Invoke(this, new TakeoffData
             {
@@ -1721,7 +1767,7 @@ namespace vmsOpenAcars.Services
         /// <summary>
         /// Snapshot en el momento del touchdown (OnGround 0→1).
         /// Usa <see cref="_lastAirborneVsFpm"/> para el VS real de contacto y
-        /// <see cref="_peakGforceApproach"/> para el G-Force pico del approach.
+        /// <see cref="_touchdownG"/> para el G medido del contacto.
         /// </summary>
         private void HandleTouchdown()
         {
@@ -1733,6 +1779,13 @@ namespace vmsOpenAcars.Services
             if (_lastAirborneVsFpm > TOUCHDOWN_MIN_VS_FPM) return;
 
             _lastTouchdownTime = DateTime.UtcNow;
+
+            // **El G del toque, de la lectura del avión** (`Helpers/TouchdownGForceWindow`). El
+            // `Math.Max` incluye el frame del propio contacto, que ya no entra en la ventana porque
+            // la bandera de suelo está puesta. Sin muestras —un addon que no escriba `0x11BA`— queda
+            // en 0, que es «no medido» y el scoring omite: nunca se inventa un 1 g.
+            double touchdownG = Math.Max(_touchdownG.Peak, CurrentGForce);
+            TouchdownGForce = touchdownG;
 
             TouchdownDetected?.Invoke(this, new TouchdownData
             {
@@ -1750,9 +1803,8 @@ namespace vmsOpenAcars.Services
                 PitchDeg = CurrentPitch,
                 BankDeg = CurrentBank,
 
-                // ← G pico del approach completo; Math.Max incluye el frame de impacto
-                // en caso de que el pico ocurra exactamente en la transición OnGround
-                GForcePeak = Math.Max(_peakGforceApproach, CurrentGForce),
+                // El mismo número que se puntúa: la ventana de 1 s del contacto, no el pico del vuelo.
+                GForcePeak = touchdownG,
                 GForceAtTouch = CurrentGForce,
 
                 FlapsPosition = CurrentFlapsPercent / 100.0,
@@ -1775,9 +1827,6 @@ namespace vmsOpenAcars.Services
                 WindSpeedKt = CurrentWindSpeedKt,
                 WindDirDeg = CurrentWindDirDeg  // ← grados reales
             });
-
-            // Reset peak para el siguiente ciclo
-            _peakGforceApproach = 1.0;
         }
 
         #endregion
@@ -2281,6 +2330,12 @@ namespace vmsOpenAcars.Services
         /// ahora también alimenta la detección de turbulencia (`Helpers/TurbulenceAdvisor`).
         /// </summary>
         public double GForce { get; set; }
+        /// <summary>
+        /// El G **medido** del último toque (`0x11BA` sobre la ventana de 1 s del contacto), o 0 si no
+        /// se midió. Lo publica `FsuipcService.HandleTouchdown` y lo consume
+        /// `FlightManager.RegisterTouchdown` para puntuar: es el mismo número que el log del toque.
+        /// </summary>
+        public double TouchdownGForce { get; set; }
         public double IndicatedAirspeedKt { get; set; }
         public bool IsOnGround { get; set; }
         public double FuelLbs { get; set; }

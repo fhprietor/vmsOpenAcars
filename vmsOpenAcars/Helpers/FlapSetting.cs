@@ -256,7 +256,7 @@ namespace vmsOpenAcars.Helpers
         internal const double FlapsUpPercent = 1.0;
 
         /// <summary>El fondo de escala del offset: `0x0BDC` va de 0 a 16383.</summary>
-        internal const double RawFull = 16383.0;
+        internal const double RawFull = FlapsScale.RawFull;
 
         /// <summary>
         /// **Cuánto se recorta cada banda por dentro antes de fiarse de ella: un 10 % de su anchura
