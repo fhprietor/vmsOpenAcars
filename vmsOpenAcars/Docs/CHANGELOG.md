@@ -108,9 +108,17 @@ correcciones que venían en el mismo mensaje.
   así que su `AirspaceService` necesita, como es de suponer, el usuario/`userid` de SimBrief en su
   configuración.
 
-- **1164 tests** (1163 pasan, 1 se omite sola): +37 —13 de la comprobación por segmentos con los
+- **Cerrado el 16/11/2026: phpVMS lo implementó y el aviso llega.** Prefile real con el `navlog` del
+  863 —PIREP `aYZP527BrpMMkGAz`, cancelado después—: `route_warning` =
+  `{"area":"SKR11 / BARRANQUILLA","limits":"GND–FL999","leg":"KAGEM–EVPIP","action":"revisar_ruta"}`,
+  y el PIREP guardó `route_airspace`, `route_limits` y `route_leg` en `fields`. **Tarda 3,4 s frente a
+  los 0,6 s** de cuando el campo se ignoraba: la comprobación ya se ejecuta. El tramo es
+  **exactamente** el que predijo la geometría del cliente (`KAGEM → EVPIP`, FL340). Esa respuesta
+  literal está en un test (`RouteWarningParserTests.ElAvisoRealQueDevolvioElServidorSeLeeEntero`).
+
+- **1165 tests** (1164 pasan, 1 se omite sola): +38 —13 de la comprobación por segmentos con los
   datos reales del fixture, 4 de la política de violación, 5 del lector del aviso, 6 del acuse en el
-  payload, 8 del navlog del prefile (6 del formato y 2 del cuerpo que se envía) y 1 del diálogo con rótulos propios—.
+  payload, 8 del navlog del prefile (6 del formato y 2 del cuerpo que se envía) , 1 con la respuesta REAL del servidor y 1 del diálogo con rótulos propios—.
 
 ## [0.9.72] — 11/11/2026
 

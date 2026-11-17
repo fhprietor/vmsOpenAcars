@@ -41,6 +41,37 @@ namespace vmsOpenACars.Tests
             Assert.AreEqual("SKR11 / BARRANQUILLA (GND–FL999) GIKPU–PADUD", warning.Describe());
         }
 
+        /// <summary>
+        /// **La respuesta REAL del servidor**, copiada tal cual del prefile del 16/11/2026 (PIREP
+        /// `aYZP527BrpMMkGAz`, cancelado después). Coincide con el contrato al byte: mismos tres
+        /// datos, mismo `action`, y el tramo que predijo la geometría del cliente
+        /// (`KAGEM → EVPIP`, FL340, dentro de SKR11). Es la prueba de que el parser no se inventa el
+        /// contrato: lo leyó de aquí.
+        ///
+        /// El mismo prefile devolvió en `fields` `route_airspace`, `route_limits` y `route_leg`, o sea
+        /// que el servidor también lo guarda para la revisión.
+        /// </summary>
+        [TestMethod]
+        public void ElAvisoRealQueDevolvioElServidorSeLeeEntero()
+        {
+            var json = JObject.Parse(@"{
+                ""area"": ""SKR11 / BARRANQUILLA"",
+                ""limits"": ""GND–FL999"",
+                ""leg"": ""KAGEM–EVPIP"",
+                ""action"": ""revisar_ruta""
+            }");
+
+            var warning = RouteWarningParser.Parse(json);
+
+            Assert.IsNotNull(warning);
+            Assert.AreEqual("SKR11 / BARRANQUILLA", warning.Area);
+            Assert.AreEqual("GND–FL999", warning.Limits);
+            Assert.AreEqual("KAGEM–EVPIP", warning.Leg);
+            Assert.AreEqual("revisar_ruta", warning.Action);
+            Assert.AreEqual("SKR11 / BARRANQUILLA (GND–FL999) KAGEM–EVPIP", warning.Describe(),
+                "es la línea que sale en el registro y en la ventana");
+        }
+
         [TestMethod]
         public void UnAvisoAusenteONuloEsQueNoHayNadaQueAvisar()
         {

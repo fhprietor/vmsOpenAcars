@@ -321,8 +321,7 @@ GND–FL999, permanente) porque el plan de SimBrief pasaba por dentro; el ACARS 
   el 863 (44 puntos), 6 decimales con **punto** siempre. Es el dato que el servidor necesita para
   intersectar segmentos **sin bajar el OFP ni tocar credenciales**, y la altitud es imprescindible
   (sobrevolar no es invadir). Degrada sin datos: sin `navlog`, con un punto sin coordenadas o con más
-  de **200** puntos no se manda —**nunca media ruta**— y el prefile viaja igual. El servidor lo ignora
-  por ahora (medido: HTTP 200 con el campo dentro), así que puede viajar antes de que lo lean.
+  de **200** puntos no se manda —**nunca media ruta**— y el prefile viaja igual. Y **phpVMS lo implementó y está verificado de punta a punta el 16/11/2026**.
 - **Aviso visible antes de conectar**, con dos salidas: «RUTA REVISADA» sigue y manda
   **`fields.route_ack = 1`** al filear; «CORREGIR PLAN» **no inicia el vuelo** y cancela el prefile.
   Es el `EcamDialog` de la compuerta con **rótulos propios** (`RouteReview_BtnAck`/`_BtnFix`);
@@ -338,6 +337,12 @@ GND–FL999, permanente) porque el plan de SimBrief pasaba por dentro; el ACARS 
   es el que se enseña; el local solo cuando el servidor no avisó.
 - **`Danger` no es violación** (`Helpers/AirspaceViolationPolicy`): se pinta, no manda el PIREP a
   revisión. De los **10 PIREP** que el cliente marcó, **2 eran `Danger`**.
+- **Verificado de punta a punta el 16/11/2026** (PIREP `aYZP527BrpMMkGAz`, cancelado): el prefile con
+  el `navlog` del 863 devolvió `route_warning = {"area":"SKR11 / BARRANQUILLA","limits":"GND–FL999",
+  "leg":"KAGEM–EVPIP","action":"revisar_ruta"}` y guardó `route_airspace`/`route_limits`/`route_leg`
+  en `fields`. El tramo es **el que predijo la geometría del cliente**, y tarda **3,4 s** frente a
+  0,6 s de cuando el campo se ignoraba: la comprobación se ejecuta. Esa respuesta literal es un test
+  (`RouteWarningParserTests`).
 - Test con datos reales: `vmsOpenACars.Tests/Fixtures/route-airspace-2026-11-16.json` (polígono real
   de SKR11, piernas publicadas que la cruzan, límites de SKR17/SVR2508 y la ruta real SEQM→KMIA con
   30 zonas acotadas). Detalle en `Docs/architecture.md` → "La revisión de la ruta antes de despegar".
@@ -602,7 +607,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1164 tests** (1 se omite sola).
+`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1165 tests** (1 se omite sola).
 
 **Qué cubre la suite** — cada bloque con sus casos reales, sus fixtures y lo que no se puede
 re-ejecutar sin red: **`Docs/architecture.md`** → "Las suites de tests y sus casos reales".
@@ -641,19 +646,11 @@ decisión pendiente**, casi siempre del mantenedor.
 - **`zfw` sin unidad declarada**: falta que la aerolínea diga en cuál lo espera.
 - **`landing_rate = 0` frente a `null`**: si phpVMS acepta `null`, sería más honesto omitirlo.
 - **Touch-and-go de varios ciclos**: solo se conserva el último aterrizaje.
-- **`route_warning` no llega hasta que phpVMS lea el `navlog` (medido el 16/11/2026)**: el prefile
-  con `simbrief_id` se acepta pero su `route_warning` sale `null` **aunque la ruta cruce SKR11** —con
-  el OFP real `193868184` (SKBO/14L→KATL/09R, tramo **KAGEM→EVPIP a FL340** dentro de la zona)—. La
-  sonda que lo cerró: mandar el campo como objeto devuelve el stack trace de
-  `SimBriefService::attachSimbriefToPirep()` llamado desde `PirepService.php:196`, o sea el
-  **`SimBrief::find($attrs['simbrief_id'])` de serie**: resuelve el id contra la **tabla `simbriefs`
-  de phpVMS**, no contra SimBrief, y con un `request_id` devuelve `null` → su `AirspaceService` no se
-  ejecuta. **El cliente ya manda también el `route_navlog`** (44 puntos, 1.402 bytes, HTTP 200 con el
-  campo dentro), que es el camino que no depende de credenciales: falta que ellos lo lean. Ver
-  `Docs/CHANGELOG.md` 0.9.73 y `Docs/architecture.md` → "Lo que se midió".
-- **El `navlog` en el prefile no lo lee nadie todavía**: es aditivo y el servidor lo ignora, así que
-  el día que phpVMS lo implemente no hay que tocar el cliente. Su versión va en
-  `route_navlog_version` para poder cambiar el formato sin adivinar.
+- **Verificar el viaje de ida y vuelta de `fields.route_ack`**: el aviso **ya llega** del servidor
+  (verificado el 16/11/2026: `route_warning` con SKR11, tramo KAGEM–EVPIP). Falta comprobar en un
+  vuelo real que phpVMS guarda `route_ack = 1` cuando el piloto elige «RUTA REVISADA». El
+  `simbrief_id` sigue mandándose por procedencia, pero **no es lo que hace funcionar el aviso**: eso
+  es el `route_navlog`.
 
 > Detalle completo —causa raíz, cifras, casos y lo ya cerrado— en **Docs/DEUDA-Y-DECISIONES.md** →
 > "SayIntentions.AI — investigación cerrada y nada implementado", "Base de rutas de rodaje reales en
