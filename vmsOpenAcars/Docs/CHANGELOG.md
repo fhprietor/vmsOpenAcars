@@ -2,6 +2,116 @@
 
 ---
 
+## [0.9.73] — 16/11/2026
+
+La **revisión de la ruta antes de despegar**, pedida por phpVMS el 16/11/2026, y las dos
+correcciones que venían en el mismo mensaje.
+
+### Added
+
+- **`simbrief_id` en el prefile** (`SimbriefPlan.SimbriefId`, de `params.request_id`): es el único
+  dato que le faltaba al servidor para poder revisar la ruta. Comprobado en vivo el 16/11/2026 con el
+  OFP del piloto: `params.request_id = 193836077`, `params.static_id` **vacío** —por eso se manda el
+  `request_id` y no el `static_id`, que identifica una ruta guardada y se repite entre planes
+  distintos—. Se omite del cuerpo cuando no hay id: la ausencia es «no tengo OFP», no «aquí está
+  vacío».
+- **`route_warning` leído de la respuesta del prefile** (`Models/RouteWarning`,
+  `Helpers/RouteWarningParser`, `Services/ApiService.PrefileFlight` → `PrefileResult`). El recurso
+  real **ya publica la clave**: comprobado hoy con tres PIREP del piloto, `route_warning: null`. Su
+  forma no nula es la del contrato (`area`, `limits`, `leg`, `action`) y se lee de forma
+  **defensiva**: sin campos, en blanco, como lista o como texto ⇒ `null`, y **nunca lanza** —el
+  prefile no puede romperse por el aviso, igual que en el servidor no falla por esto—.
+- **El aviso visible antes de conectar**, con las dos salidas que pidieron: «RUTA REVISADA» sigue (y
+  deja `fields.route_ack = 1` en el PIREP) y «CORREGIR PLAN» **no inicia el vuelo** y cancela el
+  prefile de ese intento. Es el `EcamDialog` de la compuerta, con rótulos propios
+  (`RouteReview_BtnAck`/`_BtnFix`) porque un SÍ/NO delante de un cruce de espacio aéreo no dice qué
+  hace cada botón; `EcamDialog` gana rótulos opcionales y ensancha la ventana para que dos palabras
+  por tecla quepan. El acuse viaja como `fields.route_ack = 1`, **convive** con la marca de revisión
+  `restricted_airspace` y **no se manda** cuando no hubo aviso (nada de `route_ack = 0`). Si no se
+  puede preguntar (ventana no disponible), el vuelo **sigue sin acuse**: no se apunta una aceptación
+  que el piloto no dio.
+- **La comprobación de ruta, por intersección de segmentos** (`Helpers/RouteAirspaceCheck`, puro y
+  con test): los tramos del `navlog` contra los polígonos que NavData ya devolvió para la ruta. Es
+  la respuesta a lo que faltaba de nuestro lado: **muestrear la ruta no ve una zona de este tamaño**.
+  Con los datos reales de hoy: **SKR11 / BARRANQUILLA mide 72 × 53 nm** y la pierna publicada
+  `DIBA1A` (`DIBAM → EGOKU`, **153,7 nm**, 12.000 → 6.000 ft) la cruza **con los dos extremos
+  fuera** — el muestreo de los fixes no ve nada y el segmento sí. La altitud manda: sobrevolar no
+  es invadir (los límites son los reales de cada zona; SKR17 topa a 2.000 ft MSL y SVR2508 a 3.000).
+  Sin altitud en el `navlog` **no se descarta** el aviso. Una zona se avisa **una vez** aunque la
+  ruta la cruce dos veces, y la ruta real del piloto (SEQM→KMIA, 27 fix contra **30** zonas
+  restringidas/prohibidas) **no avisa**.
+- **El `navlog` viaja en el prefile** (`route_navlog` + `route_navlog_version`, `Helpers/RouteNavlogPayload`):
+  `IDENT,lat,lon,alt_ft;…`, 44 puntos y **1.402 bytes** en el caso del 863, cuerpo entero **2.156
+  bytes**. Es el dato que el servidor necesita para verificar la ruta **sin bajar el OFP ni tocar
+  credenciales de SimBrief** —el camino que sí funciona, porque el `simbrief_id` no: ver la causa
+  abajo—. Degrada sin datos: sin `navlog` (vuelo retomado), con un punto sin coordenadas o con más de
+  **200** puntos devuelve `null` y **no se manda media ruta**, porque una línea recortada describe un
+  plan que no existe. Los decimales van con **punto** siempre (probado con la cultura en `es-CO`) y a
+  6 decimales, la precisión del propio OFP. Medido el 16/11/2026: el prefile con este campo devuelve
+  **HTTP 200** y el servidor lo ignora por ahora —el prefile **no falla** por un campo nuevo—, así
+  que puede empezar a viajar antes de que phpVMS lo lea.
+
+### Fixed
+
+- **El aviso de ruta es un aviso, no una puerta.** Cerrar la ventana con la ✕ devolvía
+  `DialogResult.Cancel`, que se interpretaba como «corregir el plan» y **cancelaba el vuelo**: un
+  clic en el aspa detenía el prefile. Ahora solo el botón **«CORREGIR PLAN»** detiene el vuelo;
+  cerrar la ventana **continúa sin acuse** (`RouteReviewAnswer.Dismissed`, con su línea en el
+  registro) y el texto del aviso lo dice: «es solo un aviso previo: NO impide el vuelo ni bloquea la
+  conexión».
+
+- **`Danger` dejaba de ser una violación… y lo era.** `AirspaceViolationPolicy` (puro, con test):
+  solo `Prohibited` y `Restricted` cuentan; `Danger` se registra y se pinta —sigue saliendo en el
+  log y en el OSD— pero **no manda el PIREP a revisión**. Es el número que dieron ellos: de los
+  **10 PIREP** que el cliente marcó, **2 eran `Danger`**. La regla vive en el helper y también se
+  comprueba en `FlightManager.RegisterAirspaceViolation`, para que cualquier camino nuevo que anote
+  una alerta herede la decisión.
+
+### Notas de verificación
+
+- **Verificado en vivo**: el recurso del PIREP publica `route_warning` (y vale `null` en tres vuelos
+  limpios); `params.request_id` en el JSON de SimBrief; NavData sirve el polígono real de SKR11 y
+  las piernas publicadas que lo cruzan (con lo que se prueban los tests).
+- **Sin verificar**: el viaje de ida y vuelta de `fields.route_ack` en el servidor, que depende de que
+  el aviso llegue — y hoy no llega (ver la causa, abajo). La forma del aviso se toma del mensaje y el
+  lector es defensivo a propósito.
+- **Prefile real probado el 16/11/2026** —`RPNrdD0mrDxA6LD3` y dos sondas de tiempo,
+  `qwZWLNQOqa8VL1dA` (sin `simbrief_id`) y `kmK7mzgA280WvXPe` (con él), las tres **canceladas**
+  después: el piloto quedó sin PIREP activo—. El campo **se acepta** (HTTP 200) y la respuesta trae
+  `route_warning: null` en una ruta limpia. **Y un dato que hay que leer bien**: el prefile tarda lo
+  mismo con id que sin id (**414 ms contra 476 ms**) y su `simbrief` vuelve `null`, así que con el
+  `request_id` **no se ve ninguna descarga del OFP ni comprobación de espacios aéreos** —una ruta de
+  27 tramos contra celdas de 0,25° no puede costar cero—.
+- **La causa, confirmada con una ruta que SÍ cruza SKR11.** El piloto despachó en SimBrief el
+  **SKBO/14L → KATL/09R** del caso (`request_id` **193868184**, 44 tramos): el tramo **KAGEM → EVPIP**
+  a **FL340** entra en **SKR11 / BARRANQUILLA** (comprobado con la geometría del cliente y con una
+  implementación independiente, la misma que usan los tests). Prefile con ese id: **HTTP 200,
+  609 ms, `route_warning: null`**. Y una sonda con el campo como **objeto** sacó el stack trace del
+  servidor, que lo dice todo:
+  `SimBriefService::attachSimbriefToPirep(): Argument #2 ($simBrief) must be of type App\Models\SimBrief,
+  Illuminate\Database\Eloquent\Collection given, called in /var/www/phpvms/app/Services/PirepService.php
+  on line 196`.
+  Eso es el **`SimBrief::find($attrs['simbrief_id'])` de phpVMS**, es decir: **su prefile resuelve
+  `simbrief_id` contra la tabla `simbriefs` de phpVMS, no contra SimBrief**. Con un `request_id` de
+  SimBrief `find()` devuelve `null`, el `attach` no ocurre (`simbrief: null` en el recurso, siempre) y
+  su `AirspaceService` —colgado de ahí— **no llega a ejecutarse**. Para este cliente, que despacha en
+  SimBrief y no por la web de phpVMS, **`route_warning` es `null` siempre**, por restringida que sea
+  la ruta. Lo que phpVMS tiene que hacer es descargar el OFP con el `request_id` (necesita su
+  usuario/`userid` de SimBrief: `?request_id=` solo responde `Error: Unknown UserID`) y **crear o
+  resolver** la fila antes de llamar a `attachSimbriefToPirep`, o comprobar la ruta sin pasar por esa
+  fila. Del lado del cliente no hay nada que cambiar: el campo es el que pidieron y se manda tal cual.
+- **Sin verificar**: nada más del contrato salvo el `fields.route_ack` de vuelta, que depende de que
+  el aviso llegue — y hoy no llega. La forma del aviso se toma del mensaje y el lector es defensivo a
+  propósito.
+- **Para phpVMS**: `request_id` **solo no basta** para descargar el OFP —medido:
+  `?request_id=193836077` responde `Error: Unknown UserID` y `?username=…&request_id=…` responde—,
+  así que su `AirspaceService` necesita, como es de suponer, el usuario/`userid` de SimBrief en su
+  configuración.
+
+- **1164 tests** (1163 pasan, 1 se omite sola): +37 —13 de la comprobación por segmentos con los
+  datos reales del fixture, 4 de la política de violación, 5 del lector del aviso, 6 del acuse en el
+  payload, 8 del navlog del prefile (6 del formato y 2 del cuerpo que se envía) y 1 del diálogo con rótulos propios—.
+
 ## [0.9.72] — 11/11/2026
 
 ### Added

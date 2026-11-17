@@ -34,6 +34,18 @@ namespace vmsOpenAcars.UI.Forms
         private string _title;
         private EcamDialogButtons _buttons;
 
+        /// <summary>
+        /// Rótulos propios para los botones de aceptar/cancelar. `null` = los del idioma
+        /// (`BtnYes`/`BtnNo`), que es el caso de todos los avisos de siempre.
+        ///
+        /// Existe por el **aviso de ruta**: sus dos salidas no son «sí/no» sino «he revisado la
+        /// ruta» y «corregir el plan», y un SÍ/NO delante de un cruce de espacio aéreo no dice qué
+        /// hace cada botón. La regla de `ButtonLabelsTests` se mantiene: los rótulos llegan ya
+        /// traducidos por el localizador desde quien construye el diálogo.
+        /// </summary>
+        private readonly string _yesText;
+        private readonly string _noText;
+
         // Para poder comprobar el reparto de espacio sin enseñar la ventana (tests): los dos
         // rectángulos están en coordenadas de `contentPanel`, así que son comparables.
         internal Rectangle MessageHostBounds => pnlMessage.Bounds;
@@ -46,14 +58,30 @@ namespace vmsOpenAcars.UI.Forms
         internal string Button2Text => btn2?.Text;
         internal string Button3Text => btn3?.Text;
 
+        /// <summary>Ancho que ocupan las teclas de la fila, con sus márgenes (tests del reparto).</summary>
+        internal int ButtonsRowWidth
+        {
+            get
+            {
+                int total = 0;
+                if (panelBotones != null)
+                    foreach (Control button in panelBotones.Controls)
+                        total += button.Width + button.Margin.Horizontal;
+                return total;
+            }
+        }
+
         /// <summary>Alto que pide el texto ya envuelto: si no cabe en su panel, hay que desplazar.</summary>
         internal int MessagePreferredHeight  => lblMessage.PreferredHeight;
 
-        public EcamDialog(string message, string title, EcamDialogButtons buttons = EcamDialogButtons.YesNo)
+        public EcamDialog(string message, string title, EcamDialogButtons buttons = EcamDialogButtons.YesNo,
+                          string yesText = null, string noText = null)
         {
             _title = title;
             _message = message;
             _buttons = buttons;
+            _yesText = string.IsNullOrWhiteSpace(yesText) ? null : yesText;
+            _noText  = string.IsNullOrWhiteSpace(noText)  ? null : noText;
             InitializeComponent();
         }
 
@@ -189,21 +217,21 @@ namespace vmsOpenAcars.UI.Forms
                     break;
 
                 case EcamDialogButtons.YesNo:
-                    btn1 = CreateButton(_("BtnYes"), McduLegend.Confirm);
+                    btn1 = CreateButton(_yesText ?? _("BtnYes"), McduLegend.Confirm);
                     btn1.Click += (s, e) => { this.DialogResult = DialogResult.Yes; Close(); };
                     panelBotones.Controls.Add(btn1);
 
-                    btn2 = CreateButton(_("BtnNo"), McduLegend.Danger);
+                    btn2 = CreateButton(_noText ?? _("BtnNo"), McduLegend.Danger);
                     btn2.Click += (s, e) => { this.DialogResult = DialogResult.No; Close(); };
                     panelBotones.Controls.Add(btn2);
                     break;
 
                 case EcamDialogButtons.YesNoCancel:
-                    btn1 = CreateButton(_("BtnYes"), McduLegend.Confirm);
+                    btn1 = CreateButton(_yesText ?? _("BtnYes"), McduLegend.Confirm);
                     btn1.Click += (s, e) => { this.DialogResult = DialogResult.Yes; Close(); };
                     panelBotones.Controls.Add(btn1);
 
-                    btn2 = CreateButton(_("BtnNo"), McduLegend.Danger);
+                    btn2 = CreateButton(_noText ?? _("BtnNo"), McduLegend.Danger);
                     btn2.Click += (s, e) => { this.DialogResult = DialogResult.No; Close(); };
                     panelBotones.Controls.Add(btn2);
 
@@ -218,6 +246,7 @@ namespace vmsOpenAcars.UI.Forms
 
             // Alto a la medida del texto (ver FitToMessage) y, al redimensionar, recolocar el
             // botón de cerrar sin tocar el reparto mensaje/botones, que lo hace el docking.
+            FitToButtons();
             FitToMessage();
             this.Resize += (s, e) =>
             {
@@ -257,17 +286,50 @@ namespace vmsOpenAcars.UI.Forms
         /// Una tecla de confirmación. `legendColor` es el color con el que se **enciende la leyenda**
         /// (el cuerpo es negro): el verde de aceptar y el rojo de cancelar salen de `McduLegend`, que es el
         /// convenio compartido con la barra principal.
+        ///
+        /// **El ancho sale del rótulo** (con un suelo de 90 px y un techo de 190): un rótulo corto
+        /// como «SÍ» deja la tecla de siempre, y uno de dos palabras como «CORREGIR PLAN» no se
+        /// encoge hasta ser ilegible. El techo existe para que un rótulo absurdo no haga la ventana
+        /// infinita: por encima de él manda el encogido de `McduKeyRenderer`.
         /// </summary>
         private McduKeyButton CreateButton(string text, Color legendColor)
         {
+            var font = new Font("Consolas", 10, FontStyle.Bold);
+
+            float width = 90f;
+            try
+            {
+                width = McduKeyRenderer.MeasureLegend(text, font)
+                      + 2f * McduKeyRenderer.LegendInset + 8f;
+            }
+            catch { /* sin medida, la tecla de siempre */ }
+            if (width < 90f)  width = 90f;
+            if (width > 190f) width = 190f;
+
             return new McduKeyButton
             {
                 Text = text,
-                Font = new Font("Consolas", 10, FontStyle.Bold),
+                Font = font,
                 LegendColor = legendColor,
-                Size = new Size(90, 35),
+                Size = new Size((int)Math.Ceiling(width), 35),
                 Margin = new Padding(5)
             };
+        }
+
+        /// <summary>
+        /// Ensancha la ventana si los rótulos de los botones no caben en el ancho de siempre. Sin esto,
+        /// dos teclas de dos palabras se salían del diálogo en un monitor escalado.
+        /// </summary>
+        private void FitToButtons()
+        {
+            if (panelBotones == null || panelBotones.Controls.Count == 0) return;
+
+            int needed = 0;
+            foreach (Control button in panelBotones.Controls)
+                needed += button.Width + button.Margin.Horizontal;
+
+            int width = needed + this.Padding.Horizontal + contentPanel.Padding.Horizontal + 24;
+            if (width > this.Width) this.Width = width;
         }
 
         // Métodos estáticos para facilitar el uso
@@ -281,7 +343,17 @@ namespace vmsOpenAcars.UI.Forms
 
         public static DialogResult Show(IWin32Window owner, string message, string title, EcamDialogButtons buttons = EcamDialogButtons.YesNo)
         {
-            using (var dialog = new EcamDialog(message, title, buttons))
+            return Show(owner, message, title, buttons, null, null);
+        }
+
+        /// <summary>
+        /// El mismo diálogo con rótulos propios en los botones de aceptar/cancelar. Lo usa el aviso de
+        /// ruta, cuyas dos salidas son «he revisado la ruta» y «corregir el plan».
+        /// </summary>
+        public static DialogResult Show(IWin32Window owner, string message, string title,
+                                        EcamDialogButtons buttons, string yesText, string noText)
+        {
+            using (var dialog = new EcamDialog(message, title, buttons, yesText, noText))
             {
                 return dialog.ShowDialog(owner);
             }

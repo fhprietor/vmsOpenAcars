@@ -325,12 +325,53 @@ namespace vmsOpenAcars.Core.Flight
         public bool AreEnginesOn => _areEnginesOn;
 
         /// <summary>
+        /// **El aviso de ruta del prefile**, o `null` si no hay nada que avisar. Llega en la respuesta
+        /// de `POST /api/pireps/prefile` (`route_warning`) y significa que la ruta planificada cruza
+        /// un espacio aéreo **restringido o prohibido**. Es el aviso que llega **antes de despegar**,
+        /// que es cuando el piloto todavía puede corregir el plan: el caso que lo motiva es el vuelo
+        /// 863 (SKBO–KATL), que se metió en SKR11 / BARRANQUILLA y solo se detectó en vuelo.
+        ///
+        /// El prefile **nunca falla por esto** y el servidor no bloquea la conexión: bloquear, si se
+        /// bloquea, es decisión de la UI (<see cref="ViewModels.MainViewModel"/>).
+        /// </summary>
+        public RouteWarning RouteWarning { get; private set; }
+
+        /// <summary>
+        /// El piloto **vio el aviso y decidió volar**. Es lo que se manda al PIREP como
+        /// `fields.route_ack = 1`: deja constancia de que fue advertido, y cambia por completo la
+        /// revisión posterior del vuelo. Sin aviso no se pone nunca, así que un `1` sin
+        /// <see cref="RouteWarning"/> no puede existir.
+        /// </summary>
+        public bool RouteAcknowledged { get; private set; }
+
+        /// <summary>
+        /// Anota el acuse del aviso de ruta. Lo llama la UI cuando el piloto elige «he revisado la
+        /// ruta»; el registro de la decisión y el texto que lee el piloto son de la UI.
+        ///
+        /// <paramref name="warning"/> es el aviso que se le enseñó. Se pasa porque puede ser el de la
+        /// comprobación **local** del cliente aunque el servidor no haya avisado (sin `simbrief_id`,
+        /// o sin poder bajar el OFP): el piloto lo vio igual, así que el acuse del PIREP también
+        /// cubre ese caso. Sin ningún aviso no se apunta nada.
+        /// </summary>
+        public void AcknowledgeRouteWarning(RouteWarning warning = null)
+        {
+            if (warning != null) RouteWarning = warning;
+            if (RouteWarning == null) return;
+
+            RouteAcknowledged = true;
+        }
+
+        /// <summary>
         /// Zonas **acotadas** (prohibida, restringida, peligrosa) dentro de cuyas límites verticales
         /// entró el avión en este vuelo. Cada entrada es una invasión y, si hay alguna, el PIREP se
         /// filea como `PENDING` para que pase por revisión (`Helpers/PirepStatePolicy`).
         ///
         /// **No depende de los avisos del OSD**: el piloto puede apagar los avisos de espacio aéreo en
         /// pantalla y la invasión se registra igual. El registro del vuelo y el mapa tampoco cambian.
+        ///
+        /// **`Danger` no cuenta** desde v0.9.73 (`Helpers/AirspaceViolationPolicy`): es una
+        /// advertencia, no una prohibición. En la auditoría de los 10 PIREPs que el cliente marcó, 2
+        /// eran `Danger`.
         /// </summary>
         public int AirspaceViolations { get; private set; }
 
@@ -341,9 +382,15 @@ namespace vmsOpenAcars.Core.Flight
         /// Anota una invasión. Se llama desde el handler de `OnAirspaceAlert`, que es el que dispara
         /// el servicio **solo** cuando el avión está dentro del polígono Y por debajo del techo:
         /// sobrevolar por encima no es invadir.
+        ///
+        /// **`Danger` no entra aquí** (`AirspaceViolationPolicy`): su aviso se pinta y se locuta, pero
+        /// no manda el PIREP a revisión. La comprobación se hace también aquí, no solo en el
+        /// llamante, para que cualquier camino nuevo que registre una alerta herede la regla.
         /// </summary>
         public void RegisterAirspaceViolation(string type, string icao)
         {
+            if (!AirspaceViolationPolicy.IsViolation(type)) return;
+
             AirspaceViolations++;
             AirspaceViolationDetail = $"{(type ?? "").ToUpperInvariant()} {icao}".Trim();
         }

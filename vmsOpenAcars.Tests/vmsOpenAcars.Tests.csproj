@@ -73,6 +73,17 @@
     <Compile Include="AircraftTypeMatchTests.cs" />
     <Compile Include="XPlaneAcfIdentityTests.cs" />
     <Compile Include="AirspaceRouteSamplerTests.cs" />
+    <!-- La comprobación de ruta por segmentos (v0.9.73): SKR11 mide 72x53 nm y el tramo real
+         DIBAM-EGOKU (153,7 nm) la cruza con los dos extremos fuera. -->
+    <Compile Include="RouteAirspaceCheckTests.cs" />
+    <!-- Danger deja de ser violación (v0.9.73): en la auditoría de 10 PIREP marcados, 2 eran Danger. -->
+    <Compile Include="AirspaceViolationPolicyTests.cs" />
+    <!-- Lectura defensiva del route_warning del prefile y acuse route_ack en el PIREP. -->
+    <Compile Include="RouteWarningParserTests.cs" />
+    <!-- El navlog del OFP en una línea para el prefile (v0.9.73): el id de SimBrief no le sirve a
+         phpVMS porque lo resuelve contra su propia tabla `simbriefs`. -->
+    <Compile Include="RouteNavlogPayloadTests.cs" />
+    <Compile Include="RouteReviewAckTests.cs" />
     <Compile Include="ApproachThresholdTests.cs" />
     <!-- La ventana de velocidad de la compuerta de 1.000 ft: del Vref del plan, no del tipo. -->
     <Compile Include="ApproachSpeedWindowTests.cs" />
@@ -218,6 +229,12 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Espacios aéreos y procedimientos REALES de NavData (16/11/2026) para la comprobación de
+         ruta por segmentos: el polígono de SKR11, los de SKR17 y SVR2508, las piernas publicadas
+         que cruzan y la ruta real del OFP del piloto (SEQM-KMIA, 27 fix, 30 zonas acotadas). -->
+    <Content Include="Fixtures\route-airspace-2026-11-16.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <!-- Taxiways reales de SKBO para el caso G74 -> A3 de 14L (TaxiRouteCaseTests). -->
     <Content Include="Fixtures\SKBO-taxi-2026-09-29.csv">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

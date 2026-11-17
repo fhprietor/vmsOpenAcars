@@ -39,6 +39,10 @@ namespace vmsOpenAcars.Core.Flight
             _engStartMonitor.Reset();
             _reverserMonitor.Reset();
             _engStabilizedOsdFired = false;
+            // El aviso de ruta y su acuse son del vuelo que se cierra: si sobrevivieran, el siguiente
+            // vuelo mandaría `route_ack = 1` sin que nadie hubiera sido advertido.
+            RouteWarning      = null;
+            RouteAcknowledged = false;
             OnPhaseChanged?.Invoke(CurrentPhase.ToString());
             PhaseChanged?.Invoke(CurrentPhase);
         }
@@ -105,6 +109,8 @@ namespace vmsOpenAcars.Core.Flight
             _apEngagedCounter = 0;
                    AirspaceViolations    = 0;
                    AirspaceViolationDetail = "";
+            RouteWarning        = null;
+            RouteAcknowledged   = false;
             _taxiStart.Reset();
             _apDisengagedCounter = 0;
             _td.Reset();
@@ -125,13 +131,17 @@ namespace vmsOpenAcars.Core.Flight
             plan.BlockFuel = actualFuel;
 
             var result = await _apiService.PrefileFlight(plan, pilot);
-            ActivePirepId = result.pirepId;
+            ActivePirepId = result.PirepId;
+
+            // El aviso de ruta se guarda **aunque el vuelo no llegue a empezar**: es lo que la UI
+            // enseña antes de conectar y lo que se convierte en `fields.route_ack` si el piloto
+            // acepta. Un prefile sin aviso devuelve `null` y aquí no se inventa nada.
+            RouteWarning = result.RouteWarning;
             if (!string.IsNullOrEmpty(ActivePirepId))
             {
                 _initialFuel   = actualFuel;
                 _totalFuelUsed = 0;
-                _timer.Start(result.serverCreatedAt);
-
+                _timer.Start(result.ServerCreatedAt);
                 if (!string.IsNullOrEmpty(plan.BidId))
                     await _apiService.DeleteBid(plan.BidId);
 
@@ -236,8 +246,7 @@ namespace vmsOpenAcars.Core.Flight
         {
             if (string.IsNullOrEmpty(ActivePirepId)) return false;
 
-            int totalFlightTimeMinutes  = (int)(DateTime.UtcNow - _timer.ServerCreatedAt).TotalMinutes;
-            int actualFlightTimeMinutes = totalFlightTimeMinutes;
+            int totalFlightTimeMinutes  = (int)(DateTime.UtcNow - _timer.ServerCreatedAt).TotalMinutes;            int actualFlightTimeMinutes = totalFlightTimeMinutes;
             if (_timer.ServerBlockOffTime != default(DateTime) && _timer.ServerBlockOnTime != default(DateTime))
                 actualFlightTimeMinutes = (int)(_timer.ServerBlockOnTime - _timer.ServerBlockOffTime).TotalMinutes;
             else if (_timer.ServerBlockOffTime != default(DateTime))
@@ -327,6 +336,10 @@ namespace vmsOpenAcars.Core.Flight
                 LandingWeatherLine       = landingWeatherLine,
                    AirspaceViolations       = AirspaceViolations,
                    AirspaceViolationDetail  = AirspaceViolationDetail,
+                // El acuse de la revisión previa: si el piloto fue advertido y decidió volar, el
+                // PIREP lo dice (`fields.route_ack = 1`). No es lo mismo volar a sabiendas que sin
+                // aviso, y el revisor tiene que poder distinguirlo.
+                RouteAcknowledged        = RouteAcknowledged,
             });
 
             bool success = await _apiService.FilePirep(ActivePirepId, finalData);

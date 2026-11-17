@@ -182,6 +182,11 @@ namespace vmsOpenAcars.Services
                         // Unidades
                         Units = json["params"]?["units"]?.ToString()?.ToUpperInvariant() ?? "KG",
 
+                        // El id del OFP que phpVMS necesita para revisar la ruta antes del
+                        // despegue (ver `SimbriefPlan.SimbriefId`). Comprobado en vivo el
+                        // 16/11/2026: `params.request_id` = "193836077" y `params.static_id` vacío.
+                        SimbriefId = json["params"]?["request_id"]?.ToString(),
+
                         TimeGenerated    = json["params"]?["time_generated"]?.Value<long>() ?? 0,
                         ScheduledOutTime = json["times"]?["sched_out"]?.Value<long>() ?? 0,
                         ScheduledOffTime = json["times"]?["sched_off"]?.Value<long>() ?? 0,

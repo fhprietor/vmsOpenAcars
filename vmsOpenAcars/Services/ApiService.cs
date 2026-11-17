@@ -329,11 +329,78 @@ namespace vmsOpenAcars.Services
         }
 
         /// <summary>
-        /// Prefile un vuelo y devuelve el ID del PIREP y la hora de creación del servidor
+        /// Prefile un vuelo. Devuelve el id del PIREP, la hora de creación del servidor y el aviso de
+        /// ruta, si lo hay.
+        ///
+        /// **`simbrief_id` es el dato que pidió phpVMS** (mensaje del 16/11/2026) **y `route_navlog`
+        /// el que de verdad sirve**: medido, su prefile resuelve el id con `SimBrief::find()` contra
+        /// **su propia tabla `simbriefs`**, así que un `request_id` de SimBrief no produce aviso. El
+        /// cuerpo se construye en <see cref="BuildPrefileBody"/>, que es lo que se prueba en los tests.
         /// </summary>
-        public async Task<(string pirepId, DateTime serverCreatedAt)> PrefileFlight(SimbriefPlan plan, Pilot pilot)
+        public async Task<PrefileResult> PrefileFlight(SimbriefPlan plan, Pilot pilot)
         {
-            string appVersion = AppInfo.Version;
+            var body = BuildPrefileBody(plan, pilot, AppInfo.Version, SystemInfoHelper.GetPrefileNotes());
+            var json = body.ToString(Formatting.None);
+
+            var content  = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await _httpClient.PostAsync(
+                $"{_baseUrl}api/pireps/prefile", content);
+            var result = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // Un prefile que falla NO es un aviso de ruta: aquí se ha roto el vuelo y el piloto
+                // tiene que enterarse por el mensaje del servidor. El aviso nunca llega por esta vía.
+                var errorJson = JObject.Parse(result);
+                var message = errorJson["message"]?.ToString()
+                              ?? errorJson["error"]?["message"]?.ToString()
+                              ?? result;
+                throw new Exception(message);
+            }
+
+            var jsonResult = JObject.Parse(result);
+
+            // Obtener el ID del PIREP
+            var pirepId = jsonResult["data"]?["id"]?.ToString()
+                          ?? jsonResult["id"]?.ToString();
+
+            // Obtener created_at de la respuesta del servidor
+            DateTime serverCreatedAt = DateTime.UtcNow; // fallback
+            var createdAt = jsonResult["data"]?["created_at"]?.ToString();
+            if (!string.IsNullOrEmpty(createdAt))
+            {
+                if (DateTime.TryParse(createdAt, out DateTime parsedDate))
+                {
+                    serverCreatedAt = parsedDate;
+                }
+            }
+
+            // El aviso de ruta viaja en el recurso (`data.route_warning`) y vale `null` cuando no hay
+            // nada que avisar. Se acepta también en la raíz para no atarse a la envoltura.
+            var routeWarning = RouteWarningParser.Parse(
+                jsonResult["data"]?["route_warning"] ?? jsonResult["route_warning"]);
+
+            return new PrefileResult
+            {
+                PirepId         = pirepId,
+                ServerCreatedAt = serverCreatedAt,
+                RouteWarning    = routeWarning,
+            };
+        }
+
+        /// <summary>
+        /// **El cuerpo del prefile**, separado del envío para poder probarlo sin red: los tests miran
+        /// que lleve `simbrief_id` cuando hay id y que **no** lo lleve cuando no, y lo mismo con
+        /// `route_navlog`. Nada de aquí sale a la red ni depende de la sesión.
+        ///
+        /// Dos campos son opcionales **por ausencia, no por `null`**:
+        /// * `simbrief_id`: la ausencia es «no tengo OFP», que es distinto de «aquí está vacío».
+        /// * `route_navlog`: si no hay plan utilizable no se manda nada —**nunca media ruta**— y el
+        ///   prefile viaja igual. Es una **advertencia previa**: este campo no condiciona nada.
+        /// </summary>
+        internal static JObject BuildPrefileBody(SimbriefPlan plan, Pilot pilot,
+                                                 string appVersion, string notes)
+        {
             var payload = new
             {
                 airline_id = pilot.AirlineId,
@@ -360,51 +427,41 @@ namespace vmsOpenAcars.Services
                 distance = 0,
                 flight_time = 0,
                 fuel_used = 0,
+                // El id del OFP de SimBrief (`params.request_id`), como TEXTO: es un número largo que
+                // identifica el plan, no una cantidad con la que se opere. **No cambiar el id por
+                // otro**: medido el 16/11/2026 con el OFP real `193868184` (SKBO/14L→KATL/09R, que
+                // cruza SKR11 en KAGEM→EVPIP a FL340), phpVMS resuelve este campo con
+                // `SimBrief::find()` contra **su propia tabla `simbriefs`** y un `request_id` no está
+                // ahí, así que `route_warning` vuelve `null`. Es su lado el que tiene que descargar el
+                // OFP con este id; el nuestro ya manda además el `navlog`, que no depende de nadie.
+                simbrief_id = string.IsNullOrWhiteSpace(plan.SimbriefId) ? null : plan.SimbriefId.Trim(),
                 // Pista de salida y de llegada del OFP. Son campos PERSONALIZADOS de phpVMS
                 // (`pirep_fields`) y la clave que se manda es el NOMBRE del campo, no el slug; ver
                 // Helpers/PirepFields.cs. La ruta de rodaje todavía no existe aquí: llega cuando el
                 // piloto responde al popup y se manda desde FlightManager.SendTaxiRouteFields.
                 fields = PirepFields.Build(plan.OriginRunway, plan.DestinationRunway, null),
-                notes = SystemInfoHelper.GetPrefileNotes(),
-                source_name = $"vmsOpenAcars/{appVersion}",
+                notes = notes,
+                source_name = $"vmsOpenACars/{appVersion}",
                 state = "in_progress"
             };
 
-            var json = JsonConvert.SerializeObject(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var body = JObject.FromObject(payload);
 
-            var response = await _httpClient.PostAsync(
-                $"{_baseUrl}api/pireps/prefile", content);
+            // El `simbrief_id` nulo **no se manda**: se quita del cuerpo en vez de viajar como `null`.
+            if (body["simbrief_id"]?.Type == JTokenType.Null) body.Remove("simbrief_id");
 
-            var result = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
+            // **El navlog, para que el servidor pueda verificar la ruta sin bajar el OFP.** Es el
+            // camino que no depende de SimBrief ni de credenciales: sus 25–60 puntos con lat/lon y
+            // altitud son exactamente lo que necesita `AirspaceService` para intersectar segmentos.
+            // Contrato en `Helpers/RouteNavlogPayload`.
+            string navlog = RouteNavlogPayload.Build(plan.Waypoints);
+            if (navlog != null)
             {
-                var errorJson = JObject.Parse(result);
-                var message = errorJson["message"]?.ToString()
-                              ?? errorJson["error"]?["message"]?.ToString()
-                              ?? result;
-                throw new Exception(message);
+                body[RouteNavlogPayload.FieldName]        = navlog;
+                body[RouteNavlogPayload.VersionFieldName] = RouteNavlogPayload.Version;
             }
 
-            var jsonResult = JObject.Parse(result);
-
-            // Obtener el ID del PIREP
-            var pirepId = jsonResult["data"]?["id"]?.ToString()
-                          ?? jsonResult["id"]?.ToString();
-
-            // Obtener created_at de la respuesta del servidor
-            DateTime serverCreatedAt = DateTime.UtcNow; // fallback
-            var createdAt = jsonResult["data"]?["created_at"]?.ToString();
-            if (!string.IsNullOrEmpty(createdAt))
-            {
-                if (DateTime.TryParse(createdAt, out DateTime parsedDate))
-                {
-                    serverCreatedAt = parsedDate;
-                }
-            }
-
-            return (pirepId, serverCreatedAt);
+            return body;
         }
 
         /// <summary>

@@ -25,7 +25,12 @@ namespace vmsOpenAcars.Services.Interfaces
         /// rechazo —su validación es todo o nada y detalla el campo que falló—.
         /// </summary>
         Task<(bool Success, string Body)>            SendLandingAnalysis(string pirepId, object payload);
-        Task<(string pirepId, System.DateTime serverCreatedAt)> PrefileFlight(SimbriefPlan plan, Pilot pilot);
+        /// <summary>
+        /// Prefila el vuelo y devuelve el id del PIREP, su hora de servidor y el **aviso de ruta**
+        /// (`route_warning`), que es `null` cuando no hay nada que avisar. Manda `simbrief_id` para
+        /// que phpVMS pueda revisar la ruta antes del despegue.
+        /// </summary>
+        Task<PrefileResult>                          PrefileFlight(SimbriefPlan plan, Pilot pilot);
         Task<Pirep>                                  GetPirepDetail(string pirepId);
         Task<List<Pirep>>                            GetActivePireps();
         Task<bool>                                   DeletePirepById(string pirepId);

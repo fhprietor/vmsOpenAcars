@@ -45,6 +45,15 @@ namespace vmsOpenAcars.ViewModels
         private readonly Dictionary<string, IvaoAtcStation> _prevAtcStations
             = new Dictionary<string, IvaoAtcStation>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// Los cruces que encuentra la comprobación **local** de la ruta (`RouteAirspaceCheck`), con el
+        /// `navlog` del OFP y los polígonos que NavData ya devolvió para la ruta. Se recalculan cuando
+        /// terminan de cargar los espacios aéreos y son el respaldo del aviso del servidor: si el
+        /// prefile no trae `route_warning` (sin `simbrief_id`, o porque el servidor no pudo bajar el
+        /// OFP), el cliente sigue teniendo su propia comprobación, por segmentos y no por muestras.
+        /// </summary>
+        private IList<RouteWarning> _localRouteWarnings = new List<RouteWarning>();
+
         // Eventos para comunicación con la UI (sin cambios)
         public event Action<string, Color> OnLog;
         public event Action<string> OnPositionUpdate;
@@ -79,6 +88,19 @@ namespace vmsOpenAcars.ViewModels
 
         /// <summary>Pide mostrar el popup de rodaje (RAAS). Lo atiende `MainForm`.</summary>
         internal event Action<TaxiRoutePrompt> OnTaxiRoutePromptRequested;
+
+        /// <summary>
+        /// **Pide enseñar el aviso de ruta antes de conectar** y devuelve lo que decidió el piloto
+        /// (`RouteReviewAnswer`): aceptar («he revisado la ruta», y el PIREP lleva
+        /// `fields.route_ack = 1`), corregir el plan (el prefile se cancela y el vuelo no empieza) o
+        /// `Unavailable` si no se pudo preguntar —y entonces se continúa **sin acuse**, porque una
+        /// aceptación que el piloto no dio no se puede inventar—. Lo atiende `MainForm` con el
+        /// `EcamDialog` de toda la aplicación, que es el aviso de la compuerta.
+        ///
+        /// El mensaje se compone aquí y no en el formulario: el texto dice el área, los límites y el
+        /// tramo, que es lo que el piloto necesita para corregir el plan en SimBrief.
+        /// </summary>
+        public event Func<string, string, Task<RouteReviewAnswer>> OnRouteReviewRequested;
 
         /// <summary>Arranca la guía de rodaje con lo que eligió el piloto en el popup.</summary>
         internal void StartTaxiGuidance(string airport, string runway, string route,
@@ -266,6 +288,11 @@ namespace vmsOpenAcars.ViewModels
     // La invasión de una zona acotada se anota **siempre**, antes de decidir si se pinta: el OSD se
     // puede apagar en Settings y la infracción no. Con una invasión el PIREP se filea en revisión
     // (`Helpers/PirepStatePolicy`).
+    //
+    // **`Danger` no es una invasión** (`Helpers/AirspaceViolationPolicy`, v0.9.73): su aviso se pinta
+    // y se locuta igual —es una zona de peligro y merece saberse—, pero el PIREP no se manda a
+    // revisión. En la auditoría de los 10 PIREP marcados, 2 eran `Danger`. La regla vive en el
+    // helper y en `FlightManager.RegisterAirspaceViolation`; aquí no se repite.
     if (tag == "AIRSPACE") _flightManager?.RegisterAirspaceViolation(a.Type, a.ExtractIcao() ?? a.Name);
             string icao   = a.ExtractIcao() ?? a.Name;
             string type   = a.Type.ToUpper();
@@ -308,7 +335,38 @@ namespace vmsOpenAcars.ViewModels
                     // se pudo preguntar. Decirlo así evita el falso «cielo vacío».
                     OnLog?.Invoke("🗺️ Airspace data unavailable (NavData 503) — retrying later", Theme.Warning);
                 }
+
+                // La comprobación de ruta, por segmentos, con lo que acaba de cargarse. Va aquí y no
+                // al arrancar el vuelo para que el aviso esté listo antes de pulsar START, y se
+                // recalcula cada vez que se recarga la ruta.
+                RecomputeLocalRouteCheck();
             });
+        }
+
+        /// <summary>
+        /// Recalcula la comprobación local de la ruta. **Nunca lanza**: si falta el plan, si el
+        /// `navlog` no trae coordenadas o si los espacios aéreos no llegaron, la lista queda vacía y
+        /// decide el aviso del servidor. Es un aviso complementario, no un requisito del vuelo.
+        /// </summary>
+        private void RecomputeLocalRouteCheck()
+        {
+            try
+            {
+                var plan = _flightManager?.ActivePlan;
+                var spaces = _airspaceMonitor.GetAirspaces();
+                _localRouteWarnings = plan?.Waypoints != null && plan.Waypoints.Count > 1
+                                   && spaces != null && spaces.Count > 0
+                    ? RouteAirspaceCheck.Find(plan.Waypoints, spaces)
+                    : new List<RouteWarning>();
+
+                if (_localRouteWarnings.Count > 0)
+                    OnLog?.Invoke(_("Log_RouteCheckLocalHit", _localRouteWarnings.Count,
+                                    _localRouteWarnings[0].Describe()), Theme.Warning);
+            }
+            catch
+            {
+                _localRouteWarnings = new List<RouteWarning>();
+            }
         }
 
         public IList<IvaoAtcStation> GetAtcStations() => _airspaceMonitor.GetAtcStations();
@@ -668,6 +726,10 @@ namespace vmsOpenAcars.ViewModels
             if (plan == null) return;
             _flightManager.SetActivePlan(plan);
 
+            // El plan cambió: los cruces del anterior no valen. Se vacían aquí y se recalculan en
+            // `TriggerAirspaceLoadAsync`, que es lo que tarda (aire + polígonos).
+            _localRouteWarnings = new List<RouteWarning>();
+
             // Advisory: advertir si el avión del OFP no coincide con el del simulador
             if (_fsuipc.IsConnected)
             {
@@ -767,9 +829,129 @@ namespace vmsOpenAcars.ViewModels
             await CheckIvaoStatusAsync();
 
             bool started = await _flightManager.StartFlight(plan, _flightManager.ActivePilot, fuelKg.Value);
-            if (started)
-                OnFlightStartedAsync(plan);
+            if (!started) return;
+
+            // El aviso de ruta se enseña **antes de conectar**, que es el momento en el que el
+            // piloto todavía puede corregir el plan en SimBrief. Si elige corregirlo, el prefile se
+            // cancela y el vuelo no empieza: nunca se desconecta nada a medias.
+            if (!await ReviewRouteBeforeConnectAsync())
+            {
+                await _flightManager.AbortFlight();
+                OnButtonStateChanged?.Invoke("START", Color.FromArgb(200, 100, 0), false);
+                _tc?.Reset();
+                _reporter?.Reset();
+                _procTracker.ResetProgress();
+                OnFlightEnded?.Invoke();
+                return;
+            }
+
+            OnFlightStartedAsync(plan);
         }
+
+        /// <summary>
+        /// **La revisión previa de la ruta.** Junta el aviso del servidor (`route_warning` del prefile,
+        /// que es el que descarga el OFP) con la comprobación local por segmentos, y pregunta al
+        /// piloto. Devuelve `true` si puede seguir (sin aviso, o «he revisado la ruta») y `false` si
+        /// eligió corregir el plan.
+        ///
+        /// El servidor manda: si trae aviso, ese es el que se enseña. El local solo se usa cuando el
+        /// servidor no avisó —sin `simbrief_id`, o porque no pudo bajar el OFP—, y se dice de dónde
+        /// sale cada uno: atribuirle al servidor un aviso nuestro confundiría la auditoría.
+        ///
+        /// **No bloquea por sí sola**: el prefile ya está hecho y el servidor no ha impedido nada.
+        /// La única salida que no continúa es la que elige el piloto, y entonces se cancela el PIREP
+        /// de este intento, que es lo que hace `CANCEL`.
+        /// </summary>
+        private async Task<bool> ReviewRouteBeforeConnectAsync()
+        {
+            RouteWarning server = _flightManager.RouteWarning;
+            IList<RouteWarning> local = _localRouteWarnings ?? new List<RouteWarning>();
+
+            RouteWarning shown = server ?? (local.Count > 0 ? local[0] : null);
+            if (shown == null) return true;
+
+            string message = BuildRouteReviewMessage(shown, local);
+            if (OnRouteReviewRequested == null)
+            {
+                // Sin UI que pregunte (pruebas, o un host que no cablee el evento) se degrada a
+                // avisar en el registro: el vuelo NO se bloquea por esto, y no se apunta un acuse
+                // que nadie dio.
+                OnLog?.Invoke("⚠️ " + shown.Describe(), Theme.Warning);
+                return true;
+            }
+
+            RouteReviewAnswer answer = await OnRouteReviewRequested(message, _("RouteReview_Title"));
+
+            if (answer == RouteReviewAnswer.CorrectPlan)
+            {
+                OnLog?.Invoke(_("Log_RouteCorrectionChosen", shown.Describe()), Theme.Warning);
+                return false;
+            }
+
+            if (answer == RouteReviewAnswer.Dismissed)
+            {
+                // Lo vio y lo cerró: sigue, y **no** se apunta acuse. Que quede en el registro es
+                // justo la diferencia entre «cerró el aviso» y «no se pudo preguntar».
+                OnLog?.Invoke(_("Log_RouteReviewDismissed", shown.Describe()), Theme.Warning);
+                return true;
+            }
+
+            if (answer == RouteReviewAnswer.Unavailable)
+            {
+                OnLog?.Invoke(_("Log_RouteReviewUnavailable", shown.Describe()), Theme.Warning);
+                return true;
+            }
+
+            _flightManager.AcknowledgeRouteWarning(shown);
+            OnLog?.Invoke(_("Log_RouteAcknowledged", shown.Describe()), Theme.Warning);
+
+            // El aviso local que el servidor no vio también se anota: si el cliente lo enseñó, el
+            // piloto lo vio, y el acuse cubre los dos.
+            if (server != null && local.Count > 0)
+                OnLog?.Invoke(_("Log_RouteCheckLocalHit", local.Count, local[0].Describe()), Theme.SecondaryText);
+
+            return true;
+        }
+
+        /// <summary>
+        /// El texto del aviso: área, límites, tramo y **de dónde sale**. Es lo que el piloto necesita
+        /// para corregir el plan en SimBrief, así que no se resume: se dan los tres datos tal como
+        /// vienen.
+        /// </summary>
+        private string BuildRouteReviewMessage(RouteWarning shown, IList<RouteWarning> local)
+        {
+            var text = new System.Text.StringBuilder();
+            text.AppendLine(_("RouteReview_Header"));
+            text.AppendLine();
+            text.AppendLine(_("RouteReview_Area")   + ": " + NonEmpty(shown.Area));
+            text.AppendLine(_("RouteReview_Limits") + ": " + NonEmpty(shown.Limits));
+            text.AppendLine(_("RouteReview_Leg")    + ": " + NonEmpty(shown.Leg));
+            text.AppendLine(_("RouteReview_Source") + ": " +
+                (shown.FromServer ? _("RouteReview_ServerSource") : _("RouteReview_LocalSource")));
+
+            // Los demás cruces que solo ve el cliente, en una línea: si hay más de uno, el piloto
+            // tiene que saber que la ruta no tiene un problema suelto.
+            var extras = new List<string>();
+            if (local != null)
+                foreach (var w in local)
+                {
+                    if (ReferenceEquals(w, shown)) continue;
+                    extras.Add(w.Describe());
+                    if (extras.Count == 3) break;
+                }
+            if (extras.Count > 0)
+                text.AppendLine(_("RouteReview_AlsoLocal") + ": " + string.Join(" · ", extras));
+
+            text.AppendLine();
+            text.AppendLine(_("RouteReview_Advice"));
+            text.AppendLine(_("RouteReview_Advisory"));
+            text.AppendLine();
+            text.Append(_("RouteReview_Choice"));
+            return text.ToString();
+        }
+
+        private static string NonEmpty(string value)
+            => string.IsNullOrWhiteSpace(value) ? "?" : value.Trim();
 
         private async Task<bool> ValidateAircraftTypeAsync(SimbriefPlan plan)
         {

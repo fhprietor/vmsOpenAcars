@@ -303,12 +303,34 @@ Prefila un nuevo PIREP (estado inicial).
 | `zfw` | No | numeric | Zero Fuel Weight |
 | `block_fuel` | No | numeric | |
 | `route` | No | string | |
+| `simbrief_id` | No | string | **El `params.request_id` del OFP de SimBrief** (v0.9.73). Ojo: phpVMS lo resuelve con `SimBrief::find()` contra **su propia tabla `simbriefs`**, así que un `request_id` de SimBrief **no** produce aviso; ver `route_navlog` |
+| `route_navlog` | No | string | **El `navlog` del OFP en una línea** (v0.9.73): `IDENT,lat,lon,alt_ft;…`, 6 decimales con punto, tope de 200 puntos. Es lo que permite verificar la ruta **sin descargar el OFP**. Medido: 44 puntos = **1.402 bytes** en un SKBO→KATL; el servidor lo ignora hoy y el prefile no falla por él |
+| `route_navlog_version` | No | int | Versión del formato de `route_navlog`. Hoy **1** |
 | `notes` | No | string | |
 | `score` | No | integer | |
 | `block_off_time` | No | date | |
 | `block_on_time` | No | date | |
 | `created_at` | No | date | |
 | `fares` | No | array | `[{id, count}]` |
+
+**Respuesta del prefile (v0.9.73).** El recurso del PIREP trae `route_warning`, que es **`null`**
+cuando no hay nada que avisar (ruta limpia, sin OFP en el servidor, o área de tipo `Danger`) y, si la
+ruta cruza una zona **restringida o prohibida**:
+
+```json
+"route_warning": {
+  "area":   "SKR11 / BARRANQUILLA",
+  "limits": "GND–FL999",
+  "leg":    "GIKPU–PADUD",
+  "action": "revisar_ruta"
+}
+```
+
+El prefile **nunca falla por esto** y el servidor no bloquea la conexión. El cliente lo enseña antes
+de conectar con dos salidas («ruta revisada» / «corregir plan») y, si el piloto acepta, manda en el
+PIREP **`fields.route_ack = 1`** —«fue advertido»—, que convive con la marca de revisión
+`fields.restricted_airspace`. Comprobado el 16/11/2026: la clave `route_warning` **ya viaja** en el
+recurso real y vale `null` en los vuelos limpios; su forma no nula es la de arriba.
 
 ### `POST /api/pireps/{pirep_id}` _(api.auth)_
 ### `PUT /api/pireps/{pirep_id}` _(api.auth)_

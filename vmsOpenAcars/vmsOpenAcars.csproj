@@ -188,6 +188,17 @@
     <Compile Include="Helpers\ApproachSpeedWindow.cs" />
     <Compile Include="Helpers\XPlaneAcfIdentity.cs" />
     <Compile Include="Helpers\AirspaceRouteSampler.cs" />
+    <!-- Qué zonas acotadas son violación y cuáles solo advertencia (v0.9.73): Danger no manda el
+         PIREP a revisión — en la auditoría de 10 PIREP marcados, 2 eran Danger. -->
+    <Compile Include="Helpers\AirspaceViolationPolicy.cs" />
+    <!-- La comprobación de ruta por intersección de segmentos (v0.9.73): muestrear cada ~130 nm se
+         saltaba SKR11, que mide ~40 nm. Con los tramos del navlog y los polígonos de NavData. -->
+    <Compile Include="Helpers\RouteAirspaceCheck.cs" />
+    <!-- Lectura defensiva del `route_warning` del prefile: es un dato de fuera y nunca lanza. -->
+    <Compile Include="Helpers\RouteWarningParser.cs" />
+    <!-- El navlog del OFP en una línea para que el servidor verifique la ruta sin bajar el OFP
+         (v0.9.73): con `simbrief_id` no puede, lo resuelve contra su propia tabla `simbriefs`. -->
+    <Compile Include="Helpers\RouteNavlogPayload.cs" />
     <Compile Include="Helpers\CartoTileUrl.cs" />
     <Compile Include="Helpers\AtcStationOrder.cs" />
     <Compile Include="Helpers\GeoMath.cs" />
@@ -331,6 +342,10 @@
     <Compile Include="Models\SimbriefWaypoint.cs" />
     <Compile Include="Models\TakeoffData.cs" />
     <Compile Include="Models\NavData.cs" />
+    <!-- Aviso de ruta del prefile (v0.9.73): área, límites y tramo del cruce, o null. -->
+    <Compile Include="Models\RouteWarning.cs" />
+    <Compile Include="Models\PrefileResult.cs" />
+    <Compile Include="Models\RouteReviewAnswer.cs" />
     <Compile Include="Models\TouchdownData.cs" />
     <Compile Include="Models\LandingWeather.cs" />
     <Compile Include="Program.cs" />

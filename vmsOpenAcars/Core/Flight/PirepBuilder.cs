@@ -99,8 +99,19 @@ namespace vmsOpenAcars.Core.Flight
             // La marca de revisión, si el vuelo invadió una zona acotada. La pone el SERVIDOR:
             // `state` no se toca (phpVMS, 27/10/2026) y sin el campo el vuelo se auto-aprueba. Va
             // fuera del inicializador para que un vuelo limpio no lleve ni `"fields": null`.
-            var reviewFields = PirepFields.ReviewMark(a.AirspaceViolations, a.AirspaceViolationDetail);
-            if (reviewFields != null) payload["fields"] = reviewFields;
+            var fields = PirepFields.ReviewMark(a.AirspaceViolations, a.AirspaceViolationDetail);
+
+            // El acuse del aviso de ruta del prefile: NO es una marca de revisión, es la constancia
+            // de que el piloto fue advertido antes de despegar y aun así voló. Viaja en el mismo
+            // `fields`, así que se fusiona con la marca (o la crea si no hay invasión).
+            var ack = PirepFields.RouteAckMark(a.RouteAcknowledged);
+            if (ack != null)
+            {
+                if (fields == null) fields = new Dictionary<string, string>();
+                foreach (var pair in ack) fields[pair.Key] = pair.Value;
+            }
+
+            if (fields != null) payload["fields"] = fields;
 
             return payload;
         }
@@ -130,5 +141,12 @@ namespace vmsOpenAcars.Core.Flight
 
         /// <summary>La última invasión, como `RESTRICTED SKP35`, para el `notes` del PIREP.</summary>
         internal string   AirspaceViolationDetail;
+
+        /// <summary>
+        /// El piloto **fue advertido** de que la ruta cruzaba una zona restringida o prohibida y
+        /// decidió volar: se manda como `fields.route_ack = 1`. False = ni aviso ni acuse, y el
+        /// campo no aparece.
+        /// </summary>
+        internal bool     RouteAcknowledged;
     }
 }

@@ -116,6 +116,19 @@ namespace vmsOpenAcars.Models
         public string FlightId { get; set; }   // phpVMS flight ID 
         public string BidId { get; set; }       // Bid ID
 
+        /// <summary>
+        /// **El id del OFP de SimBrief** (`params.request_id`, hoy `193836077` en el plan real del
+        /// 16/11/2026), el único dato que phpVMS pedía para poder revisar la ruta **antes de
+        /// despegar**: con la id descarga el OFP y lee su `navlog`, y con el `navlog` comprueba si
+        /// la ruta entra en un espacio aéreo restringido. Sin este campo, y aunque el cliente mande
+        /// `route`, **no hay aviso**: el servidor no adivina el plan.
+        ///
+        /// Es el `request_id`, NO el `static_id` (que en el mismo plan venía vacío): el `static_id`
+        /// identifica una ruta guardada y se repite entre planes distintos, así que usarlo como
+        /// «el OFP de este vuelo» daría la ruta de otro día. `null` cuando el JSON no lo trae.
+        /// </summary>
+        public string SimbriefId { get; set; }
+
         #endregion
 
         #region Weight & Fuel

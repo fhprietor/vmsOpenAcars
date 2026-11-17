@@ -2574,6 +2574,139 @@ trabajo de la pantalla); el ancho del texto se calcula por aritmética y no leye
 de los paneles, porque al construir el layout todavía no ha corrido. `EcamDialogTests` mide las dos
 invariantes sin enseñar la ventana.
 
+## La revisión de la ruta antes de despegar (v0.9.73)
+
+**El problema, medido por phpVMS el 16/11/2026.** La ruta la genera SimBrief y el piloto la acepta
+sin mirarla. El vuelo **863 (SKBO–KATL)** entró en **SKR11 / BARRANQUILLA** —restringida,
+**GND–FL999**, permanente— porque el plan pasaba por dentro. El ACARS lo detectó **en vuelo**, a las
+**17:30:55**, con el «AHEAD» dos minutos antes; al presentar el PIREP ya no había nada que corregir.
+El momento bueno es el **prefile**, no el envío: ahí el piloto todavía está en tierra.
+
+### El contrato
+
+El cliente manda **`simbrief_id`** en `POST /api/pireps/prefile` — el **`params.request_id`** del
+OFP de SimBrief (`193836077` en el plan real de ese día; `params.static_id` venía **vacío**, y
+además identifica una ruta guardada que se repite entre planes distintos, así que no sirve para
+«el OFP de este vuelo»). Es el único dato que faltaba: phpVMS ya recibía `route`, y con el id
+descarga el OFP y lee su `navlog` para comprobar la ruta **por segmentos**. Sin el campo no hay
+aviso, y el prefile funciona igual.
+
+En el recurso del PIREP vuelve **`route_warning`**, que es **`null`** cuando no hay nada que avisar
+(ruta limpia, sin OFP, o área de tipo **`Danger`**, que es advertencia):
+
+```json
+"route_warning": { "area": "SKR11 / BARRANQUILLA", "limits": "GND–FL999",
+                   "leg": "GIKPU–PADUD", "action": "revisar_ruta" }
+```
+
+Si el piloto acepta, el PIREP lleva **`fields.route_ack = 1`** —«fue advertido»—, que **no** es lo
+mismo que una marca de revisión: dice lo que el piloto sabía antes de despegar. `PirepFields`
+compone las dos cosas en el mismo `fields` y omite cada una cuando no toca.
+
+**Y el cliente manda además el `navlog`** (`route_navlog` + `route_navlog_version`,
+`Helpers/RouteNavlogPayload`), porque el camino del `simbrief_id` **no funciona** (ver «Lo que se
+midió»): `IDENT,lat,lon,alt_ft;…` con 6 decimales y punto decimal siempre, tope de **200** puntos y
+**1.402 bytes** en un SKBO→KATL de 44 tramos. Con eso el servidor intersecta segmentos **sin bajar el
+OFP ni tocar credenciales de SimBrief**, y la **altitud** —que el `navlog` trae— es lo que evita los
+falsos positivos por sobrevuelo. Degrada sin datos: sin plan (vuelo retomado), con un punto sin
+coordenadas o por encima del tope no se manda nada y el prefile viaja igual; **nunca media ruta**, que
+sería describir un plan que no existe. El prefile con el campo dentro se probó el 16/11/2026:
+**HTTP 200** y el servidor lo ignora (los campos desconocidos no rompen el prefile), así que puede
+viajar antes de que phpVMS lo lea.
+
+### Qué hace el cliente
+
+1. **Parseo defensivo** (`Helpers/RouteWarningParser`): objeto, lista, `{}`, campos en blanco o un
+   texto ⇒ lo que se pueda leer o `null`. **Nunca lanza**: el aviso no puede romper un prefile, igual
+   que en el servidor no puede impedirlo. `ApiService.PrefileFlight` devuelve `PrefileResult`
+   (id + hora del servidor + aviso).
+2. **El aviso, antes de conectar, y solo como aviso.** `MainViewModel.StartFlight` hace el prefile y,
+   si hay aviso, abre el `EcamDialog` de la compuerta con **rótulos propios**: «RUTA REVISADA»
+   (continúa y acusa) y «CORREGIR PLAN» (no inicia el vuelo y cancela el prefile de ese intento).
+   `RouteReviewAnswer` tiene **cuatro** valores: aceptar, corregir, `Dismissed` (lo cerró con la ✕ ⇒
+   sigue **sin acuse**) y `Unavailable` (no se pudo preguntar ⇒ sigue **sin acuse**). Solo el botón
+   «CORREGIR PLAN» detiene el vuelo, y lo decide el piloto: **el aviso nunca bloquea**. El texto lo
+   dice en la propia ventana.
+3. **La comprobación del cliente, por segmentos** (`Helpers/RouteAirspaceCheck`, puro): los tramos
+   del `navlog` contra los polígonos que `AirspaceMonitorService` ya cargó para la ruta. Es la
+   respuesta al recordatorio de phpVMS —«vuestra comprobación de ruta usa 15 muestras»—: muestrear
+   la ruta deja pasar zonas enteras. Los números reales del caso: **SKR11 mide 72 × 53 nm** y la
+   pierna publicada `DIBA1A` (`DIBAM → EGOKU`, **153,7 nm**, 12.000 → 6.000 ft) la cruza **con los
+   dos extremos fuera de la zona**; el muestreo de los fixes no ve nada y el segmento sí.
+
+Detalles de la geometría, que son los que se prueban:
+
+- Plano local por tramo, anclado en el punto de salida (`GeoMath.ToMeters`): el error de la
+  proyección flat-earth crece con la distancia al ancla y aquí el ancla es un extremo del segmento.
+- Intersección **propia** (orientación por productos cruzados): rozar un vértice no es entrar.
+- Un tramo **que empieza dentro** de la zona también cuenta (salir de una restringida es igual de
+  malo que entrar).
+- **La altitud manda**: si la banda del tramo (`min`/`max` de sus dos fixes) no se solapa con los
+  límites de la zona, no hay aviso — sobrevolar no es invadir. Con datos reales: `SKR17/CARTAGENA`
+  topa a **2.000 ft MSL** y `SVR2508` a **3.000**, y el mismo tramo que entra en SKR11 pasa por
+  encima de las dos. **Sin altitud** (`AltFt == 0`, que es «no sé» en el `navlog`) **no se
+  descarta** el aviso: en la duda se avisa.
+- **`Danger` no participa** (`AirspaceViolationPolicy`), una zona se avisa **una vez** aunque la ruta
+  la cruce dos veces, y la ruta real del OFP del piloto (SEQM→KMIA, 27 fix contra **30** zonas
+  restringidas/prohibidas) **no avisa** — el control que impide que esto avise de todo.
+
+**Qué se enseña cuando hay dos avisos.** Manda el del servidor: si `route_warning` trae algo, ese es
+el que se pinta. El de la comprobación local solo se usa cuando el servidor no avisó —sin
+`simbrief_id`, o porque no pudo bajar el OFP—, y el diálogo dice **de dónde sale cada uno**
+(«el servidor, con el OFP de SimBrief» / «la comprobación local del cliente»). Atribuirle al
+servidor un aviso nuestro confundiría la auditoría de los PIREP.
+
+### `Danger` deja de mandar el PIREP a revisión
+
+phpVMS lo dijo en el mismo mensaje: **solo cuentan `Prohibited` y `Restricted`**, y de los **10
+PIREP** que el cliente había marcado, **2 eran `Danger`**. La regla vive en
+`Helpers/AirspaceViolationPolicy` (con test) y se comprueba **dos veces**: en `MainViewModel`, que es
+quien anota la invasión al recibir la alerta, y en `FlightManager.RegisterAirspaceViolation`, para que
+cualquier camino nuevo herede la decisión. El aviso en el log y en el OSD de una `Danger` **se sigue
+pintando**: lo que no se hace es mandar el vuelo a revisión.
+
+### Lo que se midió: el aviso no sale porque el servidor no resuelve el id
+
+El recurso real **ya publica** `route_warning`, y el **prefile con `simbrief_id` está probado** el
+16/11/2026 con dos PIREP de prueba cancelados: HTTP 200, `route_warning: null` en ruta limpia, el
+campo no rompe nada. El prefile tarda lo mismo con id que sin id (**414 ms contra 476 ms**) y su
+`simbrief` vuelve `null`: no hay descarga del OFP ni comprobación de espacios.
+
+**La prueba decisiva llegó con una ruta que sí cruza.** El piloto despachó en SimBrief el
+**SKBO/14L → KATL/09R** del caso (`request_id` **193868184**, 44 tramos, A21N) y el tramo
+**KAGEM → EVPIP** a **FL340** entra en **SKR11 / BARRANQUILLA** —comprobado con la geometría del
+cliente y con una implementación independiente, la misma de los tests—. Prefile con ese id:
+**HTTP 200, 609 ms, `route_warning: null`**.
+
+Y la sonda que lo cerró: mandar `simbrief_id` como **objeto** devuelve un 503 con el stack trace del
+servidor —
+
+```
+SimBriefService::attachSimbriefToPirep(): Argument #2 ($simBrief) must be of type
+App\Models\SimBrief, Illuminate\Database\Eloquent\Collection given,
+called in /var/www/phpvms/app/Services/PirepService.php on line 196
+```
+
+— que es el **`SimBrief::find($attrs['simbrief_id'])` de serie**: su prefile resuelve `simbrief_id`
+contra la **tabla `simbriefs` de phpVMS**, no contra SimBrief. Con un `request_id` de SimBrief
+`find()` devuelve `null`, el `attach` no ocurre (`simbrief: null` en el recurso, siempre) y el
+`AirspaceService` —colgado de ahí— **no se ejecuta**. Para un cliente que despacha en SimBrief y no
+por la web de phpVMS, **`route_warning` es `null` siempre**, por restringida que sea la ruta. Para que
+funcione, phpVMS tiene que descargar el OFP con el `request_id` (necesita su usuario/`userid` de
+SimBrief: `?request_id=` solo responde `Error: Unknown UserID`) y **crear o resolver la fila** antes
+de llamar a `attachSimbriefToPirep`, o comprobar la ruta sin pasar por ella. **Del lado del cliente no
+hay nada que cambiar**: el campo es el que pidieron y se manda tal cual.
+
+Queda por verificar solo el `fields.route_ack` de vuelta, que depende de que el aviso llegue.
+
+Los datos vivos de los tests están en
+`vmsOpenACars.Tests/Fixtures/route-airspace-2026-11-16.json` (capturado el 16/11/2026): polígono real
+de SKR11, piernas reales que la cruzan, límites reales de SKR17 y SVR2508 y la ruta real del OFP.
+
+Los datos vivos de los tests están en
+`vmsOpenACars.Tests/Fixtures/route-airspace-2026-11-16.json` (capturado el 16/11/2026): polígono real
+de SKR11, piernas reales que la cruzan, límites reales de SKR17 y SVR2508 y la ruta real del OFP.
+
 ## API phpVMS — endpoints verificados
 
 Comprobado en vivo contra la instalación de producción, no deducido de la documentación.

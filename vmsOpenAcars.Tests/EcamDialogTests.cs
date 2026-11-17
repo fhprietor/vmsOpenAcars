@@ -102,5 +102,27 @@ namespace vmsOpenAcars.Tests
                 LocalizationService.Instance.LoadLanguage(original);
             }
         }
+        /// <summary>
+        /// **El aviso de ruta trae sus propios rótulos.** Sus dos salidas no son sí/no sino «ruta
+        /// revisada» y «corregir plan», así que `EcamDialog` acepta rótulos ya traducidos. Y con dos
+        /// palabras por tecla la fila no cabe en los 450 px de siempre: la ventana se ensancha
+        /// (`FitToButtons`) para que no se salgan.
+        /// </summary>
+        [TestMethod]
+        public void CustomButtonLabels_AreUsed_AndTheDialogWidensToFitThem()
+        {
+            using (var dlg = new EcamDialog("mensaje", "REVISIÓN DE RUTA", EcamDialogButtons.YesNo,
+                                            "RUTA REVISADA", "CORREGIR PLAN"))
+            {
+                dlg.PerformLayout();
+
+                Assert.AreEqual("RUTA REVISADA", dlg.Button1Text);
+                Assert.AreEqual("CORREGIR PLAN", dlg.Button2Text);
+
+                Assert.IsTrue(dlg.ClientSize.Width >= 450, "la ventana nunca se estrecha");
+                Assert.IsTrue(dlg.ButtonsRowWidth <= dlg.ClientSize.Width,
+                    $"las teclas suman {dlg.ButtonsRowWidth} px en un diálogo de {dlg.ClientSize.Width} px");
+            }
+        }
     }
 }

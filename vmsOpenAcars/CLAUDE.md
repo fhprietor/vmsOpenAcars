@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.72  
+**Versión actual:** v0.9.73  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -302,6 +302,48 @@ crédito**: al añadir uno nuevo al combo hay que darle el suyo. El rótulo es t
 
 ---
 
+## Revisión de la ruta antes del despegue — v0.9.73
+
+**El aviso que llega a tiempo es el del prefile, no el de vuelo.** Caso que lo motiva (phpVMS,
+16/11/2026): el vuelo **863 (SKBO–KATL)** entró en **SKR11 / BARRANQUILLA** (restringida,
+GND–FL999, permanente) porque el plan de SimBrief pasaba por dentro; el ACARS lo detectó **en vuelo**
+(17:30:55) y al presentar el PIREP ya no había nada que corregir.
+
+- **Se manda `simbrief_id` en el prefile** (`SimbriefPlan.SimbriefId` = `params.request_id` de
+  SimBrief; **no** `static_id`, que en el OFP real del 16/11/2026 venía **vacío** y se repite entre
+  planes). Sin ese campo el servidor no revisa nada y `route_warning` vuelve `null`. Se **omite** del
+  cuerpo cuando no hay id.
+- **Se lee `route_warning`** del recurso (`{area, limits, leg, action}`, `null` si no hay nada) con
+  `Helpers/RouteWarningParser`: defensivo y **nunca lanza** —el prefile no puede fallar por esto—.
+  `ApiService.PrefileFlight` devuelve `Models/PrefileResult` (id + hora + aviso).
+- **Y se manda el `navlog`, que es el camino que sí funciona** (`route_navlog` +
+  `route_navlog_version`, `Helpers/RouteNavlogPayload`): `IDENT,lat,lon,alt_ft;…`, **1.402 bytes** en
+  el 863 (44 puntos), 6 decimales con **punto** siempre. Es el dato que el servidor necesita para
+  intersectar segmentos **sin bajar el OFP ni tocar credenciales**, y la altitud es imprescindible
+  (sobrevolar no es invadir). Degrada sin datos: sin `navlog`, con un punto sin coordenadas o con más
+  de **200** puntos no se manda —**nunca media ruta**— y el prefile viaja igual. El servidor lo ignora
+  por ahora (medido: HTTP 200 con el campo dentro), así que puede viajar antes de que lo lean.
+- **Aviso visible antes de conectar**, con dos salidas: «RUTA REVISADA» sigue y manda
+  **`fields.route_ack = 1`** al filear; «CORREGIR PLAN» **no inicia el vuelo** y cancela el prefile.
+  Es el `EcamDialog` de la compuerta con **rótulos propios** (`RouteReview_BtnAck`/`_BtnFix`);
+  `RouteReviewAnswer.Unavailable` = no se pudo preguntar ⇒ se sigue **sin acuse**. El acuse se une a
+  la marca `restricted_airspace` en el mismo `fields` y no se manda si no hubo aviso.
+  **Es un aviso previo, no una puerta**: solo el botón «CORREGIR PLAN» detiene el vuelo; cerrar la
+  ventana con la ✕ continúa **sin acuse** (`RouteReviewAnswer.Dismissed`) y el texto lo dice.
+- **La comprobación del cliente va por segmentos, no por muestras** (`Helpers/RouteAirspaceCheck`,
+  puro): los tramos del `navlog` contra los polígonos que NavData ya dio para la ruta. Muestrear cada
+  ~130 nm **no ve** una zona como SKR11 —**72 × 53 nm**— y la pierna real `DIBA1A`
+  (`DIBAM → EGOKU`, **153,7 nm**) la cruza **con los dos extremos fuera**. La altitud manda
+  (sobrevolar no es invadir) y sin altitud **no se descarta** el aviso. Si el prefile trae aviso, ese
+  es el que se enseña; el local solo cuando el servidor no avisó.
+- **`Danger` no es violación** (`Helpers/AirspaceViolationPolicy`): se pinta, no manda el PIREP a
+  revisión. De los **10 PIREP** que el cliente marcó, **2 eran `Danger`**.
+- Test con datos reales: `vmsOpenACars.Tests/Fixtures/route-airspace-2026-11-16.json` (polígono real
+  de SKR11, piernas publicadas que la cruzan, límites de SKR17/SVR2508 y la ruta real SEQM→KMIA con
+  30 zonas acotadas). Detalle en `Docs/architecture.md` → "La revisión de la ruta antes de despegar".
+
+---
+
 ## CabinAnnouncementService — `Services/CabinAnnouncementService.cs` (v0.5.9, voz 0.9.48)
 
 **Clip si existe, voz SAPI si no.** Clips de `/briefing/check/` + `/briefing/download/` (caché `%TEMP%\vmsacars\briefing\`); NavData **no publicará más fases**, así que las que faltan las locuta `CabinVoice` (`System.Speech`) con el texto puro de `Helpers/CabinAnnouncementScript` (es/en, datos opcionales: sin dato la frase desaparece; destino **por su nombre** de `name`+`city`, que llegan abreviados y sin tildes; hora local de `Helpers/LocalTimeOfDay`, longitud ÷ 15°). `Helpers/SapiVoicePolicy` elige el idioma **contra las voces instaladas**: sin voz española se locuta el texto inglés.
@@ -560,7 +602,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1127 tests** (1 se omite sola).
+`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1164 tests** (1 se omite sola).
 
 **Qué cubre la suite** — cada bloque con sus casos reales, sus fixtures y lo que no se puede
 re-ejecutar sin red: **`Docs/architecture.md`** → "Las suites de tests y sus casos reales".
@@ -599,6 +641,19 @@ decisión pendiente**, casi siempre del mantenedor.
 - **`zfw` sin unidad declarada**: falta que la aerolínea diga en cuál lo espera.
 - **`landing_rate = 0` frente a `null`**: si phpVMS acepta `null`, sería más honesto omitirlo.
 - **Touch-and-go de varios ciclos**: solo se conserva el último aterrizaje.
+- **`route_warning` no llega hasta que phpVMS lea el `navlog` (medido el 16/11/2026)**: el prefile
+  con `simbrief_id` se acepta pero su `route_warning` sale `null` **aunque la ruta cruce SKR11** —con
+  el OFP real `193868184` (SKBO/14L→KATL/09R, tramo **KAGEM→EVPIP a FL340** dentro de la zona)—. La
+  sonda que lo cerró: mandar el campo como objeto devuelve el stack trace de
+  `SimBriefService::attachSimbriefToPirep()` llamado desde `PirepService.php:196`, o sea el
+  **`SimBrief::find($attrs['simbrief_id'])` de serie**: resuelve el id contra la **tabla `simbriefs`
+  de phpVMS**, no contra SimBrief, y con un `request_id` devuelve `null` → su `AirspaceService` no se
+  ejecuta. **El cliente ya manda también el `route_navlog`** (44 puntos, 1.402 bytes, HTTP 200 con el
+  campo dentro), que es el camino que no depende de credenciales: falta que ellos lo lean. Ver
+  `Docs/CHANGELOG.md` 0.9.73 y `Docs/architecture.md` → "Lo que se midió".
+- **El `navlog` en el prefile no lo lee nadie todavía**: es aditivo y el servidor lo ignora, así que
+  el día que phpVMS lo implemente no hay que tocar el cliente. Su versión va en
+  `route_navlog_version` para poder cambiar el formato sin adivinar.
 
 > Detalle completo —causa raíz, cifras, casos y lo ya cerrado— en **Docs/DEUDA-Y-DECISIONES.md** →
 > "SayIntentions.AI — investigación cerrada y nada implementado", "Base de rutas de rodaje reales en

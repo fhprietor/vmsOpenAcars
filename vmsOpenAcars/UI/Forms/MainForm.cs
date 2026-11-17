@@ -399,6 +399,52 @@ namespace vmsOpenAcars.UI.Forms
                 return result;
             };
 
+            // ── Revisión previa de la ruta ────────────────────────────────────────
+            // Es el aviso de la compuerta, con dos salidas con nombre propio: un SÍ/NO delante de un
+            // cruce de espacio aéreo no dice qué hace cada botón. Se muestra **antes de conectar**,
+            // que es cuando el piloto todavía puede corregir el plan en SimBrief.
+            _viewModel.OnRouteReviewRequested += ShowRouteReviewAsync;
+        }
+
+        /// <summary>
+        /// Enseña el aviso de ruta y devuelve la decisión. **Es un aviso previo, no una puerta**:
+        /// solo el botón «CORREGIR PLAN» detiene el vuelo; cerrar la ventana con la ✕ (o cualquier
+        /// otro desenlace) **continúa sin acuse**, porque no se le puede atribuir al piloto una
+        /// lectura que no confirmó. Si la ventana no puede mostrarse se contesta `Unavailable`, que
+        /// también continúa: nunca se cancela un vuelo porque falle un diálogo.
+        /// </summary>
+        private Task<RouteReviewAnswer> ShowRouteReviewAsync(string message, string title)
+        {
+            try
+            {
+                if (IsDisposed || !IsHandleCreated)
+                    return Task.FromResult(RouteReviewAnswer.Unavailable);
+
+                Func<RouteReviewAnswer> show = () =>
+                {
+                    DialogResult result = EcamDialog.Show(this, message, title,
+                        EcamDialogButtons.YesNo,
+                        _("RouteReview_BtnAck"), _("RouteReview_BtnFix"));
+
+                    if (result == DialogResult.Yes) return RouteReviewAnswer.Acknowledge;
+                    if (result == DialogResult.No)  return RouteReviewAnswer.CorrectPlan;
+
+                    // La ✕ del diálogo devuelve `Cancel`: el piloto lo vio y lo cerró sin contestar.
+                    return RouteReviewAnswer.Dismissed;
+                };
+
+                RouteReviewAnswer answer = InvokeRequired
+                    ? (RouteReviewAnswer)Invoke(show)
+                    : show();
+
+                return Task.FromResult(answer);
+            }
+            catch (Exception ex)
+            {
+                _uiService.AddLog("⚠️ Route review: no se pudo mostrar el aviso (" + ex.Message + ")",
+                                  Theme.Warning);
+                return Task.FromResult(RouteReviewAnswer.Unavailable);
+            }
         }
 
         #endregion

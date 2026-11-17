@@ -30,6 +30,20 @@ namespace vmsOpenAcars.Helpers
         internal const string RestrictedAirspaceName = "restricted_airspace";
 
         /// <summary>
+        /// **El acuse del aviso de ruta del prefile**: `1` si el piloto fue advertido de que su plan
+        /// entraba en un espacio aéreo restringido o prohibido y decidió volar igualmente.
+        ///
+        /// Lo pidió phpVMS en el mensaje del 16/11/2026 («si el piloto acepta, mandar en el PIREP
+        /// `fields.route_ack = 1`») y su motivo es la revisión posterior: **no es lo mismo volar a
+        /// sabiendas que sin aviso**. Sin este campo, un vuelo que invade una zona y otro que fue
+        /// advertido antes de despegar se parecen demasiado en el PIREP.
+        ///
+        /// Se omite cuando no hubo aviso (o el piloto eligió corregir el plan): vacío o «0» no
+        /// cuentan, y un `1` inventado sería peor que no mandar nada.
+        /// </summary>
+        internal const string RouteAckName = "route_ack";
+
+        /// <summary>
         /// **La marca que manda el vuelo a revisión**, o <c>null</c> si no hay nada que marcar. La
         /// decisión la toma el SERVIDOR: aquí solo se arma el campo. Hasta v0.9.56 el cliente mandaba
         /// `state = 2` —`ACCEPTED` en phpVMS— en todos los PIREP, y con `auto_approve_acars = true` en
@@ -45,6 +59,14 @@ namespace vmsOpenAcars.Helpers
             string value = string.IsNullOrWhiteSpace(detail) ? "1" : detail.Trim();
             return new Dictionary<string, string> { { RestrictedAirspaceName, value } };
         }
+
+        /// <summary>
+        /// El acuse del aviso de ruta, o <c>null</c> si no hubo aviso aceptado. Es la otra mitad del
+        /// trato de `fields`: la marca de revisión dice **qué pasó**, el acuse dice **qué sabía el
+        /// piloto**. Ver <see cref="RouteAckName"/>.
+        /// </summary>
+        internal static Dictionary<string, string> RouteAckMark(bool acknowledged)
+            => acknowledged ? new Dictionary<string, string> { { RouteAckName, "1" } } : null;
 
         /// <summary>
         /// **Nombre del campo que habría que crear en phpVMS** para llevar la meteo del aterrizaje
