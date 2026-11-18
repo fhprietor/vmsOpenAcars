@@ -29,6 +29,8 @@ namespace vmsOpenAcars.ViewModels
         // ── Taxi position tracking ────────────────────────────────────────────────
         private bool     _wasOnRunwayForEntry;
         private bool     _wasOnRunwayForExit;
+        /// <summary>Un aviso de backtrack por entrada en pista (ver `Helpers/BacktrackCallout`).</summary>
+        private readonly BacktrackCallout _backtrack = new BacktrackCallout();
         private int      _pendingRunwayOnCount;
         private int      _pendingRunwayOffCount;
         private DateTime _lastRunwayVacatedTime = DateTime.MinValue;
@@ -454,6 +456,7 @@ namespace vmsOpenAcars.ViewModels
             _lastRunwayExitCheck    = DateTime.MinValue;
             _cabinCruiseCheckStart = DateTime.MinValue;
             _turbulence.Reset();
+            _backtrack.Reset();        // vuelo nuevo: la maniobra anterior no se arrastra
 
             // RAAS: vuelo nuevo → se vuelve a preguntar la pista y se suelta la guía anterior.
             _raasGuidanceActive = false;
@@ -1405,10 +1408,10 @@ namespace vmsOpenAcars.ViewModels
             // que decide el cierre también vive ahí.
             _flareTouchdownUtc = data != null ? data.Timestamp : (DateTime?)null;
 
-            string rating = data.GForcePeak < 1.3 ? _("Score_Perfect")
-                          : data.GForcePeak < 1.8 ? _("Score_Normal")
-                          : data.GForcePeak < 2.5 ? _("Score_Hard")
-                          :                          _("Score_Crash");
+            // El rótulo sale de **la misma tabla** que la deducción del scoring (`Helpers/GForceBands`).
+            // Antes eran dos tablas y el toque de **1,72 g** del PIREP `ez9OqzRnYxbnGLR8` se pintó
+            // «Normal» mientras cobraba los 15 puntos de la banda máxima.
+            string rating = _(GForceBands.LabelKey(data.GForcePeak));
             _cb.Log?.Invoke(_("Log_AccurateTouchdown"), Theme.Success);
             _cb.Log?.Invoke(_("Log_TouchdownVs",        $"{data.VerticalSpeedFpm:F0}"),     Theme.MainText);
             _cb.Log?.Invoke(_("Log_TouchdownGForce",    $"{data.GForcePeak:F2}", rating),   Theme.MainText);
@@ -1523,6 +1526,21 @@ namespace vmsOpenAcars.ViewModels
 
         // ── Taxi position tracking ─────────────────────────────────────────────────
 
+        /// <summary>
+        /// Escribe el aviso de retroceso **una sola vez por maniobra**. La decisión de si toca es de
+        /// `Helpers/BacktrackCallout`; aquí solo se elige el texto: al entrar en pista se nombra la
+        /// calle por la que se retrocede, y en la llegada el aviso es el corto de siempre.
+        /// </summary>
+        private void AnnounceBacktrack(RunwayEntry entry, bool withTaxiway)
+        {
+            string line = withTaxiway && !string.IsNullOrEmpty(entry.TaxiwayName)
+                ? string.Format(_("Lnm_RunwayBacktrackTwy"), entry.RunwayName, entry.TaxiwayName)
+                : string.Format(_("Lnm_RunwayBacktrack"), entry.RunwayName);
+
+            _cb.Log?.Invoke(line, Theme.Warning);
+            _cb.OsdMessage?.Invoke($"BACKTRACK  RWY {entry.RunwayName}", OsdSeverity.Warning);
+        }
+
         internal void HandleTaxiPositionUpdate(
             double lat, double lon, double heading, string airport, bool isTaxiIn)
         {
@@ -1538,6 +1556,14 @@ namespace vmsOpenAcars.ViewModels
                 bool confirmedOnRunway  = onRunway  && _pendingRunwayOnCount  >= 2;
                 bool confirmedOffRunway = !onRunway && _pendingRunwayOffCount >= 3;
 
+                // **Un aviso de backtrack por maniobra** (`Helpers/BacktrackCallout`): la misma
+                // entrada en pista no se anuncia dos veces. En el PIREP `ez9OqzRnYxbnGLR8` la misma
+                // maniobra de la 17 salió a las 02:26:15 y a las 02:26:39 porque las dos ramas —salida
+                // y llegada— llevaban su propia bandera y la fase cambió a `TaxiIn` con el avión aún
+                // en la pista.
+                bool announceBacktrack = _backtrack.ShouldAnnounce(
+                    confirmedOnRunway, entry?.IsBacktrack == true);
+
                 if (!isTaxiIn)
                 {
                     if (confirmedOnRunway && !_wasOnRunwayForEntry)
@@ -1549,11 +1575,7 @@ namespace vmsOpenAcars.ViewModels
                         _pendingTaxiwayCount = 0;
                         if (entry.IsBacktrack)
                         {
-                            if (!string.IsNullOrEmpty(entry.TaxiwayName))
-                                _cb.Log?.Invoke(string.Format(_("Lnm_RunwayBacktrackTwy"), entry.RunwayName, entry.TaxiwayName), Theme.Warning);
-                            else
-                                _cb.Log?.Invoke(string.Format(_("Lnm_RunwayBacktrack"), entry.RunwayName), Theme.Warning);
-                            _cb.OsdMessage?.Invoke($"BACKTRACK  RWY {entry.RunwayName}", OsdSeverity.Warning);
+                            if (announceBacktrack) AnnounceBacktrack(entry, withTaxiway: true);
                         }
                         else
                         {
@@ -1568,14 +1590,14 @@ namespace vmsOpenAcars.ViewModels
                 }
                 else
                 {
-                    if (confirmedOnRunway && !_wasOnRunwayForExit && entry?.IsBacktrack == true)
+                    if (confirmedOnRunway && announceBacktrack)
                     {
                         _lastLoggedTaxiway   = null;
                         _pendingTaxiway      = null;
                         _pendingTaxiwayCount = 0;
-                        _cb.Log?.Invoke(string.Format(_("Lnm_RunwayBacktrack"), entry.RunwayName), Theme.Warning);
-                        _cb.OsdMessage?.Invoke($"BACKTRACK  RWY {entry.RunwayName}", OsdSeverity.Warning);
+                        AnnounceBacktrack(entry, withTaxiway: false);
                     }
+                    _wasOnRunwayForExit = confirmedOnRunway;
                     if (confirmedOffRunway && _wasOnRunwayForExit
                         && (DateTime.UtcNow - _lastRunwayVacatedTime).TotalSeconds > 30)
                     {

@@ -59,6 +59,55 @@ namespace vmsOpenAcars.Tests
         private static FlareChartLayout Layout(IList<FlareTrackPoint> samples, string family)
             => FlareChartLayout.Build(samples, 7841.0, true, family);
 
+        // ══ «FLAPS FLAPS 25» — el rótulo no repite la etiqueta de la compuerta ═══
+
+        /// <summary>
+        /// **El registro del toque del PIREP `ez9OqzRnYxbnGLR8` decía `FLAPS FLAPS 25 (75%)`**: la
+        /// línea se componía como `rótulo (“FLAPS”) + texto de FlapSetting`, y el texto **ya nombra la
+        /// compuerta** (`FLAPS 25`). El rótulo se queda una sola vez.
+        ///
+        /// Se prueba con el **flap real de ese vuelo** —75 % del recorrido del mando, un B738 en la
+        /// 14L de SKBG— y también con la etiqueta aproximada (`≈FLAPS 25`), porque el «≈» no es una
+        /// palabra más: si se comparara la cadena tal cual, la aproximada volvería a duplicar.
+        /// </summary>
+        [TestMethod]
+        public void FlapsWithHeader_NoDuplicaElRotulo()
+        {
+            // 75 % del mando y detente 6 en un 737: la compuerta que el piloto recuerda es 25. Es la
+            // lectura real del toque de `ez9OqzRnYxbnGLR8`.
+            var real = FlapSetting.Interpret(75.0, "B738", detentIndex: 6);
+            Assert.AreEqual("FLAPS 25 (75%)", real.Text,
+                "la etiqueta del detente ya lleva la palabra FLAPS");
+
+            Assert.AreEqual("FLAPS 25 (75%)",
+                LandingHeader.FlapsWithHeader("FLAPS", real),
+                "el rótulo del campo no se antepone a una etiqueta que ya dice FLAPS");
+
+            // La variante aproximada (sin detente leído, traducida del porcentaje del mando): el 70 %
+            // del recorrido cae en el 80 % central de la banda de FLAPS 25.
+            var aproximada = FlapSetting.Interpret(70.0, "B738");
+            StringAssert.StartsWith(aproximada.Text, "≈FLAPS 25", "traducida del mando, con «≈»");
+            Assert.AreEqual(aproximada.Text, LandingHeader.FlapsWithHeader("FLAPS", aproximada),
+                "el «≈» delante no cambia la decisión");
+        }
+
+        /// <summary>
+        /// **Sin compuerta, el rótulo sí hace falta**: un avión de familia desconocida solo publica
+        /// el porcentaje (`91%`) y ahí `FLAPS 91%` es la línea correcta. Y sin dato no se compone
+        /// nada, en vez de dejar un «FLAPS —».
+        /// </summary>
+        [TestMethod]
+        public void FlapsWithHeader_SoloPoneElRotuloCuandoHaceFalta()
+        {
+            var soloPorcentaje = FlapSetting.Interpret(91.0, "E190");
+            Assert.AreEqual("91%", soloPorcentaje.Text);
+            Assert.AreEqual("FLAPS 91%", LandingHeader.FlapsWithHeader("FLAPS", soloPorcentaje));
+
+            Assert.AreEqual("—", LandingHeader.FlapsWithHeader("FLAPS", FlapSetting.Interpret(null, "B738")),
+                "sin dato se devuelve lo que diga el helper, no un rótulo huérfano");
+            Assert.IsNull(LandingHeader.FlapsWithHeader("FLAPS", null));
+        }
+
         private static LandingHeaderField Field(IList<LandingHeaderField> fields, string key)
             => fields.FirstOrDefault(f => f.Key == key);
 

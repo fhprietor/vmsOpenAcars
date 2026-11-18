@@ -94,6 +94,10 @@
     <Compile Include="McduPaletteTests.cs" />
     <Compile Include="CartoTileUrlTests.cs" />
     <Compile Include="EcamDialogTests.cs" />
+    <Compile Include="BacktrackCalloutTests.cs" />
+    <Compile Include="OnBlockPolicyTests.cs" />
+    <Compile Include="ReverserPlausibilityTests.cs" />
+    <Compile Include="GForceBandsTests.cs" />
     <Compile Include="GeoMathTests.cs" />
     <Compile Include="HkdfSha256Tests.cs" />
     <Compile Include="NavDataCipherTests.cs" />

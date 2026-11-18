@@ -356,7 +356,12 @@ namespace vmsOpenAcars.Services
                 {
                     RunwayName    = hs.RunwayName,
                     DistanceM     = GeoMath.DistanceNm(lat, lon, hs.Lat, hs.Lon) * 1852.0,
-                    HeadingToward = true,
+                    // **El rumbo de verdad, no un `true` de adorno.** Hasta v0.9.73 esto valía
+                    // siempre `true`, así que la condición de rumbo que `RaasAdvisor` ya tenía
+                    // (`HeadingTowardHoldShort`) no filtraba nada y el aviso saltaba por proximidad
+                    // al eje de pista: `APPROACHING RWY 14L` tres veces en el PIREP
+                    // `ez9OqzRnYxbnGLR8` rodando por `A→P`, con la `A2` paralela a la 14L.
+                    HeadingToward = HoldShortSelector.IsToward(lat, lon, heading, hs),
                     // El nombre sale de las calles del propio nodo cuando NavData las publica; si
                     // no vienen, se cae al muestreo geométrico de siempre.
                     TaxiwayName   = HoldShortSelector.ForCallout(

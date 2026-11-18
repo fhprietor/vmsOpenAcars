@@ -2,6 +2,96 @@
 
 ---
 
+## [0.9.74] — 17/11/2026
+
+Los **cuatro defectos medidos en el PIREP real `ez9OqzRnYxbnGLR8`** (B738 PMDG, MSFS 2024,
+SKBO→SKBG, toque a **−236 fpm**), los tres cosméticos que venían en el mismo registro y dos
+consecuencias del **Vref del plan**. Cinco helpers puros nuevos, cada uno con su test.
+
+### Fixed
+
+- **El rótulo del G y el scoring ya no pueden divergir** (`Helpers/GForceBands`, puro). El registro
+  del toque decía `Fuerza G: 1.72g (Normal)` —umbral propio del rótulo, `< 1,8`— y el scoring cobraba
+  **los 15 puntos de la banda máxima** (`> 1,7`): el mismo valor en dos tablas distintas. El umbral
+  bueno, confirmado por el mantenedor, es **1,7**, y las bandas del scoring (**≤1,5 / ≤1,7 / >1,7**)
+  **no se mueven**; lo que cambia es que ahora son las únicas: `ScoringService.CalcGForceDeduction` y
+  el rótulo de `TelemetryCoordinator` salen de la misma tabla. La banda de arriba se parte en dos
+  **rótulos** (`Hard` / `Crash`, corte en 2,5 g) que **comparten la deducción de 15**, para no perder
+  el aviso de un toque de 3 g sin abrir un segundo umbral de puntuación. Test con los dos contactos
+  reales: **1,72 g → 15 pts y «Dura»** (nunca «Normal») y **1,65 g → 7 pts y «Normal»**, más un
+  barrido de 0,90 a 3,50 g que fija que no exista un valor con rótulo de una banda y puntos de otra.
+- **Los avisos de pista dejan de saltar rodando en paralelo al eje** (`HoldShortSelector`,
+  `NavDataService.FindHoldingPoint`). En el vuelo real `APPROACHING RWY 14L` salió **tres veces**
+  (01:47:45, 01:51:37, 01:54:02) y `HOLD SHORT RWY 14L` **dos** (01:48:04 y 01:54:18) rodando por la
+  calle **A→P**, con la **A2 corriendo paralela a la 14L** en SKBO. La causa raíz no era la distancia:
+  `FindHoldingPoint` devolvía **`HeadingToward = true` siempre**, así que la condición de rumbo que
+  `RaasAdvisor` ya tenía (`HeadingTowardHoldShort`) no filtraba nada, y el filtro del selector
+  aceptaba hasta **90°** —«no está detrás», o sea el través entra—. Ahora el rumbo se calcula
+  (`HoldShortSelector.IsToward`) con el **cono de morro de 45°** (`TowardToleranceDeg`), y sin rumbo
+  (`NaN`) no bloquea. El caso bueno del mismo log se conserva: `HOLD SHORT 14L` a las 01:54:18 y
+  `ENTERING RWY 14L` a las 01:54:47.
+- **Una reversa del 100 % rodando no es un despliegue** (`Helpers/ReverserPlausibility`, puro). El log
+  del mismo vuelo: `02:26:15 Reversa: desplegada ENG1 11% ENG2 2%` (el toque, correcto) y
+  `02:26:37 Reversa: máximo del rodaje ENG1 100.0% ENG2 100.0% — cool-down 180s requeridos`. Un 100 %
+  **22 s después del toque y a velocidad de rodaje** es el offset del PMDG publicando otra cosa, y no
+  es cosmético: entraba en el resumen del PIREP y arrastraba el cool-down. La lectura solo cuenta como
+  despliegue con **GS ≥ 40 kt** y **≤ 30 s desde el toque**; fuera de eso se **ignora** (no marca
+  usada, no sube el máximo, no informa de cool-down) y el `11 % / 2 %` del toque **sigue valiendo**.
+  Sin dato (GS `NaN`, sin toque) **no bloquea**.
+- **`ON BLOCK` en 5 s con el avión aparcado** (`Helpers/OnBlockPolicy`, puro). `02:37:45 Parking
+  Brake: SET` · `02:38:09 Engines shutdown` · **`02:39:12 ON BLOCK`**: 87 s después del freno y 63 s
+  después de apagar los motores, porque la regla exigía **90 s parado** y no miraba el freno. Con
+  **freno de parqueo puesto y todos los motores parados** el vuelo está cerrado: el plazo pasa a
+  **5 s**. Los 90 s siguen siendo el plazo cuando falta el freno o hay hotel mode, y con un motor en
+  marcha no se cierra nunca. `ForceOnBlock` manual y el rescate de `StuckAirPhasePolicy` **no cambian**.
+- **`FLAPS FLAPS 25 (75%)`** en la línea del registro del toque: `LandingHeader.FlapsWithHeader` no
+  antepone el rótulo cuando la etiqueta de la compuerta ya lo lleva (`FLAPS 25`, con «≈» o sin él). Es
+  el mismo helper para el registro del vuelo (`AcarsReporter`) y para la cabecera del gráfico
+  (`LandingAnalysisForm`), y sin dato devuelve `—` en vez de `FLAPS —`.
+- **`↩️ BACKTRACK RWY 17` dos veces** (02:26:15 y 02:26:39) para la misma maniobra:
+  `Helpers/BacktrackCallout` es un estado único —las dos ramas del seguimiento de rodaje llevaban su
+  propia bandera, y al pasar la fase a `TaxiIn` con el avión aún en pista la segunda veía «entrada
+  nueva»— que se re-arma **saliendo de la pista**.
+- **`· Desvío a SKSG descartado`**: sobraba el `· ` del principio. Se quita de las **seis** claves
+  `Lnm_DiversionRejected*` en **los dos** `.json` (es/en).
+
+### Changed
+
+- **La Vapp publicada no puede ir por debajo del Vref de referencia y dice de dónde sale**
+  (`ApproachSpeedWindow.VappText`): en el vuelo real el registro decía `Vapp 144` sobre un Vref de
+  plan de **139** mientras el **FMC del avión calculaba 150**, y se aterrizó con **FLAPS 25** (75 %
+  del mando), no con la configuración del plan. La línea pasa a `Vapp 144 kt (del plan)`; si algún día
+  el Vref viene del avión (`ApproachValidator.VrefFromAircraft`), manda ese y no se marca nada.
+- **El criterio de velocidad se omite cuando el Vref del plan no parece el del avión**
+  (`ApproachSpeedWindow.PlanVrefExplainsSpeed`): con la velocidad **≥ `Vref_plan + 8 kt`** y **fuera
+  de la ventana**, no se cobra el −5 y la línea del veredicto lo dice («velocidad no evaluada (Vref
+  del plan no aplicable)», clave nueva `Log_ApproachGateSpeedPlanVref`/`…Note` en los dos idiomas). El
+  **8** es la diferencia entre dos configuraciones de flaps de un 737: la cuenta del peso no lo
+  explica (`150/139` en velocidad pediría ×1,16 en peso, ~160.000 lb, con **138.492 lb** reales). **El
+  lado lento no se relaja**: por debajo de `Vref − 5` se penaliza como siempre, porque con un Vref real
+  más alto ir lento es aún peor. Los umbrales del scoring y el criterio de flaps **no se tocan**.
+
+### Added
+
+- **Cuatro helpers puros con sus tests**: `Helpers/GForceBands.cs`, `Helpers/ReverserPlausibility.cs`,
+  `Helpers/OnBlockPolicy.cs` y `Helpers/BacktrackCallout.cs` (+ `HoldShortSelector.IsToward` y
+  `ApproachSpeedWindow.VappText`/`PlanVrefExplainsSpeed`), con `GForceBandsTests`,
+  `ReverserPlausibilityTests` (`OnBlockPolicyTests` contra la máquina de fases y las **tres horas
+  reales**), `BacktrackCalloutTests` y los casos nuevos de `HoldShortSelectorTests`,
+  `ApproachSpeedWindowTests` y `LandingHeaderTests`.
+
+### Verificación
+
+- **1215 tests** (1214 pasan, 1 se omite sola): **+50** sobre los 1165 de v0.9.73.
+- Build **Debug y Release** con el `MSBuild.exe` de VS2017: sin errores.
+- `ProductVersion` de `bin\Release\vmsOpenACars.exe`: **0.9.74**.
+- **No verificado con un vuelo real**: el PIREP `ez9OqzRnYxbnGLR8` no está en el repositorio y su traza
+  no se pudo reproducir. Las dos posiciones del test de hold-short se construyen con la **geometría
+  real de los nodos de SKBO** que publica NavData (el cruce `A1/A2/A3/E` de la 14L) y no con la traza
+  del vuelo; la GS del toque tampoco viene en el fragmento del log, así que el suelo de 40 kt está
+  justificado por la carrera de frenada de un 737 (~140 kt al toque, ~40–60 kt con las reversas
+  guardadas), no por una lectura de ese vuelo.
+
 ## [0.9.73] — 16/11/2026
 
 La **revisión de la ruta antes de despegar**, pedida por phpVMS el 16/11/2026, y las dos

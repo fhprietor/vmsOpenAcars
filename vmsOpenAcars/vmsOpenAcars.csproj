@@ -185,6 +185,9 @@
     <Compile Include="Helpers\AircraftLivery.cs" />
     <Compile Include="Helpers\AircraftTypeMatch.cs" />
     <Compile Include="Helpers\AircraftTypeSource.cs" />
+    <Compile Include="Helpers\ReverserPlausibility.cs" />
+    <Compile Include="Helpers\OnBlockPolicy.cs" />
+    <Compile Include="Helpers\BacktrackCallout.cs" />
     <Compile Include="Helpers\ApproachSpeedWindow.cs" />
     <Compile Include="Helpers\XPlaneAcfIdentity.cs" />
     <Compile Include="Helpers\AirspaceRouteSampler.cs" />
@@ -201,6 +204,7 @@
     <Compile Include="Helpers\RouteNavlogPayload.cs" />
     <Compile Include="Helpers\CartoTileUrl.cs" />
     <Compile Include="Helpers\AtcStationOrder.cs" />
+    <Compile Include="Helpers\GForceBands.cs" />
     <Compile Include="Helpers\GeoMath.cs" />
     <Compile Include="Helpers\HkdfSha256.cs" />
     <Compile Include="Helpers\FixedTimeEquals.cs" />

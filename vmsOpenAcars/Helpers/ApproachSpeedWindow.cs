@@ -101,5 +101,53 @@ namespace vmsOpenAcars.Helpers
 
             return AircraftPerformanceTable.GetApproachSpeedRange(icaoType);
         }
+
+        // ── El Vref del plan no siempre es el del avión ───────────────────────────
+
+        /// <summary>
+        /// **Cuánto por encima del Vref del plan deja de tener sentido penalizar la velocidad.**
+        ///
+        /// El Vref que usamos es el **del plan** (SimBrief TLR), y el avión puede venir configurado
+        /// con otro: en el PIREP real **`ez9OqzRnYxbnGLR8`** (B738 PMDG, MSFS 2024, SKBO→SKBG) el FMC
+        /// calculaba **Vref 150** y el plan traía **139**; se aterrizó con **FLAPS 25** (75 % del
+        /// mando), no con la configuración del plan. La cuenta descarta que sea solo peso:
+        /// `150/139 = 1,079` en velocidad implicaría **×1,16 en peso** (~160.000 lb) con **138.492 lb**
+        /// reales; lo que cuadra es el flaps.
+        ///
+        /// **8 kt** es la diferencia entre dos configuraciones de flaps de un 737 (FLAPS 25 frente a
+        /// FLAPS 30), que es la hipótesis que este vuelo sostiene. Por debajo de `Vref_plan + 8` todo
+        /// queda como estaba: el exceso pequeño sigue siendo del piloto.
+        /// </summary>
+        internal const int PlanVrefMismatchKt = 8;
+
+        /// <summary>
+        /// **¿La velocidad en la compuerta delata que el Vref del plan no es el del avión?** Solo
+        /// puede decirlo cuando hay Vref del plan: sin él la ventana sale de la tabla por tipo y no
+        /// hay «Vref del plan» que discutir.
+        ///
+        /// **Es asimétrico a propósito**: solo perdona el lado **rápido**. Ir por debajo de
+        /// `Vref_plan − 5` se sigue penalizando igual —con un Vref real más alto, ir lento es aún
+        /// peor—, así que el plan no excusa nada por ese lado.
+        /// </summary>
+        internal static bool PlanVrefExplainsSpeed(int ias, int? vrefKt)
+            => IsUsable(vrefKt) && ias >= vrefKt.Value + PlanVrefMismatchKt;
+
+        /// <summary>
+        /// **La Vapp tal como se publica**: nunca por debajo del Vref de referencia y, cuando ese
+        /// Vref es **del plan** y no del avión, con la nota del origen.
+        ///
+        /// La nota existe porque el número sin ella se lee como «la Vapp del avión», y en el vuelo
+        /// real no lo era: se publicó **Vapp 144** sobre un Vref de plan de 139 mientras el FMC del
+        /// avión decía **150**. Un consejo por debajo del Vref real es peor que no darlo, así que el
+        /// origen viaja con el dato. En cuanto el Vref venga **del avión** (`vrefFromPlan = false`)
+        /// manda ese y no se marca nada.
+        /// </summary>
+        internal static string VappText(int? vappKt, int vrefKt, bool vrefFromPlan)
+        {
+            if (!vappKt.HasValue) return null;
+
+            int kt = vappKt.Value < vrefKt ? vrefKt : vappKt.Value;   // suelo: nunca bajo el Vref
+            return string.Format("Vapp {0} kt{1}", kt, vrefFromPlan ? " (del plan)" : "");
+        }
     }
 }

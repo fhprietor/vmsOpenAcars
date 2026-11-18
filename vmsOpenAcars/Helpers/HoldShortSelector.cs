@@ -34,6 +34,39 @@ namespace vmsOpenAcars.Helpers
         /// <summary>Distancia máxima para considerar que el punto de espera está delante.</summary>
         internal const double RadiusM = 200.0;
 
+        /// <summary>
+        /// **Cuánto puede desviarse el punto de espera del morro para contar como «voy hacia él».**
+        ///
+        /// Hasta v0.9.73 el filtro aceptaba hasta **90°**, que en la práctica es «no está detrás»: un
+        /// punto de través entraba. Y `FindHoldingPoint` remataba el problema devolviendo
+        /// `HeadingToward = true` **siempre**, así que el aviso que consume `RaasAdvisor` no tenía
+        /// ninguna condición de rumbo real. El resultado está en el PIREP real
+        /// **`ez9OqzRnYxbnGLR8`**: `APPROACHING RWY 14L` **tres veces** (01:47:45, 01:51:37,
+        /// 01:54:02) y `HOLD SHORT RWY 14L` **dos** (01:48:04 y 01:54:18) rodando por la calle
+        /// **A→P**, con la **A2 corriendo paralela a la 14L** en SKBO: los avisos salían al rozar
+        /// nodos de espera de la pista que quedaban de través.
+        ///
+        /// **45°** es el cono de morro: para llegar al punto hay que torcer menos de 45°, así que el
+        /// avión va hacia él y no en paralelo. Es más ancho que un hold-short real —donde el punto
+        /// está casi de frente, <20°— porque absorbe la curva de entrada desde una calle que dobla.
+        /// </summary>
+        internal const double TowardToleranceDeg = 45.0;
+
+        /// <summary>
+        /// **El rumbo al punto de espera, comparado con el del avión**: `true` si está dentro del
+        /// cono de morro (<see cref="TowardToleranceDeg"/>). Un rumbo desconocido (`NaN`) **no
+        /// bloquea** —degrada sin datos y deciden las otras reglas—, que es la regla de la casa para
+        /// los filtros de plausibilidad.
+        /// </summary>
+        internal static bool IsToward(double lat, double lon, double heading, NavHoldShort hs)
+        {
+            if (hs == null) return false;
+            if (double.IsNaN(heading)) return true;
+
+            double bearing = GeoMath.BearingDeg(lat, lon, hs.Lat, hs.Lon);
+            return GeoMath.BearingDiffDeg(bearing, heading) <= TowardToleranceDeg;
+        }
+
         /// <summary>El punto de espera más cercano que el avión tiene por delante, o <c>null</c>.
         /// <paramref name="runway"/> puede ser <c>null</c> o vacío: entonces no se filtra por pista
         /// (comportamiento anterior), que es lo que queremos cuando aún no sabemos a cuál vamos.</summary>
@@ -60,10 +93,9 @@ namespace vmsOpenAcars.Helpers
 
                 // El `heading` de un hold-short es el EJE DE LA PISTA, no la dirección con la que se
                 // llega, así que no sirve para descartar. Lo que discrimina es ir HACIA el punto: si
-                // queda de través (rodando en paralelo), no se avisa.
-                bool toward = double.IsNaN(heading)
-                    || GeoMath.BearingDiffDeg(GeoMath.BearingDeg(lat, lon, hs.Lat, hs.Lon), heading) <= 90.0;
-                if (!toward) continue;
+                // queda de través (rodando en paralelo), no se avisa. La tolerancia es el **cono de
+                // morro** de <see cref="TowardToleranceDeg"/>, no un «no está detrás».
+                if (!IsToward(lat, lon, heading, hs)) continue;
 
                 best = hs;
                 bestDist = d;

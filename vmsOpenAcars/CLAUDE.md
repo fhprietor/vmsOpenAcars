@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.73  
+**Versión actual:** v0.9.74  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -59,7 +59,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
   las otras reglas. Nunca suprimir una acción por una suposición.
 
 **Idioma**
-- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 500 claves cada uno): toda
+- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 547 claves cada uno): toda
   clave que se añade o se quita va en los dos.
 - **Antes de escribir un rótulo, mirar si la clave ya existe**: los `.json` tienen claves definidas y sin
   cablear (128 contadas en v0.9.45, casi todo `Fp_*` y `Status_*`), y **un rótulo de botón o de casilla
@@ -117,12 +117,12 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
 | Criterio | Máx | Umbrales / condición |
 |---|---|---|
 | Landing Rate | 40 | ≤150=0, ≤250=5, ≤350=15, ≤450=25, ≤650=35, >650=40 |
-| G-Force | 15 | ≤1.5g=0, ≤1.7g=7, >1.7g=15 (omitido si dato=0). **Es el G medido** (`0x11BA`, ventana de 1 s del contacto, `Helpers/TouchdownGForceWindow`): desde v0.9.70 no se deduce del descenso |
+| G-Force | 15 | ≤1.5g=0, ≤1.7g=7, >1.7g=15 (omitido si dato=0). **Es el G medido** (`0x11BA`, ventana de 1 s del contacto, `Helpers/TouchdownGForceWindow`): desde v0.9.70 no se deduce del descenso. **El rótulo y los puntos salen de la misma tabla** (`Helpers/GForceBands`, v0.9.74): antes el registro decía «Normal» por `< 1,8` mientras el scoring cobraba 15 por `> 1,7` |
 | Bank Angle | 10 | ≤2°=0, ≤5°=5, >5°=10 |
 | Pitch Angle | 10 | 1°–7°=0; <−2°=10; −2°–1°=5; >8°=5 |
 | Overspeed | 15 | 0=0, 1=7, ≥2=15 |
 | Lights Compliance | 10 | 5 pts/violación cap 10; Beacon exempto en `BeaconStrobeSharedAircraft` (DH8D) |
-| Stabilized Approach 1000 ft | 15 | **speed fuera de la ventana = −5**: con el **Vref del plan** (`metrics.vref_kt`, del TLR de SimBrief) la ventana es **`[Vref − 5, Vref + 15]`** desde v0.9.71 (`Helpers/ApproachSpeedWindow`, dependiente del peso); **sin Vref** (plan sin TLR, vuelo retomado) manda la tabla por tipo —140–185 en wide-body—. VS<−1000=−5, VS>−100=−5, bank>7°=−3, pitch±límites=−3, gear up=−5, flaps<50%=−4 (**umbral sin mover**; la escala es una sola desde v0.9.70: `Helpers/FlapsScale`, el % del recorrido del mando). **Vapp informativa** en la línea del veredicto (`Vref + clamp(en cara/3, 5, 15)`, v0.9.72): se publica, **no** entra en el criterio |
+| Stabilized Approach 1000 ft | 15 | **speed fuera de la ventana = −5**: con el **Vref del plan** (`metrics.vref_kt`, del TLR de SimBrief) la ventana es **`[Vref − 5, Vref + 15]`** desde v0.9.71 (`Helpers/ApproachSpeedWindow`, dependiente del peso); **sin Vref** (plan sin TLR, vuelo retomado) manda la tabla por tipo —140–185 en wide-body—. VS<−1000=−5, VS>−100=−5, bank>7°=−3, pitch±límites=−3, gear up=−5, flaps<50%=−4 (**umbral sin mover**; la escala es una sola desde v0.9.70: `Helpers/FlapsScale`, el % del recorrido del mando). **Vapp informativa** en la línea del veredicto (`Vref + clamp(en cara/3, 5, 15)`, v0.9.72): se publica, **no** entra en el criterio. **v0.9.74**: la Vapp nunca baja del Vref de referencia y se marca `(del plan)` cuando el Vref es del plan y no del avión (`ApproachSpeedWindow.VappText`), y con la velocidad **≥ `Vref_plan + 8`** y fuera de ventana **el criterio de velocidad se omite** (`PlanVrefExplainsSpeed`, +8 kt = una configuración de flaps distinta): el lado lento no se relaja |
 | QNH Compliance | 10 | Δ>2 hPa=−5 ×2: salida vs METAR origen; llegada vs QNH (bajo TL) |
 | Standard Pressure | 5 | −5 si no se aplica 1013 al cruzar la TA (`StdPressureViolation`) |
 | IVAO Offline | 5 | −5 si desconectado al iniciar TaxiOut |
@@ -474,7 +474,7 @@ Dos piezas: los avisos tipo RAAS y la guía giro a giro por la ruta que elige el
   actual. El popup trae la lista de pistas (por defecto la del OFP, `SimbriefPlan.OriginRunway`), la
   ruta editable que sugiere el grafo y los ajustes de RAAS.
 - **Avisos** (`Helpers/RaasAdvisor.cs`, puro y con estado): `APROXIMANDO PISTA` y `ESPERA ANTES DE
-  PISTA` a 150 m / 40 m del hold-short **yendo hacia él**; `CALLE X A LA DERECHA/IZQUIERDA EN N M`
+  PISTA` a 150 m / 40 m del hold-short **yendo hacia él**: desde v0.9.74 «hacia él» es el **cono de morro de 45°** sobre el punto de espera y `HoldingPoint.HeadingToward` lo calcula de verdad (`HoldShortSelector.IsToward`) — antes era `true` fijo y con 90° de tolerancia, y en `ez9OqzRnYxbnGLR8` avisó tres veces de la 14L rodando por `A→P` con la `A2` en paralelo; `CALLE X A LA DERECHA/IZQUIERDA EN N M`
   a 250 m del cruce y `GIRA AHORA` a 60 m; `FUERA DE RUTA` (15 s fuera de ruta y **≥50 m** de
   progreso hacia el umbral); `RUTA COMPLETA`. Uno por situación y **una vez por maniobra** (v0.9.67): cada giro se identifica por `turn:<índice>:<calle>` y el hold-short por pista, y solo se re-arma cuando la situación cambia —pasar el cruce, cambiar de tramo o de pista, o salir de la banda de distancia y volver a entrar—, nunca por reloj (con los 20 s de antes, `K1 A LA DERECHA EN 80 M` salió 6 veces en `nROPdk4GxYY5AOy1`). Se evalúan a **1 Hz sobre la
   telemetría cruda**, no sobre el envío de posiciones a phpVMS; **con la guía activa ese envío baja
@@ -591,6 +591,20 @@ helper puro y su test:
   eso la fase equivocada medía el AGL contra el **origen** y daba **264 ft** con el avión aparcado.
 - **El rodaje cuenta desde que el avión se mueve** (v0.9.54): en `rMBVEKj5PZzx0pX9` `TAXI OUT` llegó **299 s** tarde (rescate de 300 s) y **110 s** de rodaje no entraban en motor único; `Helpers/TaxiStartAccrual` los guarda desde la última parada.
 
+- **`ON BLOCK` en 5 s con el avión aparcado (v0.9.74)**: con **freno de parqueo puesto y todos los motores
+  parados** el vuelo está cerrado y no hay nada que esperar. En `ez9OqzRnYxbnGLR8` el freno se puso a las
+  **02:37:45**, los motores se apagaron a las **02:38:09** y `ON BLOCK` no llegó hasta las **02:39:12** —87 s
+  después del freno— porque la regla exigía 90 s y no miraba el freno. `Helpers/OnBlockPolicy` decide el
+  plazo: **5 s** aparcado, **90 s** cuando falta el freno o hay hotel mode (la detección de siempre), y con
+  un motor en marcha **no se cierra nunca**. `ForceOnBlock` y el rescate de `StuckAirPhasePolicy` no cambian.
+- **La reversa del rodaje se ignora si es imposible (v0.9.74)**: `Helpers/ReverserPlausibility` exige
+  **≥40 kt de GS** y **≤30 s desde el toque**. En `ez9OqzRnYxbnGLR8` el despliegue real fue `ENG1 11% /
+  ENG2 2%` en el toque (sigue valiendo) y **22 s después**, ya rodando, el PMDG publicó **100 % / 100 %**,
+  que entraba en el resumen del PIREP y arrastraba el cool-down de 180 s. Sin dato no bloquea.
+- **Un backtrack por maniobra (v0.9.74)**: `↩️ BACKTRACK RWY 17` salió **dos veces** en el mismo retroceso
+  (02:26:15 y 02:26:39) porque las dos ramas del seguimiento de rodaje llevaban su propia bandera;
+  `Helpers/BacktrackCallout` es un estado único que se re-arma **saliendo de la pista**.
+
 Y **`ON BLOCK` manual** (`FlightManager.ForceOnBlock`) en la bandeja y en el diálogo de `CANCEL`, que
 ahora avisa de que cancela **eliminando** el PIREP. Hace el **mismo** cierre que la detección y
 **publica la transición**: sin eso `MainViewModel` no habilita `SEND PIREP`.
@@ -607,7 +621,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1165 tests** (1 se omite sola).
+`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1215 tests** (1 se omite sola).
 
 **Qué cubre la suite** — cada bloque con sus casos reales, sus fixtures y lo que no se puede
 re-ejecutar sin red: **`Docs/architecture.md`** → "Las suites de tests y sus casos reales".

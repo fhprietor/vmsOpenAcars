@@ -72,6 +72,16 @@ namespace vmsOpenAcars.Core.Flight
         /// </summary>
         public double? VrefWeightLbs;
 
+        /// <summary>
+        /// **De dónde sale <see cref="VrefKt"/>. Hoy, del plan.** Cuando el Vref venga del propio
+        /// avión (FMC, TLR del addon), se pone en `true`: ese manda, la línea no se marca como «del
+        /// plan» y la exención por «el Vref del plan no es el del avión»
+        /// (`ApproachSpeedWindow.PlanVrefExplainsSpeed`) **deja de aplicar**, porque ya no hay
+        /// discrepancia que perdonar. Es la costura para el día que ese dato exista; hoy vale
+        /// siempre `false`.
+        /// </summary>
+        public bool VrefFromAircraft;
+
         private readonly HashSet<string> _beaconStrobeSharedAircraft;
 
         // ── Scoring counters (public read, private write) ─────────────────────────
@@ -458,7 +468,22 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             // 2. Speed
-            if (ctx.IAS < vappMin || ctx.IAS > vappMax)
+            // **Con el Vref del plan muy por debajo de la velocidad real, la velocidad no se
+            // penaliza** (`ApproachSpeedWindow.PlanVrefExplainsSpeed`): la referencia sería otra.
+            // En el PIREP `ez9OqzRnYxbnGLR8` el FMC del avión daba Vref 150 y el plan 139; ir a 157
+            // no es «ir rápido» si el Vref de verdad es 150. El lado lento **no se relaja**.
+            // Solo se omite cuando además la velocidad cae **fuera de la ventana**: un valor dentro
+            // se evalúa (y no resta nada), para no marcar como «no evaluada» una velocidad correcta.
+            bool outOfWindow = ctx.IAS < vappMin || ctx.IAS > vappMax;
+            bool speedSkipped = !VrefFromAircraft
+                             && outOfWindow
+                             && ApproachSpeedWindow.PlanVrefExplainsSpeed(ctx.IAS, VrefKt);
+            if (speedSkipped)
+            {
+                OnLog?.Invoke(_("Log_ApproachGateSpeedPlanVref",
+                    ctx.IAS, VrefKt.Value, SpeedBasisDetail(vappKt)), Theme.MainText);
+            }
+            else if (outOfWindow)
             {
                 if (IsOnAtcFrequency?.Invoke() != true) deductions += 5;
                 OnLog?.Invoke(_("Log_ApproachGateSpeed", ctx.IAS, vappMin, vappMax, SpeedBasisDetail(vappKt)), Theme.Warning);
@@ -508,10 +533,10 @@ namespace vmsOpenAcars.Core.Flight
             StabilizedDeductions = deductions;
 
             if (deductions == 0)
-                OnLog?.Invoke(_("Log_ApproachGateOk", (int)agl, VerdictBasis(vappMin, vappMax, vappKt)), Theme.Success);
+                OnLog?.Invoke(_("Log_ApproachGateOk", (int)agl, VerdictBasis(vappMin, vappMax, vappKt, speedSkipped)), Theme.Success);
             else
             {
-                OnLog?.Invoke(_("Log_ApproachGateUnstable", (int)agl, deductions, VerdictBasis(vappMin, vappMax, vappKt)), Theme.Warning);
+                OnLog?.Invoke(_("Log_ApproachGateUnstable", (int)agl, deductions, VerdictBasis(vappMin, vappMax, vappKt, speedSkipped)), Theme.Warning);
                 OnOsdMessage?.Invoke($"UNSTABILIZED  −{deductions} PTS", OsdSeverity.Critical);
             }
 
@@ -538,8 +563,11 @@ namespace vmsOpenAcars.Core.Flight
             // Formato del **piloto**, no invariante: el separador de miles de la línea sale como el
             // del resto del log (`400.100 lb` en español, `400,100` en inglés).
             var parts = new List<string> { string.Format("Vref {0} kt", VrefKt.Value) };
-            if (vappKt.HasValue)
-                parts.Add(string.Format("Vapp {0} kt", vappKt.Value));
+            // La Vapp publicada **nunca baja del Vref** y dice de dónde salió el Vref
+            // (`ApproachSpeedWindow.VappText`): un «Vapp 144» sobre un Vref del plan de 139 se leía
+            // como el Vref del avión y en `ez9OqzRnYxbnGLR8` el del FMC era 150.
+            string vapp = ApproachSpeedWindow.VappText(vappKt, VrefKt.Value, !VrefFromAircraft);
+            if (vapp != null) parts.Add(vapp);
             if (VrefWeightLbs.HasValue)
                 parts.Add(string.Format("peso de planeo {0:N0} lb", VrefWeightLbs.Value));
             return " (" + string.Join(", ", parts) + ")";
@@ -550,7 +578,7 @@ namespace vmsOpenAcars.Core.Flight
         /// auditar el −5 desde el log sin reconstruir la tabla de categorías: phpVMS lo pidió el
         /// 11/10/2026 («hoy no se puede auditar el veredicto desde el log»).
         /// </summary>
-        private string VerdictBasis(int min, int max, int? vappKt)
+        private string VerdictBasis(int min, int max, int? vappKt, bool speedSkipped)
         {
             if (!ApproachSpeedWindow.IsUsable(VrefKt)) return "";
 
@@ -559,10 +587,14 @@ namespace vmsOpenAcars.Core.Flight
                 string.Format("Vref {0} kt", VrefKt.Value),
                 string.Format("ventana {0}–{1} kt", min, max),
             };
-            if (vappKt.HasValue)
-                parts.Add(string.Format("Vapp {0} kt", vappKt.Value));
+            string vapp = ApproachSpeedWindow.VappText(vappKt, VrefKt.Value, !VrefFromAircraft);
+            if (vapp != null) parts.Add(vapp);
             if (VrefWeightLbs.HasValue)
                 parts.Add(string.Format("peso de planeo {0:N0} lb", VrefWeightLbs.Value));
+            // El veredicto tiene que decir que la velocidad **no se evaluó** y por qué: si no, un
+            // criterio omitido es indistinguible de uno cumplido.
+            if (speedSkipped)
+                parts.Add(_("Log_ApproachGateSpeedPlanVrefNote"));
             return " · " + string.Join(", ", parts);
         }
 

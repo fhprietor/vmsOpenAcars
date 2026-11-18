@@ -195,8 +195,7 @@ namespace vmsOpenAcars.Helpers
             fields.Add(new LandingHeaderField(KeyTouchdown, string.Join(Separator, parts)));
         }
 
-        private static void AddFlaps(List<LandingHeaderField> fields, FlareChartLayout layout)
-        {
+        private static void AddFlaps(List<LandingHeaderField> fields, FlareChartLayout layout)        {
             var flaps = layout != null ? layout.Flaps : null;
             if (flaps == null || !flaps.HasTrack || flaps.AtThreshold == null) return;
 
@@ -206,6 +205,32 @@ namespace vmsOpenAcars.Helpers
                                                    flaps.AtTouchdown.ShortText);
 
             fields.Add(new LandingHeaderField(KeyFlaps, text));
+        }
+
+        /// <summary>
+        /// **La línea de flaps del resumen, sin el «FLAPS FLAPS»**: el rótulo del campo más el ajuste
+        /// que devuelve <see cref="FlapSetting"/>. La etiqueta de la compuerta **ya lleva la palabra**
+        /// (`FLAPS 25`), así que anteponer el rótulo la repetía —en el PIREP real
+        /// `ez9OqzRnYxbnGLR8` el registro del toque decía `FLAPS FLAPS 25 (75%)`—. La decisión es una
+        /// sola para los dos sitios que pintan esta línea (el registro del vuelo y el gráfico del
+        /// análisis): el «≈» de una etiqueta traducida no cuenta como palabra, porque no lo es.
+        /// </summary>
+        internal static string FlapsWithHeader(string header, FlapSetting flaps)
+        {
+            string text = flaps != null ? flaps.Text : null;
+            if (string.IsNullOrEmpty(text)) return text;
+
+            // Sin dato no hay campo que rotular: se devuelve lo que diga el helper (`—`) y no un
+            // rótulo huérfano al lado de una raya.
+            if (!flaps.HasValue) return text;
+
+            // Se compara sin el «≈» delante: «≈FLAPS 25» ya nombra FLAPS, no es otro campo.
+            string bare = text[0] == '≈' ? text.Substring(1) : text;
+            if (!string.IsNullOrEmpty(header)
+                && bare.StartsWith(header, StringComparison.OrdinalIgnoreCase))
+                return text;
+
+            return string.IsNullOrEmpty(header) ? text : header + " " + text;
         }
 
         private static void AddPower(List<LandingHeaderField> fields, FlareChartLayout layout)

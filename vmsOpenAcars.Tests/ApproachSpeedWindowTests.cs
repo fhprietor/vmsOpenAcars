@@ -145,5 +145,60 @@ namespace vmsOpenAcars.Tests
             Assert.IsNull(ApproachSpeedWindow.Vapp(136, null), "sin dato de viento, `null`");
             Assert.IsNull(ApproachSpeedWindow.Vapp(136, double.NaN), "un NaN no es un viento");
         }
+
+        // ══ El Vref del plan no siempre es el del avión ═══════════════════════════
+
+        /// <summary>
+        /// **La Vapp publicada dice de dónde sale el Vref y nunca baja de él.** Caso real: PIREP
+        /// **`ez9OqzRnYxbnGLR8`** (B738 PMDG, MSFS 2024, SKBO→SKBG), `Vref` del plan **139 kt**,
+        /// viento en cara que da **Vapp 144**. El FMC del avión calculaba **Vref 150** y se aterrizó
+        /// con **FLAPS 25**, no con la configuración del plan: un «144» sin nota se lee como la Vapp
+        /// del avión, y es **6 kt por debajo de su Vref**.
+        ///
+        /// `150/139 = 1,079` en velocidad pediría ×1,16 en peso (~160.000 lb) con 138.492 lb reales:
+        /// el peso no lo explica, la configuración sí.
+        /// </summary>
+        [TestMethod]
+        public void LaVappPublicada_DiceQueElVrefEsDelPlanYNuncaBajaDeEl()
+        {
+            Assert.AreEqual("Vapp 144 kt (del plan)", ApproachSpeedWindow.VappText(144, 139, vrefFromPlan: true),
+                "el mismo número del registro, ahora con el origen del Vref detrás");
+
+            // Si alguna vez el Vref viene del avión, manda ese y no se marca nada.
+            Assert.AreEqual("Vapp 144 kt", ApproachSpeedWindow.VappText(144, 139, vrefFromPlan: false));
+
+            // Y el suelo: una Vapp por debajo del Vref de referencia no se publica más baja.
+            Assert.AreEqual("Vapp 139 kt (del plan)", ApproachSpeedWindow.VappText(120, 139, vrefFromPlan: true),
+                "un consejo por debajo del Vref de referencia es peor que no darlo");
+
+            Assert.IsNull(ApproachSpeedWindow.VappText(null, 139, true), "sin Vapp no hay línea");
+        }
+
+        /// <summary>
+        /// **El umbral de los 8 kt sobre el Vref del plan.** Con `Vref 139` la ventana es
+        /// `[134–154]` y el umbral de «el Vref de referencia es otro» son **147 kt** (`139 + 8`): a
+        /// partir de ahí la velocidad sugiere otra configuración, no un piloto rápido.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow(141, false, "las 141 kt reales del vuelo: se evalúa normal, está en ventana")]
+        [DataRow(146, false, "146 kt es 1 kt por debajo del umbral: todavía se evalúa")]
+        [DataRow(147, true,  "147 kt = 139 + 8, el umbral")]
+        [DataRow(157, true,  "157 kt: la referencia es otra configuración, no un exceso del piloto")]
+        [DataRow(131, false, "el lado lento NO se relaja: 131 kt con Vref 139 se evalúa")]
+        public void ElUmbralDe8Kt_SoloPerdonaElLadoRapido(int ias, bool explains, string because)
+        {
+            Assert.AreEqual(explains, ApproachSpeedWindow.PlanVrefExplainsSpeed(ias, 139), because);
+        }
+
+        /// <summary>
+        /// La exención **necesita un Vref del plan**: sin él la ventana sale de la tabla por tipo y no
+        /// hay nada que discutir, así que la velocidad se sigue evaluando como siempre.
+        /// </summary>
+        [TestMethod]
+        public void SinVrefDelPlan_NoHayExencion()
+        {
+            Assert.IsFalse(ApproachSpeedWindow.PlanVrefExplainsSpeed(200, null));
+            Assert.IsFalse(ApproachSpeedWindow.PlanVrefExplainsSpeed(200, 5), "un Vref implausible no cuenta");
+        }
     }
 }

@@ -822,7 +822,10 @@ namespace vmsOpenAcars.UI.Forms
 
             if (flaps.HasTrack && flaps.AtThreshold != null)
             {
-                sb.Append("  ·  ").Append(L._("Landing_FlapsHeader")).Append(" ").Append(flaps.AtThreshold.Text);
+                // La misma línea que el registro del vuelo, tomada del mismo helper: el rótulo
+                // «FLAPS» no se repite con la etiqueta de la compuerta (`FLAPS FLAPS 25`).
+                sb.Append("  ·  ").Append(
+                    LandingHeader.FlapsWithHeader(L._("Landing_FlapsHeader"), flaps.AtThreshold));
                 if (flaps.AtTouchdown != null && flaps.Changed)
                     sb.Append("  ").Append(L._("Landing_FlapsChanged",
                                                flaps.AtThreshold.ShortText, flaps.AtTouchdown.ShortText));

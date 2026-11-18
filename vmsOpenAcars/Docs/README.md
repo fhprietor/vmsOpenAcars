@@ -33,6 +33,7 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 | `NOTAS-PILOTOS-0.9.71.md` | **Pilotos** | La compuerta de 1.000 ft ya no cobra por volar a **tu** Vref: la ventana sale del Vref del plan (dependiente del peso) y el registro dice con qué Vref y a qué peso te juzgó |
 | `NOTAS-PILOTOS-0.9.72.md` | **Pilotos** | El registro de la compuerta añade la **Vapp** (Vref + 1/3 del viento en cara, informativa: no mueve la ventana) y el análisis manda el **peso de planeo** del plan, aparte del real |
 | `NOTAS-PILOTOS-0.9.73.md` | **Pilotos** | Aviso de ruta **antes de despegar**: si el plan entra en un espacio aéreo restringido o prohibido, dice área, límites y tramo, y deja constancia en el PIREP si decides volar. No bloquea nada |
+| `NOTAS-PILOTOS-0.9.74.md` | **Pilotos** | El G del toque ya no dice «Normal» mientras descuenta, los avisos de pista solo suenan yendo al punto de espera, la reversa fantasma se ignora y la Vapp nunca baja del Vref |
 | `NOTAS-PILOTOS-0.9.58.md` | **Pilotos** | La linea de NavData del conectar dice **hasta cuando** es valido el AIRAC, no solo el ciclo |
 | `NOTAS-PILOTOS-0.9.56.md` | **Pilotos** | La casilla de avisos de espacio aéreo en el OSD ya calla **todo** (antes solo las zonas restringidas), y las `CTA`/clase E dejan de pintarse: solo van al registro |
 | `NOTAS-PILOTOS-0.9.55.md` | **Pilotos** | Tercera puerta del `Pushback`: también cierra cuando el avión **rueda de verdad** (GS ≥ 8 kt 15 s con motor), sin depender de que el piloto toque el freno de parqueo |

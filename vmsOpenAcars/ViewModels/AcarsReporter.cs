@@ -205,7 +205,11 @@ namespace vmsOpenAcars.ViewModels
             // devuelve el porcentaje, nunca una compuerta inventada.
             if (flaps.HasTrack && flaps.AtThreshold != null)
             {
-                sb.Append("  ·  ").Append(L._("Landing_FlapsHeader")).Append(" ").Append(flaps.AtThreshold.Text);
+                // `FlapsWithHeader` no repite el «FLAPS» del rótulo: la etiqueta de la compuerta ya lo
+                // lleva (`FLAPS 25`), y concatenarlos pintaba `FLAPS FLAPS 25 (75%)` en el registro
+                // del toque del PIREP `ez9OqzRnYxbnGLR8`.
+                sb.Append("  ·  ").Append(
+                    LandingHeader.FlapsWithHeader(L._("Landing_FlapsHeader"), flaps.AtThreshold));
                 if (flaps.AtTouchdown != null && flaps.Changed)
                     sb.Append("  ").Append(L._("Landing_FlapsChanged",
                                                flaps.AtThreshold.ShortText, flaps.AtTouchdown.ShortText));

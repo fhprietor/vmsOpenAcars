@@ -461,8 +461,14 @@ namespace vmsOpenAcars.Core.Flight
                 if (_stoppedStartTime == DateTime.MinValue)
                     _stoppedStartTime = Now();
 
-                if ((Now() - _stoppedStartTime).TotalSeconds >= 90 &&
-                    (!inp.AreEnginesOn || inp.HotelModeActive))
+                // **Con freno de parqueo puesto y los motores parados el vuelo está cerrado**: 5 s,
+                // no 90. En el PIREP real `ez9OqzRnYxbnGLR8` el freno se puso a las 02:37:45, los
+                // motores se apagaron a las 02:38:09 y `ON BLOCK` no llegó hasta las 02:39:12 —87 s
+                // después del freno—. Los 90 s siguen siendo el plazo cuando falta el freno o hay
+                // hotel mode, que es el caso menos concluyente. Ver `Helpers/OnBlockPolicy`.
+                if (OnBlockPolicy.ShouldClose((Now() - _stoppedStartTime).TotalSeconds,
+                                              inp.AreEnginesOn, inp.HotelModeActive,
+                                              inp.ParkingBrakeSet))
                 {
                     _stoppedStartTime = DateTime.MinValue;
                     OnBlockOnDetected?.Invoke();

@@ -95,7 +95,8 @@ namespace vmsOpenAcars.Services
 
         // ─── Max deduction per criterion (raw sum = 120, final score capped at 0) ─
         private const int MaxLandingRateDeduction = 40;
-        private const int MaxGForceDeduction = 15;
+        // El máximo del criterio «G-Force» (15) vive en `Helpers/GForceBands`, junto con sus bandas:
+        // el rótulo del registro y esta deducción salen de la misma tabla (v0.9.74).
         private const int MaxBankDeduction = 10;
         private const int MaxPitchDeduction = 10;
         private const int MaxOverspeedDeduction = 15;
@@ -468,13 +469,14 @@ namespace vmsOpenAcars.Services
         /// <summary>
         /// Evaluates G-force at touchdown.
         /// Skip by leaving <see cref="FlightScoreData.LandingGForce"/> at 0.
+        ///
+        /// **Las bandas NO viven aquí: viven en <see cref="GForceBands"/>, y el rótulo del registro
+        /// sale de la misma tabla.** Hasta v0.9.73 este método tenía su copia (`≤1,5` / `≤1,7` /
+        /// `>1,7`) y `TelemetryCoordinator` tenía otra (`<1,3` / `<1,8` / `<2,5`), así que el toque de
+        /// **1,72 g** del PIREP `ez9OqzRnYxbnGLR8` se pintó «Normal» y cobró los 15 puntos de la banda
+        /// máxima. Ahora no pueden divergir: hay una sola tabla.
         /// </summary>
-        private static int CalcGForceDeduction(double gForce)
-        {
-            if (gForce <= 1.5) return 0;
-            if (gForce <= 1.7) return 7;
-            return MaxGForceDeduction;
-        }
+        private static int CalcGForceDeduction(double gForce) => GForceBands.Deduction(gForce);
 
         /// <summary>
         /// Evaluates absolute bank angle at touchdown.

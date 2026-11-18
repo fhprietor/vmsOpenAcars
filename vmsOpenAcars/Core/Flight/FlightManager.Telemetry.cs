@@ -342,7 +342,16 @@ namespace vmsOpenAcars.Core.Flight
 
             if (data.IsOnGround && _td.Captured)
             {
-                _reverserMonitor.Update(data.Rev1Pct, data.Rev2Pct);
+                // **La lectura de reversa pasa antes por plausibilidad** (`Helpers/ReverserPlausibility`):
+                // en el PIREP `ez9OqzRnYxbnGLR8` el PMDG publicó **100 % / 100 %** a las 02:26:37,
+                // ya rodando, después del despliegue real de las 02:26:15 (`11 % / 2 %`). Fuera de
+                // la carrera de frenada la lectura se **ignora** —no cuenta como usada, no sube el
+                // máximo y no arrastra el cool-down—.
+                double sinceTouchdown = _td.Timestamp != DateTime.MinValue
+                    ? (DateTime.UtcNow - _td.Timestamp).TotalSeconds
+                    : double.MaxValue;
+                if (ReverserPlausibility.IsPlausibleDeployment(data.GroundSpeedKt, sinceTouchdown))
+                    _reverserMonitor.Update(data.Rev1Pct, data.Rev2Pct);
 
                 // Se publica **cuando ocurre**. Hasta v0.9.49 el único aviso llegaba al entrar en
                 // TaxiIn —44 s después del toque en `5ow69vzDNW5ZMayB`—, así que el bloque de datos de
