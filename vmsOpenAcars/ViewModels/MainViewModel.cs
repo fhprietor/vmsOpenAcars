@@ -56,6 +56,13 @@ namespace vmsOpenAcars.ViewModels
 
         // Eventos para comunicación con la UI (sin cambios)
         public event Action<string, Color> OnLog;
+
+        /// <summary>
+        /// Líneas de depuración **marcadas por el que las escribe** (v0.9.78), no por su texto: el
+        /// aviso del enlace con el simulador está traducido y no se puede casar por prefijo.
+        /// `MainForm` la enruta a `UIService.AddLogDebug`.
+        /// </summary>
+        public event Action<string, Color> OnLogDebug;
         public event Action<string> OnPositionUpdate;
         public event Action<double, double, double> OnMapPositionUpdate; // lat, lon, headingDeg
         public event Action<SimbriefPlan> OnPlanChanged;
@@ -165,6 +172,7 @@ namespace vmsOpenAcars.ViewModels
                 new TelemetryCallbacks
                 {
                     Log                     = (msg, color) => OnLog?.Invoke(msg, color),
+                    LogDebug                = (msg, color) => OnLogDebug?.Invoke(msg, color),
                     OsdMessage              = (msg, sev)   => OnOsdMessage?.Invoke(msg, sev),
                     FlightInfoChanged       = ()            => OnFlightInfoChanged?.Invoke(),
                     MapPositionUpdate       = (lat,lon,hdg) => OnMapPositionUpdate?.Invoke(lat, lon, hdg),

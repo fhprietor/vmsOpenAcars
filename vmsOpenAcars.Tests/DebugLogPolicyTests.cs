@@ -183,8 +183,7 @@ namespace vmsOpenAcars.Tests
 
         [TestMethod]
         public void LaCopiaDelPirepLlevaLaBandera_YLaDePantallaNo()
-        {
-            string line = "↳ TWY A, Next B4";
+        {            string line = "↳ TWY A, Next B4";
 
             // La copia que viaja a phpVMS (PIREP y tabla `acars`) lleva la bandera estable.
             string pirep = AcarsLogMirror.MessageForPirep(line);
@@ -284,6 +283,125 @@ namespace vmsOpenAcars.Tests
 
             Assert.IsFalse(AppConfig.DebugLogEnabled,
                 "sin `debug_log` en el `.config`, el ajuste tiene que valer `false` (ausente = apagado)");
+        }
+
+        // ── La marca explícita (v0.9.78) ──────────────────────────────────────────────
+
+        /// <summary>
+        /// **Las ocho líneas reales del arranque del mantenedor**, literales. Siete son el informe
+        /// de equipo y de nativas de `MainForm`; las dos del enlace con el simulador salen al
+        /// intentar conectar (aquí la variante inglesa y la española). Ninguna se puede reconocer
+        /// por prefijo: las dos del enlace están **traducidas** y las otras seis no comparten
+        /// prefijo con los volcados de la 0.9.77. Por eso van marcadas en el punto de llamada.
+        /// </summary>
+        private static readonly string[] Arranque =
+        {
+            "The connection to the simulator could not be opened. Check that the simulator is running and that FSUIPC7 is installed and active. The ACARS keeps trying and the flight is not blocked.",
+            "🔌 Simulator link: FSUIPC could not be opened (FSUIPCException: FSUIPC Error #2: FSUIPC_ERR_NOFS. Cannot find FSUIPC or WideFS running on this machine.)",
+            "🧩 Native DLLs: x86 pdfium.dll OK · x86 SQLite.Interop.dll OK · x64 pdfium.dll OK · x64 SQLite.Interop.dll OK",
+            "🖥️ Process: 64 bits · Windows: 64 bits · elevated: no",
+            "NVIDIA GeForce RTX 5070 Ti / VRAM 16 GB",
+            "AMD Ryzen 7 5700X3D 8-Core Processor / 16 threads",
+            "Windows 11 Home / RAM 32 GB",
+            "No se pudo abrir la conexión con el simulador. Comprueba que el simulador está abierto y que FSUIPC7 está instalado y activo. El ACARS seguirá intentándolo y el vuelo no se bloquea.",
+        };
+
+        [TestMethod]
+        public void LasOchoLineasDeArranque_SeOcultanConElAjusteApagado_YSeVenConElEncendido()
+        {
+            foreach (string line in Arranque)
+            {
+                // Y el prefijo, solo, no las reconocía: por eso la marca es explícita.
+                Assert.IsFalse(DebugLogPolicy.IsDebug(false, line),
+                    $"«{line}» no se puede casar por prefijo: el aviso está traducido y el informe de arranque no comparte prefijo");
+
+                Assert.IsTrue(DebugLogPolicy.IsDebug(true, line),
+                    $"«{line}» va marcada como depuración desde su punto de llamada");
+
+                bool isDebug = DebugLogPolicy.IsDebug(true, line);
+                Assert.IsFalse(DebugLogPolicy.ShouldDisplay(false, isDebug),
+                    $"«{line}» no debe pintarse con `debug_log` apagado");
+                Assert.IsTrue(DebugLogPolicy.ShouldDisplay(true, isDebug),
+                    $"«{line}» tiene que verse cuando el piloto enciende la casilla");
+            }
+        }
+
+        [TestMethod]
+        public void LasLineasMarcadas_TambienSeEspejanAlPirepConSuBandera()
+        {
+            foreach (string line in Arranque)
+            {
+                string pirep = AcarsLogMirror.MessageForPirep(true, line);
+
+                StringAssert.StartsWith(pirep, DebugLogPolicy.DebugPrefix,
+                    "la marca explícita también prefija la copia que va al PIREP");
+                Assert.AreEqual(DebugLogPolicy.DebugPrefix + line, pirep,
+                    "la bandera va delante y no se toca el texto de la línea");
+
+                // Idempotente: pasar otra vez por el espejo no acumula `[DBG] [DBG] `.
+                Assert.AreEqual(pirep, AcarsLogMirror.MessageForPirep(true, pirep));
+            }
+        }
+
+        [TestMethod]
+        public void LaGuardaDeNuncaOcultar_MandaTambienSobreLaMarcaExplicita()
+        {
+            // El caso que defiende: un punto de llamada marca por error una penalización. La marca
+            // no puede taparla, y tampoco puede prefijarla en el PIREP.
+            string penalizacion = "⚠️ PENALTY: LANDING lights OFF below 10,000 ft";
+
+            Assert.IsFalse(DebugLogPolicy.IsDebug(true, penalizacion),
+                "una línea protegida no se oculta aunque venga marcada");
+            Assert.IsTrue(DebugLogPolicy.ShouldDisplay(false, DebugLogPolicy.IsDebug(true, penalizacion)),
+                "la penalización tiene que seguir viéndose con `debug_log` apagado");
+            Assert.AreEqual(penalizacion, AcarsLogMirror.MessageForPirep(true, penalizacion),
+                "y no puede viajar al PIREP con la bandera de depuración");
+
+            foreach (string prefix in DebugLogPolicy.ProtectedPrefixes)
+            {
+                string marcada = prefix + " línea de evento";
+                Assert.IsFalse(DebugLogPolicy.IsDebug(true, marcada),
+                    $"«{marcada}» empieza por un prefijo protegido y no puede ocultarse");
+                Assert.IsTrue(DebugLogPolicy.ShouldDisplay(false, DebugLogPolicy.IsDebug(true, marcada)));
+            }
+        }
+
+        [TestMethod]
+        public void LaClasificacionPorTextoDeLa0977_NoCambiaConLaMarcaExplicita()
+        {
+            // Las cinco familias que ya ocultaba la 0.9.77 siguen ocultándose **por texto**, sin
+            // necesidad de marca: la marca nueva es otra vía de entrada, no un reemplazo.
+            string[] familias =
+            {
+                PanelPmdg,
+                "↳ TWY A, Next B4",
+                "Reversa: monitoreando despliegue post-aterrizaje (offset 0x207C/0x217C)",
+                "Motor: ENG1 idle 291s [STAB ✓]  ENG2 idle 942s [STAB ✓]  OAT 16°C",
+                "📊 PIREP Status: TXI",
+            };
+            foreach (string line in familias)
+                Assert.IsTrue(DebugLogPolicy.IsDebug(false, line),
+                    $"«{line}» se sigue clasificando por su prefijo, como en la 0.9.77");
+
+            // Y las ocho líneas de evento siguen visibles sin marca y aun con ella.
+            string[] eventos =
+            {
+                "⚠️ PENALTY: LANDING lights OFF below 10,000 ft",
+                "── ON BLOCK ──",
+                "🛬 Landing recorded: -236 fpm, 1.72 G",
+                "⛽ Taxi Out fuel: 271 kg",
+                "🎙️ RAAS: HOLD SHORT RUNWAY 14L",
+                "✅ Vuelo reportado, listo para siguiente vuelo",
+                "🎯 FLARE TRACK START: RWY 35 | Dist 1479 ft · 10 Hz",
+                "🅿️ Parking Brake: SET",
+            };
+            foreach (string line in eventos)
+            {
+                Assert.IsFalse(DebugLogPolicy.IsDebug(false, line),
+                    $"«{line}» cuenta un evento: el texto no puede marcarlo como depuración");
+                Assert.IsFalse(DebugLogPolicy.IsDebug(true, line),
+                    $"«{line}» sigue protegido aunque lo marquen");
+            }
         }
     }
 }

@@ -74,11 +74,25 @@ namespace vmsOpenAcars.Helpers
         };
 
         /// <summary>
-        /// ¿Es una línea de depuración? Se decide **por el texto**, sin estado y sin configuración,
-        /// para que la clasificación sea la misma con el ajuste encendido o apagado (el ajuste solo
-        /// decide si se pinta). Sin texto no es depuración.
+        /// ¿Es una línea de depuración **por el texto**? Sin estado y sin configuración, para que la
+        /// clasificación sea la misma con el ajuste encendido o apagado (el ajuste solo decide si se
+        /// pinta). Sin texto no es depuración.
         /// </summary>
-        internal static bool IsDebug(string message)
+        internal static bool IsDebug(string message) => IsDebug(false, message);
+
+        /// <summary>
+        /// **La marca explícita, la vía que no depende del texto.** Desde la 0.9.78 los informes de
+        /// arranque (CPU/GPU/OS, bitness y nativas) y el aviso del enlace con el simulador se marcan
+        /// en el punto de llamada con `markedExplicitly = true`. No se podía hacer por prefijo: el
+        /// aviso del enlace está **traducido** y empieza por «The connection to the simulator…» en
+        /// inglés o «No se pudo abrir la conexión…» en español, y los informes de arranque no
+        /// comparten ningún prefijo estable con los volcados de la 0.9.77.
+        ///
+        /// **La guarda de «nunca ocultar» se aplica también a las marcadas**: si la línea empieza
+        /// por `⚠️`, `✅`, etc., no se oculta aunque el llamador la haya marcado por error. Así una
+        /// penalización no puede desaparecer por una marca mal puesta.
+        /// </summary>
+        internal static bool IsDebug(bool markedExplicitly, string message)
         {
             if (string.IsNullOrWhiteSpace(message)) return false;
 
@@ -86,13 +100,16 @@ namespace vmsOpenAcars.Helpers
             // clasificación es estable y `ForPirep` no puede prefijar dos veces.
             string text = StripDebugFlag(message.TrimStart());
 
-            // La regla de oro manda sobre la lista: nada con evento o penalización se oculta.
+            // La regla de oro manda sobre la lista y sobre la marca explícita: nada con evento o
+            // penalización se oculta.
             foreach (string prefix in ProtectedPrefixes)
                 if (text.StartsWith(prefix, StringComparison.Ordinal))
                     return false;
 
             // Un separador (`────`, `✈️`) no es un volcado: no hay nada que diagnosticar en él.
             if (!HasLetterOrDigit(text)) return false;
+
+            if (markedExplicitly) return true;
 
             foreach (string prefix in DebugPrefixes)
                 if (text.StartsWith(prefix, StringComparison.Ordinal))
@@ -106,10 +123,17 @@ namespace vmsOpenAcars.Helpers
         /// depuración. **Es el único sitio que compone la bandera** (también la idempotencia: una
         /// línea que ya la lleva no se prefija otra vez).
         /// </summary>
-        internal static string ForPirep(string message)
+        internal static string ForPirep(string message) => ForPirep(false, message);
+
+        /// <summary>
+        /// Lo mismo, con la marca explícita: una línea marcada en el punto de llamada lleva la
+        /// bandera `[DBG] ` en el PIREP aunque su texto no esté en la lista cerrada. La guarda de
+        /// «nunca ocultar» sigue mandando: una línea protegida no se prefija.
+        /// </summary>
+        internal static string ForPirep(bool markedExplicitly, string message)
         {
             if (string.IsNullOrEmpty(message)) return message;
-            if (!IsDebug(message)) return message;
+            if (!IsDebug(markedExplicitly, message)) return message;
 
             string text = message.TrimStart();
             if (text.StartsWith(DebugPrefix, StringComparison.Ordinal)) return message;
@@ -132,6 +156,12 @@ namespace vmsOpenAcars.Helpers
             if (string.IsNullOrEmpty(message)) return true;
             return showDebug || !IsDebug(message);
         }
+
+        /// <summary>
+        /// La misma decisión con la clasificación ya hecha, para que `UIService` no la repita: el
+        /// punto único decide una vez y usa el resultado para la pantalla y para el espejo.
+        /// </summary>
+        internal static bool ShouldDisplay(bool showDebug, bool isDebug) => showDebug || !isDebug;
 
         private static bool HasLetterOrDigit(string text)
         {

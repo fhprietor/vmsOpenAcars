@@ -2,6 +2,72 @@
 
 ---
 
+## [0.9.78] — 19/11/2026
+
+**El informe de arranque y el aviso del enlace con el simulador dejan de ensuciar el log, con una
+marca explícita y sin adivinar por el texto.** El mantenedor arrancó su cliente y seguía viendo
+**ocho líneas de diagnóstico**: el aviso del enlace (`The connection to the simulator could not be
+opened…`), la excepción cruda de FSUIPC, el inventario de nativas, la bitness del proceso y las tres
+líneas de equipo (GPU, CPU, sistema). La 0.9.77 las dejaba pasar porque su clasificación es una
+**lista cerrada de prefijos** y estas líneas no tienen ninguno en común con los volcados del vuelo.
+Y el aviso del enlace **no se puede casar por prefijo de ninguna manera**: está **traducido** y
+empieza por «The connection to the simulator…» en inglés o por «No se pudo abrir la conexión…» en
+español, y los dos textos cambian con la plantilla. De ahí la decisión: **marcar en el punto de
+llamada, no clasificar por el contenido**.
+
+### Added
+
+- **`UIService.AddLogDebug(message, color)`** (v0.9.78): el camino explícito. `UIService.AddLog`
+  conserva su firma y su comportamiento; las dos entradas desembocan en el **mismo punto de
+  decisión** privado, que clasifica una sola vez y usa ese resultado para la pantalla y para el
+  espejo. Siguen valiendo las reglas de la 0.9.77: **solo se filtra la línea visible**, el espejo
+  al PIREP recibe todo con `[DBG] ` delante, y `debug_log` manda (apagado no se pinta, encendido sí,
+  en caliente).
+- **`DebugLogPolicy.IsDebug(bool markedExplicitly, string message)`** y `ForPirep`/`MessageForPirep`
+  con la marca: la clasificación por texto se queda **tal cual** para las cinco familias de la
+  0.9.77 (`🛠`, `↳ `, `Reversa:…`, `Motor: `, `📊 PIREP Status: `) y la marca es **otra vía de
+  entrada**. El camino de la marca viaja por `TelemetryCallbacks.LogDebug` → `MainViewModel.OnLogDebug`
+  → `UIService.AddLogDebug` (el aviso del enlace nace en `TelemetryCoordinator`).
+- **Los siete puntos de llamada** (siete líneas de log; la octava es la variante española del aviso
+  del enlace), todos marcados como depuración:
+  - `SimLink_Unavailable` (`TelemetryCoordinator.OnFsuipcConnectionFailed`, el aviso traducido);
+  - `Log_SimLinkFailed` (misma función, la excepción cruda con tipo y mensaje);
+  - `Log_Natives` (`MainForm`, el inventario de las cuatro nativas);
+  - `Log_Bitness` (`MainForm`, proceso/Windows/elevación);
+  - `SystemInfoHelper.OsSummary`, `CpuSummary` y `GpuSummary` (`MainForm`, el informe de equipo).
+  **No se toca** el batch de `StartFlight` que manda CPU/GPU/OS a phpVMS (`MainViewModel`): esos
+  datos siguen viajando al servidor; lo que se oculta es **la copia visible**.
+- **La guarda de «nunca ocultar» manda también sobre la marca.** `IsDebug` comprueba primero los
+  prefijos protegidos (`⚠️ ✅ ── 🛬 ⛽ 🎙️ 🎯 🅿️ 🛫 🔄 ✖️ ❌ ⛔ ℹ️`) y una línea sin letras ni
+  dígitos: una línea marcada por error que empiece por `⚠️` **no se oculta ni se prefija**. Lo fija
+  `DebugLogPolicyTests`, para que una marca mal puesta no pueda tapar una penalización.
+- **`Docs/architecture.md`**: la sección "La marca explícita de depuración (v0.9.78)".
+
+### El aviso que el piloto deja de ver
+
+Si se oculta `SimLink_Unavailable`, al arrancar **sin el simulador abierto el piloto no verá ninguna
+explicación en el log**: es lo que pidió el mantenedor. La información **sigue en el PIREP con
+`[DBG] `** si ocurre durante un vuelo, y **el estado de conexión del simulador sigue visible en la
+interfaz** (`AWAITING SIM` / nombre del simulador y el indicador de ACARS). No se ha inventado un
+texto corto nuevo.
+
+**Arranque frente a vuelo (importante, y no es lo mismo).** El espejo al PIREP solo actúa con un
+PIREP activo: la condición exacta es `!string.IsNullOrEmpty(_flightManager?.ActivePirepId)` **y**
+`AcarsLogMirror.ShouldMirror(message)` (esta última solo descarta el aviso del RAAS). Por eso:
+- Las líneas de **arranque** marcadas como depuración, con `debug_log` apagado, **no se guardan en
+  ningún sitio**: ni en pantalla ni en el PIREP. Con la casilla encendida se ven en pantalla y, si
+  ya hubiera PIREP, se espejan con `[DBG] `. **Ocultar el informe de arranque lo elimina del
+  registro de esa sesión; no se conserva en el servidor.** Es la contrapartida de tenerlo limpio.
+- Las líneas de depuración **durante el vuelo** (las cinco familias de la 0.9.77 y el
+  `Log_SimLinkFailed` si ocurre en vuelo) sí se espejan al PIREP con su bandera.
+
+### Cifras
+
+- **548 claves** en `es.json` y `en.json` (sin claves nuevas: la marca no necesita traducción).
+- **1.240 tests** (1 se omite sola), 4 más que en la 0.9.77.
+
+---
+
 ## [0.9.77] — 19/11/2026
 
 **El log del vuelo deja de enterrar los eventos bajo los volcados de diagnóstico, y el PIREP sigue

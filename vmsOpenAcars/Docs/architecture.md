@@ -3689,3 +3689,68 @@ en `AcarsLogMirror.MessageForPirep`; la copia de pantalla nunca la lleva.
 la lista cerrada completa, las ocho líneas de evento que no pueden ocultarse y el log completo de 14
 líneas con sus 7 volcados), la bandera `[DBG] ` sin duplicarse y el setter en caliente.
 `SettingsFormLayoutTests` añade la comprobación de la celda compartida y del ancho.
+
+---
+
+## La marca explícita de depuración (v0.9.78)
+
+**El problema.** El mantenedor arrancó el cliente de la 0.9.77 y seguía viendo **ocho líneas de
+diagnóstico**: el aviso del enlace con el simulador, la excepción cruda de FSUIPC, el inventario de
+nativas, la bitness y las tres líneas de equipo (GPU, CPU, sistema). La clasificación de la 0.9.77 es
+una **lista cerrada de prefijos** y ninguna de esas líneas comparte prefijo con los volcados del
+vuelo. El aviso del enlace es el caso imposible: está **traducido** («The connection to the
+simulator…» / «No se pudo abrir la conexión…») y su texto cambia con la plantilla, así que **no se
+puede casar por prefijo en ninguno de los dos idiomas**.
+
+**La decisión: marcar en el punto de llamada.** `UIService` gana `AddLogDebug(message, color)`, que
+llama al mismo punto de decisión privado que `AddLog`. No hay dos filtros: `DebugLogPolicy.IsDebug(
+markedExplicitly, message)` decide una vez y el resultado se usa para la pantalla
+(`ShouldDisplay(showDebug, isDebug)`) y para la bandera del espejo
+(`AcarsLogMirror.MessageForPirep(isDebug, message)`). `AddLog` pasa `false`; `AddLogDebug`, `true`.
+Así se conserva lo de la 0.9.77 sin duplicarlo: solo se filtra la línea visible, el espejo al PIREP
+sigue recibiendo todo con `[DBG] ` delante y `debug_log` manda en caliente.
+
+**La clasificación por texto no se toca.** Las cinco familias de la 0.9.77 (`🛠`, `↳ `,
+`Reversa: monitoreando/no detectada/máximo del rodaje`, `Motor: `, `📊 PIREP Status: `) se siguen
+reconociendo con `IsDebug(message)`, que ahora delega en `IsDebug(false, message)`. La marca es
+**otra vía de entrada**, no un reemplazo.
+
+**La guarda de «nunca ocultar» se aplica a las dos vías.** `IsDebug` comprueba primero los prefijos
+protegidos (`⚠️ ✅ ── 🛬 ⛽ 🎙️ 🎯 🅿️ 🛫 🔄 ✖️ ❌ ⛔ ℹ️`) y descarta las líneas sin letras ni
+dígitos, **antes** de mirar la marca. Una línea marcada por error que empiece por `⚠️` no se oculta
+ni se prefija en el PIREP, y el test lo fija: es la defensa contra tapar una penalización.
+
+**Los siete puntos de llamada** (siete líneas; la octava del arranque del mantenedor es la variante
+española del aviso del enlace):
+
+| Punto | Dónde | Qué es |
+|---|---|---|
+| `SimLink_Unavailable` | `TelemetryCoordinator.OnFsuipcConnectionFailed` | El aviso traducido del enlace |
+| `Log_SimLinkFailed` | misma función | La excepción cruda (tipo y mensaje) |
+| `Log_Natives` | `MainForm` (constructor) | Inventario de pdfium/SQLite.Interop x86/x64 |
+| `Log_Bitness` | `MainForm` | Proceso, Windows y elevación |
+| `OsSummary` / `CpuSummary` / `GpuSummary` | `MainForm` | Informe de equipo del arranque |
+
+El aviso de **acceso denegado** (`SimLink_AccessDenied`) **no se marca**: es la única línea
+accionable del enlace (elevar el ACARS o abrir el simulador sin elevación) y el piloto tiene que
+poder leerla. Y el batch de `StartFlight` que manda CPU/GPU/OS a phpVMS **no se toca**: lo que se
+oculta es la copia visible, no el dato que viaja al servidor.
+
+**Arranque frente a vuelo.** El espejo al PIREP exige PIREP activo: `UIService.AddLog` solo llama a
+`SendLogToAcars` cuando `!string.IsNullOrEmpty(_flightManager?.ActivePirepId)` y
+`AcarsLogMirror.ShouldMirror(message)` (que solo descarta el aviso del RAAS). Por eso las líneas de
+**arranque** con `debug_log` apagado no se guardan en ningún sitio —ni pantalla ni PIREP—; con la
+casilla encendida se ven y, si ya hubiera PIREP, se espejan con `[DBG] `. Las de **vuelo** sí llegan
+al PIREP con la bandera. Es la contrapartida de tener el arranque limpio y está en el CHANGELOG.
+
+**El aviso que se pierde en pantalla.** Sin la línea `SimLink_Unavailable`, un piloto que arranca
+sin el simulador abierto no ve ninguna explicación en el log (decisión del mantenedor). El estado
+de conexión del simulador sigue visible en la interfaz, y la información sigue en el PIREP con
+`[DBG] ` cuando el fallo ocurre con un vuelo abierto.
+
+**Tests.** `DebugLogPolicyTests` añade: las ocho líneas de arranque ocultas con el ajuste apagado y
+visibles con él encendido (y que **por prefijo no se reconocían**); que la marca explícita también
+prefija el espejo con `[DBG] ` y no duplica la bandera; que la guarda manda sobre la marca (con
+`⚠️` y con los catorce prefijos protegidos); y la regresión de la 0.9.77 (cinco familias por texto y
+ocho eventos visibles). El total queda en **1.240 tests** (1 se omite sola).
+

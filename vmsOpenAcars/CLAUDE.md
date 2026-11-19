@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.77  
+**Versión actual:** v0.9.78  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -403,6 +403,9 @@ clasifica como depuración (`🛠` del panel, `↳ TWY …`, `Reversa:`, `Motor:
 **Ausente = apagado** y no se añade a `App.config`/`App.Release.config`: el `.config` ya instalado no la
 trae. Filo imprescindible: **solo se filtra la línea visible**; el espejo al PIREP sigue recibiendo
 **todo**, con la bandera `[DBG] ` delante (literal estable para que phpVMS filtre con `LIKE '[DBG] %'`).
+**Marca explícita (v0.9.78):** el informe de arranque (OS/CPU/GPU, bitness, nativas) y el aviso del
+enlace (`SimLink_Unavailable`, traducido) van con `UIService.AddLogDebug`; la guarda de «nunca ocultar»
+manda también sobre la marca, y en arranque (sin PIREP) lo oculto no se guarda.
 
 **Avisos de espacio aéreo en el OSD (v0.9.10, +v0.9.56):** `osd_airspace_alerts` (fila *Airspace zones* →
 *Alert on the OSD*) silencia **todo** aviso de espacio aéreo en el OSD: las zonas acotadas y las entradas en
@@ -657,7 +660,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1236 tests** (1 se omite sola).
+`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1240 tests** (1 se omite sola).
 
 **Qué cubre la suite** — cada bloque con sus casos reales, sus fixtures y lo que no se puede
 re-ejecutar sin red: **`Docs/architecture.md`** → "Las suites de tests y sus casos reales".

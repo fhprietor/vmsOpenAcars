@@ -171,16 +171,19 @@ namespace vmsOpenAcars.UI.Forms
             ConnectViewModelEvents();
             _uiService?.AddLog($"vmsOpenAcars v{vmsOpenAcars.Core.Helpers.AppInfo.Version}", Theme.MainText);
             SystemInfoHelper.Initialize();
-            _uiService?.AddLog(SystemInfoHelper.OsSummary,  Theme.SecondaryText);
-            _uiService?.AddLog(SystemInfoHelper.CpuSummary, Theme.SecondaryText);
-            _uiService?.AddLog(SystemInfoHelper.GpuSummary, Theme.SecondaryText);
+            // Desde la 0.9.78 el informe de arranque va marcado como depuración de forma explícita:
+            // son datos de diagnóstico del equipo, no eventos del vuelo, y no comparten prefijo con
+            // los volcados que clasifica `DebugLogPolicy`. Con `debug_log` apagado no se pintan.
+            _uiService?.AddLogDebug(SystemInfoHelper.OsSummary,  Theme.SecondaryText);
+            _uiService?.AddLogDebug(SystemInfoHelper.CpuSummary, Theme.SecondaryText);
+            _uiService?.AddLogDebug(SystemInfoHelper.GpuSummary, Theme.SecondaryText);
             // La bitness deja de ser una hipótesis en el próximo reporte: el 0x8007000B de la 0.9.60
             // (BadImageFormatException al cargar el OFP) solo encaja si el proceso va a 32 bits en un
             // Windows de 32 bits y la nativa de PDF que encuentra es x64. Se registra en el arranque.
             // Desde 0.9.65 también la elevación: si el sim/FSUIPC7 corre como administrador y el ACARS
             // no, Windows (UIPI) devuelve acceso denegado al abrir la tubería y el «simulador
             // desconectado» del piloto no lo distingue de un sim cerrado.
-            _uiService?.AddLog(_("Log_Bitness",
+            _uiService?.AddLogDebug(_("Log_Bitness",
                 Environment.Is64BitProcess ? "64 bits" : "32 bits",
                 Environment.Is64BitOperatingSystem ? "64 bits" : "32 bits",
                 SystemInfoHelper.ElevationLabel), Theme.SecondaryText);
@@ -188,9 +191,11 @@ namespace vmsOpenAcars.UI.Forms
             // 0x8007000B de la 0.9.63 era SQLite.Interop, no pdfium: el reporte traía la traza pero no
             // el estado de los archivos, y hubo que reconstruirlo a mano. Solo informa: si una falta o
             // tiene la bitness cruzada, se ve aquí desde el primer arranque y nada se bloquea.
+            // En la 0.9.78 pasa a ser línea de depuración: el inventario es diagnóstico y, en un
+            // arranque sin PIREP activo, no se guarda en ningún sitio (el espejo exige PIREP).
             try
             {
-                _uiService?.AddLog(
+                _uiService?.AddLogDebug(
                     _("Log_Natives", NativeFailure.BuildInventory(AppDomain.CurrentDomain.BaseDirectory)),
                     Theme.SecondaryText);
             }
@@ -285,6 +290,9 @@ namespace vmsOpenAcars.UI.Forms
             if (_viewModel == null || _uiService == null) return;
 
             _viewModel.OnLog += _uiService.AddLog;
+            // La marca explícita de depuración (v0.9.78): el aviso del enlace con el simulador y el
+            // informe de arranque entran por aquí sin depender de su texto, que está traducido.
+            _viewModel.OnLogDebug += _uiService.AddLogDebug;
             _viewModel.OnPositionUpdate += _uiService.UpdatePosition;
             _viewModel.OnPhaseChanged += _uiService.UpdatePhase;
             _viewModel.OnAirStatusChanged += _uiService.UpdateAirStatus;

@@ -36,7 +36,19 @@ namespace vmsOpenAcars.Services
             }
         }
 
-        public void AddLog(string message, Color color)
+        public void AddLog(string message, Color color) => AddLog(message, color, false);
+
+        /// <summary>
+        /// **La marca explícita de depuración, sin mirar el texto.** Desde la 0.9.78 los informes de
+        /// arranque y el aviso del enlace con el simulador entran por aquí: el aviso está traducido
+        /// («The connection…» / «No se pudo abrir la conexión…») y no comparte prefijo con los
+        /// volcados que clasifica `DebugLogPolicy`, así que el texto no sirve para reconocerlo.
+        /// La decisión de qué se pinta y qué se espeja sigue en un solo sitio, `AddLog(message,
+        /// color, markedAsDebug)`.
+        /// </summary>
+        public void AddLogDebug(string message, Color color) => AddLog(message, color, true);
+
+        private void AddLog(string message, Color color, bool markedAsDebug)
         {
             // El color viene de `Theme`, que es la paleta de la aplicación y no la del MCDU: se traduce en
             // un solo sitio para que el log entero cambie de piel de golpe y ningún color acabe ilegible
@@ -50,7 +62,10 @@ namespace vmsOpenAcars.Services
             // de la 0.9.74—, así que siguen llegando a phpVMS aunque el piloto no los vea. Lo mismo
             // con las notificaciones: un evento sigue avisando aunque su línea sea de depuración.
             // `DebugLogPolicy` decide con el ajuste `debug_log` leído en el acto, sin reiniciar.
-            bool showLine = DebugLogPolicy.ShouldDisplay(AppConfig.DebugLogEnabled, message);
+            // La clasificación se hace **una vez**: `markedAsDebug` es la vía explícita y el texto la
+            // de la 0.9.77; el mismo resultado decide la pantalla y la bandera del espejo.
+            bool isDebug = DebugLogPolicy.IsDebug(markedAsDebug, message);
+            bool showLine = DebugLogPolicy.ShouldDisplay(AppConfig.DebugLogEnabled, isDebug);
 
             // Mostrar en el log visible (código existente)
             if (showLine)
@@ -81,7 +96,9 @@ namespace vmsOpenAcars.Services
                 // `MessageForPirep` añade `[DBG] ` delante de los volcados de depuración **solo en
                 // esta copia**: es la bandera estable con la que phpVMS puede filtrarlos después.
                 // La pantalla nunca la lleva, así que la línea se lee limpia con el ajuste encendido.
-                SendLogToAcars(AcarsLogMirror.MessageForPirep(message));
+                // Se le pasa la clasificación ya hecha para que una línea marcada explícitamente
+                // (el informe de arranque, el aviso del enlace) también viaje con su bandera.
+                SendLogToAcars(AcarsLogMirror.MessageForPirep(isDebug, message));
             }
             // Notificaciones para eventos importantes
             if (message.Contains("Takeoff"))

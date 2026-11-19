@@ -55,5 +55,16 @@ namespace vmsOpenAcars.Helpers
         {
             return DebugLogPolicy.ForPirep(message);
         }
+
+        /// <summary>
+        /// Lo mismo con la **marca explícita** de depuración (v0.9.78): una línea que el punto de
+        /// llamada marca como informe de arranque o aviso del enlace lleva la bandera aunque su
+        /// texto no esté en la lista cerrada. La guarda de «nunca ocultar» la aplica
+        /// `DebugLogPolicy`: una línea protegida no se prefija.
+        /// </summary>
+        internal static string MessageForPirep(bool markedExplicitly, string message)
+        {
+            return DebugLogPolicy.ForPirep(markedExplicitly, message);
+        }
     }
 }

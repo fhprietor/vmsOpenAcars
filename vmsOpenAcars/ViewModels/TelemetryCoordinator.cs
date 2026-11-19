@@ -1407,7 +1407,12 @@ namespace vmsOpenAcars.ViewModels
         /// </summary>
         private void OnFsuipcConnectionFailed(Exception ex)
         {
-            _cb.Log?.Invoke(
+            // Desde la 0.9.78 la excepción cruda y el aviso de «no disponible» son **depuración
+            // marcada explícitamente**: el aviso está traducido —«The connection to the simulator…»
+            // en inglés, «No se pudo abrir la conexión…» en español— y no se puede casar por prefijo.
+            // La línea de acceso denegado se queda visible: es la única accionable (elevar el ACARS
+            // o abrir el simulador sin elevación) y el piloto tiene que poder leerla.
+            _cb.LogDebug?.Invoke(
                 _("Log_SimLinkFailed", ex.GetType().Name, ex.Message),
                 Theme.SecondaryText);
 
@@ -1419,7 +1424,7 @@ namespace vmsOpenAcars.ViewModels
                 return;
             }
 
-            _cb.Log?.Invoke(_(SimLinkFailure.MessageKeyFor(ex)), Theme.SecondaryText);
+            _cb.LogDebug?.Invoke(_(SimLinkFailure.UnavailableKey), Theme.SecondaryText);
         }
 
         // ── Aircraft info ─────────────────────────────────────────────────────────
