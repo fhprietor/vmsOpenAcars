@@ -1,46 +1,58 @@
 # Novedades de vmsOpenACARS — versión 0.9.76
 
-**En una frase:** la pista de la toma se resuelve en el **primer contacto** —no 33 segundos después,
-ya rodando— y la traza del flare **incluye el toque**, así que el análisis ya puede usar el umbral, el
-TCH y la senda de esa pista.
+**En una frase:** desde la 0.9.72, la ruta se revisa **antes de despegar**, el aterrizaje deja de
+contradecirse, la altura se mide **de ruedas** y la pista de la toma llega con su umbral, su TCH y su
+senda.
 
 ---
 
-## La pista de la toma
+## 0.9.73 — la ruta se revisa antes de despegar
 
-El primer vuelo de la 0.9.75 llegó con el nombre de la pista (`35`) pero **sin el resto**: sin largo,
-sin umbral desplazado, sin elevación del umbral, sin TCH y sin senda. El análisis no podía usar la
-pista y la distancia de toma salía **0**.
+El ACARS manda el **navlog** del plan en el prefile y recibe el aviso de zonas restringidas. Si el plan
+cruza una —el caso que lo motivó fue **SKR11 / BARRANQUILLA, GND–FL999**—, el aviso sale **antes de
+conectar**, con dos salidas: **«RUTA REVISADA»** sigue y deja constancia, **«CORREGIR PLAN»** no inicia
+el vuelo. Es un aviso previo, no una puerta: cerrar la ventana continúa sin acuse. La comprobación
+local va **por tramos del navlog**, no por muestras, porque una zona de 72 × 53 nm se cruza con los
+dos extremos de la pierna fuera.
 
-La causa era el momento en que se buscaba la pista: el aviso de «toque» del simulador llegó **33 s
-después** del contacto, cuando el avión ya estaba **pasado el extremo** de la pista. Ahora la pista se
-busca con la **posición del primer contacto**, la que se guarda en el instante del toque.
+## 0.9.74 — el aterrizaje deja de contradecirse
 
-En una pista como la 35 de SKBG eso significa: umbral **3.854**, extremo **3.901**, senda **3,0°**,
-umbral desplazado **421 ft** y, cuando NavData no puede derivar el TCH (esta pista), el motivo
-`displaced_threshold` en vez de un número inventado.
+- El **G del toque** ya no dice «Normal» mientras te descuenta: el rótulo y los puntos salen de **la
+  misma tabla**.
+- Los **avisos de pista** solo suenan yendo **hacia el punto de espera** (cono de morro de 45°), no
+  rodando en paralelo.
+- La **reversa fantasma** del rodaje —un 100 % con el avión ya rodando— se ignora; el despliegue real
+  del toque sigue contando.
+- **`ON BLOCK` en 5 s** con el freno de parqueo puesto y los motores parados.
+- La **Vapp nunca baja del Vref** de referencia y se marca **«(del plan)»** cuando el Vref es del plan;
+  si la velocidad se explica por otra configuración de flaps, el criterio de velocidad no se aplica
+  en vez de penalizarte.
 
-## La traza ya incluye el toque
+## 0.9.75 — la altura del aterrizaje, de ruedas
 
-La traza terminaba **1,2 ft sobre la pista**: el cierre por «en tierra» era correcto, pero la muestra
-que lo disparaba no se guardaba. Sin una muestra en tierra, el análisis no podía situar el toque y su
-respaldo lo inventaba **484 ft antes**.
+El AGL dejó de ser «altitud menos la elevación del plan». Ahora viajan, por cada muestra, la altitud
+real (`alt_msl_ft`) y la **altura de las ruedas** (`radio_alt_ft`), con el **cero del radar medido en
+cada vuelo**: **0,41 ft** en el ToLiss A320, **12,15** en el Fenix, **8,05** en el B738 de la primera
+prueba. La **puerta de 10 ft mide 10**. En tierra el AGL ya no se fuerza a 0 —puede ser negativo por
+el desfase del aeropuerto— y en un vuelo retomado va **nulo** en vez de confundir MSL con AGL. Un
+**go-around** ya no vuelve a la altitud del origen. El análisis recibe además **umbral, extremo, TCH
+y senda** de la pista.
 
-Ahora la muestra del toque se guarda: la traza acaba con `on_ground = true`, el radar de ruedas a
-**≈ 0** y la distancia del toque. La maniobra se puede medir donde ocurrió.
+## 0.9.76 — la pista de la toma y el toque en la traza
 
-## El G del toque
-
-El mismo aviso tardío se llevaba el G: la ventana de 1 s se evaluaba 33 s después del contacto y
-quedaba a 0, así que el registro decía «— G» y el criterio no se aplicaba. Ahora, si la ventana viene
-vacía, se usa el G del **frame del toque**.
+El primer vuelo de la 0.9.75 llegó con la pista **sin resolver**: el aviso de «toque» del simulador
+llegó **33 s tarde**, cuando el avión ya estaba pasado el extremo, y el análisis se quedó sin umbral,
+sin TCH y sin distancia de toma. Ahora la pista se resuelve con la **posición del primer contacto**:
+en SKBG 35, umbral **3.854**, TCH **`displaced_threshold`**, senda **3,0°** y distancia de toma real.
+La traza incluye la **muestra del toque** (`on_ground = true`, radar de ruedas ≈ 0) y el **G del frame
+del toque** ya no se pierde.
 
 ## Lo que hay que saber
 
 - **No hay nada que configurar.**
-- **Los vuelos anteriores no se reescriben.** El análisis nuevo usa los campos nuevos; las trazas
-  viejas conservan su aviso.
-- **Los umbrales de puntuación no cambian.** Lo que cambia es que la pista y el toque están donde
-  deben para poder medirlos.
-- La verificación definitiva es el siguiente vuelo con la 0.9.76: debe traer **3.854**,
-  `displaced_threshold`, **3,0°** y una distancia de toma distinta de 0.
+- **Los vuelos anteriores no se reescriben**: su traza y su análisis se quedan como estaban.
+- **Los umbrales de puntuación no cambian.** Lo que cambia es de dónde salen los números y cuándo un
+  criterio no se aplica por falta de un dato fiable.
+- **La 0.9.76 es la primera que trae la pista y el toque juntos**; el primer vuelo con ella cierra la
+  verificación: debe traer **3.854**, `displaced_threshold`, **3,0°** y una distancia de toma distinta
+  de 0.
