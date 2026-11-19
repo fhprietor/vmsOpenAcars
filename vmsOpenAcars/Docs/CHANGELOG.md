@@ -2,6 +2,69 @@
 
 ---
 
+## [0.9.75] — 18/11/2026
+
+**La capa de altura del aterrizaje acordada con phpVMS y NavData.** El `agl_ft` del cliente deja de
+ser la única altura: viaja con **su referencia declarada**, la altura de **ruedas** del
+radioaltímetro se publica con el **cero del addon**, y los cinco campos de pista (umbral, extremo,
+TCH derivado y senda) llegan desde NavData. Lo que lo motiva, medido en las trazas reales:
+
+- `ez9OqzRnYxbnGLR8` (SKBO→SKBG, 35): **64 de 99** muestras aéreas con `agl_ft < 0`, mínimo **−23 ft**;
+  la referencia del plan era **3.901** y el umbral **3.854**, un desfase de **47 ft, no 23**. La
+  «puerta de 10 ft» medía a **57 ft** sobre el plano del umbral.
+- `9o45JZ5eAVZ11qAe`: el **+6.964** no era un AGL ni una consulta fallida; era un **vuelo retomado**
+  a las 05:56:03 cuyo plan reconstruido tenía `DestinationElevation = 0`, así que el AGL era la MSL.
+- `0aNnVLMo8pxpbNPq`: el **−1.076** era un **go-around**; la fase pasó a `Climb` a las 02:10:53 y la
+  referencia saltó al origen (UAAA 2.238) estando sobre VIAR (756): **−1.471 ft en una muestra**,
+  contra los 1.482 de diferencia entre los dos aeródromos.
+- `Og9zwbrrmjob0MXv`: **111,4 ft** de desfase real (MPTO aeropuerto 135, umbral 03R 21), no ruido.
+
+### Added
+
+- **`alt_msl_ft` y `radio_alt_ft` en cada muestra del flare**, y **`radio_alt_zero_ft` en `metrics`**.
+  `radar_alt_ft` se queda como **indicación cruda**; `radio_alt_ft` es la **altura de ruedas**
+  (`max(0, radar − cero)`), porque el mismo A320 da **0,41 ft** en el ToLiss y **12,15** en el Fenix.
+  El cero se mide una vez por vuelo como la **mediana de las muestras en tierra del principio**
+  (`Helpers/RadioAltPolicy`, puro, con test). Sin cero (vuelo retomado en el aire) los dos van
+  `null`, nunca la indicación cruda disfrazada.
+- **Los cinco campos de pista** en `metrics`, desde el mismo `NavRunway` que ya daba
+  `offset_threshold_ft`: `threshold_elevation_ft` (3.854 en SKBG 35), `end_elevation_ft` (la pista
+  recíproca, 3.901; aproximación de pocos pies), `tch_ft` + `tch_source` + `tch_unavailable`
+  (SKRG 01 **53,7 derivado**; SKBG 35 **null con `displaced_threshold`**), `glide_slope_deg` (3,0)
+  y `tdz_elevation_ft` (`null`, NavData no la publica). El TCH **no se inventa**: si no viene, va
+  `null` con su motivo.
+- **`TraceAglFt`**: el AGL de la traza es **anulable** y no fuerza 0 al tocar. `SimbriefPlan` gana
+  `HasDestinationElevation`/`HasOriginElevation` para distinguir «mide 0» (KIAH) de «no lo tengo»
+  (licitación, retomado, OFP sin el campo); sin datum, `agl_ft` viaja `null`.
+
+### Fixed
+
+- **El go-around ya no devuelve la referencia al origen** (`_arrivalReferenceActive`): una vez que el
+  vuelo entra en `Descent`/`Approach`, un `Approach → Climb` sigue siendo el **destino**. Cierra el
+  salto de 395 a −1.076 ft de `0aNn…` y el `Climb` del PIREP `RBmrBApLOjWlYmO2`.
+- **`ResumeFlight` y `LoadFlightFromBid` dejan de poner la elevación a 0**: sus planes no traen el
+  dato y ahora el AGL de la traza es `null` en vez de un número que parecía medido. El `9o45…` es
+  el caso real: 112 muestras en el aire, ninguna negativa, `agl − radar` = 6.871–6.963 (el terreno),
+  umbral de SKRG 6.965.
+- **El `agl_ft` de la traza no fuerza 0 en tierra**: el 0 del toque era un cierre, no una medida; el
+  `on_ground` sigue diciendo dónde está el avión y la altura primaria es `radio_alt_ft`.
+  **Cambio de semántica, no de presencia**: en tierra el AGL ya no es 0 (puede ser negativo, el
+  desfase del datum); el consumidor que descartaba las muestras en tierra por ese 0 debe descartar
+  solo `on_ground && agl == 0`, que es el cierre de las trazas **viejas**. phpVMS lo corrigió el
+  18/11/2026; las anteriores a la 0.9.75 siguen llevando 0 en tierra y se descartan igual.
+
+### Tests
+
+- `RadioAltPolicyTests`: los ceros reales del Fenix (12,15) y del ToLiss (0,41), la resta, el
+  `max(0, …)` del contacto y los `null` sin radar/cero.
+- `LandingUploadPayloadTests`: la Capa 2 en el JSON (TCH nulo con `displaced_threshold`, TCH 53,7
+  `derived`, `radio_alt_ft = 0` como medida, `agl_ft` nulo escrito).
+- `ApproachThresholdTests`: el umbral, el extremo recíproco, el TCH y la senda salen del `NavRunway`
+  elegido (SKBG 35 y SKRG 01).
+- **1223 tests** (1 se omite sola).
+
+---
+
 ## [0.9.74] — 17/11/2026
 
 Los **cuatro defectos medidos en el PIREP real `ez9OqzRnYxbnGLR8`** (B738 PMDG, MSFS 2024,

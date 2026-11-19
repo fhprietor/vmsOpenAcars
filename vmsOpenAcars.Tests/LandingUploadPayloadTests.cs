@@ -457,5 +457,97 @@ namespace vmsOpenAcars.Tests
             Assert.IsNull(m.aircraft_icao);
             Assert.IsNull(m.aircraft_model);
         }
+
+        /// <summary>
+        /// **La Capa 2 del contrato (18/11/2026)**: `alt_msl_ft` y `radio_alt_ft` por muestra, el cero
+        /// del radar y los cinco campos de pista en `metrics`.
+        ///
+        /// Los números son los del caso real de SKBG: umbral 3.854, extremo opuesto 3.901, cero del
+        /// B738 9,46 ft. `tch_ft` va **null** con `displaced_threshold` porque la 35 tiene umbral
+        /// desplazado: el TCH de la carta no se inventa. Y el `radio_alt_ft = 0` del contacto es un
+        /// **dato** (las ruedas en el suelo), no un hueco: por eso no se filtra como los ceros de G.
+        /// </summary>
+        [TestMethod]
+        public void LaCapa2ViajaConSuProcedencia_YElTchAusenteConSuMotivo()
+        {
+            var trace = Traza();
+            trace[0].AltMslFt   = 3896.0;
+            trace[0].RadioAltFt = 352.5;   // 362,0 crudo − 9,46 de cero
+            trace[1].AltMslFt   = 3869.5;
+            trace[1].RadioAltFt = 12.5;
+            trace[2].AltMslFt   = 3854.0;
+            trace[2].RadioAltFt = 0.0;     // ruedas en el suelo: 0 es medida, no hueco
+
+            var r = Vuelo44();
+            r.RadioAltZeroFt       = 9.46;
+            r.ThresholdElevationFt = 3854.0;
+            r.EndElevationFt       = 3901.0;
+            r.TchFt                = null;
+            r.TchSource            = null;
+            r.TchUnavailable       = "displaced_threshold";
+            r.GlideSlopeDeg        = 3.0;
+
+            var p = LandingUploadPayload.Build(r, trace, Version);
+            var m = p.metrics;
+
+            Assert.AreEqual(9.46, m.radio_alt_zero_ft.Value, 1e-9, "el cero del addon de ese vuelo");
+            Assert.AreEqual(3854.0, m.threshold_elevation_ft.Value, 1e-9, "umbral de la 35 de SKBG");
+            Assert.AreEqual(3901.0, m.end_elevation_ft.Value, 1e-9, "extremo opuesto (la 17)");
+            Assert.AreEqual(3.0, m.glide_slope_deg.Value, 1e-9, "senda publicada de la ILS 35");
+            Assert.IsNull(m.tch_ft, "SKBG 35 no tiene TCH derivado: no se inventa el de la carta");
+            Assert.AreEqual("displaced_threshold", m.tch_unavailable,
+                            "el motivo viaja para que el gráfico sepa por qué no hay TCH");
+            Assert.IsNull(m.tch_source, "sin TCH no hay procedencia que declarar");
+
+            Assert.AreEqual(3896.0, p.trace[0].alt_msl_ft.Value, 1e-9);
+            Assert.AreEqual(352.5, p.trace[0].radio_alt_ft.Value, 1e-9);
+            Assert.AreEqual(0.0, p.trace[2].radio_alt_ft.Value, 1e-9,
+                            "en el contacto el 0 de ruedas es una medida");
+        }
+
+        /// <summary>
+        /// El otro lado del contrato: cuando NavData **sí** deriva el TCH, viaja con `tch_source =
+        /// derived` y sin motivo. Los números son los de SKRG 01 (6.965 / 53,7), medidos en vivo.
+        /// </summary>
+        [TestMethod]
+        public void ElTchDerivadoViajaConSuFuente_YNoSeConfundeConElDeCarta()
+        {
+            var r = Vuelo44();
+            r.ThresholdElevationFt = 6965.0;
+            r.TchFt                = 53.7;
+            r.TchSource            = "derived";
+            r.TchUnavailable       = null;
+
+            var m = LandingUploadPayload.Build(r, Traza(), Version).metrics;
+
+            Assert.AreEqual(53.7, m.tch_ft.Value, 1e-9);
+            Assert.AreEqual("derived", m.tch_source,
+                            "es derivado, no de carta: el consumidor tiene que poder decirlo");
+            Assert.IsNull(m.tch_unavailable, "si hay TCH no hay motivo que explicar");
+        }
+
+        /// <summary>
+        /// **`agl_ft` sin datum viaja como `null`, no como 0.** Es el caso del vuelo retomado
+        /// `9o45JZ5eAVZ11qAe` (+6.964 era MSL, no AGL) y el de una licitación sin elevación. El JSON
+        /// lleva la clave escrita, no la omite.
+        /// </summary>
+        [TestMethod]
+        public void ElAglSinDatumViajaComoNullEscrito_NoComoCero()
+        {
+            var trace = Traza();
+            trace[0].AglFt      = null;
+            trace[0].AltMslFt   = 7070.0;
+            trace[0].RadioAltFt = null;
+
+            var p = LandingUploadPayload.Build(Vuelo44(), trace, Version);
+            string json = LandingUploadPayload.ToJson(p);
+
+            Assert.IsNull(p.trace[0].agl_ft);
+            Assert.IsNull(p.trace[0].radio_alt_ft);
+            StringAssert.Contains(json, "\"agl_ft\":null");
+            StringAssert.Contains(json, "\"radio_alt_ft\":null");
+            Assert.AreEqual(7070.0, p.trace[0].alt_msl_ft.Value, 1e-9,
+                            "la MSL sí existe aunque el datum no: es lo que permite calcular la altura");
+        }
     }
 }

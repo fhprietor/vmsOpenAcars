@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.74  
+**Versión actual:** v0.9.75  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -166,6 +166,14 @@ Task<NearestApproachAirportResult> FindApproachAirport(lat, lon, heading, radius
 - `along = dE·sin(bearing) + dN·cos(bearing)` → dist al umbral; `Math.Max(0,…)` es crítico
 - `cross = dE·cos(bearing) - dN·sin(bearing)` → desviación centreline
 - `bearing_rad` es el **bearing geográfico verdadero** via `TrueRunwayBearing(rwy)` (threshold→end WGS-84). Usar `rwy.Heading` (magnético) produce hasta 600 ft de error en aeropuertos con variación ≥13° (casos TJSJ −14°W, SKBO crab 3°).
+
+**La capa 2 de la pista (v0.9.75).** `NavRunway` publica desde el 18/11/2026
+`tch_ft`/`tch_source`/`tch_unavailable` (TCH **derivado** por NavData; `null` con
+`displaced_threshold`, `no_ils` o `incoherent_geometry`). `elevation_ft` de la pista es la elevación
+del **umbral**, no la del aeropuerto (que es el extremo más alto); el `end_elevation_ft` sale de la
+pista **recíproca** (aproximación de pocos pies, porque su umbral puede estar desplazado).
+`SelectApproachThreshold`/`ProjectOnRunway` los copian a `RunwayTouchdownResult` y de ahí a
+`TouchdownState` → `flights` → `metrics`; el **TCH de carta no se inventa**.
 
 ### NavDataClient — `Services/NavDataClient.cs`
 
@@ -437,6 +445,20 @@ vuelos**. `flights.flare_capture_armed` guarda «la captura se armó» y **no** 
 
 `LandingAnalysisForm`: 4 gráficos VERTICAL/LATERAL/IAS/VS, eje X 5NM→0. Suavizado Gaussiano (window=7) en LATERAL/IAS/VS, no en VERTICAL. **En el aterrizaje se guarda la meteo** (METAR del destino + viento del simulador y sus componentes en cara/cruzada, `Helpers/WindComponents.cs`), que va al PIREP en el `notes`, y el perfil vertical tiene un **closeup del toque** con la pista, el umbral y el punto de toque (`Helpers/TouchdownCloseupGeometry.cs`) — v0.9.31. **El analisis del aterrizaje y el flare** (v0.9.31 a v0.9.38) esta contado entero, con sus causas y sus cifras, en **`Docs/architecture.md` -> "El analisis del aterrizaje y el flare"**, y su deuda de verificacion en **`Docs/ESTADO-FLARE-2026-10-08.md`**. En una linea: traza fina del flare en `flare_track` a 10 Hz nominales (~8 reales, v0.9.37), closeup del toque con la Y autoescalada y el eje X en pies, ventana propia del FLARE, flaps y corte de potencia (N1), cabecera de datos para compartir el grafico, y **el analisis fileado a phpVMS**; la traza de 2 s es el respaldo cuando no hay fina, y el grafico dice cual usa.
 
+**La altura del aterrizaje (v0.9.75).** El `agl_ft` de la traza es `altitud − elevación del plan`, y
+el plan puede no traerla (licitación, retomado): `SimbriefPlan.HasDestinationElevation`/`HasOriginElevation`
+lo distinguen y `FlightManager.TraceAglFt` devuelve **`null`** en vez de 0; la traza **no fuerza 0 en
+tierra** (ese 0 era un cierre, no una medida). Viajan además `alt_msl_ft` y `radio_alt_ft` por muestra y
+`radio_alt_zero_ft` en `metrics`: `radio_alt_ft` es la **altura de ruedas**
+(`max(0, radar − cero)`, `Helpers/RadioAltPolicy`), con el cero medido como mediana de las muestras en
+tierra del principio del vuelo (**0,41 ft** en el ToLiss A320, **12,15** en el Fenix: el mismo tipo).
+La referencia de llegada es **pegajosa**: un go-around (`Approach → Climb`) ya no vuelve al origen.
+
+**Cambio de semántica del `agl_ft` (v0.9.75)**: en tierra ya no es 0; es `altitud − referencia` y
+puede ser negativo (el desfase del datum). El consumidor que descartaba las muestras en tierra por
+ese 0 debe descartar solo **`on_ground && agl == 0`**, que es el cierre de las trazas **viejas**; un
+valor en tierra distinto de 0 es una medida y se conserva. phpVMS corrigió su filtro el 18/11/2026.
+
 ---
 
 ## ILS / Approach Detection — v0.4.4
@@ -621,7 +643,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1215 tests** (1 se omite sola).
+`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1223 tests** (1 se omite sola).
 
 **Qué cubre la suite** — cada bloque con sus casos reales, sus fixtures y lo que no se puede
 re-ejecutar sin red: **`Docs/architecture.md`** → "Las suites de tests y sus casos reales".

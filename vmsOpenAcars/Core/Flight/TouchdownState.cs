@@ -51,9 +51,38 @@ namespace vmsOpenAcars.Core.Flight
             /// </summary>
             public readonly double? OffsetThresholdFt;
 
+            /// <summary>
+            /// **Elevación del umbral legal** de la pista de la toma (`elevation_ft` de NavData).
+            /// Es el datum de la Capa 2 del contrato (18/11/2026): `alt_msl_ft − elevación
+            /// interpolada threshold→end`. **0 es un valor** (aeródromo al nivel del mar); sin pista
+            /// resuelta el bloque entero es `null`.
+            /// </summary>
+            public readonly double? ThresholdElevationFt;
+
+            /// <summary>Elevación del extremo opuesto, de la pista recíproca (aproximación de pocos pies).</summary>
+            public readonly double? EndElevationFt;
+
+            /// <summary>TCH derivado por NavData; `null` cuando `TchUnavailable` lo explica.</summary>
+            public readonly double? TchFt;
+
+            /// <summary>`derived` cuando hay TCH; `null` cuando no.</summary>
+            public readonly string TchSource;
+
+            /// <summary>`displaced_threshold`, `no_ils`, `incoherent_geometry`… o `null` si hay TCH.</summary>
+            public readonly string TchUnavailable;
+
+            /// <summary>Ángulo de la senda publicada (ILS); `null` si la pista no tiene ILS.</summary>
+            public readonly double? GlideSlopeDeg;
+
             public RunwayGeometry(double distanceFt, double centerlineDeviationFt, string runwayName,
                                   double runwayLengthFt, double? trueHeadingDeg,
-                                  double? offsetThresholdFt)
+                                  double? offsetThresholdFt,
+                                  double? thresholdElevationFt = null,
+                                  double? endElevationFt = null,
+                                  double? tchFt = null,
+                                  string tchSource = null,
+                                  string tchUnavailable = null,
+                                  double? glideSlopeDeg = null)
             {
                 DistanceFt            = distanceFt;
                 CenterlineDeviationFt = centerlineDeviationFt;
@@ -61,6 +90,12 @@ namespace vmsOpenAcars.Core.Flight
                 RunwayLengthFt        = runwayLengthFt;
                 TrueHeadingDeg        = trueHeadingDeg;
                 OffsetThresholdFt     = offsetThresholdFt;
+                ThresholdElevationFt  = thresholdElevationFt;
+                EndElevationFt        = endElevationFt;
+                TchFt                 = tchFt;
+                TchSource             = tchSource;
+                TchUnavailable        = tchUnavailable;
+                GlideSlopeDeg         = glideSlopeDeg;
             }
         }
 
@@ -143,6 +178,24 @@ namespace vmsOpenAcars.Core.Flight
         /// </summary>
         public double? OffsetThresholdFt => _geometry?.OffsetThresholdFt;
 
+        /// <summary>Elevación del umbral legal de la pista de la toma; `null` sin pista resuelta.</summary>
+        public double? ThresholdElevationFt => _geometry?.ThresholdElevationFt;
+
+        /// <summary>Elevación del extremo opuesto (pista recíproca); `null` sin dato.</summary>
+        public double? EndElevationFt => _geometry?.EndElevationFt;
+
+        /// <summary>TCH derivado por NavData; `null` cuando <see cref="TchUnavailable"/> lo explica.</summary>
+        public double? TchFt => _geometry?.TchFt;
+
+        /// <summary>`derived` cuando hay TCH; `null` cuando no.</summary>
+        public string TchSource => _geometry?.TchSource;
+
+        /// <summary>El motivo por el que no hay TCH; `null` cuando lo hay.</summary>
+        public string TchUnavailable => _geometry?.TchUnavailable;
+
+        /// <summary>Ángulo de la senda publicada (ILS); `null` si no hay ILS.</summary>
+        public double? GlideSlopeDeg => _geometry?.GlideSlopeDeg;
+
         public void Capture(int fpm, double pitch, double bank, double gforce,
                             double lat, double lon, double heading)
         {
@@ -159,9 +212,17 @@ namespace vmsOpenAcars.Core.Flight
 
         public void SetRunwayData(double distFt, double deviationFt, string runwayName,
                                   double runwayLengthFt, double? trueHeadingDeg,
-                                  double? offsetThresholdFt)
+                                  double? offsetThresholdFt,
+                                  double? thresholdElevationFt = null,
+                                  double? endElevationFt = null,
+                                  double? tchFt = null,
+                                  string tchSource = null,
+                                  string tchUnavailable = null,
+                                  double? glideSlopeDeg = null)
             => _geometry = new RunwayGeometry(distFt, deviationFt, runwayName, runwayLengthFt,
-                                              trueHeadingDeg, offsetThresholdFt);
+                                              trueHeadingDeg, offsetThresholdFt,
+                                              thresholdElevationFt, endElevationFt,
+                                              tchFt, tchSource, tchUnavailable, glideSlopeDeg);
 
         // Partial reset on touch-and-go: keep Fpm/GForce for scoring, clear runway data
         public void ResetRunwayData()

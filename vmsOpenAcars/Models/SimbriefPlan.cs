@@ -56,10 +56,21 @@ namespace vmsOpenAcars.Models
         public int DestinationElevation { get; set; }
 
         /// <summary>
+        /// **¿El OFP traía `destination.elevation`?** El campo numérico se queda en 0 cuando falta
+        /// (porque el plan de una licitación o uno retomado no lo traen), y 0 es una elevación
+        /// legítima (un aeródromo al nivel del mar). Esta bandera es la que distingue «mide 0» de
+        /// «no lo tengo»: sin ella, el AGL de la traza no puede ser `null` cuando debe.
+        /// </summary>
+        public bool HasDestinationElevation { get; set; }
+
+        /// <summary>
         /// Gets or sets the elevation of the origin airport in feet.
         /// Used for AGL calculations during departure.
         /// </summary>
         public int OriginElevation { get; set; }
+
+        /// <summary>¿El OFP traía `origin.elevation`? Mismo motivo que <see cref="HasDestinationElevation"/>.</summary>
+        public bool HasOriginElevation { get; set; }
 
         /// <summary>
         /// Gets or sets the ICAO code of the alternate airport.

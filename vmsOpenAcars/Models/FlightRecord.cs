@@ -79,6 +79,32 @@ namespace vmsOpenAcars.Models
         public double?   OffsetThresholdFt { get; set; }
 
         /// <summary>
+        /// **El cero del radioaltímetro de este vuelo**, en pies: mediana de la indicación cruda en
+        /// tierra al principio del vuelo. Es lo que permite publicar `radio_alt_ft` como altura de
+        /// ruedas; sin él (vuelo retomado en el aire) va `null` y no se inventa. El mismo A320 da
+        /// 0,2 ft en el ToLiss y 12,15 en el Fenix: no es un sesgo por tipo.
+        /// </summary>
+        public double?   RadioAltZeroFt { get; set; }
+
+        /// <summary>Elevación del **umbral legal** de la pista de la toma (NavData).</summary>
+        public double?   ThresholdElevationFt { get; set; }
+
+        /// <summary>Elevación del extremo opuesto, de la pista recíproca (aproximación de pocos pies).</summary>
+        public double?   EndElevationFt { get; set; }
+
+        /// <summary>TCH derivado por NavData; `null` cuando <see cref="TchUnavailable"/> lo explica.</summary>
+        public double?   TchFt { get; set; }
+
+        /// <summary>`derived` cuando hay TCH; `null` cuando no.</summary>
+        public string    TchSource { get; set; }
+
+        /// <summary>`displaced_threshold`, `no_ils`, `incoherent_geometry`… o `null` si hay TCH.</summary>
+        public string    TchUnavailable { get; set; }
+
+        /// <summary>Ángulo de la senda publicada (ILS); `null` si la pista no tiene ILS.</summary>
+        public double?   GlideSlopeDeg { get; set; }
+
+        /// <summary>
         /// **El peso de planeo al que corresponde <see cref="VrefKt"/>, en libras**
         /// (`tlr.landing.conditions.planned_weight`, ya convertido desde la unidad del plan).
         ///

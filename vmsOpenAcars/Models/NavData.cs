@@ -61,6 +61,20 @@ namespace vmsOpenAcars.Models.NavData
         [JsonProperty("ils_freq_mhz")]          public double? IlsFreqMhz          { get; set; }
         [JsonProperty("ils_course")]            public double? IlsCourse           { get; set; }
         [JsonProperty("ils_glideslope_angle")]  public double? IlsGlideslopeAngle  { get; set; }
+
+        /// <summary>
+        /// **TCH derivado por NavData** (18/11/2026): altura de cruce del umbral en pies, calculada
+        /// de la geometría del glide. **No es el de la carta**: viaja con <see cref="TchSource"/>
+        /// (`derived`) y, cuando no se puede derivar, con <see cref="TchUnavailable"/> y este campo
+        /// a `null` (`displaced_threshold`, `no_ils`, `incoherent_geometry`).
+        /// </summary>
+        [JsonProperty("tch_ft")]                public double? TchFt               { get; set; }
+
+        /// <summary>De dónde sale <see cref="TchFt"/>: hoy siempre `derived` cuando hay valor.</summary>
+        [JsonProperty("tch_source")]            public string  TchSource           { get; set; }
+
+        /// <summary>El motivo por el que no hay TCH, o `null` cuando lo hay.</summary>
+        [JsonProperty("tch_unavailable")]       public string  TchUnavailable      { get; set; }
     }
 
     // ── Taxiway ───────────────────────────────────────────────────────────────────

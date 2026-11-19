@@ -259,6 +259,49 @@ namespace vmsOpenAcars.Tests
         }
 
         /// <summary>
+        /// **La Capa 2 del contrato (18/11/2026)**: el umbral, el extremo de la pista recíproca y el
+        /// TCH salen del mismo `NavRunway` que ya daba el `offset_threshold_ft`. Los números son los
+        /// de SKBG (35 = 3.854, 17 = 3.901) y los de SKRG 01 (6.965, TCH 53,7 derivado).
+        ///
+        /// El caso de SKBG es el que abre el hilo: la 35 tiene **umbral desplazado**, así que NavData
+        /// no deriva su TCH; el resultado tiene que llevar `tch_ft = null` y el motivo
+        /// `displaced_threshold`, no un número inventado.
+        /// </summary>
+        [TestMethod]
+        public void LaCapa2DePista_ViajaConElTchYElExtremoReciproco()
+        {
+            var runways = SktlRunways();
+            runways[0].ElevationFt = 3901.0;   // 17
+            runways[1].ElevationFt = 3854.0;   // 35
+            runways[1].IlsGlideslopeAngle = 3.0;
+            runways[1].TchUnavailable = "displaced_threshold";
+
+            OffsetFromThreshold(runways[1], -3.0, 0.0, out double lat, out double lon);
+            RunwayTouchdownResult r =
+                NavDataService.SelectApproachThreshold(runways, lat, lon, 341.0);
+
+            Assert.IsNotNull(r);
+            Assert.AreEqual(3854.0, r.ThresholdElevationFt.Value, 1e-9,
+                            "el umbral de la 35 de SKBG");
+            Assert.AreEqual(3901.0, r.EndElevationFt.Value, 1e-9,
+                            "el extremo opuesto sale de la pista recíproca (17)");
+            Assert.AreEqual(3.0, r.GlideSlopeDeg.Value, 1e-9, "la senda publicada de la ILS 35");
+            Assert.IsNull(r.TchFt, "SKBG 35 no tiene TCH derivado: no se inventa el de la carta");
+            Assert.AreEqual("displaced_threshold", r.TchUnavailable);
+
+            // Y el otro lado: cuando NavData sí lo deriva, viaja con su procedencia.
+            runways[1].TchFt = 53.7;
+            runways[1].TchSource = "derived";
+            runways[1].TchUnavailable = null;
+            RunwayTouchdownResult derivado =
+                NavDataService.SelectApproachThreshold(runways, lat, lon, 341.0);
+
+            Assert.AreEqual(53.7, derivado.TchFt.Value, 1e-9);
+            Assert.AreEqual("derived", derivado.TchSource);
+            Assert.IsNull(derivado.TchUnavailable);
+        }
+
+        /// <summary>
         /// Margen cercano al umbral: 0.1 NM de desviación a 0.3 NM del umbral sí resuelve —
         /// estar ahí es estar aterrizando, no pasar de largo. Es el suelo del cono el que lo
         /// permite (a 0.3 NM el cono puro daría 0.02 NM).

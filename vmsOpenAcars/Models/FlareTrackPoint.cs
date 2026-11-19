@@ -38,6 +38,22 @@ namespace vmsOpenAcars.Models
         public double? AglFt { get; set; }
 
         /// <summary>
+        /// **Altitud MSL del avión, sin restar nada**, en pies. Es el datum que phpVMS necesita para
+        /// calcular la altura funcional (MSL − elevación de pista interpolada) sin heredar el error
+        /// de la referencia del plan. Se captura del mismo `RawTelemetryData` que el resto.
+        /// </summary>
+        public double? AltMslFt { get; set; }
+
+        /// <summary>
+        /// **Altura de las ruedas sobre el terreno**, en pies: `max(0, radar crudo − cero del
+        /// addon)`. El cero es la mediana del radar en tierra al principio del vuelo
+        /// (`radio_alt_zero_ft` en `metrics`), porque el mismo A320 da 0,2 ft en el ToLiss y 12,15
+        /// en el Fenix. `null` si el addon no publica el radar o no se pudo medir el cero; **nunca**
+        /// la indicación cruda disfrazada de altura de ruedas.
+        /// </summary>
+        public double? RadioAltFt { get; set; }
+
+        /// <summary>
         /// Lectura del **radioaltímetro** (FSUIPC `0x31E4`), en pies. Es el instrumento bueno para
         /// el flare, pero no todos los addons lo publican: sin dato, `null`, y el gráfico usa AGL.
         /// </summary>

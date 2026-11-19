@@ -209,6 +209,7 @@
     <Compile Include="Helpers\HkdfSha256.cs" />
     <Compile Include="Helpers\FixedTimeEquals.cs" />
     <Compile Include="Helpers\NavDataCipher.cs" />
+    <Compile Include="Helpers\RadioAltPolicy.cs" />
     <Compile Include="Helpers\NavDataEnvelope.cs" />
     <Compile Include="Helpers\NavDataKeyPolicy.cs" />
     <Compile Include="Helpers\NavDataKeyState.cs" />

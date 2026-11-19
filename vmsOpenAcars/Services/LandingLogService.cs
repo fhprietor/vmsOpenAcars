@@ -97,6 +97,8 @@ namespace vmsOpenAcars.Services
                             dist_ft       REAL NOT NULL,
                             agl_ft        REAL,
                             radar_alt_ft  REAL,
+                            alt_msl_ft    REAL,
+                            radio_alt_ft  REAL,
                             ias_kt        REAL,
                             vs_fpm        REAL,
                             pitch_deg     REAL,
@@ -216,6 +218,20 @@ namespace vmsOpenAcars.Services
                     // para auditar la ventana de velocidad sin depender del log. NULL sin TLR.
                     EnsureColumn(conn, "flights", "planned_landing_weight_lbs", "REAL");
 
+                    // ── La Capa 2 del contrato (18/11/2026) ─────────────────────────
+                    // El cero del radar de ESTE vuelo, y los cinco campos de pista. Se guardan
+                    // aquí para que el registro local diga lo mismo que el payload y para poder
+                    // releer el análisis semanas después sin volver a consultar NavData. Nullable
+                    // de verdad: `null` es «sin dato»; en las elevaciones **0 es un valor** (un
+                    // aeródromo al nivel del mar) y no se convierte en NULL.
+                    EnsureColumn(conn, "flights", "radio_alt_zero_ft",      "REAL");
+                    EnsureColumn(conn, "flights", "threshold_elevation_ft", "REAL");
+                    EnsureColumn(conn, "flights", "end_elevation_ft",       "REAL");
+                    EnsureColumn(conn, "flights", "tch_ft",                 "REAL");
+                    EnsureColumn(conn, "flights", "tch_source",             "TEXT");
+                    EnsureColumn(conn, "flights", "tch_unavailable",        "TEXT");
+                    EnsureColumn(conn, "flights", "glide_slope_deg",        "REAL");
+
                     // **Por qué se cerró la captura de la traza** (`stopped:post-touchdown 2.0s`,
                     // `stopped:cap`, …). Se guarda aquí porque es lo que deja distinguir un final
                     // normal de una traza truncada al releer el vuelo semanas después —el estado en
@@ -272,6 +288,8 @@ namespace vmsOpenAcars.Services
             ("dist_ft",      "REAL"),
             ("agl_ft",       "REAL"),
             ("radar_alt_ft", "REAL"),
+            ("alt_msl_ft",   "REAL"),
+            ("radio_alt_ft", "REAL"),
             ("ias_kt",       "REAL"),
             ("vs_fpm",       "REAL"),
             ("pitch_deg",    "REAL"),
@@ -409,10 +427,12 @@ namespace vmsOpenAcars.Services
                     cmd.CommandText = @"
                         INSERT INTO flare_track
                             (flight_id, seq_no, ts_utc, dist_ft, agl_ft, radar_alt_ft, ias_kt,
+                             alt_msl_ft, radio_alt_ft,
                              vs_fpm, pitch_deg, bank_deg, gs_kt, eng1_pct, eng2_pct,
                              eng1_n2_pct, eng2_n2_pct, flaps_pct, spoilers, on_ground, flaps_index)
                         VALUES
                             (@fid, @seq, @ts, @dist, @agl, @ra, @ias,
+                             @altmsl, @ra2,
                              @vs, @pitch, @bank, @gs, @eng1n1, @eng2n1,
                              @eng1n2, @eng2n2, @flaps, @spoilers, @ground, @flapsIndex)";
 
@@ -428,6 +448,11 @@ namespace vmsOpenAcars.Services
                         // Nullable de verdad: lo que el simulador no publicó va NULL, no 0.
                         cmd.Parameters.AddWithValue("@agl",      Param(s.AglFt));
                         cmd.Parameters.AddWithValue("@ra",       Param(s.RadarAltFt));
+                        // La altitud MSL (datum de la Capa 2) y la altura de ruedas del radar
+                        // (`radio_alt_ft`, ya corregida con el cero del addon). Las dos son
+                        // nullable: sin dato va NULL, nunca 0.
+                        cmd.Parameters.AddWithValue("@altmsl",  Param(s.AltMslFt));
+                        cmd.Parameters.AddWithValue("@ra2",     Param(s.RadioAltFt));
                         cmd.Parameters.AddWithValue("@ias",      Param(s.IasKt));
                         cmd.Parameters.AddWithValue("@vs",       Param(s.VsFpm));
                         cmd.Parameters.AddWithValue("@pitch",    Param(s.PitchDeg));
@@ -486,7 +511,9 @@ namespace vmsOpenAcars.Services
                          offset_threshold_ft, vref_kt, trace_stop_reason,
                          taxi_out_moving_sec, taxi_out_single_sec,
                          taxi_in_moving_sec, taxi_in_single_sec, single_engine_bonus,
-                         aircraft_type_source, planned_landing_weight_lbs)
+                         aircraft_type_source, planned_landing_weight_lbs,
+                         radio_alt_zero_ft, threshold_elevation_ft, end_elevation_ft,
+                         tch_ft, tch_source, tch_unavailable, glide_slope_deg)
                     VALUES
                         (@fn, @org, @dest, @rwy, @dt,
                          @rate, @gf, @dist, @cl,
@@ -498,7 +525,9 @@ namespace vmsOpenAcars.Services
                          @offset, @vref, @stopReason,
                          @taxiOutMoving, @taxiOutSingle,
                          @taxiInMoving, @taxiInSingle, @seBonus,
-                         @typeSource, @plw)";
+                         @typeSource, @plw,
+                         @raZero, @thrElev, @endElev,
+                         @tch, @tchSrc, @tchUnav, @gsDeg)";
 
                 cmd.Parameters.AddWithValue("@fn",    r.FlightNumber ?? "");
                 cmd.Parameters.AddWithValue("@org",   r.Origin ?? "");
@@ -547,6 +576,17 @@ namespace vmsOpenAcars.Services
                 cmd.Parameters.AddWithValue("@vref",   (object)r.VrefKt            ?? DBNull.Value);
                 // El peso de planeo, en libras, aparte del medido. NULL sin TLR.
                 cmd.Parameters.AddWithValue("@plw",    (object)r.PlannedLandingWeightLbs ?? DBNull.Value);
+                // La Capa 2: cero del radar y los cinco campos de pista. `null` = sin dato; en las
+                // elevaciones el 0 es una medida y se guarda tal cual.
+                cmd.Parameters.AddWithValue("@raZero",  (object)r.RadioAltZeroFt       ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@thrElev", (object)r.ThresholdElevationFt ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@endElev", (object)r.EndElevationFt       ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@tch",     (object)r.TchFt                ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@tchSrc",
+                    string.IsNullOrWhiteSpace(r.TchSource) ? (object)DBNull.Value : r.TchSource.Trim());
+                cmd.Parameters.AddWithValue("@tchUnav",
+                    string.IsNullOrWhiteSpace(r.TchUnavailable) ? (object)DBNull.Value : r.TchUnavailable.Trim());
+                cmd.Parameters.AddWithValue("@gsDeg",   (object)r.GlideSlopeDeg        ?? DBNull.Value);
                 // El motivo del cierre de la captura, recortado a 64 (el vocabulario real son ~30).
                 // Vacío es «no lo sé» y va NULL, como el resto de textos que pueden faltar.
                 cmd.Parameters.AddWithValue("@stopReason",
@@ -596,7 +636,9 @@ namespace vmsOpenAcars.Services
                                offset_threshold_ft, vref_kt, trace_stop_reason,
                                taxi_out_moving_sec, taxi_out_single_sec,
                                taxi_in_moving_sec, taxi_in_single_sec, single_engine_bonus,
-                               aircraft_type_source, planned_landing_weight_lbs
+                               aircraft_type_source, planned_landing_weight_lbs,
+                               radio_alt_zero_ft, threshold_elevation_ft, end_elevation_ft,
+                               tch_ft, tch_source, tch_unavailable, glide_slope_deg
                         FROM flights
                         ORDER BY flight_date DESC";
 
@@ -665,7 +707,16 @@ namespace vmsOpenAcars.Services
                                                                  : (AircraftTypeSource)r.GetInt32(33),
                                 // El peso de planeo, al final para no mover índices. NULL en las filas
                                 // anteriores a la columna y en los vuelos sin TLR.
-                                PlannedLandingWeightLbs    = r.IsDBNull(34) ? (double?)null : r.GetDouble(34)
+                                PlannedLandingWeightLbs    = r.IsDBNull(34) ? (double?)null : r.GetDouble(34),
+                                // La Capa 2, al final para no mover índices. NULL en las filas
+                                // anteriores a las columnas; en las elevaciones el 0 es una medida.
+                                RadioAltZeroFt       = r.IsDBNull(35) ? (double?)null : r.GetDouble(35),
+                                ThresholdElevationFt = r.IsDBNull(36) ? (double?)null : r.GetDouble(36),
+                                EndElevationFt       = r.IsDBNull(37) ? (double?)null : r.GetDouble(37),
+                                TchFt                = r.IsDBNull(38) ? (double?)null : r.GetDouble(38),
+                                TchSource            = r.IsDBNull(39) ? null : r.GetString(39),
+                                TchUnavailable       = r.IsDBNull(40) ? null : r.GetString(40),
+                                GlideSlopeDeg        = r.IsDBNull(41) ? (double?)null : r.GetDouble(41)
                             });
                         }
                     }
@@ -740,7 +791,8 @@ namespace vmsOpenAcars.Services
                     cmd.CommandText = @"
                         SELECT flight_id, seq_no, ts_utc, dist_ft, agl_ft, radar_alt_ft, ias_kt,
                                vs_fpm, pitch_deg, bank_deg, gs_kt, eng1_pct, eng2_pct,
-                               eng1_n2_pct, eng2_n2_pct, flaps_pct, spoilers, on_ground, flaps_index
+                               eng1_n2_pct, eng2_n2_pct, flaps_pct, spoilers, on_ground, flaps_index,
+                               alt_msl_ft, radio_alt_ft
                         FROM flare_track
                         WHERE flight_id = @fid
                         ORDER BY seq_no";
@@ -773,6 +825,10 @@ namespace vmsOpenAcars.Services
                                 // NULL = vuelo anterior a la columna, o el avión no publica `0x0BFC`:
                                 // el helper de flaps cae entonces a la traducción por bandas.
                                 FlapsIndex   = r.IsDBNull(18) ? (int?)null : r.GetInt32(18),
+                                // Al final para no mover los índices de siempre. NULL en las filas
+                                // anteriores a las columnas y en los vuelos sin radar/cero.
+                                AltMslFt     = Nullable(r, 19),
+                                RadioAltFt   = Nullable(r, 20),
                             });
                         }
                     }

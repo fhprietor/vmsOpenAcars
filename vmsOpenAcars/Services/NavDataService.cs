@@ -102,7 +102,7 @@ namespace vmsOpenAcars.Services
             }
 
             if (best == null) return null;
-            return new RunwayTouchdownResult
+            var result = new RunwayTouchdownResult
             {
                 RunwayName       = best.Name,
                 ThresholdLat     = best.ThresholdLat,
@@ -123,6 +123,42 @@ namespace vmsOpenAcars.Services
                 // `FindTouchdownRunway` es magnético y no se puede confiar en él.
                 TrueHeadingDeg   = TrueRunwayBearing(best),
             };
+            FillRunwayProfile(result, runways, best);
+            return result;
+        }
+
+        /// <summary>
+        /// Rellena los cinco campos de pista del contrato de phpVMS (18/11/2026) desde el
+        /// `NavRunway` elegido: elevación del umbral, TCH derivado con su procedencia y motivo,
+        /// ángulo de senda y elevación del extremo opuesto.
+        ///
+        /// **El extremo opuesto sale de la pista recíproca** (misma longitud, otro nombre): NavData
+        /// no publica un `end_elevation_ft` resuelto. Su `elevation_ft` es la del umbral recíproco,
+        /// que puede estar desplazado; para interpolar los últimos 500 ft de pista el error es de
+        /// pocos pies y el toque no está ahí, pero se documenta como aproximación.
+        ///
+        /// Degrada sin datos: si no hay recíproca o no hay TCH, los campos quedan `null` — **no 0**.
+        /// </summary>
+        private static void FillRunwayProfile(RunwayTouchdownResult result,
+                                               IList<NavRunway> runways, NavRunway best)
+        {
+            if (result == null || best == null) return;
+
+            result.ThresholdElevationFt = best.ElevationFt;
+            result.TchFt                = best.TchFt;
+            result.TchSource            = best.TchSource;
+            result.TchUnavailable       = best.TchUnavailable;
+            result.GlideSlopeDeg        = best.IlsGlideslopeAngle;
+
+            if (runways == null) return;
+            foreach (var other in runways)
+            {
+                if (other == null || ReferenceEquals(other, best)) continue;
+                if (string.Equals(other.Name, best.Name, StringComparison.OrdinalIgnoreCase)) continue;
+                if (Math.Abs(other.LengthFt - best.LengthFt) > 1.0) continue;
+                result.EndElevationFt = other.ElevationFt;
+                break;
+            }
         }
 
         /// <summary>Maximum angle off the extended centerline, at the threshold, for a match
@@ -623,7 +659,7 @@ namespace vmsOpenAcars.Services
                 // along < offset means the aircraft touched down before the threshold (clamp to 0).
                 double distFt = along * FtPerMeter - best.OffsetThresholdFt;
 
-                return new RunwayTouchdownResult
+                var result = new RunwayTouchdownResult
                 {
                     RunwayName            = best.Name,
                     ThresholdDistanceFt   = Math.Max(0.0, distFt),
@@ -648,6 +684,8 @@ namespace vmsOpenAcars.Services
                     // este camino es el magnético y no sirve para eso.
                     TrueHeadingDeg        = trueBrg,
                 };
+                FillRunwayProfile(result, runways, best);
+                return result;
             }
             catch { return null; }
         }

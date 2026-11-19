@@ -75,6 +75,13 @@ namespace vmsOpenAcars.Helpers
         internal const int MaxTraceStopReason = 32;
 
         /// <summary>
+        /// Tope de `tch_source` / `tch_unavailable`: el vocabulario real es corto
+        /// (`derived`, `displaced_threshold`, `incoherent_geometry`, `no_ils`), pero el campo es
+        /// texto libre del servidor y un valor nuevo no debe tumbar un envío entero por longitud.
+        /// </summary>
+        internal const int MaxTchReason = 32;
+
+        /// <summary>
         /// **El tope del METAR: 500 desde el 11/10/2026.** phpVMS lo subió desde 400 a petición
         /// nuestra y lo desplegó ese día, así que nuestro recorte en cliente se alinea con el suyo.
         /// Sigue habiendo recorte porque su validación es **todo o nada**: un METAR de 520
@@ -169,6 +176,27 @@ namespace vmsOpenAcars.Helpers
                     // histórico—. Lo que **no** se hace nunca es `> 0 ? valor : null`, que es la regla
                     // de `runway_length_ft` y aquí borraría el caso «esta pista no tiene desfase».
                     offset_threshold_ft = FiniteOrNull(record.OffsetThresholdFt),
+
+                    // ── La Capa 2 del contrato (18/11/2026) ─────────────────────────────
+                    // El cero del radar de ESTE vuelo. Sin él, `radio_alt_ft` es una indicación
+                    // cruda y la «altura de 10 ft» no significa lo mismo en un ToLiss (0,2 ft) que
+                    // en un Fenix (12,15). `null` si el vuelo empezó en el aire.
+                    radio_alt_zero_ft = FiniteOrNull(record.RadioAltZeroFt),
+                    // Elevación del umbral legal y del extremo opuesto (pista recíproca). El
+                    // **0 es un valor** (aeródromo al nivel del mar): no se filtra como la longitud
+                    // de pista; solo `null` significa «sin pista resuelta».
+                    threshold_elevation_ft = FiniteOrNull(record.ThresholdElevationFt),
+                    end_elevation_ft       = FiniteOrNull(record.EndElevationFt),
+                    // NavData no publica la TDZ; se manda `null` explícito, no se omite.
+                    tdz_elevation_ft       = null,
+                    // El TCH **derivado** de NavData, con su procedencia y, si no lo hay, el motivo
+                    // (`displaced_threshold`, `no_ils`, `incoherent_geometry`). Es `null` cuando no
+                    // se puede derivar; **no se inventa** el de la carta.
+                    tch_ft          = FiniteOrNull(record.TchFt),
+                    tch_source      = ClipOrNull(record.TchSource, MaxTchReason),
+                    tch_unavailable = ClipOrNull(record.TchUnavailable, MaxTchReason),
+                    // La senda publicada: `ils_glideslope_angle` de NavData. `null` sin ILS.
+                    glide_slope_deg = FiniteOrNull(record.GlideSlopeDeg),
                     // El Vref del plan: entero, y `null` sin TLR.
                     vref_kt          = record.VrefKt,
                     landing_weight_lbs = FiniteOrNull(record.LandingWeightLbs),
@@ -237,6 +265,8 @@ namespace vmsOpenAcars.Helpers
                     on_ground    = s.OnGround,
                     agl_ft       = FiniteOrNull(s.AglFt),
                     radar_alt_ft = FiniteOrNull(s.RadarAltFt),
+                    alt_msl_ft   = FiniteOrNull(s.AltMslFt),
+                    radio_alt_ft = FiniteOrNull(s.RadioAltFt),
                     ias_kt       = FiniteOrNull(s.IasKt),
                     vs_fpm       = FiniteOrNull(s.VsFpm),
                     pitch_deg    = FiniteOrNull(s.PitchDeg),

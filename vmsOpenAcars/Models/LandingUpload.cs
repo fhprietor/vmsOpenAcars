@@ -67,6 +67,35 @@ namespace vmsOpenAcars.Models
         public double? offset_threshold_ft { get; set; }
 
         /// <summary>
+        /// **El cero del radioaltímetro de este addon**, en pies: mediana de la indicación cruda en
+        /// tierra al principio del vuelo. Va con `radio_alt_ft`; `null` si el vuelo empezó en el aire
+        /// (retomado) o el addon no publica el radar. Sin él, la «altura de 10 ft» no significa lo
+        /// mismo en un ToLiss (0,2 ft) que en un Fenix (12,15 ft).
+        /// </summary>
+        public double? radio_alt_zero_ft { get; set; }
+
+        /// <summary>Elevación del **umbral legal** de la pista de la toma (NavData).</summary>
+        public double? threshold_elevation_ft { get; set; }
+
+        /// <summary>Elevación del extremo opuesto, tomada de la pista recíproca (aproximación).</summary>
+        public double? end_elevation_ft { get; set; }
+
+        /// <summary>Elevación de la zona de toma; NavData no la publica: hoy siempre `null`.</summary>
+        public double? tdz_elevation_ft { get; set; }
+
+        /// <summary>TCH **derivado** por NavData; `null` cuando `tch_unavailable` lo explica.</summary>
+        public double? tch_ft { get; set; }
+
+        /// <summary>`derived` cuando hay TCH; `null` cuando no.</summary>
+        public string tch_source { get; set; }
+
+        /// <summary>`displaced_threshold`, `no_ils`, `incoherent_geometry`… o `null` si hay TCH.</summary>
+        public string tch_unavailable { get; set; }
+
+        /// <summary>Ángulo de la senda publicada (ILS); `null` si la pista no tiene ILS.</summary>
+        public double? glide_slope_deg { get; set; }
+
+        /// <summary>
         /// **Vref**, en nudos, del análisis de aterrizaje del OFP de SimBrief
         /// (`tlr.landing.distance_dry.speeds_vref`). Corresponde al **peso de planeo** declarado en el
         /// plan, no al peso real de la toma —que va en `landing_weight_lbs`, una lectura del
@@ -135,6 +164,16 @@ namespace vmsOpenAcars.Models
         public double  dist_ft      { get; set; }
         public double? agl_ft       { get; set; }
         public double? radar_alt_ft { get; set; }
+
+        /// <summary>Altitud MSL del avión, sin restar nada. Null si el simulador no la publicó.</summary>
+        public double? alt_msl_ft   { get; set; }
+
+        /// <summary>
+        /// **Altura de las ruedas sobre el terreno**: `max(0, radar crudo − cero del addon)`. Es la
+        /// que alimenta las puertas de 50/30/10 ft; `radar_alt_ft` se queda como indicación cruda
+        /// para auditar. Null si falta el radar o el cero.
+        /// </summary>
+        public double? radio_alt_ft { get; set; }
         public double? ias_kt       { get; set; }
         public double? vs_fpm       { get; set; }
         public double? pitch_deg    { get; set; }

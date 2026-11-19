@@ -32,6 +32,7 @@ namespace vmsOpenAcars.Core.Flight
             _divertedAirport = null;
             _arrivalPosition = null;
             _approachRunwayName = null;
+            _arrivalReferenceActive = false;
             Interlocked.Exchange(ref _arrivalAirportElevationBits, BitConverter.DoubleToInt64Bits(UnknownElevation));
             _td.Reset();
             _pen.Reset();

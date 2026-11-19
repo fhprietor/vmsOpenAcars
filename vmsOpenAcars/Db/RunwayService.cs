@@ -51,6 +51,34 @@ namespace vmsOpenAcars.Db
         /// umbral, porque la zona de toma se marca hasta los 3 000 ft **o la mitad de la pista**.
         /// </summary>
         public double RunwayLengthFt        { get; set; }
+
+        /// <summary>
+        /// **Elevación del umbral legal** de la pista de la toma (`elevation_ft` de NavData). Es el
+        /// datum de la Capa 2: `alt_msl_ft − elevación interpolada threshold→end`. **0 es un valor**
+        /// (aeródromo al nivel del mar), no «sin dato»; la pista no resuelta se representa con el
+        /// resultado entero `null`.
+        /// </summary>
+        public double? ThresholdElevationFt { get; set; }
+
+        /// <summary>
+        /// Elevación del extremo opuesto, tomada de la pista **recíproca** (misma longitud, otro
+        /// nombre). Es una aproximación: el umbral recíproco puede estar desplazado y su elevación
+        /// no es la del extremo físico; para el perfil del flare el error es de pocos pies y no
+        /// llega a la zona de toma. NavData no publica `end_elevation_ft` resuelto.
+        /// </summary>
+        public double? EndElevationFt { get; set; }
+
+        /// <summary>TCH derivado por NavData (18/11/2026); `null` si no se puede derivar.</summary>
+        public double? TchFt { get; set; }
+
+        /// <summary>`derived` cuando hay TCH; `null` cuando no.</summary>
+        public string TchSource { get; set; }
+
+        /// <summary>`displaced_threshold`, `no_ils`, `incoherent_geometry`… o `null` si hay TCH.</summary>
+        public string TchUnavailable { get; set; }
+
+        /// <summary>Ángulo de la senda publicada (ILS); `null` si la pista no tiene ILS.</summary>
+        public double? GlideSlopeDeg { get; set; }
     }
 
     public class RunwayEntry

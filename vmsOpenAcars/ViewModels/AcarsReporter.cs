@@ -542,6 +542,18 @@ namespace vmsOpenAcars.ViewModels
                 // «no lo sé» es `null`, que es lo que devuelve `TouchdownState` sin pista resuelta.
                 OffsetThresholdFt    = fm.TouchdownOffsetThresholdFt,
 
+                // El cero del radar de ESTE vuelo (mediana en tierra al principio), y los cinco
+                // campos de pista del contrato del 18/11/2026: umbral, extremo recíproco, TCH
+                // derivado con su motivo, y ángulo de senda. Todo `null` si NavData no resolvió la
+                // pista; el TCH de SKBG 35 es `null` con `displaced_threshold` y no se inventa.
+                RadioAltZeroFt       = _tc?.RadioAltZeroFt,
+                ThresholdElevationFt = fm.TouchdownThresholdElevationFt,
+                EndElevationFt       = fm.TouchdownEndElevationFt,
+                TchFt                = fm.TouchdownTchFt,
+                TchSource            = fm.TouchdownTchSource,
+                TchUnavailable       = fm.TouchdownTchUnavailable,
+                GlideSlopeDeg        = fm.TouchdownGlideSlopeDeg,
+
                 // El Vref del plan (SimBrief, TLR del aterrizaje). Es una lectura del plan al peso de
                 // planeo; sin TLR se queda null y no se deriva del tipo de avión.
                 VrefKt               = plan?.VrefKt,

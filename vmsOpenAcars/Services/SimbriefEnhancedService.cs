@@ -115,6 +115,12 @@ namespace vmsOpenAcars.Services
                     string content = await response.Content.ReadAsStringAsync();
                     JObject json = JObject.Parse(content);
 
+                    // El 0 de `DestinationElevation` es ambiguo: puede ser «el OFP no lo trae» o
+                    // «el aeródromo está al nivel del mar». Las banderas separan los dos casos para
+                    // que el AGL de la traza pueda ser `null` cuando el dato no existe.
+                    JToken destElevToken   = json["destination"]?["elevation"];
+                    JToken originElevToken = json["origin"]?["elevation"];
+
                     var plan = new SimbriefPlan
                     {
                         // Información general del vuelo
@@ -128,8 +134,10 @@ namespace vmsOpenAcars.Services
                         Destination = json["destination"]?["icao_code"]?.ToString() ?? "ZZZZ",
                         DestinationIata = json["destination"]?["iata_code"]?.ToString() ?? "---",
                         DestinationRunway = json["destination"]?["plan_rwy"]?.ToString(),
-                        DestinationElevation = json["destination"]?["elevation"]?.Value<int>() ?? 0,
-                        OriginElevation = json["origin"]?["elevation"]?.Value<int>() ?? 0,
+                        DestinationElevation = destElevToken?.Value<int>() ?? 0,
+                        HasDestinationElevation = destElevToken != null && destElevToken.Type != JTokenType.Null,
+                        OriginElevation = originElevToken?.Value<int>() ?? 0,
+                        HasOriginElevation = originElevToken != null && originElevToken.Type != JTokenType.Null,
                         Alternate = json["alternate"]?["icao_code"]?.ToString(),
 
                         // Ruta

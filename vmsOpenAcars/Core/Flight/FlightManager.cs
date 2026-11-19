@@ -49,6 +49,15 @@ namespace vmsOpenAcars.Core.Flight
         private double _fuelAtTakeoffRoll = 0;
         private double _fuelAtTaxiInStart = 0;
         private double _groundAltitudeFeet = 0;
+
+        /// <summary>
+        /// **La referencia de llegada ya se activó y no se vuelve al origen.** Se enciende al entrar
+        /// en `Descent`/`Approach` y no se apaga hasta el reset del vuelo: un `Approach → Climb` es
+        /// un go-around sobre el **destino**, no un regreso al origen. Sin esto, el PIREP
+        /// `0aNnVLMo8pxpbNPq` saltó de 395 a −1.076 ft en una muestra al pasar a `Climb` (la
+        /// referencia pasó de VIAR 756 a UAAA 2.238) y el AGL viajó con el signo cambiado.
+        /// </summary>
+        private bool _arrivalReferenceActive;
         public int LastFlightScore { get; private set; } = 0;
         private int _apEngagedCounter = 0;
         private const int ApEngageDebounce = 6;
@@ -172,6 +181,11 @@ namespace vmsOpenAcars.Core.Flight
                 // elevación del **origen** y fabricaba un AGL de 264 ft con el avión aparcado.
                 if (HasTouchedDownThisFlight) return ArrivalElevationOrPlanned;
 
+                // **Go-around: se sigue sobre el destino.** Una vez que el vuelo entró en la
+                // llegada, la referencia no vuelve al origen; el `Climb` es la maniobra, no otro
+                // campo. Sin esto, el AGL del go-around se calcula contra el aeródromo de salida.
+                if (_arrivalReferenceActive) return ArrivalElevationOrPlanned;
+
                 switch (CurrentPhase)
                 {
                     case FlightPhase.Descent:
@@ -190,6 +204,50 @@ namespace vmsOpenAcars.Core.Flight
                 }
             }
         }
+        /// <summary>
+        /// **El AGL que va a la traza**, o `null` si no hay datum conocido. Es distinto de
+        /// <see cref="CurrentAGL"/> a propósito: `CurrentAGL` tiene que devolver un número para las
+        /// transiciones de fase y fuerza 0 en tierra; la traza no puede forzar 0 (el 0 del toque es
+        /// un cierre, no una medida) ni inventar un datum. Si el plan es de una licitación o se
+        /// retomó, `HasDestinationElevation`/`HasOriginElevation` son falsos y aquí sale `null`.
+        /// </summary>
+        public double? TraceAglFt
+        {
+            get
+            {
+                double? reference = ReferenceElevationForTrace;
+                return reference.HasValue ? CurrentAltitude - reference.Value : (double?)null;
+            }
+        }
+
+        /// <summary>
+        /// La referencia del AGL de la traza, o `null` si el plan no la trae. Un desvío confirmado
+        /// manda sobre el plan; una llegada ya activada usa el destino aunque la fase sea `Climb`
+        /// (go-around); fuera de la llegada, el origen.
+        /// </summary>
+        private double? ReferenceElevationForTrace
+        {
+            get
+            {
+                if (_activePlan == null) return null;
+                if (ArrivalAirportElevationFt.HasValue) return ArrivalAirportElevationFt.Value;
+
+                bool arrival = HasTouchedDownThisFlight || _arrivalReferenceActive ||
+                               CurrentPhase == FlightPhase.Descent ||
+                               CurrentPhase == FlightPhase.Approach ||
+                               CurrentPhase == FlightPhase.Landing ||
+                               CurrentPhase == FlightPhase.AfterLanding ||
+                               CurrentPhase == FlightPhase.TaxiIn ||
+                               CurrentPhase == FlightPhase.OnBlock ||
+                               CurrentPhase == FlightPhase.Arrived ||
+                               CurrentPhase == FlightPhase.Completed;
+
+                return arrival
+                    ? (_activePlan.HasDestinationElevation ? _activePlan.DestinationElevation : (double?)null)
+                    : (_activePlan.HasOriginElevation      ? _activePlan.OriginElevation      : (double?)null);
+            }
+        }
+
         public bool IsApproachStabilized
         {
             get
@@ -269,6 +327,24 @@ namespace vmsOpenAcars.Core.Flight
         /// que phpVMS alinee la traza del flare con una **resta** en vez de deduciéndolo.
         /// </summary>
         public double? TouchdownOffsetThresholdFt => _td.OffsetThresholdFt;
+
+        /// <summary>Elevación del umbral legal de la pista de la toma; `null` sin pista resuelta.</summary>
+        public double? TouchdownThresholdElevationFt => _td.ThresholdElevationFt;
+
+        /// <summary>Elevación del extremo opuesto (pista recíproca); `null` sin dato.</summary>
+        public double? TouchdownEndElevationFt => _td.EndElevationFt;
+
+        /// <summary>TCH derivado por NavData; `null` cuando <see cref="TouchdownTchUnavailable"/> lo explica.</summary>
+        public double? TouchdownTchFt => _td.TchFt;
+
+        /// <summary>`derived` cuando hay TCH; `null` cuando no.</summary>
+        public string TouchdownTchSource => _td.TchSource;
+
+        /// <summary>El motivo por el que no hay TCH; `null` cuando lo hay.</summary>
+        public string TouchdownTchUnavailable => _td.TchUnavailable;
+
+        /// <summary>Ángulo de la senda publicada (ILS); `null` si no hay ILS.</summary>
+        public double? TouchdownGlideSlopeDeg => _td.GlideSlopeDeg;
         public double TouchdownGForce       => _td.GForce;
 
         /// <summary>
@@ -498,6 +574,17 @@ namespace vmsOpenAcars.Core.Flight
                     OnLog?.Invoke(_("Log_Phase" + to), Theme.MainText);
                 PhaseChanged?.Invoke(to);
                 OnPhaseChanged?.Invoke(to.ToString());
+
+                // La llegada se activa una vez y no se desactiva hasta el reset: un go-around
+                // (`Approach → Climb`) sigue siendo el mismo destino, no el origen.
+                if (to == FlightPhase.Descent || to == FlightPhase.Approach ||
+                    to == FlightPhase.Landing || to == FlightPhase.AfterLanding ||
+                    to == FlightPhase.TaxiIn || to == FlightPhase.OnBlock ||
+                    to == FlightPhase.Arrived || to == FlightPhase.Completed)
+                {
+                    _arrivalReferenceActive = true;
+                }
+
                 CheckProcedureAtPhaseEntry(to);
 
                 // Diagnóstico del panel (vuelo de afinamiento): **una** línea al entrar en subida y otra
@@ -812,6 +899,9 @@ namespace vmsOpenAcars.Core.Flight
         public void SetActivePlan(SimbriefPlan plan)
         {
             _activePlan = plan;
+            // Un plan nuevo es un vuelo nuevo: la llegada anterior no puede dejar la referencia
+            // pegada al destino de otro vuelo.
+            _arrivalReferenceActive = false;
             if (plan != null)
             {
                 // Un plan nuevo se acepta en tierra: el cierre y el ancla de llegada del vuelo
@@ -856,9 +946,17 @@ namespace vmsOpenAcars.Core.Flight
 
         public void SetRunwayTouchdownData(double thresholdDistFt, double centerlineDeviationFt,
                                            string runwayName, double runwayLengthFt,
-                                           double? runwayTrueHeadingDeg, double? offsetThresholdFt)
+                                           double? runwayTrueHeadingDeg, double? offsetThresholdFt,
+                                           double? thresholdElevationFt = null,
+                                           double? endElevationFt = null,
+                                           double? tchFt = null,
+                                           string tchSource = null,
+                                           string tchUnavailable = null,
+                                           double? glideSlopeDeg = null)
             => _td.SetRunwayData(thresholdDistFt, centerlineDeviationFt, runwayName, runwayLengthFt,
-                                 runwayTrueHeadingDeg, offsetThresholdFt);
+                                 runwayTrueHeadingDeg, offsetThresholdFt,
+                                 thresholdElevationFt, endElevationFt,
+                                 tchFt, tchSource, tchUnavailable, glideSlopeDeg);
 
         public void SetProcedureSpdViolations(int count)
             => _pen.ProcedureSpdViolations = count;

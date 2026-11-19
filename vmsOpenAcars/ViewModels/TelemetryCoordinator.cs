@@ -129,6 +129,28 @@ namespace vmsOpenAcars.ViewModels
         // mide desde el umbral **legal** (restando este offset), igual que `touchdown_dist_ft`.
         private double _flareThresholdOffsetFt;
 
+        // ── El cero del radioaltímetro (18/11/2026) ──────────────────────────────
+        // `radio_alt_ft` es la altura de **ruedas**, no la indicación cruda: el mismo A320 da
+        // 0,1–0,7 ft en el ToLiss y 12,15 en el Fenix, así que el cero del addon viaja con el vuelo.
+        // Se mide como la mediana de las muestras **en tierra al principio** (antes del primer
+        // despegue), que es cuando el avión está sobre la superficie y el tren comprimido. Si el
+        // vuelo empieza en el aire (retomado) la lista queda vacía y el cero es `null`: no se
+        // inventa un cero por tipo.
+        private readonly List<double> _groundRadarSamples = new List<double>();
+        private readonly object _radioZeroLock = new object();
+        private double? _radioAltZeroFt;
+        private bool _radioAltZeroLocked;
+
+        /// <summary>
+        /// El cero del radar de este vuelo, en pies, o `null` si no se pudo medir. Lo consume
+        /// `AcarsReporter` al persistir el vuelo (`radio_alt_zero_ft` en `metrics`) y la conversión
+        /// de cada muestra a altura de ruedas.
+        /// </summary>
+        internal double? RadioAltZeroFt
+        {
+            get { lock (_radioZeroLock) return _radioAltZeroFt; }
+        }
+
         /// <summary>
         /// Cadencia de la traza del flare: **100 ms (10 Hz)**.
         ///
@@ -209,7 +231,8 @@ namespace vmsOpenAcars.ViewModels
         /// Se ejecuta en las fases de aproximación **y** mientras la captura siga viva, porque el
         /// toque puede cambiar la fase antes de que se cumpla el margen posterior.
         /// </summary>
-        private void CaptureFlareSample(RawTelemetryData e, double aglFt, bool landingPhase)
+        private void CaptureFlareSample(RawTelemetryData e, double aglFt, double? traceAglFt,
+                                        bool landingPhase)
         {
             DateTime now = DateTime.UtcNow;
             bool capturing = _flare.Capturing;
@@ -238,11 +261,25 @@ namespace vmsOpenAcars.ViewModels
             if (!decision.KeepSampling) return;
 
             _lastFlareSample = now;
+            // `radio_alt_ft` es altura de **ruedas**: la indicación cruda menos el cero del addon
+            // medido al principio del vuelo. Sin cero (vuelo retomado en el aire) va `null`, no la
+            // indicación cruda disfrazada: un «10 ft» del ToLiss y uno del Fenix no son lo mismo.
+            double? raZero = RadioAltZeroFt;
+            double? radioAlt = RadioAltPolicy.WheelHeight(
+                e.RadarAltitudeFeet > 0.0 ? e.RadarAltitudeFeet : (double?)null, raZero);
+
             _flareBuffer.Append(new FlareTrackPoint
             {
                 TimestampUtc = now,
                 DistFt       = distFt ?? 0.0,
-                AglFt        = aglFt,
+                // El AGL de la traza: `null` sin datum, y **sin el 0 forzado del toque** (ese 0 es
+                // un cierre, no una medida). El armado y el cierre de la captura usan el `aglFt`
+                // interno, que sí es numérico.
+                AglFt        = traceAglFt,
+                // La altitud MSL, sin restar nada: es el datum que phpVMS necesita para calcular la
+                // altura funcional contra la elevación de pista interpolada.
+                AltMslFt     = e.AltitudeFeet,
+                RadioAltFt   = radioAlt,
                 // El radioaltímetro es el instrumento del flare, pero **0 no es un dato**: los
                 // addons que no publican `0x31E4` dejan el offset a cero, y un cero guardado se
                 // leería como «avión en el suelo» en mitad del descenso.
@@ -478,6 +515,15 @@ namespace vmsOpenAcars.ViewModels
             // (`SaveLandingRecord` corre en el camino de `SendPirep`), igual que el buffer de
             // aproximación.
             ClearFlareBuffer();
+
+            // El cero del radar es de ESTE vuelo: el siguiente puede ser otro addon (0,2 ft en un
+            // ToLiss, 12,15 en un Fenix) y heredarlo sería peor que no tenerlo.
+            lock (_radioZeroLock)
+            {
+                _groundRadarSamples.Clear();
+                _radioAltZeroFt      = null;
+                _radioAltZeroLocked  = false;
+            }
         }
 
         // ── Phase change ──────────────────────────────────────────────────────────
@@ -670,8 +716,43 @@ namespace vmsOpenAcars.ViewModels
             ProcessRawData(e);
         }
 
+        /// <summary>
+        /// Mide el cero del radioaltímetro **una vez por vuelo**, con las muestras en tierra del
+        /// principio. Se bloquea en la primera muestra en el aire: si el vuelo empezó en el aire
+        /// (retomado) la lista está vacía y el cero queda `null`, que es la respuesta honesta.
+        ///
+        /// Se guarda la **mediana**, no la media: el radar en tierra tiene saltos de varios pies y
+        /// una media los reparte por todo el vuelo. El tope de 2.000 muestras (100 s a 20 Hz) evita
+        /// que un rodaje largo haga crecer la lista sin límite; la mediana de los primeros 100 s es
+        /// igual de buena.
+        /// </summary>
+        private void CaptureRadioAltZero(RawTelemetryData e)
+        {
+            if (_radioAltZeroLocked) return;
+
+            if (e.IsOnGround)
+            {
+                if (e.RadarAltitudeFeet <= 0.0) return;
+                lock (_radioZeroLock)
+                {
+                    if (_groundRadarSamples.Count < 2000)
+                        _groundRadarSamples.Add(e.RadarAltitudeFeet);
+                }
+                return;
+            }
+
+            lock (_radioZeroLock)
+            {
+                if (_radioAltZeroLocked) return;
+                _radioAltZeroLocked = true;
+                _radioAltZeroFt = RadioAltPolicy.ZeroFrom(_groundRadarSamples);
+            }
+        }
+
         internal void ProcessRawData(RawTelemetryData e)
         {
+            CaptureRadioAltZero(e);
+
             bool altChanged   = Math.Abs((int)e.AltitudeFeet - _lastUiAltitude) > 10;
             bool speedChanged = Math.Abs((int)e.GroundSpeedKt - _lastUiSpeed) > 1;
             string posStr     = $"{e.Latitude:F4}/{e.Longitude:F4}";
@@ -803,6 +884,9 @@ namespace vmsOpenAcars.ViewModels
             // como **respaldo de armado** cuando la geometría del umbral no está disponible. Es el
             // mismo `CurrentAGL` que ya gobierna las transiciones de fase, no un AGL nuevo.
             double computedAgl = _flightManager?.CurrentAGL ?? 0.0;
+            // El AGL que va a la **traza** puede ser `null` (plan de licitación/retomado, sin datum);
+            // el `computedAgl` interno sigue siendo numérico para las transiciones y el armado.
+            double? traceAgl = _flightManager?.TraceAglFt;
             if (currentPhase == FlightPhase.Approach || currentPhase == FlightPhase.Descent)
             {
                 // Keep re-confirming the approaching airport/runway via NavData's
@@ -894,7 +978,7 @@ namespace vmsOpenAcars.ViewModels
             // Va **después** de la traza de 2 s y solo se ocupa del tramo final: la política decide
             // si toca armar (últimos 1 500 ft al umbral, o 1 000 ft AGL de respaldo), seguir o
             // cerrar. El AGL sale de `CurrentAGL`, que es el que ya usa el resto del vuelo.
-            CaptureFlareSample(e, computedAgl, currentPhase == FlightPhase.Approach
+            CaptureFlareSample(e, computedAgl, traceAgl, currentPhase == FlightPhase.Approach
                                                   || currentPhase == FlightPhase.Landing
                                                   || currentPhase == FlightPhase.Descent);
         }
@@ -2224,7 +2308,9 @@ namespace vmsOpenAcars.ViewModels
 
             _flightManager.SetRunwayTouchdownData(
                 result.ThresholdDistanceFt, result.CenterlineDeviationFt, result.RunwayName,
-                result.RunwayLengthFt, result.TrueHeadingDeg, result.OffsetThresholdFt);
+                result.RunwayLengthFt, result.TrueHeadingDeg, result.OffsetThresholdFt,
+                result.ThresholdElevationFt, result.EndElevationFt,
+                result.TchFt, result.TchSource, result.TchUnavailable, result.GlideSlopeDeg);
 
             _cb.Log?.Invoke(
                 string.Format(_("Lnm_TouchdownInfo"),
