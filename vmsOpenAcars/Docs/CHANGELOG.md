@@ -2,6 +2,54 @@
 
 ---
 
+## [0.9.76] — 19/11/2026
+
+**La pista de la toma se resuelve con la posición del primer contacto, y la traza guarda el toque.**
+El primer vuelo con la 0.9.75 (`nELjXrV8mvZg2PZK`, SKBO→SKBG 35, B738) llegó con `runway_name = "35"`
+pero con **todos los campos de pista a `null`** y con `stopped:on-ground` sin una sola muestra en
+tierra. Las dos cosas eran del cliente, y las dos están corregidas.
+
+### Fixed
+
+- **La geometría de la pista se resolvía con la posición del evento de FSUIPC, no con la del toque.**
+  En ese vuelo el toque fue a las **02:40:53** y el evento `TouchdownDetected` llegó a las
+  **02:41:26** —33 s de rodadura—, cuando la posición ACARS ya estaba **pasada el extremo** de la 35
+  (02:41:29: 7,13766 / −73,18909; el extremo es 7,1364 / −73,1887). `FindTouchdownRunway` devolvía
+  null (`⚠️ NavMap: pista no encontrada para SKBG (rumbo 330°)`), y `threshold_elevation_ft`,
+  `end_elevation_ft`, `tch_ft`/`tch_source`/`tch_unavailable`, `glide_slope_deg`, `runway_length_ft`,
+  `offset_threshold_ft`, `touchdown_dist_ft` y `centerline_dev_ft` se quedaban a null/0. Ahora
+  `LookupRunwayData` usa `TouchdownLat`/`TouchdownLon`/`TouchdownHeadingDeg` del `TouchdownState`,
+  capturados por `RegisterTouchdown` en el instante del toque. Con la posición de las 02:40:51
+  (7,12213 / −73,18308, rumbo 339) la 35 está en el footprint y sus campos se copian: umbral 3.854,
+  extremo 3.901, `displaced_threshold`, senda 3,0, longitud 7.811, offset 421 y distancia real.
+- **`stopped:on-ground` sin ninguna muestra en tierra** (`FlareCapturePolicy`). El motivo de cierre
+  era cierto —la primera muestra con `on_ground = true`—, pero la regla «la muestra del cierre no
+  entra en la traza» la descartaba: la traza acababa en la última muestra en el aire (1,2 ft,
+  `dist = −1.806`) y el consumidor no podía situar el toque (phpVMS lo inventaba 484 ft antes con su
+  respaldo de `agl <= 0`). Ahora **la muestra del toque sí se guarda** para `stopped:on-ground` (la
+  única excepción; `stopped:post-touchdown` sigue sin guardar la suya, que es la frenada): la traza
+  termina con `on_ground = true`, `radio_alt_ft ≈ 0` y el `dist_ft` del toque.
+- **El G del toque se perdía con el evento tardío.** La ventana de 1 s se evaluaba a las 02:41:26 y
+  `TouchdownGForce` quedaba a 0: el log decía «— G» y el scoring omitía el criterio. `RegisterTouchdown`
+  cae ahora a `LastRawData.GForce` (el G del frame del toque) cuando `TouchdownGForce` viene a 0; el
+  log y el registro usan ese.
+
+### Added
+
+- **`Docs/VERIFICACION-0.9.75-nELjXrV8mvZg2PZK.md`**: la primera verificación con un vuelo real de la
+  capa de altura —cero del B738 8,05, `radio` 400,08 = 408,14 − 8,05, 95 muestras, 39 con AGL legado
+  negativo, ninguna `on_ground`— y el diagnóstico de los dos fallos de arriba. La traza de la 0.9.75
+  **sí estaba alineada al umbral legal** (usa el offset del umbral de aproximación, 421); lo que
+  faltaba era el **campo** `offset_threshold_ft`, que ahora llega.
+
+### Tests
+
+- `FlareCapturePolicyTests.EnTierraYPasadoElUmbral_TambienCierra` exige ahora `KeepSampling` y la
+  muestra del toque contada; el cierre por `post-touchdown` sigue sin guardar la suya.
+- **1223 tests** (1 se omite sola).
+
+---
+
 ## [0.9.75] — 18/11/2026
 
 **La capa de altura del aterrizaje acordada con phpVMS y NavData.** El `agl_ft` del cliente deja de

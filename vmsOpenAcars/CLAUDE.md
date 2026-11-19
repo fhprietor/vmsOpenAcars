@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.75  
+**Versión actual:** v0.9.76  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -458,6 +458,13 @@ La referencia de llegada es **pegajosa**: un go-around (`Approach → Climb`) ya
 puede ser negativo (el desfase del datum). El consumidor que descartaba las muestras en tierra por
 ese 0 debe descartar solo **`on_ground && agl == 0`**, que es el cierre de las trazas **viejas**; un
 valor en tierra distinto de 0 es una medida y se conserva. phpVMS corrigió su filtro el 18/11/2026.
+
+**La pista se resuelve en el primer contacto (v0.9.76)**: `LookupRunwayData` usa
+`TouchdownLat`/`TouchdownLon`/`TouchdownHeadingDeg` del `TouchdownState`, no la posición del evento de
+FSUIPC, que puede llegar **después de la rodadura** (33 s en `nELjXrV8mvZg2PZK`, ya pasado el extremo
+de la 35) y dejaba a null umbral, extremo, TCH y senda. Y la muestra del cierre
+**`stopped:on-ground` sí se guarda** (la única excepción a «la muestra del cierre no entra»), para que
+la traza tenga `on_ground = true` y el toque real; `stopped:post-touchdown` sigue sin guardarla.
 
 ---
 

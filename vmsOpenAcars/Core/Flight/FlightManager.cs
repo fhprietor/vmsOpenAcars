@@ -286,6 +286,14 @@ namespace vmsOpenAcars.Core.Flight
         public double CurrentHeading { get; private set; }
         public double TouchdownLat        => _td.Lat;
         public double TouchdownLon        => _td.Lon;
+        /// <summary>
+        /// **La posición y el rumbo del primer contacto**, los que captura `RegisterTouchdown` en el
+        /// instante del toque. La necesita `LookupRunwayData`: el evento de FSUIPC puede llegar
+        /// **después de la rodadura** (en `nELjXrV8mvZg2PZK`, 02:41:26 frente al toque de las
+        /// 02:40:53: 33 s), y su posición ya no está en el footprint de la pista, así que
+        /// `FindTouchdownRunway` devolvía null y los cinco campos de la Capa 2 se quedaban sin
+        /// umbral, TCH ni senda.
+        /// </summary>
         public double TouchdownHeadingDeg => _td.HeadingDeg;
         public int CurrentIndicatedAirspeed { get; private set; }
         public int CurrentAltitude { get; private set; }
@@ -317,6 +325,7 @@ namespace vmsOpenAcars.Core.Flight
         /// <summary>Longitud de la pista de la toma, en pies; **0 = sin dato** (la puntuación
         /// «Touchdown Zone» degrada entonces a la regla de siempre).</summary>
         public double TouchdownRunwayLengthFt => _td.RunwayLengthFt;
+
         /// <summary>Rumbo **VERDADERO** del eje de la pista de la toma; **null = sin dato**. Es el
         /// eje contra el que se descomponen las componentes del viento del aterrizaje.</summary>
         public double? TouchdownRunwayTrueHeadingDeg => _td.RunwayTrueHeadingDeg;

@@ -33,7 +33,13 @@ namespace vmsOpenAcars.Helpers
 
         /// <summary>¿Hay que guardar la muestra de este ciclo?</summary>
         internal bool KeepSampling =>
-            Action == FlareCaptureAction.Start || Action == FlareCaptureAction.Keep;
+            Action == FlareCaptureAction.Start || Action == FlareCaptureAction.Keep ||
+            // **La muestra del toque en tierra SÍ entra.** Antes el cierre no guardaba su muestra y
+            // la traza acababa 1,2 ft sobre la pista, con `stopped:on-ground` pero sin ninguna
+            // `on_ground = true` (el primer vuelo 0.9.75, `nELjXrV8mvZg2PZK`): el consumidor no podía
+            // situar el toque y su respaldo lo inventaba 484 ft antes. El cierre por
+            // `stopped:post-touchdown` sigue sin guardar la suya (es la frenada, no el toque).
+            (Action == FlareCaptureAction.Stop && Reason == FlareCapturePolicy.OnGroundReason);
 
         /// <summary>La captura ha terminado: no vuelve a armarse en este aterrizaje.</summary>
         internal bool Sealed { get; set; }
@@ -107,6 +113,12 @@ namespace vmsOpenAcars.Helpers
         /// descenso. Al llegar aquí se cierra y **no se vuelve a armar** en ese aterrizaje.
         /// </summary>
         internal const double MaxCaptureSec = 45.0;
+
+        /// <summary>
+        /// Motivo del cierre por tierra. **Su muestra sí se guarda** (es el toque): es la única
+        /// excepción a «la muestra del cierre no entra».
+        /// </summary>
+        internal const string OnGroundReason = "stopped:on-ground";
 
         private FlareCaptureDecision _last = new FlareCaptureDecision { Action = FlareCaptureAction.None };
 
@@ -195,7 +207,10 @@ namespace vmsOpenAcars.Helpers
                 {
                     // Toma suave, con el VS por encima del umbral del detector de toque: tierra y ya
                     // pasado el umbral es el mismo dato que mira la captura, no una suposición nueva.
-                    return Finish(FlareCaptureAction.Stop, "stopped:on-ground");
+                    // **Esta muestra es el toque y se guarda**: sin ella la traza terminaba en el aire
+                    // y el consumidor inventaba el toque con el respaldo de `agl <= 0`.
+                    SampleCount = before + 1;
+                    return Finish(FlareCaptureAction.Stop, OnGroundReason);
                 }
 
                 if (SampleCount >= MaxSamples)

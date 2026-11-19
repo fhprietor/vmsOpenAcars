@@ -170,6 +170,9 @@ namespace vmsOpenAcars.Tests
             var d = p.Update(T0.AddSeconds(6), 0.0, -120.0, true, null, true);
             Assert.AreEqual(FlareCaptureAction.Stop, d.Action);
             Assert.AreEqual("stopped:on-ground", d.Reason);
+            Assert.IsTrue(d.KeepSampling,
+                "la muestra del toque en tierra entra en la traza: sin ella no hay on_ground=true");
+            Assert.AreEqual(2, d.SampleCount, "la muestra del toque también cuenta");
         }
 
         // ── El tope de muestras ───────────────────────────────────────────────────

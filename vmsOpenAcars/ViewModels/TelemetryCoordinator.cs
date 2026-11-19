@@ -256,7 +256,7 @@ namespace vmsOpenAcars.ViewModels
             }
             else if (decision.Action == FlareCaptureAction.Stop)
                 _cb.Log?.Invoke(string.Format(_("Lnm_FlareCaptureStop"),
-                    _flareBuffer.Count, decision.Reason), Theme.SecondaryText);
+                    decision.SampleCount, decision.Reason), Theme.SecondaryText);
 
             if (!decision.KeepSampling) return;
 
@@ -1495,10 +1495,14 @@ namespace vmsOpenAcars.ViewModels
             // El rótulo sale de **la misma tabla** que la deducción del scoring (`Helpers/GForceBands`).
             // Antes eran dos tablas y el toque de **1,72 g** del PIREP `ez9OqzRnYxbnGLR8` se pintó
             // «Normal» mientras cobraba los 15 puntos de la banda máxima.
-            string rating = _(GForceBands.LabelKey(data.GForcePeak));
+            // El G del evento de FSUIPC puede venir a 0 si el evento llegó tarde (el caso del
+            // primer vuelo 0.9.75): el `TouchdownState` capturó el G del frame del toque y es el
+            // que se puntúa. El log pinta ese, no el hueco del evento.
+            double gforce = data.GForcePeak > 0.0 ? data.GForcePeak : _flightManager.TouchdownGForce;
+            string rating = _(GForceBands.LabelKey(gforce));
             _cb.Log?.Invoke(_("Log_AccurateTouchdown"), Theme.Success);
             _cb.Log?.Invoke(_("Log_TouchdownVs",        $"{data.VerticalSpeedFpm:F0}"),     Theme.MainText);
-            _cb.Log?.Invoke(_("Log_TouchdownGForce",    $"{data.GForcePeak:F2}", rating),   Theme.MainText);
+            _cb.Log?.Invoke(_("Log_TouchdownGForce",    $"{gforce:F2}", rating),            Theme.MainText);
             _cb.Log?.Invoke(_("Log_TouchdownSpeed",     $"{data.IasKt:F0}", $"{data.GroundSpeedKt:F0}"), Theme.MainText);
             _cb.Log?.Invoke(_("Log_PitchBank",          $"{data.PitchDeg:F1}", $"{data.BankDeg:F1}"), Theme.MainText);
             _cb.Log?.Invoke(_("Log_TouchdownFlapsSpoilers", $"{data.FlapsPosition * 100:F0}", $"{data.SpoilersPosition * 100:F0}"), Theme.MainText);
@@ -1510,7 +1514,18 @@ namespace vmsOpenAcars.ViewModels
             _cb.Log?.Invoke(_("Log_OatWind", $"{data.OatCelsius:F0}", $"{data.WindSpeedKt:F0}", $"{data.WindDirDeg:F0}"), Theme.MainText);
 
             if (_navDataService.IsAvailable)
+            {
+                // **La posición del primer contacto**, no la del evento de FSUIPC. En el primer
+                // vuelo 0.9.75 (`nELjXrV8mvZg2PZK`) el evento llegó a las 02:41:26 y el toque fue a
+                // las 02:40:53: 33 s de rodadura después, la posición/rumbo ya no estaban en el
+                // footprint de la 35, `FindTouchdownRunway` devolvía null y los cinco campos de la
+                // Capa 2 (umbral, extremo, TCH, senda) se quedaban a null. El `TouchdownState` los
+                // capturó en el instante bueno y es la fuente correcta para resolver la pista.
+                data.LatitudeDeg  = _flightManager.TouchdownLat;
+                data.LongitudeDeg = _flightManager.TouchdownLon;
+                data.HeadingDeg   = _flightManager.TouchdownHeadingDeg;
                 Task.Run(() => LookupRunwayData(data));
+            }
         }
 
         private void OnGearChanged(int oldPos, int newPos)

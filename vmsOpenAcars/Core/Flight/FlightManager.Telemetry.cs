@@ -22,6 +22,12 @@ namespace vmsOpenAcars.Core.Flight
             // del contacto en `RawTelemetryData.TouchdownGForce`. **0 = no medido**, y el scoring lo
             // omite en vez de inventar.
             double gforce = LastRawData?.TouchdownGForce ?? 0.0;
+            // El evento de FSUIPC puede llegar **después de la rodadura** (en `nELjXrV8mvZg2PZK`
+            // llegó 33 s tarde), y entonces su ventana de 1 s ya no contiene el contacto y deja
+            // `TouchdownGForce = 0`: el registro publicaba «— G» y el scoring omitía el criterio.
+            // El G **del frame del toque** (el que captura la máquina de fases) es el fallback
+            // honesto: 0 sigue siendo «no medido» y el scoring lo omite.
+            if (gforce <= 0.0) gforce = LastRawData?.GForce ?? 0.0;
 
             _td.Capture(verticalSpeed, _currentPitch, _currentBank, gforce, CurrentLat, CurrentLon, CurrentHeading);
 
