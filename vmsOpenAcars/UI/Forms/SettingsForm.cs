@@ -57,6 +57,9 @@ namespace vmsOpenAcars.UI.Forms
         // Guía de rodaje (RAAS)
         private CheckBox  chkTaxiGuidance;
 
+        // Log visible: muestra u oculta los volcados de depuración (no toca el espejo al PIREP).
+        private CheckBox  chkDebugLog;
+
         /// <summary>Set by MainForm to route TEST OSD clicks to the live OSD overlay.</summary>
         public Action<string, OsdSeverity> TestOsdCallback { get; set; }
 
@@ -403,8 +406,13 @@ namespace vmsOpenAcars.UI.Forms
                 RowCount    = 14,
                 BackColor   = Color.Transparent
             };
-            right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35F));
-            right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65F));
+            // 27/73 en vez de 35/65: la fila de la guía de rodaje lleva ahora **dos** casillas y la
+            // de depuración conserva su rótulo largo («Mostrar líneas de depuración», 235 px a
+            // Consolas 10). Con 65 % para los controles no cabía y `FlowLayoutPanel` —con
+            // `WrapContents = false`— habría recortado la segunda casilla sin dar ningún error.
+            // Los rótulos de 27 % siguen cabiendo: el más largo es «Taxi guidance» (112 px).
+            right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
+            right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 73F));
             for (int i = 0; i < 13; i++)
                 right.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
             right.RowStyles.Add(new RowStyle(SizeType.Absolute, 28F)); // status row
@@ -663,19 +671,33 @@ namespace vmsOpenAcars.UI.Forms
             right.SetColumnSpan(sepTaxi, 2);
             right.Controls.Add(sepTaxi, 0, 11);
 
-            // row 12 — Taxi guidance on/off
+            // row 12 — Taxi guidance on/off + líneas de depuración
             // Auto-guardado en caliente, como el OSD y los anuncios de cabina: no entra en
             // `HasChanges()` ni obliga a reiniciar. Apaga los avisos del RAAS, la voz, la
             // evaluación de la ruta, el popup de confirmación y la traza densa de 5 s (que vuelve a
             // los 30 s de `update_interval_taxi`); ver Helpers/UpdateIntervalPolicy.cs.
+            //
+            // Las dos casillas comparten celda a propósito: una fila nueva cuesta 35 px y la rejilla
+            // ya está justa (12 filas = 420 px; la ventana sigue en 920×590 y su `MinimumSize` no
+            // se toca). El reparto se comprueba en `SettingsFormLayoutTests`: que las dos quepan de
+            // verdad en el ancho del panel, no solo que compilen.
             right.Controls.Add(CreateLabel("Taxi guidance"), 0, 12);
+            var taxiSettingsPanel = new FlowLayoutPanel
+            {
+                Dock          = DockStyle.Fill,
+                BackColor     = Color.Transparent,
+                WrapContents  = false,
+                Padding       = new Padding(0),
+                Margin        = new Padding(0)
+            };
             chkTaxiGuidance = new CheckBox
             {
                 Name      = "chkTaxiGuidance",
-                Dock      = DockStyle.Fill,
                 Text      = _("Enabled"),
                 ForeColor = Color.White,
-                Font      = new Font("Consolas", 10)
+                Font      = new Font("Consolas", 10),
+                AutoSize  = true,
+                Margin    = new Padding(0, 6, 8, 0)
             };
             chkTaxiGuidance.CheckedChanged += (s, ev) =>
             {
@@ -683,7 +705,26 @@ namespace vmsOpenAcars.UI.Forms
                 SaveConfigKey("taxi_guidance_enabled", chkTaxiGuidance.Checked.ToString().ToLower());
                 TaxiGuidanceChangedCallback?.Invoke(chkTaxiGuidance.Checked);
             };
-            right.Controls.Add(chkTaxiGuidance, 1, 12);
+            chkDebugLog = new CheckBox
+            {
+                Name      = "chkDebugLog",
+                Text      = _("Show debug lines"),
+                ForeColor = Color.White,
+                Font      = new Font("Consolas", 10),
+                AutoSize  = true,
+                Margin    = new Padding(0, 6, 0, 0)
+            };
+            // Ausente = apagado (lo lee `AppConfig`): la casilla arranca sin marcar en el `.config`
+            // de todo piloto ya instalado. Aplica en el acto porque el setter es el que consulta
+            // `UIService.AddLog` en cada línea; no hace falta reiniciar ni guardar el diálogo.
+            chkDebugLog.CheckedChanged += (s, ev) =>
+            {
+                AppConfig.DebugLogEnabled = chkDebugLog.Checked;
+                SaveConfigKey("debug_log", chkDebugLog.Checked.ToString().ToLower());
+            };
+            taxiSettingsPanel.Controls.Add(chkTaxiGuidance);
+            taxiSettingsPanel.Controls.Add(chkDebugLog);
+            right.Controls.Add(taxiSettingsPanel, 1, 12);
 
             // row 13 — cabin test status (spans both columns)
             lblCabinStatus = new Label
@@ -817,6 +858,14 @@ namespace vmsOpenAcars.UI.Forms
                               out bool taxiGuidanceParsed))
                 taxiGuidance = taxiGuidanceParsed;
             chkTaxiGuidance.Checked = taxiGuidance;
+
+            // Líneas de depuración: **ausente = apagado**. No se usa `chkDebugLog.Checked = ...`
+            // como valor por defecto `true` por el mismo motivo que la guía: el `.config` de un
+            // piloto ya instalado no trae la clave y el log tiene que nacer limpio.
+            bool debugLog = false;
+            if (bool.TryParse(ConfigurationManager.AppSettings["debug_log"], out bool debugParsed))
+                debugLog = debugParsed;
+            chkDebugLog.Checked = debugLog;
         }
 
         private void LoadLanguages()

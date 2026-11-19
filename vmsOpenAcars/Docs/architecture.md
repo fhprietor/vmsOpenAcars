@@ -3626,3 +3626,66 @@ fragmento del log que llegó no incluye la GS de los dos instantes de reversa. P
 reversas ya guardadas) y no por una lectura de ese vuelo, y las dos posiciones del test de hold-short
 se construyen sobre los **nodos reales de SKBO** que publica NavData. Los tres puntos de tiempo del
 `ON BLOCK` y los de los avisos de pista sí son los del log.
+
+---
+
+## El filtro de las líneas de depuración del log (v0.9.77)
+
+**El problema, medido en `ez9OqzRnYxbnGLR8`.** El log del vuelo mezclaba dos cosas: los eventos que
+el piloto tiene que leer (fases, toque, combustible, penalizaciones, avisos del RAAS) y los volcados
+que el cliente escribe para diagnosticar los addons. El chatter del rodaje —`↳ TWY A, Next B4`— salió
+**decenas de veces** en un solo vuelo y el panel del PMDG volcó su estado dos veces (`🛠 Enroute: …` y
+`🛠 Approach: …`), entre los diagnósticos de la reversa y el de ralentí de los motores. El resultado
+es que lo importante se pierde de vista.
+
+**La decisión de diseño: se filtra solo la línea visible.** `UIService.AddLog` hace dos cosas: pinta
+la línea en el log de pantalla y la espeja al PIREP (`POST /acars/position`, `type = 2`) cuando hay
+vuelo abierto. El filtro se aplica **solo a lo primero**: el espejo al PIREP y las notificaciones
+siguen recibiendo todo. El motivo es que esos volcados son los que permiten diagnosticar: la línea
+`🛠` del panel del PMDG sirvió para encontrar los fallos de la 0.9.74, y una vez ocultos en pantalla
+son lo único que queda para reconstruir lo que hacía el addon.
+
+**La clasificación (`Helpers/DebugLogPolicy`).** `IsDebug` decide por el texto con una lista cerrada
+de prefijos; `ShouldDisplay(showDebug, message)` devuelve `true` salvo que la línea sea de depuración y
+el ajuste esté apagado; sin texto devuelve `true` para no ocultar por accidente. La lista es:
+
+| Prefijo | Qué es | Por qué no vale para el piloto |
+|---|---|---|
+| `🛠` | Volcado del panel del addon (`FlightManager.LogPanelDiagnostics`) | Banderas del AP, carteles y autobrake: diagnóstico, no evento |
+| `↳ ` | Chatter del «Next» del rodaje (`Lnm_TaxiPosition`/`Lnm_TaxiwayChange`) | Decenas por vuelo; cambia con cada intersección |
+| `Reversa: monitoreando` | Aviso de que se vigila el despliegue post-aterrizaje | Es una promesa de trabajo interno |
+| `Reversa: no detectada` | El addon no publica el offset | No hay acción del piloto posible |
+| `Reversa: máximo del rodaje` | El máximo medido después del toque | En `ez9OqzRnYxbnGLR8` publicó un 100 %/100 % falso |
+| `Motor: ` | Tiempos de ralentí y OAT al entrar en pista | Los eventos de motor van aparte, con `⚠️` |
+| `📊 PIREP Status: ` | Código de estado que devuelve phpVMS | No es accionable |
+
+**La regla de oro, escrita en el helper:** si el piloto no puede actuar sobre la línea y no describe
+un evento del vuelo, es depuración. Antes de mirar la lista, `IsDebug` se niega a clasificar cualquier
+línea que empiece por `⚠️`, `✅`, `──`, `🛬`, `⛽`, `🎙️`, `🎯` o `🅿️`, y también cualquier línea sin
+letras ni dígitos (un separador). `Reversa: desplegada  ENG1 11% ENG2 2%` es el despliegue real del
+toque y **se queda**: cuenta un evento, no un diagnóstico.
+
+**El ajuste.** `debug_log` se lee en `AppConfig.DebugLogEnabled` con un campo estático y setter, así
+que la casilla de `SettingsForm` aplica **en el acto**: `UIService.AddLog` lo consulta en cada línea,
+no hay reinicio ni espera al Guardar. **Ausente = apagado** (el `.config` ya instalado no trae la
+clave) y no se escribe en `App.config` ni en `App.Release.config`.
+
+**La casilla, sin gastar una fila.** La rejilla derecha de `SettingsForm` está justa (13 filas de
+35 px + 28 de estado) y una fila nueva costaría 35 px y obligaría a subir la ventana. La casilla
+*Show debug lines* comparte la celda de la guía de rodaje en un `FlowLayoutPanel`; para que el rótulo
+español («Mostrar líneas de depuración», 235 px a Consolas 10) quepa junto a «Activo», la columna de
+controles pasa de 65 % a 73 % y la de rótulos a 27 % (el rótulo más largo, «Taxi guidance», mide
+112 px). La ventana sigue en 920×590 y `MinimumSize` no se toca. Esto no da error si se recorta, así
+que `SettingsFormLayoutTests` comprueba el ancho real del panel y que la casilla nace desmarcada.
+
+**La bandera del PIREP: `[DBG] `.** En el PIREP y en la tabla `acars` va **todo**, pero las líneas de
+depuración llevan delante el literal estable `[DBG] ` para que phpVMS pueda filtrarlas después
+(`LIKE '[DBG] %'`) sin depender del idioma. No se añaden campos al cuerpo del POST: phpVMS podría
+rechazar propiedades desconocidas con un 422 y no hay forma de verificar ese contrato desde el
+cliente. La bandera la compone un solo sitio, `DebugLogPolicy.ForPirep`, que es idempotente y se aplica
+en `AcarsLogMirror.MessageForPirep`; la copia de pantalla nunca la lleva.
+
+**Tests.** `DebugLogPolicyTests` usa las líneas literales del vuelo (los tres volcados del briefing,
+la lista cerrada completa, las ocho líneas de evento que no pueden ocultarse y el log completo de 14
+líneas con sus 7 volcados), la bandera `[DBG] ` sin duplicarse y el setter en caliente.
+`SettingsFormLayoutTests` añade la comprobación de la celda compartida y del ancho.

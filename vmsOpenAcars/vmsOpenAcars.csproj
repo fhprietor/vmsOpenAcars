@@ -181,6 +181,7 @@
     <Compile Include="Core\Flight\PirepBuilder.cs" />
     <Compile Include="Core\Helpers\AppInfo.cs" />
     <Compile Include="Helpers\AppConfig.cs" />
+    <Compile Include="Helpers\DebugLogPolicy.cs" />
     <Compile Include="Helpers\AircraftIdentity.cs" />
     <Compile Include="Helpers\AircraftLivery.cs" />
     <Compile Include="Helpers\AircraftTypeMatch.cs" />

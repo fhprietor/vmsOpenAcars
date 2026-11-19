@@ -43,21 +43,33 @@ namespace vmsOpenAcars.Services
             // sobre el fondo del LCD (`McduPalette.ForLog`, comprobado por `McduPaletteTests`).
             color = McduPalette.ForLog(color);
 
-            // Mostrar en el log (código existente)
-            if (_form.txtIncomingMsg.InvokeRequired)
+            // **Lo que se filtra es solo la línea visible**, y se decide aquí, en el punto único por
+            // el que pasa todo el log. El espejo al PIREP de más abajo NO se filtra: los volcados de
+            // depuración (`🛠` del panel del PMDG, `↳ TWY …`, `Motor: …`) son los que permiten
+            // diagnosticar un addon cuando algo falla —el del panel sirvió para encontrar los fallos
+            // de la 0.9.74—, así que siguen llegando a phpVMS aunque el piloto no los vea. Lo mismo
+            // con las notificaciones: un evento sigue avisando aunque su línea sea de depuración.
+            // `DebugLogPolicy` decide con el ajuste `debug_log` leído en el acto, sin reiniciar.
+            bool showLine = DebugLogPolicy.ShouldDisplay(AppConfig.DebugLogEnabled, message);
+
+            // Mostrar en el log visible (código existente)
+            if (showLine)
             {
-                _form.txtIncomingMsg.Invoke(new Action(() =>
+                if (_form.txtIncomingMsg.InvokeRequired)
+                {
+                    _form.txtIncomingMsg.Invoke(new Action(() =>
+                    {
+                        _form.txtIncomingMsg.SelectionStart = 0;
+                        _form.txtIncomingMsg.SelectionColor = color;
+                        _form.txtIncomingMsg.SelectedText = $"{DateTime.UtcNow:HH:mm:ss} - {message}\n";
+                    }));
+                }
+                else
                 {
                     _form.txtIncomingMsg.SelectionStart = 0;
                     _form.txtIncomingMsg.SelectionColor = color;
                     _form.txtIncomingMsg.SelectedText = $"{DateTime.UtcNow:HH:mm:ss} - {message}\n";
-                }));
-            }
-            else
-            {
-                _form.txtIncomingMsg.SelectionStart = 0;
-                _form.txtIncomingMsg.SelectionColor = color;
-                _form.txtIncomingMsg.SelectedText = $"{DateTime.UtcNow:HH:mm:ss} - {message}\n";
+                }
             }
             // Cada línea del log se reenvía al PIREP (`type = 2`) mientras el vuelo está abierto…
             // **salvo las que ya tienen su camino propio** (`Helpers/AcarsLogMirror`): el aviso del
@@ -66,7 +78,10 @@ namespace vmsOpenAcars.Services
             if (!string.IsNullOrEmpty(_flightManager?.ActivePirepId)
                 && AcarsLogMirror.ShouldMirror(message))
             {
-                SendLogToAcars(message);
+                // `MessageForPirep` añade `[DBG] ` delante de los volcados de depuración **solo en
+                // esta copia**: es la bandera estable con la que phpVMS puede filtrarlos después.
+                // La pantalla nunca la lleva, así que la línea se lee limpia con el ajuste encendido.
+                SendLogToAcars(AcarsLogMirror.MessageForPirep(message));
             }
             // Notificaciones para eventos importantes
             if (message.Contains("Takeoff"))

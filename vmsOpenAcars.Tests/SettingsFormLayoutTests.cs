@@ -73,6 +73,40 @@ namespace vmsOpenAcars.Tests
             }
         }
 
+        [TestMethod]
+        public void ElCheckDeDepuracionCabeJuntoAlDeLaGuiaYVieneApagado()
+        {
+            using (var form = new SettingsForm())
+            {
+                form.PerformLayout();
+                var taxi  = FindCheckBox(form, "chkTaxiGuidance");
+                var debug = FindCheckBox(form, "chkDebugLog");
+
+                Assert.IsNotNull(debug, "falta el checkbox «Show debug lines»");
+                Assert.AreSame(taxi.Parent, debug.Parent,
+                    "las dos casillas comparten la celda de la fila de la guía de rodaje: una fila " +
+                    "nueva costaría 35 px y la ventana ya está justa");
+                debug.Parent.PerformLayout();
+
+                // El `FlowLayoutPanel` no avisa si un control no cabe: lo recorta y el piloto ve
+                // una casilla a medias. Se comprueba con el ancho real del panel, no a ojo.
+                Assert.IsTrue(debug.Right <= debug.Parent.ClientSize.Width,
+                    $"«{debug.Text}» se sale del panel ({debug.Right} > {debug.Parent.ClientSize.Width} px)");
+                Assert.IsTrue(taxi.Right <= debug.Parent.ClientSize.Width);
+
+                // Y la ventana no creció: sigue en 920×590, con `MinimumSize` al mismo alto.
+                Assert.AreEqual(new System.Drawing.Size(920, 590), form.Size,
+                    "la casilla va en la columna derecha sin ampliar la ventana");
+                Assert.AreEqual(form.Size.Height, form.MinimumSize.Height);
+
+                // Ausente = apagado. Si este equipo tuviera la clave en `App.config`, la
+                // comprobación no aplica (es config local de desarrollo).
+                if (System.Configuration.ConfigurationManager.AppSettings["debug_log"] == null)
+                    Assert.IsFalse(debug.Checked,
+                        "sin `debug_log` en el `.config`, la casilla tiene que arrancar desmarcada");
+            }
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────────
 
         private static void AssertNoSharedCell(TableLayoutPanel table)

@@ -175,6 +175,26 @@ namespace vmsOpenAcars.Helpers
             set => _osdAirspaceAlerts = value;
         }
 
+        // ── Líneas de depuración en el log visible (`debug_log`) ─────────────────
+        // **Ausente = apagado**, que es justo lo que pide el mantenedor: el `.config` de todos los
+        // pilotos ya instalados no trae la clave, y el log nace limpio sin tocar su configuración.
+        // No se añade a `App.Release.config` ni a `App.config` a propósito: la plantilla no debe
+        // repartir una preferencia que nace OFF.
+        //
+        // El valor vive en un campo estático porque la casilla de `SettingsForm` lo cambia en
+        // caliente: `UIService.AddLog` lo lee **en el momento de decidir**, así que marcar o
+        // desmarcar aplica a la línea siguiente, sin reiniciar y sin esperar al Guardar.
+        //
+        // OJO: esto es SOLO la línea visible. El espejo al PIREP (`AcarsLogMirror`) no se filtra:
+        // esos volcados son los que permiten diagnosticar un addon (la línea del panel del PMDG
+        // sirvió para localizar los fallos de la 0.9.74).
+        private static bool _debugLogEnabled = GetBool("debug_log", false);
+        public static bool DebugLogEnabled
+        {
+            get => _debugLogEnabled;
+            set => _debugLogEnabled = value;
+        }
+
         // ── Guía de rodaje: interruptor maestro del piloto ────────────────────────
         // `taxi_guidance_enabled` es el checkbox «Taxi guidance» de Settings. **Nace ACTIVADA**:
         // quien ya usaba la guía no puede notar el cambio (el valor por defecto de `GetBool` es

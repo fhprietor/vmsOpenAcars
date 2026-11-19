@@ -132,6 +132,7 @@
     <Compile Include="FlapsScaleTests.cs" />
     <Compile Include="TouchdownGForceWindowTests.cs" />
     <Compile Include="AcarsLogMirrorTests.cs" />
+    <Compile Include="DebugLogPolicyTests.cs" />
     <!-- El 0x8007000B de la 0.9.63: el módulo real era SQLite.Interop (no pdfium), las cuatro
          nativas con su tamaño y machine, y qué texto va en cada caso. Sin abrir ventanas. -->
     <Compile Include="NativeFailureTests.cs" />

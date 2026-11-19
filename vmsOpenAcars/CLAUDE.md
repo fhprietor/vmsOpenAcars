@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.76  
+**Versión actual:** v0.9.77  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -59,7 +59,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
   las otras reglas. Nunca suprimir una acción por una suposición.
 
 **Idioma**
-- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 547 claves cada uno): toda
+- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 548 claves cada uno): toda
   clave que se añade o se quita va en los dos.
 - **Antes de escribir un rótulo, mirar si la clave ya existe**: los `.json` tienen claves definidas y sin
   cablear (128 contadas en v0.9.45, casi todo `Fp_*` y `Status_*`), y **un rótulo de botón o de casilla
@@ -397,6 +397,13 @@ TopMost, click-through, centrado en pantalla configurada, 40 px desde borde. Thr
 
 App.config: `osd_enabled`, `osd_sound_enabled`, `osd_duration_seconds` (def 4), `osd_screen_index`, `osd_opacity` (def 90), `osd_airspace_alerts` (def true).
 
+**Log visible (`debug_log`, v0.9.77):** la casilla *Show debug lines* → *Mostrar líneas de depuración*
+(auto-guardada y aplicada en caliente, sin reiniciar) enseña los volcados que `Helpers/DebugLogPolicy`
+clasifica como depuración (`🛠` del panel, `↳ TWY …`, `Reversa:`, `Motor:`, `📊 PIREP Status`).
+**Ausente = apagado** y no se añade a `App.config`/`App.Release.config`: el `.config` ya instalado no la
+trae. Filo imprescindible: **solo se filtra la línea visible**; el espejo al PIREP sigue recibiendo
+**todo**, con la bandera `[DBG] ` delante (literal estable para que phpVMS filtre con `LIKE '[DBG] %'`).
+
 **Avisos de espacio aéreo en el OSD (v0.9.10, +v0.9.56):** `osd_airspace_alerts` (fila *Airspace zones* →
 *Alert on the OSD*) silencia **todo** aviso de espacio aéreo en el OSD: las zonas acotadas y las entradas en
 CTR/TMA/ATZ/RMZ (`nk2a96dl5vO0B2ab`: **19** con la casilla apagada). Las **`CTA`** (clase E) van **solo al
@@ -650,7 +657,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1223 tests** (1 se omite sola).
+`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1236 tests** (1 se omite sola).
 
 **Qué cubre la suite** — cada bloque con sus casos reales, sus fixtures y lo que no se puede
 re-ejecutar sin red: **`Docs/architecture.md`** → "Las suites de tests y sus casos reales".

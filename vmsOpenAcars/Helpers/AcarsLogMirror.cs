@@ -39,5 +39,21 @@ namespace vmsOpenAcars.Helpers
             if (string.IsNullOrEmpty(message)) return false;
             return !message.TrimStart().StartsWith(RaasCalloutPrefix, StringComparison.Ordinal);
         }
+
+        /// <summary>
+        /// **La línea tal y como viaja al PIREP**: la misma, pero con `[DBG] ` delante cuando es un
+        /// volcado de depuración (`DebugLogPolicy`). La bandera va **solo en esta copia**, nunca en
+        /// la que se pinta en pantalla, y es lo que permite a phpVMS (o al piloto, en el gestor)
+        /// filtrar esos volcados después sin perder ninguna línea: el PIREP y la tabla `acars`
+        /// siguen recibiendo **todo**. No se añaden campos nuevos al cuerpo del POST, que phpVMS
+        /// podría rechazar con un 422; la bandera va en el texto.
+        ///
+        /// La composición vive en un solo sitio (`DebugLogPolicy.ForPirep`), que además es
+        /// idempotente: una línea que ya empieza por `[DBG] ` no se prefija dos veces.
+        /// </summary>
+        internal static string MessageForPirep(string message)
+        {
+            return DebugLogPolicy.ForPirep(message);
+        }
     }
 }

@@ -2,6 +2,73 @@
 
 ---
 
+## [0.9.77] — 19/11/2026
+
+**El log del vuelo deja de enterrar los eventos bajo los volcados de diagnóstico, y el PIREP sigue
+recibiendo todo.** El log de un vuelo normal mezclaba fases, toque, combustible y penalizaciones con
+los volcados que el cliente escribe para diagnosticar los addons. En el PIREP real
+`ez9OqzRnYxbnGLR8` el chatter del rodaje (`↳ TWY A, Next B4`) salió decenas de veces y el panel del
+PMDG volcó su estado dos veces por vuelo, entre los diagnósticos de la reversa y el de ralentí. Ahora
+esos volcados **se ocultan de la pantalla del piloto por defecto** (clave `debug_log`, **ausente =
+apagado**), con una casilla en Settings que aplica **en el acto, sin reiniciar**. **Lo que se filtra
+es solo la línea visible**: el log del PIREP y la tabla `acars` siguen recibiendo **todo**, con una
+bandera en el texto para poder filtrarlo después. No se toca ningún campo del cuerpo del POST.
+
+### Added
+
+- **`Helpers/DebugLogPolicy`** (puro, `internal static`): clasifica una línea con una **lista cerrada
+  de prefijos** y decide si se pinta. Sin texto devuelve `true` (no se oculta nada por accidente). La
+  regla de oro —si el piloto no puede actuar sobre la línea y no describe un evento del vuelo, es
+  depuración— está escrita en el propio helper: nada que empiece por `⚠️`, `✅`, `──`, `🛬`, `⛽`,
+  `🎙️`, `🎯` o `🅿️` puede ocultarse, ni una línea de puntuación.
+- **Ajuste `debug_log`** en `AppConfig` con campo estático (setter en caliente, como `McduLook` o los
+  `_osd*`). **No se añade a `App.config` ni a `App.Release.config`**: ausente = `false`.
+- **Casilla *Show debug lines*** en `SettingsForm`, en la columna derecha y **compartiendo la celda**
+  con la guía de rodaje (no cabe una fila nueva de 35 px: la rejilla ya está justa). Para que el
+  rótulo español («Mostrar líneas de depuración», 235 px) quepa junto al otro check, la columna de
+  controles de la rejilla derecha pasa de 65 % a 73 %; la ventana y su `MinimumSize` **no cambian**
+  (920×590). Dos claves nuevas, simétricas en `es.json`/`en.json` (**548** en cada uno).
+- **`[DBG] ` en la copia que va al PIREP.** `AcarsLogMirror.MessageForPirep` antepone el literal
+  exacto `[DBG] ` a las líneas de depuración; la constante vive en `DebugLogPolicy.DebugPrefix` y es
+  el **único** sitio que compone la bandera (idempotente: no se duplica). Es constante y **sin
+  traducir** para que phpVMS pueda filtrar con `LIKE '[DBG] %'` o un `starts_with` sin depender del
+  idioma. La copia de pantalla **no** lleva la bandera.
+- **`Docs/architecture.md`**: la sección "El filtro de las líneas de depuración del log (v0.9.77)" con
+  la lista cerrada, el porqué del espejo intacto y la bandera.
+
+### Lo que se oculta (lista cerrada, con una línea literal de cada tipo)
+
+- **`🛠`** — el volcado crudo del panel del addon:
+  `🛠 Enroute: PMDG: powered=1 cmd=10 cws=00 ap=00 fd=10 lnav=1 vnav=1 … · CAB cint=OFF nofum=AUTO publicado=si (SDK) · ABRK OFF act=0 publicado=si`
+- **`↳ `** — el chatter del «Next» del rodaje, en los dos idiomas:
+  `↳ TWY A, Next B4` · `↳ CALLE A2, Próximo a A1`
+- **`Reversa: monitoreando`**, **`Reversa: no detectada`** y **`Reversa: máximo del rodaje`**:
+  `Reversa: monitoreando despliegue post-aterrizaje (offset 0x207C/0x217C)` ·
+  `Reversa: no detectada (offset 0x207C sin datos — addon puede no soportarlo)` ·
+  `Reversa: máximo del rodaje  ENG1 100.0%  ENG2 100.0%  — cool-down 180s requeridos`
+- **`Motor: `** — el volcado de ralentí y OAT al entrar en pista:
+  `Motor: ENG1 idle 291s [STAB ✓]  ENG2 idle 942s [STAB ✓]  OAT 16°C`
+- **`📊 PIREP Status: `** — el código de estado que devuelve phpVMS: `📊 PIREP Status: TXI`
+
+**No se oculta** nada que cuente un evento o una penalización: `⚠️ PENALTY: …`, `── ON BLOCK ──`,
+`🛬 Landing recorded: …`, `⛽ Taxi Out fuel: 271 kg`, `🎙️ RAAS: …`, `✅ Vuelo reportado…`,
+`🎯 FLARE TRACK START: …`, `🅿️ Parking Brake: SET`, y `Reversa: desplegada  ENG1 11% ENG2 2%`, que
+es el despliegue real del toque y no un diagnóstico.
+
+### Tests
+
+- **`DebugLogPolicyTests`** con las líneas **literales** de `ez9OqzRnYxbnGLR8`: los tres volcados del
+  briefing ocultos con el ajuste apagado y visibles con él encendido; la lista cerrada completa; las
+  ocho líneas que **no pueden ocultarse nunca**; el **log completo del vuelo** (14 líneas, 7 volcados)
+  conservando todos los eventos; sin texto no se oculta; la bandera `[DBG] ` solo en el espejo y sin
+  duplicarse; y el setter en caliente.
+- **`SettingsFormLayoutTests.ElCheckDeDepuracionCabeJuntoAlDeLaGuiaYVieneApagado`**: la casilla existe
+  desmarcada sin la clave, **cabe de verdad** en el ancho del panel (no solo compila) y la ventana
+  sigue en 920×590.
+- **1236 tests** (1 se omite sola).
+
+---
+
 ## [0.9.76] — 19/11/2026
 
 **La pista de la toma se resuelve con la posición del primer contacto, y la traza guarda el toque.**
