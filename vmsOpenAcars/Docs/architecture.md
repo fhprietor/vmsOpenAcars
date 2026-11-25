@@ -1355,33 +1355,84 @@ Ventana de notificaciones en pantalla (OSD — On-Screen Display). TopMost, sin 
 public enum OsdSeverity { Info, Success, Warning, Critical }
 ```
 
-**Colores de texto por severidad:**
+#### OSD: la tarjeta pintada (v0.9.81)
 
-| Severidad | Color |
-|---|---|
-| Info | Azul claro `#A0DCFF` |
-| Success | Lima `#64FF82` |
-| Warning | Dorado `#FFD700` |
-| Critical | Rojo `#FF6E6E` |
+El OSD dejó de ser un `Label` con Consolas 17 Bold y pasó a **pintado propio con GDI+**. La
+referencia es la tarjeta de otro ACARS que pasó el mantenedor: fondo casi negro con tinte morado,
+esquinas redondeadas, borde sutil, texto blanco, secundarios grises, acento morado y una píldora
+verde. **No se ata al cian de `UI/Theme.cs`**: el OSD es una superficie de vuelo, no la consola.
 
-**Estados de animación:**
+**Piezas.** `Helpers/OsdStyle` es la paleta y los tamaños en puntos (familia **Segoe UI**, que ya
+viene con Windows; no se distribuye ninguna fuente). `Helpers/OsdCardText` compone todas las
+cadenas con datos reales y degrada sin inventar. `UI/OsdCardRenderer` dibuja las dos plantillas
+sobre un `Graphics` cualquiera, así que el formulario solo aporta el lienzo y el DPI.
+`Helpers/OsdCardPlacement` decide tamaño y anclaje.
+
+**Paleta.** Fondo `#0D0A13`, borde `#2E263C`, texto primario `#F7F4FB`, secundario `#948DA2`,
+acento `#B89CFF`, verde de píldora `#6EE4A4` y verde suave `#9ED6B4`. Severidades: Info lavanda
+`#96ACFF`, Success menta `#6EE4A4`, Warning ámbar `#EBB760`, Critical coral `#E46E7C` — semántica
+conservada, sin lima ni rojo puro. La etiqueta `LANDED` va en morado; la píldora toma el color de la
+**banda del G medido** (`Smooth` verde, `Firm` verde suave, `Hard` ámbar, `Severe` coral), no el de
+la severidad del fpm.
+
+**Tipografía (puntos).** Rótulo `7,5` con *tracking* de `1,2 px`; número `28`; unidad `10`; estado
+`8,5` con tracking `1,5`; ICAO `14`; metadatos `8,5`; columna derecha `9`; píldora `8`; plantilla
+simple: etiqueta `8,5` y mensaje `16`. `OsdStyle.CreateFont` convierte puntos a píxeles con la
+escala del DPI real.
+
+**Dos plantillas.** La **simple** (todos los mensajes que ya existían) tiene el mismo texto, tamaño
+automático al contenido y un mínimo de 420×90 lógicos: si el mensaje trae el separador doble
+(`"PENALTY  NAV LIGHTS  −5 PTS"`) la primera parte es la etiqueta y el resto el detalle; si no, la
+etiqueta es la severidad y el mensaje entero va al detalle. La **tarjeta del toque** mide 720×200
+lógicos y se pinta con `ShowCard(OsdCardPayload)`: `LANDED` + ICAO + nombre · hora + estado vivo,
+tres columnas (`LANDING RATE`, `TOUCHDOWN G` y las líneas IAS/GS, actitud y hora de contacto) y la
+píldora de **`GForceBands`** (`Perfect`/`Normal`/`Hard`/`Crash`, la misma tabla que el registro y el
+scoring; con 1,21 g dice `Perfect`) con `· by vmsOpenACars scoring`. **No lleva contador de toques**:
+el cliente solo conserva el último touchdown, así que un `1` fijo no informaría de nada.
+
+**Formato de `OsdCardText`.** `−145` con menos tipográfico **U+2212** y cero decimales; `1.18` con
+dos decimales (el G medido por `0x11BA`); `134 kt IAS · 141 kt ground`; `Pitch 4.2° · Bank 0.8°`
+con un decimal y U+00B0; `on the ground since 15:15z` en UTC `HH:mm`; `Rolling out · 24 kt`. El
+punto medio `·` separa los tramos y **sin dato la línea desaparece** (ni `0 kt` ni `--`).
+
+**Esquinas y opacidad.** El formulario se recorta con una `Region` construida con un
+`GraphicsPath` redondeado. Es el compromiso que mantiene funcionando `Opacity` y `HTTRANSPARENT`:
+la `Region` no tiene antialias, así que el borde de la esquina queda levemente escalonado; el
+relleno, el borde y el texto sí van suavizados. `UpdateLayeredWindow` daría esquinas perfectas pero
+obligaría a rehacer la animación y el click-through.
+
+**Tamaño en pantalla.** La tarjeta mide 720×200 a 96 DPI y 1440×400 a 192 DPI; `OsdCardPlacement`
+la centra a 40 px lógicos del borde y la pega dentro de `Screen.Bounds` si no cupiera. Comprobado
+en 1920×1080 y 3840×2160 (`OsdCardPlacementTests`).
+
+**Estados de animación** (sin cambios):
 
 ```
 Idle → FadeIn (Opacity 0→target, paso 0.06/tick) → Hold (_holdTicks) → FadeOut (paso −0.04/tick) → Idle+Hide
 ```
 
-Para **Critical**: en lugar de FadeIn, activa el `_flashTimer` (220 ms) que alterna `BgFlashOn`/`BgFlashOff` durante 3 ciclos completos, luego transiciona a Hold → FadeOut.
+Para **Critical**: en lugar de FadeIn, activa el `_flashTimer` (220 ms) que alterna el fondo de la
+tarjeta entre el normal y un rojo muy oscuro durante 3 ciclos completos, luego Hold → FadeOut.
 
-**API pública:**
+**API:**
 
 ```csharp
-void ShowMessage(string text, OsdSeverity severity, int durationMs = 4000)
+void ShowMessage(string text, OsdSeverity severity, int durationMs = 4000)        // plantilla simple
+internal void ShowCard(OsdCardPayload payload, int durationMs = 4000)             // tarjeta del toque
 void HideOsd()
 ```
 
-`ShowMessage()` es thread-safe (usa `InvokeRequired`). Recalcula la posición en pantalla en cada llamada usando `Screen.Bounds` (área completa, incluyendo zona de taskbar) para funcionar correctamente tanto en modo ventana como en fullscreen.
+Las dos son thread-safe (`InvokeRequired`). Recalculan la posición en cada llamada con
+`Screen.Bounds` (área completa, también con la taskbar) y respetan `osd_opacity`,
+`osd_duration_seconds` y `osd_screen_index`. `AcarsReporter.HandleLandingDetected` construye el
+payload (ICAO real o del plan, nombre de la caché de NavData, fpm, G, IAS/GS, pitch, bank y hora
+UTC) y llama a `ShowCard`; el log y la severidad no cambian.
 
-**Posicionamiento:** centrado horizontalmente, 40 px desde el borde superior de la pantalla configurada (`osd_screen_index`). Si el índice está fuera de rango, usa la pantalla primaria.
+**Banco de pintado.** `OsdCardRenderer.GeneratePreviewImages()` (internal static, no abre ninguna
+ventana) pinta las dos plantillas en un `Bitmap` y las guarda en `%TEMP%\osd-preview\`:
+`osd-card-touchdown.png` con el toque real de `YxzZxO92Qnbxlqla` y `osd-simple-penalty.png` con
+`PENALTY  NAV LIGHTS  −5 PTS`. Los tests usan el `Bitmap` directamente (`OsdCardRendererTests`),
+nunca instancian el `Form`.
 
 **Puntos de disparo en MainViewModel:**
 
@@ -1394,7 +1445,7 @@ void HideOsd()
 | `OnFlightPhaseChanged(Descent)` | `DESCENDING` | Info |
 | `OnFlightPhaseChanged(Approach)` | `APPROACH` | Info |
 | `OnFlightPhaseChanged(OnBlock)` | `ON BLOCK` | Info |
-| Touchdown detectado | `<calificación>  −XXX fpm  X.Xg` | varía por fpm |
+| Touchdown detectado | `OnOsdCard` → tarjeta (`ShowCard`) | varía por fpm |
 | Touch-and-go | `TOUCH AND GO` | Warning |
 | `SendPirep()` exitoso | `PIREP FILED — SCORE: XX/100` | Success |
 | Airspace predictivo (heading hacia espacio restringido) | `AIRSPACE AHEAD  {TYPE}  {ICAO}` | Warning |
@@ -1405,6 +1456,8 @@ void HideOsd()
 ```csharp
 _viewModel.OnOsdMessage += (text, severity) =>
     _osd.ShowMessage(text, severity, AppConfig.OsdDurationMs);
+_viewModel.OnOsdCard += card =>
+    _osd.ShowCard(card, AppConfig.OsdDurationMs);
 ```
 
 ---

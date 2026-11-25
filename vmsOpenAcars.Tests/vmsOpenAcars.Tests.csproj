@@ -191,6 +191,10 @@
     <Compile Include="LandingRunwayTests.cs" />
     <Compile Include="PirepStateTests.cs" />
     <Compile Include="ScoringServiceTests.cs" />
+    <Compile Include="OsdStyleTests.cs" />
+    <Compile Include="OsdCardTextTests.cs" />
+    <Compile Include="OsdCardPlacementTests.cs" />
+    <Compile Include="OsdCardRendererTests.cs" />
     <Compile Include="TouchdownZonePolicyTests.cs" />
     <Compile Include="TouchdownCloseupGeometryTests.cs" />
     <Compile Include="LandingCloseupFormTests.cs" />

@@ -348,6 +348,12 @@ namespace vmsOpenAcars.UI.Forms
                 if (AppConfig.OsdEnabled)
                     _osd?.ShowMessage(msg, sev, AppConfig.OsdDurationSeconds * 1000);
             };
+            _viewModel.OnOsdCard += card =>
+            {
+                OsdAudio.Play(card.Severity);
+                if (AppConfig.OsdEnabled)
+                    _osd?.ShowCard(card, AppConfig.OsdDurationSeconds * 1000);
+            };
             _viewModel.OnShowMessage += (message, title) =>
             {
                 MessageBox.Show(message, title);

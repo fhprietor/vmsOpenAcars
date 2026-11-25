@@ -447,6 +447,10 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Helpers\OsdAudio.cs" />
+    <Compile Include="Helpers\OsdStyle.cs" />
+    <Compile Include="Helpers\OsdCardText.cs" />
+    <Compile Include="Helpers\OsdCardPlacement.cs" />
+    <Compile Include="UI\OsdCardRenderer.cs" />
     <Compile Include="UI\Theme.cs" />
     <Compile Include="UI\ColorContrast.cs" />
     <Compile Include="UI\McduLegend.cs" />

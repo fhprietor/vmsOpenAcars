@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.80  
+**Versión actual:** v0.9.81  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -59,7 +59,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
   las otras reglas. Nunca suprimir una acción por una suposición.
 
 **Idioma**
-- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 548 claves cada uno): toda
+- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 565 claves cada uno): toda
   clave que se añade o se quita va en los dos.
 - **Antes de escribir un rótulo, mirar si la clave ya existe**: los `.json` tienen claves definidas y sin
   cablear (128 contadas en v0.9.45, casi todo `Fp_*` y `Status_*`), y **un rótulo de botón o de casilla
@@ -394,6 +394,7 @@ static string SimSummary  // asignado en SetSimVersion() al conectar FSUIPC
 ## OSD Overlay — v0.5.4
 
 TopMost, click-through, centrado en pantalla configurada, 40 px desde borde. Thread-safe. Audio: `OsdAudio.Play(severity)`, 4 WAV EmbeddedResource.
+**v0.9.81 — tarjeta pintada:** GDI+ (`OsdStyle`/`OsdCardText`/`OsdCardRenderer`), Segoe UI en vez de Consolas, `ShowCard` para el toque (720×200) y plantilla simple con el texto intacto; esquinas por `Region` y banco de pintado en `%TEMP%\osd-preview\`. Detalle en `Docs/architecture.md` → "OSD: la tarjeta pintada (v0.9.81)".
 
 App.config: `osd_enabled`, `osd_sound_enabled`, `osd_duration_seconds` (def 4), `osd_screen_index`, `osd_opacity` (def 90), `osd_airspace_alerts` (def true).
 
@@ -414,13 +415,13 @@ registro** (`Helpers/AirspaceOsdPolicy`). Log y polígono **no** se suprimen, ap
 real** se anota igual: manda el vuelo a revisión.
 
 
-**Triggers OSD (MainViewModel → OnOsdMessage):**
+**Triggers OSD (MainViewModel → OnOsdMessage / OnOsdCard):**
 
 | Momento | Texto | Sev |
 |---|---|---|
 | StartFlight ok | `ACARS ACTIVE` | Success |
 | TaxiOut / TakeoffRoll / Cruise / Descending / Approach / OnBlock | texto de fase | Info |
-| Touchdown | `<calificación>  −XXX fpm  X.Xg` | según fpm |
+| Touchdown | `ShowCard` — tarjeta con fpm, G, IAS/GS, actitud y hora UTC | según fpm |
 | PIREP filed | `PIREP FILED — SCORE: XX/100` | Success |
 | Climb ≥10 000 ft AGL | `10 000 FT` | Info |
 | Descent ≤10 500 ft luces apagadas | `LANDING LT OFF` | Warning |
@@ -660,7 +661,8 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1260 tests** (1 se omite sola).
+`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1289 tests** (1 se omite sola).
+**v0.9.81**: OSD pintado a mano con tarjeta del toque y plantilla simple; texto de los mensajes intacto y Segoe UI en vez de Consolas — detalle en `Docs/architecture.md` → "OSD: la tarjeta pintada (v0.9.81)".
 **v0.9.79**: portero de flaps (1,5 s por detente), DA = umbral + 200 (nunca el TCH), pintura solo con aerolínea reconocible y NavMap como depuración — detalle en `Docs/architecture.md` → "Los cuatro defectos del PIREP `l5QVxBEmJ4yOaY2O` (v0.9.79)".
 **v0.9.80**: bandas de 15 ft en mínimos y 50 fpm en descenso excesivo (umbrales efectivos 192 ft y −1050 fpm, cambia la puntuación), NavMap sin `⚠️` y con los dos emisores en depuración, texto del Vref y «desde» de flaps — detalle en `Docs/architecture.md` → "Los cuatro defectos del PIREP `YxzZxO92Qnbxlqla` (v0.9.80)".
 
@@ -713,3 +715,4 @@ decisión pendiente**, casi siempre del mantenedor.
 > "SimConnect y datarefs de X-Plane — evaluado y descartado", "Rumbo verdadero y magnético",
 > "Decisiones del mantenedor pendientes", "El fin del pushback no está en NavData", "Touch-and-go,
 > `landing_rate` y `PirepState`", "Deuda estructural".
+

@@ -90,6 +90,7 @@ namespace vmsOpenAcars.ViewModels
         public event Action<MetarData[]>     OnMetarUpdated;
         public event Action<MetarFetchState> OnMetarStateChanged;
         public event Action<string, OsdSeverity>    OnOsdMessage;
+        internal event Action<OsdCardText.OsdCardPayload> OnOsdCard;
         internal event Action<IList<NavAirspace>>     OnAirspacesReady;
         internal event Action<IList<IvaoAtcStation>> OnAtcStationsUpdated;
 
@@ -205,6 +206,7 @@ namespace vmsOpenAcars.ViewModels
                 {
                     Log                     = (msg, color) => OnLog?.Invoke(msg, color),
                     OsdMessage              = (msg, sev)   => OnOsdMessage?.Invoke(msg, sev),
+                    OsdCard                 = card          => OnOsdCard?.Invoke(card),
                     ButtonStateChanged      = (lbl, c, en) => OnButtonStateChanged?.Invoke(lbl, c, en),
                     FlightEnded             = ()            => OnFlightEnded?.Invoke(),
                     AirportChanged          = icao          => OnAirportChanged?.Invoke(icao),

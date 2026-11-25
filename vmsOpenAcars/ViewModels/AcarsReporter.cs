@@ -144,9 +144,38 @@ namespace vmsOpenAcars.ViewModels
             });
 
             int abs = Math.Abs(verticalSpeed);
-            OsdSeverity sev   = abs <= 300 ? OsdSeverity.Success : abs <= 600 ? OsdSeverity.Warning : OsdSeverity.Critical;
-            string      label = abs <= 300 ? "TOUCHDOWN"         : abs <= 600 ? "FIRM LANDING"      : "HARD LANDING";
-            _cb.OsdMessage?.Invoke($"{label}  {verticalSpeed} FPM  {GForceText(gforce)} G", sev);
+            OsdSeverity sev = abs <= 300 ? OsdSeverity.Success
+                              : abs <= 600 ? OsdSeverity.Warning
+                                           : OsdSeverity.Critical;
+            // **La tarjeta del toque, con los datos del instante del contacto.** El ICAO es el
+            // campo de debajo (el real si hubo desvío, si no el del plan) y el nombre sale de la
+            // caché de NavData: si no está, la línea del aeropuerto se acorta a la hora y no se
+            // inventa un nombre. La severidad se conserva tal cual para el audio y el parpadeo.
+            string icao = !string.IsNullOrWhiteSpace(_flightManager.CurrentAirport)
+                          ? _flightManager.CurrentAirport
+                          : _flightManager.ActivePlan?.Destination;
+            string airportName = null;
+            if (!string.IsNullOrWhiteSpace(icao))
+            {
+                try { airportName = NavDataClient.GetAirportInfo(icao)?.Name; } catch { }
+            }
+
+            var card = new OsdCardText.OsdCardPayload
+            {
+                Severity       = sev,
+                Icao           = icao,
+                AirportName    = airportName,
+                TouchdownUtc   = DateTime.UtcNow,
+                LandingRateFpm = verticalSpeed,
+                GForce         = gforce > 0.0 ? gforce : (double?)null,
+                IasKt          = _flightManager.CurrentIndicatedAirspeed > 0
+                                     ? _flightManager.CurrentIndicatedAirspeed : (int?)null,
+                GroundSpeedKt  = _flightManager.CurrentGroundSpeed > 0
+                                     ? _flightManager.CurrentGroundSpeed : (int?)null,
+                PitchDeg       = pitch,
+                BankDeg        = bank,
+            };
+            _cb.OsdCard?.Invoke(card);
         }
 
         /// <summary>

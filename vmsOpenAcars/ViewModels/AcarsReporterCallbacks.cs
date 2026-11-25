@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using vmsOpenAcars.Core.Flight;
+using vmsOpenAcars.Helpers;
 using vmsOpenAcars.Models;
 using vmsOpenAcars.Services;
 using vmsOpenAcars.UI.Forms;
@@ -13,6 +14,7 @@ namespace vmsOpenAcars.ViewModels
     {
         public Action<string, Color>                                        Log;
         public Action<string, OsdSeverity>                                  OsdMessage;
+        public Action<OsdCardText.OsdCardPayload>                           OsdCard;
         public Action<string, Color, bool>                                  ButtonStateChanged;
         public Action                                                       FlightEnded;
         public Action<string>                                               AirportChanged;

@@ -2,6 +2,46 @@
 
 ---
 
+## [0.9.81] — 25/11/2026
+
+**El OSD pasa al estilo de la tarjeta de referencia y a pintado propio.** Hasta v0.9.80 era un
+`Label` centrado en **Consolas 17 Bold** sobre un rectángulo de **540×78**; el mantenedor pidió
+la estética de otra tarjeta ACARS (fondo casi negro con tinte morado, esquinas redondeadas,
+rótulos en versalitas con *tracking*, números enormes y una píldora de veredicto) y que **el
+mensaje del toque** fuera esa tarjeta.
+
+- **Sin tocar el texto de los mensajes existentes.** `"PENALTY  NAV LIGHTS  −5 PTS"`,
+  `"OVERSPEED  250 KTS"`, `"TAXI OUT"` y compañía se siguen emitiendo igual; solo cambia cómo se
+  pintan. La plantilla simple parte por el **separador doble**: la primera parte es la etiqueta y
+  el resto el detalle, sin reinterpretar ninguna palabra.
+- **Pintado propio con GDI+** (`UI/OsdCardRenderer`), fuera del `Label`. La tarjeta del toque es
+  `ShowCard(OsdCardPayload)` —**720×200** lógicos, escalados con el `DeviceDpi` real— y la
+  plantilla simple se ajusta al texto. **Segoe UI sustituye a Consolas** en todo el OSD; no se
+  distribuye ninguna fuente.
+- **Paleta y texto en helpers puros:** `Helpers/OsdStyle` (colores, familia, tamaños en puntos y
+  *tracking*) y `Helpers/OsdCardText` (menos tipográfico **U+2212**, G con dos decimales, actitud
+  con U+00B0, punto medio `·`, hora UTC `HH:mmz`). Sin dato la línea desaparece; el contador de
+  toques **no se pinta** porque el cliente solo conserva el último touchdown.
+- **La píldora de la tarjeta se eligió por severidad y no por la tabla única del G**, así que
+  **1,21 g salía `Normal` en el OSD y `Perfect` en el registro** (el mismo defecto que cerró la
+  v0.9.74). Se corrige dentro de la 0.9.81: `LandingBadge` solo recibe el **G medido** y devuelve
+  `GForceBands.LabelKey`; el color también es el de la banda (`Smooth` verde, `Firm` verde suave,
+  `Hard` ámbar, `Severe` coral). **Sin G no hay píldora**: no se inventa un veredicto.
+- **Se conserva intacto** el click-through (`WM_NCHITTEST → HTTRANSPARENT`), `TopMost`, la
+  animación de opacidad, el parpadeo de `Critical` y `osd_opacity`/`osd_duration_seconds`/
+  `osd_screen_index`. Las esquinas se recortan con una `Region` redondeada —funciona con
+  `Opacity`— y por eso el borde de la esquina no tiene antialias; el relleno y el texto sí.
+- **Banco de pintado** `OsdCardRenderer.GeneratePreviewImages()`: dos PNG en
+  `%TEMP%\osd-preview\` con el toque real de `YxzZxO92Qnbxlqla` (−219 fpm, 1.21 G, 138/141 kt,
+  3.5°/0.0°) y con `PENALTY  NAV LIGHTS  −5 PTS`. No se commitean.
+
+**Tests:** 1289 (1288 pasan, 1 se omite sola). Nuevos: `OsdStyleTests`, `OsdCardTextTests`,
+`OsdCardPlacementTests` y `OsdCardRendererTests`; ninguno instancia el `Form` —el pintado se
+comprueba sobre un `Bitmap`—. Los dos `.json` quedan simétricos en **565 claves**. Detalle en
+`Docs/architecture.md` → "OSD: la tarjeta pintada (v0.9.81)".
+
+---
+
 ## [0.9.80] — 24/11/2026
 
 **Cuatro defectos medidos en el PIREP real `YxzZxO92Qnbxlqla`** (B738 SSW, MSFS 2024, MPTO→SKCG,
@@ -6948,3 +6988,4 @@ en la clave lnm_db_path.
 - Flaps always displaying "UP"
 - Fuel_used set to zero in PIREP
 - OnBlock without parking brake and engines off
+
