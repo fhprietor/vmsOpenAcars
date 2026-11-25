@@ -3851,3 +3851,101 @@ rumbo.
 apagado, no es un `⚠️` accionable y, si ocurre con un PIREP activo, sigue llegando al servidor con
 `[DBG] ` (la marca explícita de la 0.9.78). No se elimina el emisor: sigue siendo útil para
 diagnosticar la resolución de pista cuando se enciende el log de depuración.
+## Los cuatro defectos del PIREP `YxzZxO92Qnbxlqla` (v0.9.80)
+
+B738 SSW, MSFS 2024, MPTO→SKCG, cliente v0.9.79. Los dos primeros son criterios que disparan con el
+ruido de los instrumentos; el tercero es un texto que se contradice; el cuarto, un origen mal
+guardado en el log de flaps.
+
+### Las dos bandas de tolerancia
+
+**Síntoma.** Dos avisos en el mismo vuelo, los dos por resolución de instrumento:
+
+```
+03:38:53  ⚠️ BELOW MINIMUMS: 206 ft MSL < DA 207 ft (threshold 7 ft + 200)   ← 1 ft
+03:24:14  ⚠️ APPROACH GATE: Excessive descent -1007 fpm (−5)                ← 7 fpm
+```
+
+La DA de 207 ft es el umbral de 7 ft + 200 CAT I; 206 ft son **1 ft** por debajo, o sea un escalón
+del altímetro (~10 ft), y habría saltado en todos los aterrizajes. El descenso de −1.007 fpm son
+**7 fpm** sobre el umbral nominal de −1.000 y costó **5 puntos**; el piloto frustró la aproximación
+después, pero el disparo no era legítimo por sí mismo.
+
+**Regla.** `Helpers/MinimumsTolerance`: la altitud se marca solo si está **más de 15 ft por debajo**
+de la DA (1,5 pasos de cuantización de ~10 ft). `Helpers/ExcessiveDescentTolerance`: el umbral
+nominal de −1.000 fpm no se mueve y el **efectivo es −1.050 fpm** (50 de margen). Los dos helpers
+son `internal static` puros y comparan con `<` estricto: el borde exacto no cuenta.
+
+**Qué deja de penalizar.** *Minimums Compliance*: una altura como 206 ft contra 207 ft deja de
+marcar; 185 ft (22 por debajo) sigue marcando. *Stabilized Approach*: los VS entre **−1.001 y
+−1.050 fpm** dejan de cobrar los 5 puntos; −1.200 sigue cobrando. **Nada más se relaja**: velocidad,
+bank, pitch, gear y flaps conservan sus umbrales.
+
+**Mensajes.** Los dos publican el umbral efectivo (`DA − 15 ft` y `−1050 fpm`) para que el registro
+diga por qué cuenta o no.
+
+**Tests.** `ApproachToleranceTests` fija los dos casos reales, una bajada real y los dos bordes; el
+caso MPTO de `ApproachValidatorMinimumsTests` cambia su aserción: 333 ft contra 334 ft ya no avisa y
+318 ft sí (umbral efectivo 319).
+
+### El `⚠️` que anulaba la marca de depuración del NavMap
+
+**Síntoma.** `03:39:12 ⚠️ NavMap: runway not found for SKCG (heading 0°)` seguía en el PIREP pese a
+que la 0.9.79 había pasado `LookupRunwayData` a `_cb.LogDebug`.
+
+**Causa raíz.** `DebugLogPolicy.IsDebug` comprueba los **prefijos protegidos** (`⚠️`, `✅`, …)
+*antes* de mirar la marca explícita, a propósito: una marca mal puesta no puede tapar una
+penalización. Como el texto de `Lnm_RunwayNotFound` empezaba por `⚠️`, la marca era inútil.
+
+**Arreglo.** Los dos textos de «pista no encontrada» pierden el `⚠️` (la clave no cambia) y los dos
+llamadores van a `_cb.LogDebug` con `Theme.SecondaryText`:
+
+| Clave | Llamador | Estado |
+|---|---|---|
+| `Lnm_RunwayNotFound` | `TelemetryCoordinator.LookupRunwayData` (toque) | ya `LogDebug` en 0.9.79; ahora el texto sin `⚠️` deja que funcione |
+| `Lnm_TakeoffRunwayNotFound` | `TelemetryCoordinator.LookupTakeoffRunwayData` (despegue) | pasa a `LogDebug` en 0.9.80 y texto sin `⚠️` |
+
+**Los demás `Lnm_*` con `⚠️` se quedan.** `Lnm_ArrivalAirportMismatch` y `Lnm_DiversionDetected` son
+eventos del vuelo; `Lnm_DistanceMismatch` marca la llegada para revisión. `Lnm_Available`,
+`Lnm_NotConfigured` y `Lnm_NotFound` son información de arranque (`🗺️`) y no son de pista.
+
+**Test.** `DebugLogPolicyTests.LosDosAvisosDePistaNoEncontrada_SeOcultanComoDepuracion` lee los dos
+`.json` del repositorio: si alguien repone el `⚠️`, la prueba falla.
+
+### El texto del Vref
+
+**Síntoma.** `Speed 172 kts NOT evaluated — the plan's Vref (148 kt) does not look like the
+aircraft's (Vref 148 kt, …)`: decía que no se parecían y enseñaba el mismo número. La omisión es
+correcta —`ApproachSpeedWindow.PlanVrefExplainsSpeed`: 172 ≥ 148 + 8, otra configuración de flaps—;
+el texto era el que mentía.
+
+**Arreglo.** Texto nuevo en los dos `.json`, misma clave y mismo comportamiento: 24 kt por encima del
+Vref del plan, lo que corresponde a otra configuración de flaps, y por eso no se evalúa. La
+diferencia se calcula en el punto de llamada (`ctx.IAS − VrefKt`), no se escribe a mano.
+
+### El «desde» del log de flaps
+
+**Síntoma.** `03:36:39 75% → 87%` cuando lo último anunciado era el **62 %**, y
+`03:40:47 62% → 50%` cuando lo último anunciado era el **75 %**.
+
+**Causa raíz.** `FlapTransitionGate` guardaba el porcentaje exacto al asentarse un valor en el
+**mismo detente ya anunciado**, y ese valor pasaba a ser el «desde» del cambio siguiente. 62 % y
+75 % caen en la misma banda 6, así que el 75 exacto que nunca se publicó contaminaba el origen.
+
+**Regla.** `_lastAnnouncedPercent` solo cambia al **sembrar** y al **anunciar**; el valor exacto del
+candidato solo puede afinar el **destino**. Las dos líneas pasan a `62% → 87%` y `75% → 50%`. Tests
+nuevos en `FlapTransitionGateTests` con las dos secuencias.
+
+### Lo que NO se toca
+
+**Los eventos de tren** de ese PIREP (`Gear: DOWN` a 61 ft AGL, con la palanca física en `gear up` y
+el avión en tierra antes de despegar) son **comportamiento esperado**: el log publica la posición de
+la palanca, y el avión ya había despegado cuando se reportó el evento. No es un fallo y no se
+«arregla».
+
+### Lo que no se pudo verificar
+
+Los valores de las dos bandas (15 ft y 50 fpm) son una **decisión del mantenedor** tomada con la
+resolución de los instrumentos y las cifras de este PIREP; no se midió una distribución de errores
+sobre varios vuelos ni se re-voló el caso en vivo. El cambio de puntuación se documenta aquí y en el
+CHANGELOG para que quede auditado.

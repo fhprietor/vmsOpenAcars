@@ -224,6 +224,10 @@ namespace vmsOpenAcars.Tests
         /// `⚠️ BELOW MINIMUMS: 49 ft MSL < DA 50 ft`; la DA correcta es **334 ft MSL**
         /// (umbral + 200 CAT I) y un avión a **49 ft MSL** en un campo de 134 ft está bajo el suelo,
         /// no bajando de mínimos en el aire. Las dos cosas se fijan aquí.
+        ///
+        /// Desde la v0.9.80 la DA se compara con **15 ft de banda** (`MinimumsTolerance`), así que
+        /// 333 ft —1 ft por debajo de la DA— tampoco avisa: el umbral efectivo es **319 ft**. El
+        /// caso de bajada real que sí dispara es 318 ft o menos.
         /// </summary>
         [TestMethod]
         public void PirepRealMpto_ElTchNoEsDa_Y49FtMslNoAvisa()
@@ -250,10 +254,17 @@ namespace vmsOpenAcars.Tests
             Assert.IsNull(MinimumsDeduction(Score(fm.BelowMinimums)),
                 "y no puede costar los 5 puntos del criterio");
 
-            // La DA real es 334 ft MSL: 333 ft en el aire sí es una bajada de mínimos.
+            // 333 ft MSL: 1 ft por debajo de la DA real de 334 ft. Es el escalón del altímetro, no
+            // una bajada de mínimos: con la banda de 15 ft (umbral efectivo 319 ft) no avisa.
             validator.CheckApproachBelowGate(FlareContext(altitudeMsl: 333));
+            Assert.IsFalse(fm.BelowMinimums,
+                "333 ft contra 334 ft es 1 ft: la banda de 15 ft no lo deja marcar");
+
+            // 318 ft MSL: 16 ft por debajo de la DA, ya fuera de la banda y con el umbral efectivo
+            // (319 ft) por encima. Es una bajada de mínimos de verdad.
+            validator.CheckApproachBelowGate(FlareContext(altitudeMsl: 318));
             Assert.IsTrue(fm.BelowMinimums,
-                "333 ft MSL < 334 ft (134 + 200) sí es bajar de la DA real");
+                "318 ft MSL < 319 ft (334 − 15) sí es bajar de la DA real");
         }
 
         /// <summary>

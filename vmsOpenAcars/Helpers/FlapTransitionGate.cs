@@ -38,6 +38,13 @@ namespace vmsOpenAcars.Helpers
     /// el resultado son **dos**, no doce. Un umbral más corto (1 s) volvería a escribir el temblor
     /// de la aproximación; uno más largo (2 s) retrasaría un cambio real de detente —que el piloto
     /// mantiene hasta el toque— sin ganar nada.
+    ///
+    /// **El «desde» es el último anunciado, no el último leído (v0.9.80).** En el PIREP
+    /// `YxzZxO92Qnbxlqla` (B738 SSW, MSFS 2024, MPTO→SKCG) la línea de las 03:36:39 decía
+    /// `75% → 87%` cuando lo último anunciado había sido el **62 %**, y la de las 03:40:47 decía
+    /// `62% → 50%` cuando lo último anunciado había sido el **75 %**. La causa: al asentarse un
+    /// valor en el **mismo** detente ya anunciado se guardaba su porcentaje exacto como «desde», y
+    /// 62 % y 75 % caen en la misma banda 6. Ese valor exacto solo puede afinar el **destino**.
     /// </summary>
     internal sealed class FlapTransitionGate
     {
@@ -49,7 +56,7 @@ namespace vmsOpenAcars.Helpers
 
         private bool     _seeded;
         private int      _lastAnnouncedBand;
-        private double   _lastPercent;
+        private double   _lastAnnouncedPercent;
         private int      _candidateBand;
         private double   _candidatePercent;
         private DateTime _candidateSinceUtc;
@@ -70,12 +77,12 @@ namespace vmsOpenAcars.Helpers
             // primer cambio real.
             if (!_seeded)
             {
-                _seeded            = true;
-                _lastAnnouncedBand = band;
-                _lastPercent       = percent;
-                _candidateBand     = band;
-                _candidatePercent  = percent;
-                _candidateSinceUtc = nowUtc;
+                _seeded                = true;
+                _lastAnnouncedBand     = band;
+                _lastAnnouncedPercent  = percent;
+                _candidateBand         = band;
+                _candidatePercent      = percent;
+                _candidateSinceUtc     = nowUtc;
                 return null;
             }
 
@@ -90,34 +97,34 @@ namespace vmsOpenAcars.Helpers
             }
 
             // Mismo detente: se guarda el último valor exacto para que la línea publique el número
-            // asentado y no el primero que llegó a esa banda.
+            // asentado y no el primero que llegó a esa banda. **Ese valor afina solo el destino**:
+            // el «desde» sigue siendo `_lastAnnouncedPercent` (ver más abajo).
             _candidatePercent = percent;
 
             if ((nowUtc - _candidateSinceUtc).TotalSeconds < SettleSeconds) return null;
 
-            // Asentado en el detente que ya se anunció: no hay línea. Se actualiza el «desde» para
-            // que un cambio posterior dentro de la misma banda no arrastre un valor viejo.
+            // Asentado en el detente que ya se anunció: no hay línea y **no se toca el «desde»**.
+            // Guardar aquí el valor exacto contaminaba el origen con un número que nunca se publicó:
+            // 62 % y 75 % son la misma banda 6, y en `YxzZxO92Qnbxlqla` eso hizo que la línea de las
+            // 03:40:47 dijera `62% → 50%` cuando lo anunciado era el 75 %.
             if (band == _lastAnnouncedBand)
-            {
-                _lastPercent = _candidatePercent;
                 return null;
-            }
 
-            var transition = new FlapTransition(_lastPercent, _candidatePercent);
-            _lastAnnouncedBand = band;
-            _lastPercent       = _candidatePercent;
+            var transition = new FlapTransition(_lastAnnouncedPercent, _candidatePercent);
+            _lastAnnouncedBand    = band;
+            _lastAnnouncedPercent = _candidatePercent;
             return transition;
         }
 
         /// <summary>Vuelve al estado de siembra (arranque de vuelo o reconexión).</summary>
         internal void Reset()
         {
-            _seeded            = false;
-            _lastAnnouncedBand = 0;
-            _lastPercent       = 0.0;
-            _candidateBand     = 0;
-            _candidatePercent  = 0.0;
-            _candidateSinceUtc = default(DateTime);
+            _seeded                = false;
+            _lastAnnouncedBand     = 0;
+            _lastAnnouncedPercent  = 0.0;
+            _candidateBand         = 0;
+            _candidatePercent      = 0.0;
+            _candidateSinceUtc     = default(DateTime);
         }
     }
 

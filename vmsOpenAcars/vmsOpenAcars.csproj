@@ -192,6 +192,10 @@
     <Compile Include="Helpers\ApproachSpeedWindow.cs" />
     <!-- La DA de la aproximación sale del umbral + 200 ft CAT I, no del TCH (v0.9.79). -->
     <Compile Include="Helpers\DecisionAltitude.cs" />
+    <!-- Las dos bandas de tolerancia de la compuerta (v0.9.80): 15 ft en mínimos y 50 fpm en
+         descenso excesivo — el altímetro y la tasa vertical tienen resolución de instrumento. -->
+    <Compile Include="Helpers\MinimumsTolerance.cs" />
+    <Compile Include="Helpers\ExcessiveDescentTolerance.cs" />
     <Compile Include="Helpers\XPlaneAcfIdentity.cs" />
     <Compile Include="Helpers\AirspaceRouteSampler.cs" />
     <!-- Qué zonas acotadas son violación y cuáles solo advertencia (v0.9.73): Danger no manda el

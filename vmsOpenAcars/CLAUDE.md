@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.79  
+**Versión actual:** v0.9.80  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -660,8 +660,9 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1251 tests** (1 se omite sola).
+`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1260 tests** (1 se omite sola).
 **v0.9.79**: portero de flaps (1,5 s por detente), DA = umbral + 200 (nunca el TCH), pintura solo con aerolínea reconocible y NavMap como depuración — detalle en `Docs/architecture.md` → "Los cuatro defectos del PIREP `l5QVxBEmJ4yOaY2O` (v0.9.79)".
+**v0.9.80**: bandas de 15 ft en mínimos y 50 fpm en descenso excesivo (umbrales efectivos 192 ft y −1050 fpm, cambia la puntuación), NavMap sin `⚠️` y con los dos emisores en depuración, texto del Vref y «desde» de flaps — detalle en `Docs/architecture.md` → "Los cuatro defectos del PIREP `YxzZxO92Qnbxlqla` (v0.9.80)".
 
 **Qué cubre la suite** — cada bloque con sus casos reales, sus fixtures y lo que no se puede
 re-ejecutar sin red: **`Docs/architecture.md`** → "Las suites de tests y sus casos reales".

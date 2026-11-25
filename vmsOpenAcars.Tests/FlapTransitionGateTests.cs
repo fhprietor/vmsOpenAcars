@@ -150,5 +150,72 @@ namespace vmsOpenAcars.Tests
                 Assert.IsNull(gate.Update(62.0, BaseUtc.AddSeconds(i * 0.1)),
                     "el 62 % ya estaba anunciado: no repite línea");
         }
+
+        // ── El «desde» es el último anunciado (v0.9.80) ──────────────────────────
+        //
+        // Las dos secuencias del PIREP `YxzZxO92Qnbxlqla` (B738 SSW, MSFS 2024, MPTO→SKCG). La
+        // causa es la misma en las dos: 62 % y 75 % caen en la **banda 6**, así que asentarse en
+        // 75 después de anunciar 62 no escribe línea —pero antes actualizaba el «desde»—; el
+        // siguiente detente arrastraba ese 75 exacto que nunca se publicó.
+
+        [TestMethod]
+        public void ElDesdeDeLas033639_EsEl62Anunciado_NoEl75Exacto()
+        {
+            var gate = new FlapTransitionGate();
+            var t    = new DateTime(2026, 11, 24, 3, 35, 49, DateTimeKind.Utc);
+
+            Assert.IsNull(gate.Update(50.0, t), "la primera lectura siembra");
+
+            // 03:35:51  50% → 62%: el primer detente anunciado.
+            Assert.IsNull(gate.Update(62.0, t.AddSeconds(2.0)));
+            var first = gate.Update(62.0, t.AddSeconds(3.5));
+            Assert.IsTrue(first.HasValue, "1,5 s en la banda 6 es la primera línea anunciada");
+            Assert.AreEqual(50.0, first.Value.PreviousPercent, 1e-9);
+            Assert.AreEqual(62.0, first.Value.Percent, 1e-9);
+
+            // 03:36:35: el mando se queda en 75, la MISMA banda 6 del 62 ya anunciado. No hay
+            // línea, pero el 75 se guarda como destino exacto.
+            Assert.IsNull(gate.Update(75.0, t.AddSeconds(46.0)));
+            Assert.IsNull(gate.Update(75.0, t.AddSeconds(48.0)),
+                "asentado dentro de la banda ya anunciada: no repite línea");
+
+            // 03:36:39: banda 7. La línea tiene que decir «62 → 87», no «75 → 87».
+            Assert.IsNull(gate.Update(87.0, t.AddSeconds(50.0)), "el 87 todavía no se asentó");
+            var changed = gate.Update(87.0, t.AddSeconds(51.6));
+            Assert.IsTrue(changed.HasValue, "el 87 se asienta y es un detente distinto");
+            Assert.AreEqual(62.0, changed.Value.PreviousPercent, 1e-9,
+                "el «desde» es el último porcentaje ANUNCIADO (62), no el 75 exacto de la banda");
+            Assert.AreEqual(87.0, changed.Value.Percent, 1e-9);
+        }
+
+        [TestMethod]
+        public void ElDesdeDeLas034047_EsEl75Anunciado_NoEl62Exacto()
+        {
+            var gate = new FlapTransitionGate();
+            var t    = new DateTime(2026, 11, 24, 3, 40, 35, DateTimeKind.Utc);
+
+            Assert.IsNull(gate.Update(87.0, t), "la primera lectura siembra en la banda 7");
+
+            // 03:40:41  87% → 75%: la línea que sí se publicó.
+            Assert.IsNull(gate.Update(75.0, t.AddSeconds(2.0)));
+            var first = gate.Update(75.0, t.AddSeconds(3.6));
+            Assert.IsTrue(first.HasValue, "el 75 se asienta y es la banda 6, distinta de la 7");
+            Assert.AreEqual(87.0, first.Value.PreviousPercent, 1e-9);
+            Assert.AreEqual(75.0, first.Value.Percent, 1e-9);
+
+            // 03:40:44: el mando se queda en 62, la MISMA banda 6. Antes ese 62 exacto se guardaba
+            // como «desde» y la línea siguiente salía «62 → 50» cuando lo anunciado era el 75.
+            Assert.IsNull(gate.Update(62.0, t.AddSeconds(9.0)));
+            Assert.IsNull(gate.Update(62.0, t.AddSeconds(10.5)),
+                "asentado dentro de la banda ya anunciada: no repite línea");
+
+            // 03:40:47: banda 5. La línea tiene que decir «75 → 50», no «62 → 50».
+            Assert.IsNull(gate.Update(50.0, t.AddSeconds(12.0)), "el 50 todavía no se asentó");
+            var changed = gate.Update(50.0, t.AddSeconds(13.6));
+            Assert.IsTrue(changed.HasValue, "el 50 se asienta y es la banda 5");
+            Assert.AreEqual(75.0, changed.Value.PreviousPercent, 1e-9,
+                "el «desde» es el último porcentaje ANUNCIADO (75), no el 62 exacto de la banda");
+            Assert.AreEqual(50.0, changed.Value.Percent, 1e-9);
+        }
     }
 }

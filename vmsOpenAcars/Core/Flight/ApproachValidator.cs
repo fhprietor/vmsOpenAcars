@@ -485,8 +485,13 @@ namespace vmsOpenAcars.Core.Flight
                              && ApproachSpeedWindow.PlanVrefExplainsSpeed(ctx.IAS, VrefKt);
             if (speedSkipped)
             {
+                // El texto dice **la verdad**: los 172 kt del PIREP `YxzZxO92Qnbxlqla` son 24 por
+                // encima del Vref del plan (148), lo que corresponde a otra configuración de flaps;
+                // antes el mensaje afirmaba que el Vref del plan «no parece el del avión» y a
+                // continuación imprimía el **mismo** 148. El criterio y la clave no cambian.
                 OnLog?.Invoke(_("Log_ApproachGateSpeedPlanVref",
-                    ctx.IAS, VrefKt.Value, SpeedBasisDetail(vappKt)), Theme.MainText);
+                    ctx.IAS, VrefKt.Value, SpeedBasisDetail(vappKt),
+                    ctx.IAS - VrefKt.Value), Theme.MainText);
             }
             else if (outOfWindow)
             {
@@ -495,10 +500,15 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             // 3. Descent rate
-            if (ctx.VS < -1000)
+            // **El umbral efectivo es −1.050 fpm, no −1.000** (`Helpers/ExcessiveDescentTolerance`):
+            // en el PIREP `YxzZxO92Qnbxlqla` un −1.007 fpm —7 sobre el nominal— costó 5 puntos, y
+            // eso es resolución de la tasa vertical, no una maniobra inestable. El mensaje publica
+            // el umbral efectivo para que el registro sea transparente. −1.200 sigue contando.
+            if (ExcessiveDescentTolerance.IsExcessive(ctx.VS))
             {
                 deductions += 5;
-                OnLog?.Invoke(_("Log_ApproachGateVs", ctx.VS), Theme.Warning);
+                OnLog?.Invoke(_("Log_ApproachGateVs", ctx.VS,
+                    ExcessiveDescentTolerance.EffectiveThresholdFpm), Theme.Warning);
             }
             else if (ctx.VS > -100)
             {
@@ -650,13 +660,19 @@ namespace vmsOpenAcars.Core.Flight
             // `l5QVxBEmJ4yOaY2O` en un campo con el umbral a 134 ft. Y una altitud **por debajo del
             // umbral** no es una bajada de mínimos en el aire: es el datum de un avión ya en tierra
             // (49 ft MSL en un campo de 134 ft está bajo el suelo), así que tampoco se compara.
+            //
+            // **La bajada se marca con 15 ft de banda** (`Helpers/MinimumsTolerance`): en el PIREP
+            // `YxzZxO92Qnbxlqla` los 206 ft contra una DA de 207 ft (umbral 7 + 200) son **1 ft** de
+            // diferencia, o sea el escalón de un altímetro de ~10 ft, y no una violación.
             double thresholdElevFt = _expectedIls != null ? _expectedIls.ThresholdElevFt : 0.0;
             if (_daAltitudeFt.HasValue && ctx.AltitudeMsl >= thresholdElevFt
-                && ctx.AltitudeMsl < _daAltitudeFt.Value
+                && MinimumsTolerance.IsBelowMinimums(ctx.AltitudeMsl, _daAltitudeFt.Value)
                 && !ctx.IsOnGround && !BelowMinimums)
             {
                 BelowMinimums = true;
                 OnLog?.Invoke(_("Log_BelowMinimums", ctx.AltitudeMsl, $"{_daAltitudeFt.Value:F0}",
+                    $"{MinimumsTolerance.Ft:F0}",
+                    $"{MinimumsTolerance.EffectiveDaFt(_daAltitudeFt.Value):F0}",
                     $"{thresholdElevFt:F0}"), Theme.Warning);
             }
 

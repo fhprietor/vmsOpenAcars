@@ -2300,6 +2300,10 @@ namespace vmsOpenAcars.ViewModels
                     // nada con esta línea, así que va marcada como depuración (`AddLogDebug`): no
                     // ensucia el log visible, sigue en el PIREP con `[DBG] ` y no se convierte en
                     // un `⚠️` que parezca accionable. Ver v0.9.79 en el CHANGELOG.
+                    // **v0.9.80: además el texto perdió el `⚠️`.** `DebugLogPolicy` protege ese
+                    // prefijo («nunca ocultar») y la marca explícita no puede saltárselo, así que
+                    // la 0.9.79 seguía pintando la línea y no la prefijaba en el PIREP; con el
+                    // texto sin icono, la depuración hace su trabajo.
                     _cb.LogDebug?.Invoke(
                         string.Format(_("Lnm_RunwayNotFound"), resolvedAirport, (int)data.HeadingDeg),
                         Theme.SecondaryText);
@@ -2411,9 +2415,15 @@ namespace vmsOpenAcars.ViewModels
             var result = _navDataService.FindTakeoffRunway(airport, lat, lon, heading);
             if (result == null)
             {
-                _cb.Log?.Invoke(
+                // **El mismo camino de depuración que el toque (v0.9.79).** Esta es la que hubiera
+                // salido en el vuelo siguiente al `YxzZxO92Qnbxlqla`: la pista de salida del flujo
+                // LittleNavMap no se encuentra y el piloto no puede hacer nada con la línea.
+                // **La clave NO puede empezar por `⚠️`**: `DebugLogPolicy` protege ese prefijo y
+                // una marca explícita sobre él no oculta nada — por eso los dos textos de «pista no
+                // encontrada» lo perdieron en la 0.9.80. Sigue en el PIREP con `[DBG] `.
+                _cb.LogDebug?.Invoke(
                     string.Format(_("Lnm_TakeoffRunwayNotFound"), airport, (int)heading),
-                    Theme.Warning);
+                    Theme.SecondaryText);
                 return;
             }
             _cb.Log?.Invoke(

@@ -1,4 +1,7 @@
+using System.Collections.Generic;
 using System.Configuration;
+using System.IO;
+using System.Text.RegularExpressions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using vmsOpenAcars.Helpers;
 
@@ -341,6 +344,72 @@ namespace vmsOpenAcars.Tests
                 // Idempotente: pasar otra vez por el espejo no acumula `[DBG] [DBG] `.
                 Assert.AreEqual(pirep, AcarsLogMirror.MessageForPirep(true, pirep));
             }
+        }
+
+        /// <summary>
+        /// **Los dos avisos de «pista no encontrada» del NavMap no pueden llevar `⚠️` (v0.9.80).**
+        ///
+        /// En la 0.9.79 el emisor del toque ya se pasó a `_cb.LogDebug`, pero la línea seguía
+        /// saliendo en el PIREP `YxzZxO92Qnbxlqla` (`⚠️ NavMap: runway not found for SKCG (heading
+        /// 0°)`): el texto de la clave empezaba por `⚠️` y `DebugLogPolicy` protege ese prefijo
+        /// **antes** de mirar la marca explícita. La marca no puede saltarse la guarda de «nunca
+        /// ocultar», así que el arreglo es quitar el icono de los dos textos —el del toque y el de
+        /// despegue, que era el siguiente en salir— y dejar que la depuración haga su trabajo.
+        /// Se leen los dos `.json` del repositorio para que reponer el `⚠️` rompa esta prueba.
+        /// </summary>
+        [TestMethod]
+        public void LosDosAvisosDePistaNoEncontrada_SeOcultanComoDepuracion()
+        {
+            var es = LoadLanguage("es.json");
+            var en = LoadLanguage("en.json");
+            if (es.Count == 0 || en.Count == 0)
+                Assert.Inconclusive("no se encontraron los archivos de idioma desde la carpeta de tests");
+
+            string[] keys = { "Lnm_RunwayNotFound", "Lnm_TakeoffRunwayNotFound" };
+            foreach (var file in new[] { es, en })
+            {
+                foreach (string key in keys)
+                {
+                    Assert.IsTrue(file.ContainsKey(key), $"falta «{key}»");
+                    string line = string.Format(file[key], "SKCG", 0);
+
+                    Assert.IsFalse(line.TrimStart().StartsWith("⚠️"),
+                        $"«{key}» empieza por un prefijo protegido: la marca explícita no podría ocultarla");
+                    Assert.IsTrue(DebugLogPolicy.IsDebug(true, line),
+                        $"«{line}» va marcada como depuración desde su punto de llamada");
+                    Assert.IsFalse(DebugLogPolicy.ShouldDisplay(false, DebugLogPolicy.IsDebug(true, line)),
+                        $"«{line}» no debe pintarse con `debug_log` apagado");
+                    StringAssert.StartsWith(DebugLogPolicy.ForPirep(true, line), DebugLogPolicy.DebugPrefix,
+                        "y sigue viajando al PIREP con la bandera que phpVMS puede filtrar");
+                }
+            }
+        }
+
+        /// <summary>Los archivos de idioma, con la misma búsqueda de rutas que usan los otros tests.</summary>
+        private static Dictionary<string, string> LoadLanguage(string fileName)
+        {
+            foreach (string rel in new[]
+            {
+                Path.Combine("Languages", fileName),
+                Path.Combine(@"..\..\vmsOpenAcars\Languages", fileName),
+                Path.Combine(@"..\..\..\vmsOpenAcars\bin\Debug\Languages", fileName),
+                Path.Combine(@"..\vmsOpenAcars\bin\Debug\Languages", fileName),
+            })
+            {
+                try
+                {
+                    if (!File.Exists(rel)) continue;
+
+                    var dict = new Dictionary<string, string>();
+                    foreach (Match m in Regex.Matches(File.ReadAllText(rel),
+                                 "\"(?<k>[^\"]+)\"\\s*:\\s*\"(?<v>(?:[^\"\\\\]|\\\\.)*)\""))
+                        dict[m.Groups["k"].Value] = Regex.Unescape(m.Groups["v"].Value);
+
+                    if (dict.Count > 0) return dict;
+                }
+                catch { }
+            }
+            return new Dictionary<string, string>();
         }
 
         [TestMethod]

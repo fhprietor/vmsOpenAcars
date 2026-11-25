@@ -37,6 +37,7 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 | `NOTAS-PILOTOS-0.9.77.md` | **Pilotos** | El registro del vuelo deja de mostrar los volcados técnicos y hay una casilla en Ajustes, apagada de serie, para verlos cuando se necesiten |
 | `NOTAS-PILOTOS-0.9.78.md` | **Pilotos** | El informe técnico de arranque (sistema, CPU, GPU, nativas, aviso del simulador) deja de escribirse en el registro: queda tras la casilla de depuración |
 | `NOTAS-PILOTOS-0.9.79.md` | **Pilotos** | Los flaps dejan de escribir una línea por cada temblor, el «BELOW MINIMUMS» imposible desaparece, no se inventa la pintura y el aviso de NavMap sale del registro |
+| `NOTAS-PILOTOS-0.9.80.md` | **Pilotos** | Las bandas de 15 ft y 50 fpm quitan los avisos y penalizaciones por ruido de instrumento (cambia la puntuación), el aviso de NavMap desaparece y dos textos dejan de contradecirse |
 | `NOTAS-PILOTOS-0.9.75.md` | **Pilotos** | La altura del aterrizaje pasa a ser la **altura real de las ruedas** (con el cero del addon), el go-around ya no vuelve al origen y el vuelo retomado ya no confunde MSL con AGL; el análisis recibe umbral, extremo, TCH y senda |
 | `NOTAS-PILOTOS-0.9.74.md` | **Pilotos** | El G del toque ya no dice «Normal» mientras descuenta, los avisos de pista solo suenan yendo al punto de espera, la reversa fantasma se ignora y la Vapp nunca baja del Vref |
 | `NOTAS-PILOTOS-0.9.58.md` | **Pilotos** | La linea de NavData del conectar dice **hasta cuando** es valido el AIRAC, no solo el ciclo |

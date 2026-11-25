@@ -2,6 +2,112 @@
 
 ---
 
+## [0.9.80] — 24/11/2026
+
+**Cuatro defectos medidos en el PIREP real `YxzZxO92Qnbxlqla`** (B738 SSW, MSFS 2024, MPTO→SKCG,
+v0.9.79): dos criterios disparaban con el ruido de los instrumentos, el aviso del NavMap seguía
+saliendo porque su texto llevaba `⚠️`, el mensaje del Vref se contradecía consigo mismo y el «desde»
+del log de flaps no era el último porcentaje anunciado.
+
+> **Esto cambia la puntuación.** La banda de 50 fpm del descenso excesivo deja de cobrar 5 puntos a
+> los vuelos cuyo VS esté entre **−1.001 y −1.050 fpm**; los que estén por debajo de −1.050 siguen
+> cobrando igual. Es una decisión del mantenedor, tomada con las cifras de este PIREP: −1.007 fpm
+> son 7 sobre el umbral nominal y no una maniobra inestable. **No se relaja ningún otro criterio**
+> de la compuerta (velocidad, bank, pitch, gear, flaps).
+
+### 1. Los umbrales disparan con el ruido del instrumento
+
+Dos avisos del mismo vuelo saltaron por resolución de instrumento, no por una violación:
+
+```
+03:38:53  ⚠️ BELOW MINIMUMS: 206 ft MSL < DA 207 ft (threshold 7 ft + 200)   ← 1 ft
+03:24:14  ⚠️ APPROACH GATE: Excessive descent -1007 fpm (−5)                ← 7 fpm
+```
+
+El segundo costó **5 puntos**. El primero saltaría en todos los aterrizajes: el altímetro tiene una
+resolución de ~10 ft.
+
+- **`Helpers/MinimumsTolerance`** (puro, con test): la DA se compara con una banda de **15 ft** —1,5
+  pasos de la cuantización de ~10 ft—. Para el caso real (DA 207 ft) el umbral efectivo es **192 ft**:
+  los **206 ft no avisan**, y una bajada de **185 ft** (22 por debajo) sí. La igualdad en el borde
+  (exactamente 15 ft) no cuenta: el criterio es «más de 15 ft».
+- **`Helpers/ExcessiveDescentTolerance`** (puro, con test): el umbral nominal de −1.000 fpm se queda
+  como referencia y el **efectivo pasa a −1.050 fpm** (50 de margen). **−1.007 no cuenta** y
+  **−1.200 sigue contando**.
+- Los dos mensajes publican el umbral efectivo para que el registro sea transparente:
+  `… < DA 207 ft − 15 ft de tolerancia = 192 ft efectivo (umbral 7 ft + 200)` y
+  `… Descenso excesivo -1007 fpm (umbral efectivo -1050 fpm) (−5)`.
+- **Tests**: `ApproachToleranceTests` (6: los dos casos reales, la bajada de verdad y los dos bordes)
+  y el caso MPTO de `ApproachValidatorMinimumsTests`, que pasa a fijar que **333 ft contra 334 ft ya
+  no avisa** y que **318 ft sí** (334 − 15 = 319).
+
+### 2. `NavMap` seguía saliendo: el `⚠️` anulaba la marca de depuración
+
+El PIREP traía `03:39:12 ⚠️ NavMap: runway not found for SKCG (heading 0°)`. La 0.9.79 ya había
+pasado el emisor del toque a `_cb.LogDebug`, pero la línea seguía pintándose: el texto de
+`Lnm_RunwayNotFound` **empieza por `⚠️`**, y `DebugLogPolicy` protege ese prefijo **antes** de mirar
+la marca explícita (la guarda de «nunca ocultar»). La marca no puede saltarse la guarda, así que el
+arreglo estaba incompleto aunque la llamada fuese la correcta.
+
+- **`TelemetryCoordinator.LookupTakeoffRunwayData`** (`Lnm_TakeoffRunwayNotFound`) pasa a
+  `_cb.LogDebug` con `Theme.SecondaryText`: es la siguiente que hubiera salido en otro vuelo.
+- **Los dos textos pierden el `⚠️`** en `es.json` y `en.json` (la clave no cambia): `NavMap: pista no
+  encontrada…` y `NavMap: pista de despegue no encontrada…`. Así la marca explícita oculta la línea
+  de la pantalla, la deja en el PIREP con `[DBG] ` y no la convierte en un aviso accionable.
+- **Revisados todos los `Lnm_*` con `⚠️`**: `Lnm_RunwayNotFound` y `Lnm_TakeoffRunwayNotFound` son
+  los dos únicos de «pista no encontrada» y quedan en depuración. `Lnm_ArrivalAirportMismatch`,
+  `Lnm_DiversionDetected` y `Lnm_DistanceMismatch` **se quedan visibles** (son eventos del vuelo o
+  marcan la llegada para revisión). `Lnm_Available`/`Lnm_NotConfigured`/`Lnm_NotFound` son
+  información de arranque con `🗺️` y no se tocan.
+- **Test**: `DebugLogPolicyTests.LosDosAvisosDePistaNoEncontrada_SeOcultanComoDepuracion` lee los dos
+  `.json` y falla si alguien repone el `⚠️`.
+
+### 3. El mensaje del Vref se contradecía
+
+```
+ℹ️ APPROACH GATE: Speed 172 kts NOT evaluated — the plan's Vref (148 kt) does not look
+   like the aircraft's (Vref 148 kt, Vapp 153 kt (del plan), peso de planeo 143,069 lb)
+```
+
+Decía que el Vref del plan no se parecía al del avión y a continuación enseñaba **el mismo 148**. La
+omisión del criterio es correcta (`ApproachSpeedWindow.PlanVrefExplainsSpeed`: 172 ≥ 148 + 8, otra
+configuración de flaps); lo que estaba mal era el texto.
+
+- Texto nuevo en los dos `.json`, **sin tocar la clave ni el comportamiento**: los 172 kt son **24
+  por encima** del Vref del plan (148), lo que corresponde a otra configuración de flaps, y por eso
+  el criterio de velocidad no aplica. El número de diferencia se calcula en el punto de llamada
+  (`ctx.IAS − VrefKt`), no se escribe a mano.
+
+### 4. El «desde» del log de flaps no era el último anunciado
+
+Dos líneas reales del vuelo:
+
+```
+03:36:39  75% → 87%   ← lo último anunciado había sido 62%
+03:40:47  62% → 50%   ← lo último anunciado había sido 75%
+```
+
+- **Causa raíz**: en `Helpers/FlapTransitionGate`, al asentarse un valor en el **mismo detente ya
+  anunciado** se guardaba su porcentaje exacto como «desde» (la línea 92-108 de la 0.9.79). 62 % y
+  75 % caen en la **misma banda 6**, así que el 75 exacto nunca publicado contaminaba el origen de la
+  transición siguiente.
+- **Arreglo**: el «desde» es `_lastAnnouncedPercent`, que solo cambia al **sembrar** y al **anunciar**;
+  el valor exacto del candidato solo puede afinar el **destino**. Las dos líneas pasan a ser
+  `62% → 87%` y `75% → 50%`.
+- **Tests**: dos nuevos en `FlapTransitionGateTests` con las dos secuencias literales de porcentajes.
+
+### Cifras
+
+- **548 claves** en `es.json` y `en.json` (sin altas ni bajas; cambian los textos de
+  `Log_ApproachGateVs`, `Log_BelowMinimums`, `Log_ApproachGateSpeedPlanVref`, `Lnm_RunwayNotFound` y
+  `Lnm_TakeoffRunwayNotFound`).
+- **1.260 tests** (1 se omite sola), **9 más** que en la 0.9.79: 6 de `ApproachToleranceTests`, 2 de
+  `FlapTransitionGateTests` y 1 de `DebugLogPolicyTests`.
+- Build **Debug** y **Release** limpios; `ProductVersion` de `bin\Release\vmsOpenACars.exe` =
+  **0.9.80**.
+
+---
+
 ## [0.9.79] — 24/11/2026
 
 **Cuatro defectos medidos en el PIREP real `l5QVxBEmJ4yOaY2O`** (B738 SSW, MSFS 2024, SKRG→MPTO,
