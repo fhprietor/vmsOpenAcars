@@ -3754,3 +3754,100 @@ prefija el espejo con `[DBG] ` y no duplica la bandera; que la guarda manda sobr
 `⚠️` y con los catorce prefijos protegidos); y la regresión de la 0.9.77 (cinco familias por texto y
 ocho eventos visibles). El total queda en **1.240 tests** (1 se omite sola).
 
+
+
+## Los cuatro defectos del PIREP `l5QVxBEmJ4yOaY2O` (v0.9.79)
+
+El PIREP real (B738 SSW, MSFS 2024, SKRG→MPTO, v0.9.78) dejó cuatro defectos medidos. Los cuatro se
+corrigen con un helper puro y su test, y ninguno cambia el scoring.
+
+### El portero de flaps (`Helpers/FlapTransitionGate`)
+
+**Síntoma.** La aproximación escribió siete transiciones en seis segundos (62 % ↔ 75 % ↔ 87 %) y el
+despegue doce en quince, con un solo movimiento del piloto. `FsuipcService.DetectFlapsChange` ya
+agrupaba por bandas (`FlapsScale.BandKey`, la escala única de la 0.9.70), pero
+`TelemetryCoordinator.OnFlapsChanged` escribía la línea **en cuanto** llegaba el evento: el temblor
+del addon era una transición.
+
+**Diseño.** El portero es un `internal sealed` con estado y sin red ni WinForms. Cada ciclo de 20 Hz
+se le pasa `CurrentFlapsPercent` y el instante; devuelve `FlapTransition?` solo cuando se cumplen
+las dos condiciones:
+
+1. el valor lleva **`SettleSeconds` = 1,5 s** en el mismo detente (`BandKey`, no porcentaje);
+2. ese detente es **distinto del último anunciado**.
+
+La primera lectura siembra el estado (no es un cambio que contarle al piloto) y el «desde» de la
+primera transición es el último valor asentado. Si el detente asentado es el mismo que el último
+anunciado, no hay línea pero se actualiza el porcentaje de referencia, para que un cambio posterior
+dentro de la misma banda no arrastre un valor viejo.
+
+**Por qué 1,5 s.** En la secuencia de aproximación los falsos sostenidos duran entre 0,5 y 2 s; el
+tramo de 75 % del 01:49:29–01:49:31 es el único que supera 1,5 s y, al caer en la banda 6 (la misma
+del 62 % ya anunciado), no escribe. Queda **una** línea, el 87 % final. En el despegue, el 13 % que
+se sostiene entre 00:59:49 y 00:59:53 sí pasa el umbral y deja una línea intermedia; el 38 % final
+deja la segunda: **dos**, no doce. Un umbral de 1 s volvería a escribir el temblor de la
+aproximación; uno de 2 s retrasaría un cambio real de detente sin ganar nada.
+
+**Dónde se integra.** En `FsuipcService.DetectFlapsChange`, que es el único sitio que ve la lectura
+cruda en cada ciclo. `TelemetryCoordinator.OnFlapsChanged` sigue siendo el que pinta la línea, ahora
+con transiciones ya asentadas (el «desde» es el último valor asentado, no el pico anterior). El
+detector antiguo (`FLAPS_DEBOUNCE_MS` de 500 ms + histéresis de 1 %) se retira: el asentamiento lo
+subsume.
+
+**Tests** (`FlapTransitionGateTests`): las dos secuencias literales del PIREP (una y dos líneas),
+un cambio real 38→50 sostenido (se anuncia a los 1,5 s con el «desde» correcto), un temblor dentro
+de la misma banda (no) y un pico que no se asienta (no).
+
+### La DA de la aproximación (`Helpers/DecisionAltitude`)
+
+**Síntoma.** `01:51:46 ⚠️ BELOW MINIMUMS: 49 ft MSL < DA 50 ft`. Los 50 ft eran el TCH
+(`glideslope.altitude_ft` de NavData → `IlsData.GlideslopeAltFt`), no una DA: el umbral de MPTO
+está a **134 ft**, así que 49 ft MSL es una altitud bajo tierra. `ApproachValidator.SetApproachData`
+prefería ese campo sobre la rama correcta (`ThresholdElevFt + 200`).
+
+**Qué publica NavData.** Se revisaron `NavIls` (ident, frecuencia, `loc_true_heading`, glideslope con
+`pitch_deg`/`altitude_ft`/lat/lon) y `NavApproach` (tipo, sufijo, pista, fixes, guía vertical, legs y
+transiciones): **no hay mínimos de carta** (`da_ft`, `dh_ft`, RVR). El TCH derivado (`tch_ft`) es una
+altura sobre el umbral y **no** es una DA. No se inventa un mínimo: la DA es la **CAT I estándar**,
+umbral + **200 ft**, que ya era la rama de respaldo.
+
+**Reglas.** `DecisionAltitude.FromThresholdElevation` devuelve `null` sin elevación utilizable (0,
+negativa o `NaN`): sin dato no se compara, no se marca y el criterio queda omitido. Además, una
+altitud **por debajo de la elevación del umbral** no es una bajada de mínimos en el aire (es el
+datum de un avión ya en tierra): tampoco se compara. En MPTO la DA es **334 ft MSL**; 49 ft MSL no
+avisa, 333 ft sí. La línea del aviso pasa a `… < DA 334 ft (umbral 134 ft + 200)` para que se pueda
+auditar sin reconstruir la política.
+
+**Tests** (`DecisionAltitudeTests` + `ApproachValidatorMinimumsTests`): 134/50 → 334 (no 50), sin
+elevación no hay DA, MPTO real (49 no avisa, 333 sí) y sin umbral no hay comparación.
+
+### La pintura (`Helpers/AircraftLivery`)
+
+**Síntoma.** `737-800 PAX SSW HD` → «🎨 Pintura: PAX». Tercera vez el mismo fallo: `777-200LR` →
+`777` (v0.9.16) y `ATR 72-600 Passenger` → `ATR` (v0.9.67). La heurística devolvía «el primer token
+plausible» y cada addon nuevo exigía otra lista de exclusión.
+
+**Regla.** Solo se pinta un nombre de aerolínea **reconocible y presente en el título** (la lista
+`Airlines`), o el código de aerolínea del plan (`SimbriefPlan.Airline`) **si el título también lo
+contiene como token** (comparación por token, no por subcadena: `AVA` no casa dentro de `Avanti`).
+Si no hay evidencia, `Unknown` y no se pinta la línea. Desaparecen la lista de fabricantes, la regla
+de «sin dígitos» y el escaneo de tokens: ya no hay nada que excluir porque no hay nada que adivinar.
+La livery por matrícula sigue retirada desde la 0.9.16 (decisión del mantenedor).
+
+**Tests** (`AircraftLiveryTests`): los tres títulos reales no pintan; las aerolíneas de la lista sí;
+`B738 AAL` sin el código en el plan no es pintura; el código del plan solo cuenta si el título lo
+escribe.
+
+### El aviso del NavMap (`TelemetryCoordinator.LookupRunwayData`)
+
+**Síntoma.** `⚠️ NavMap: runway not found for MPTO (heading 0°)`. El emisor **sí existía**: al no
+resolver la pista en el fallback de aeropuertos del toque, se escribía `Lnm_RunwayNotFound` con
+`Theme.Warning`. Es el camino **LittleNavMap**, retirado: `lnm_db_path` está deprecated, los campos
+de `FlightScoreData` son «optional — populated when LNM DB is configured» y `ScoringService` solo
+puntúa la zona de toque si `CenterlineDeviationFt > 0`; el `heading 0°` delata que se llamaba sin
+rumbo.
+
+**Arreglo.** La línea pasa a `_cb.LogDebug` con `Theme.SecondaryText`: no se pinta con `debug_log`
+apagado, no es un `⚠️` accionable y, si ocurre con un PIREP activo, sigue llegando al servidor con
+`[DBG] ` (la marca explícita de la 0.9.78). No se elimina el emisor: sigue siendo útil para
+diagnosticar la resolución de pista cuando se enciende el log de depuración.

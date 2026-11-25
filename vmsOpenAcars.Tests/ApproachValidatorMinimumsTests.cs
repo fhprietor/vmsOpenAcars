@@ -219,6 +219,66 @@ namespace vmsOpenAcars.Tests
         }
 
         /// <summary>
+        /// **El caso real del PIREP `l5QVxBEmJ4yOaY2O`** (B738 SSW, MSFS 2024, SKRG→MPTO): umbral a
+        /// **134 ft** y TCH **50 ft**. La 0.9.78 tomaba el TCH como DA y escribía
+        /// `⚠️ BELOW MINIMUMS: 49 ft MSL < DA 50 ft`; la DA correcta es **334 ft MSL**
+        /// (umbral + 200 CAT I) y un avión a **49 ft MSL** en un campo de 134 ft está bajo el suelo,
+        /// no bajando de mínimos en el aire. Las dos cosas se fijan aquí.
+        /// </summary>
+        [TestMethod]
+        public void PirepRealMpto_ElTchNoEsDa_Y49FtMslNoAvisa()
+        {
+            var fm        = NewFlightManager();
+            var validator = ValidatorOf(fm);
+
+            // `GlideslopeAltFt` es el TCH que publicaba NavData (50 ft en MPTO). Ya no se usa como
+            // DA; se deja puesto en el fixture para que el test falle si alguien lo vuelve a cablear.
+            validator.SetApproachData(new IlsData
+            {
+                RunwayName      = "03",
+                Course          = 3.0,
+                ThresholdLat    = 9.0714,
+                ThresholdLon    = -79.3835,
+                ThresholdElevFt = 134.0,
+                GlideslopeAltFt = 50.0,
+            }, null, null);
+
+            // 49 ft MSL: por debajo de la elevación del umbral (134 ft). No es un aviso de mínimos.
+            validator.CheckApproachBelowGate(FlareContext(altitudeMsl: 49));
+            Assert.IsFalse(fm.BelowMinimums,
+                "49 ft MSL en un campo de 134 ft no es «bajo mínimos»: el avión estaría bajo tierra");
+            Assert.IsNull(MinimumsDeduction(Score(fm.BelowMinimums)),
+                "y no puede costar los 5 puntos del criterio");
+
+            // La DA real es 334 ft MSL: 333 ft en el aire sí es una bajada de mínimos.
+            validator.CheckApproachBelowGate(FlareContext(altitudeMsl: 333));
+            Assert.IsTrue(fm.BelowMinimums,
+                "333 ft MSL < 334 ft (134 + 200) sí es bajar de la DA real");
+        }
+
+        /// <summary>
+        /// Sin elevación del umbral no hay DA: el validador no compara, no marca y el criterio queda
+        /// omitido. Es la regla de «degradar sin datos» aplicada a los mínimos.
+        /// </summary>
+        [TestMethod]
+        public void SinElevacionDelUmbral_NoHayComparacion()
+        {
+            var fm        = NewFlightManager();
+            var validator = ValidatorOf(fm);
+            validator.SetApproachData(new IlsData
+            {
+                RunwayName      = "03",
+                Course          = 3.0,
+                ThresholdElevFt = 0.0,
+                GlideslopeAltFt = 50.0,   // el TCH no sustituye a la elevación
+            }, null, null);
+
+            validator.CheckApproachBelowGate(FlareContext(altitudeMsl: 49));
+            Assert.IsFalse(fm.BelowMinimums,
+                "sin elevación del umbral no hay altitud contra la que comparar");
+        }
+
+        /// <summary>
         /// `Reset()` —el que se llama en el arranque de vuelo y en `ResetFlightState`— devuelve el
         /// validador a su estado limpio: sin marcador y sin los datos de aproximación, así que la DA
         /// vuelve a 0 y un ciclo posterior a 180 ft no enciende nada.

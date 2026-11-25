@@ -373,7 +373,7 @@
   "Log_IlsApproachSkipped":   "ℹ️ Alineación de Localizador omitida — NAV1 {0} MHz ≠ ILS {1} MHz (aproximación RNP/visual)",
   "Log_IlsTunedOk":           "✅ ILS sintonizado: {0} MHz / CRS {1}°",
   "Log_LocalizerDeviation":   "⚠️ LOCALIZADOR: rumbo {0}° desvía {1}° del CRS ILS {2}°",
-  "Log_BelowMinimums":        "⚠️ BAJO MÍNIMOS: {0} ft MSL < DA {1} ft",
+  "Log_BelowMinimums":        "⚠️ BAJO MÍNIMOS: {0} ft MSL < DA {1} ft (umbral {2} ft + 200)",
   "Log_ApproachFix":          "📍 {0} a {1} ft AGL",
   "Log_PlanDestination":      "📊 Plan cargado. Destino: {0} (elevación: {1} ft)",
   "Log_AircraftVariant":      "🛩️ Variante de aeronave — Sim: {0} / OFP: {1} (misma familia, OK)",

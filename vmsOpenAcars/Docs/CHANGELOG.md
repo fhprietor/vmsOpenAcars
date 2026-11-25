@@ -2,6 +2,99 @@
 
 ---
 
+## [0.9.79] — 24/11/2026
+
+**Cuatro defectos medidos en el PIREP real `l5QVxBEmJ4yOaY2O`** (B738 SSW, MSFS 2024, SKRG→MPTO,
+v0.9.78): el log de flaps escribía una transición por cada temblor del addon, el TCH se usaba como
+altitud de decisión y producía un «BAJO MÍNIMOS» imposible, la pintura seguía inventándose a partir
+de un token del título y el aviso del NavMap retirado seguía saliendo como si fuera accionable.
+
+### 1. Los flaps escriben una línea por cada temblor
+
+En la aproximación, **siete transiciones en seis segundos** entre 62 %, 75 % y 87 %:
+
+```
+01:49:27  62% → 87%
+01:49:28  87% → 62%
+01:49:29  62% → 87%
+01:49:29  87% → 75%
+01:49:31  75% → 87%
+01:49:32  87% → 75%
+01:49:33  75% → 87%
+```
+
+y en el despegue, **doce en quince segundos**, con saltos imposibles (`0 % → 38 %` y `38 % → 13 %`
+en el mismo segundo): `00:59:43 0→25 · 00:59:44 25→38 · 00:59:44 38→13 · 00:59:45 13→0 ·
+00:59:45 0→38 · 00:59:46 38→13 · 00:59:47 13→38 · 00:59:47 38→13 · 00:59:49 13→38 ·
+00:59:49 38→13 · 00:59:53 13→25 · 00:59:57 25→38`. El piloto movió la palanca **una vez**.
+
+- **Causa raíz**: `TelemetryCoordinator.OnFlapsChanged` escribía la línea **en cuanto** llegaba un
+  cambio; el detector de FSUIPC ya agrupaba por bandas, pero no esperaba a que el valor se asentara.
+- **`Helpers/FlapTransitionGate`**: portero puro con estado. Solo deja pasar un detente cuando el
+  valor se queda **1,5 s** en el mismo `FlapsScale.BandKey` **y** ese detente es distinto del
+  último anunciado. Se alimenta en cada ciclo de 20 Hz, así que el detente final se anuncia sin
+  esperar a otro cambio.
+- **Por qué 1,5 s**: los falsos sostenidos de las dos secuencias duran entre 0,5 y 2 s; el único que
+  supera el umbral sin ser el detente ya publicado es el 75 % del 01:49:29–01:49:31, que cae en la
+  misma banda que el 62 % anterior. Resultado: la secuencia de siete transiciones queda en **una**
+  línea (el 87 % final) y la de doce en **dos** (el 13 % que se sostiene hasta 00:59:53 y el 38 %
+  final), no en doce. Un umbral de 1 s volvería a escribir el temblor; uno de 2 s retrasaría un
+  cambio real sin ganar nada.
+- **Tests**: `FlapTransitionGateTests` con las dos secuencias literales (una línea / dos líneas), un
+  cambio real 38→50 sostenido (sí se anuncia) y un temblor dentro de la misma banda (no).
+
+### 2. El TCH se usaba como altitud de decisión
+
+La línea real `01:51:46 ⚠️ BELOW MINIMUMS: 49 ft MSL < DA 50 ft` comparaba una altitud **MSL** con
+una altura **sobre el umbral** en un campo con el umbral a **134 ft**: un avión a 49 ft MSL estaría
+bajo tierra. Los 50 ft eran el **TCH** (`glideslope.altitude_ft` → `IlsData.GlideslopeAltFt`), que
+`ApproachValidator.SetApproachData` prefería sobre la elevación del umbral.
+
+- **NavData no publica mínimos de carta**: ni `NavIls` (ident, frecuencia, rumbo, glideslope) ni
+  `NavApproach` (tipo, sufijo, pista, fixes, legs, transiciones) traen `da_ft`/`dh_ft`/RVR. No se
+  inventa: `Helpers/DecisionAltitude` devuelve **umbral + 200 ft** (CAT I estándar) y **nada** si
+  no hay elevación del umbral (> 0). Sin elevación no se compara, no se marca y no se penaliza.
+- En MPTO la DA queda en **334 ft MSL** (134 + 200); 49 ft MSL no dispara el aviso (además está por
+  debajo de la elevación del umbral, no es una bajada de mínimos en el aire) y 333 ft sí.
+- La línea del aviso dice ahora de dónde sale la DA: `… < DA 334 ft (umbral 134 ft + 200)`.
+- **Tests**: `DecisionAltitudeTests` (TCH ≠ DA, sin elevación no hay DA) y dos casos nuevos en
+  `ApproachValidatorMinimumsTests` (MPTO real y umbral sin elevación). El scoring no cambia: el
+  aterrizaje sigue limpiando la bandera (`ClearBelowMinimumsIfLanded`).
+
+### 3. `🎨 Pintura: PAX` y la heurística del «primer token plausible»
+
+Con el título real `737-800 PAX SSW HD` el log pintaba `PAX`. Es la **tercera vez** el mismo tipo de
+fallo: `777-200LR` → `777` (v0.9.16), `ATR 72-600 Passenger` → `ATR` (v0.9.67) y ahora `PAX`.
+
+- **Se retira la heurística**: `Helpers/AircraftLivery` ya no devuelve «el primer token que no sea
+  fabricante y no lleve dígitos». **Solo** pinta un nombre de aerolínea reconocible escrito en el
+  título, o el código de aerolínea del plan (`SimbriefPlan.Airline`) **si el título también lo
+  contiene como token** (la pintura es lo que el avión dice llevar, no lo que el plan espera).
+- `737-800 PAX SSW HD`, `777-200LR` y `ATR 72-600 Passenger` → **sin pintura**; `British Airways`,
+  `Avianca`, `LATAM` o `Airbus A320neo VHR` siguen saliendo. `B738 AAL` sin el código en el plan ya
+  no es pintura. Tests en `AircraftLiveryTests`.
+
+### 4. `⚠️ NavMap: runway not found for MPTO (heading 0°)`
+
+El emisor **sí existía** (`TelemetryCoordinator.LookupRunwayData`, al no resolver la pista con la
+base LNM) y salía como `⚠️` de color `Warning`. Esa pista se buscaba por el camino **LittleNavMap**,
+retirado (`lnm_db_path` deprecated; los campos de `FlightScoreData` son «optional — populated when
+LNM DB is configured» y `ScoringService` solo puntúa si hay datos); el `heading 0°` delata que se
+llamaba sin rumbo. Pasa a `_cb.LogDebug` con `Theme.SecondaryText`: **no se pinta por defecto**
+(`debug_log`), **no** es un `⚠️` accionable y **sigue en el PIREP con `[DBG] `** si ocurre en vuelo.
+Se documenta aquí y no se deja como aviso normal.
+
+### Cifras
+
+- **548 claves** en `es.json` y `en.json` (sin altas ni bajas; solo cambia el texto de
+  `Log_BelowMinimums`, que ahora lleva el umbral).
+- **1.251 tests** (1 se omite sola), **11 más** que en la 0.9.78: 5 de `FlapTransitionGate`, 3 de
+  `DecisionAltitude`, 2 de mínimos con el MPTO real y 1 de pintura.
+- Build **Debug** y **Release** limpios; `ProductVersion` de `bin\Release\vmsOpenACars.exe` =
+  **0.9.79**.
+
+---
+
 ## [0.9.78] — 19/11/2026
 
 **El informe de arranque y el aviso del enlace con el simulador dejan de ensuciar el log, con una

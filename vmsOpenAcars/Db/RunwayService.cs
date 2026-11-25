@@ -117,8 +117,13 @@ namespace vmsOpenAcars.Db
         public double  ThresholdLat    { get; set; }
         public double  ThresholdLon    { get; set; }
         public double  ThresholdElevFt { get; set; }
-        // Real glideslope intercept altitude from NavData /ils/ endpoint.
-        // When set, used directly as DA instead of ThresholdElevFt + 200 ft.
+        /// <summary>
+        /// `glideslope.altitude_ft` de NavData: **altura de cruce del umbral (TCH)**, no una altitud
+        /// de decisión. Se conserva como dato publicado, pero **no alimenta los mínimos**: la DA sale
+        /// de <see cref="vmsOpenAcars.Helpers.DecisionAltitude"/> (umbral + 200 ft CAT I). Usarlo como
+        /// DA produjo el `49 ft MSL &lt; DA 50 ft` del PIREP `l5QVxBEmJ4yOaY2O`, con el umbral a
+        /// 134 ft (v0.9.79).
+        /// </summary>
         public double? GlideslopeAltFt { get; set; }
     }
 

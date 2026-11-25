@@ -308,7 +308,6 @@ namespace vmsOpenAcars.Services
 
         // -- Estado anterior (detección de cambios) --
         private bool _lastOnGround = true;
-        private double _lastFlapsPercent;
         private int _lastParkingBrake;
         private int _lastEngineRpm;
         private bool _lastBeaconState;
@@ -343,17 +342,10 @@ namespace vmsOpenAcars.Services
         private DateTime _pendingLandingAt = DateTime.MinValue;
         private DateTime _pendingTaxiAt = DateTime.MinValue;
 
-        // -- Debounce flaps --
-        private DateTime _lastFlapsChangeTime = DateTime.MinValue;
-        private const double FLAPS_DEBOUNCE_MS = 500;
-        private const double FLAPS_HYSTERESIS = 1.0;
-        /// <summary>
-        /// La **banda** de <see cref="Helpers.FlapsScale.BandKey"/> de la última línea escrita. Se
-        /// cuantiza porque el mando se mueve en pasos de 0,006 % (1 de 16 383): sin banda, cada
-        /// selección escribiría decenas de líneas. Es la misma cuantización que ya existía; lo que
-        /// cambia es que el número publicado es el porcentaje real.
-        /// </summary>
-        private int _lastFlapsBand = -1;
+        // -- Portero de flaps (v0.9.79) --
+        // La banda sola no basta: el valor tiene que asentarse en el detente para que la línea salga.
+        // Ver `Helpers/FlapTransitionGate` para las dos secuencias reales del PIREP `l5QVxBEmJ4yOaY2O`.
+        private readonly Helpers.FlapTransitionGate _flapGate = new Helpers.FlapTransitionGate();
 
         // -- Categoría de planta motriz (detectada por título del avión) --
         private AircraftCategory _currentEngineCategory = AircraftCategory.Unknown;
@@ -1572,29 +1564,16 @@ namespace vmsOpenAcars.Services
             // publicaba la salida de `DecodeFlaps` —grados de Boeing— como si fuera un porcentaje, y
             // de ahí el «0 % → 40 % → 25 % → 40 %» del PIREP `D0Wy9Pa7GNB5pYEo`, que iba hacia atrás
             // porque las compuertas del ATR (15 y 30) caían en las bandas 25 y 40 del 737.
-            double flaps = CurrentFlapsPercent;
-            int    band  = Helpers.FlapsScale.BandKey(flaps);
-            if (band == _lastFlapsBand) return;
-
-            // Primera lectura del vuelo: siembra, no es un cambio que contarle al piloto.
-            if (_lastFlapsBand < 0)
-            {
-                _lastFlapsBand    = band;
-                _lastFlapsPercent = flaps;
-                return;
-            }
-
-            // Si el cambio llega demasiado pronto, no se pierde: no se actualiza la banda y el ciclo
-            // siguiente lo vuelve a intentar. Así el último valor de una selección siempre se publica.
-            if ((DateTime.UtcNow - _lastFlapsChangeTime).TotalMilliseconds < FLAPS_DEBOUNCE_MS) return;
-
-            double previous = _lastFlapsPercent;
-            _lastFlapsBand       = band;
-            _lastFlapsPercent    = flaps;
-            _lastFlapsChangeTime = DateTime.UtcNow;
-
-            if (Math.Abs(flaps - previous) >= FLAPS_HYSTERESIS)
-                FlapsChanged?.Invoke(previous, flaps);
+            //
+            // **La línea ya no sale en cuanto cambia el detente (v0.9.79)**: el portero exige que el
+            // valor se asiente 1,5 s en el mismo detente y que ese detente sea distinto del último
+            // anunciado. El PIREP `l5QVxBEmJ4yOaY2O` tenía siete líneas en seis segundos en la
+            // aproximación (62/75/87 %) y doce en quince en el despegue, con un solo movimiento del
+            // piloto; el temblor del addon ya no escribe transiciones. `Update` se llama en cada
+            // ciclo de 20 Hz, así que el detente final se anuncia sin esperar a otro cambio.
+            var change = _flapGate.Update(CurrentFlapsPercent, DateTime.UtcNow);
+            if (change.HasValue)
+                FlapsChanged?.Invoke(change.Value.PreviousPercent, change.Value.Percent);
         }
 
         private void DetectSpoilersChange()
@@ -2239,11 +2218,12 @@ namespace vmsOpenAcars.Services
             return AircraftCategory.Unknown;
         }
 
-        // El modelo y el designador ICAO van a la regla porque el título del propio avión los
-        // escribe sueltos (`ATR 72-600`): sin ese contexto, `72` o `600` solo se distinguen de una
-        // pintura por llevar dígitos, y el fabricante `ATR` se colaba como si fuera una (v0.9.67).
-        public string GetAircraftLivery() =>
-            Helpers.AircraftLivery.FromTitle(AircraftTitle, AircraftModel, AircraftIcao);
+        // Desde v0.9.79 la regla no adivina tokens: solo reconoce una aerolínea escrita en el
+        // título. El código del plan (`SimbriefPlan.Airline`) se acepta únicamente si el título
+        // también lo escribe —la pintura es lo que el avión dice llevar—. Ver
+        // `Helpers/AircraftLivery` para las tres veces que falló el «primer token plausible».
+        public string GetAircraftLivery(string airlineHint = null) =>
+            Helpers.AircraftLivery.FromTitle(AircraftTitle, airlineHint);
 
         /// <summary>
         /// El desarrollador del addon según el **título**, o vacío si el título no lo nombra.

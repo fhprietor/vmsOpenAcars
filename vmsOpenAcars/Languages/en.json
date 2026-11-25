@@ -375,7 +375,7 @@
   "Log_IlsApproachSkipped":   "ℹ️ Localizer Alignment skipped — NAV1 {0} MHz ≠ ILS {1} MHz (RNP/visual approach)",
   "Log_IlsTunedOk":           "✅ ILS tuned: {0} MHz / CRS {1}°",
   "Log_LocalizerDeviation":   "⚠️ LOCALIZER: heading {0}° deviates {1}° from ILS CRS {2}°",
-  "Log_BelowMinimums":        "⚠️ BELOW MINIMUMS: {0} ft MSL < DA {1} ft",
+  "Log_BelowMinimums":        "⚠️ BELOW MINIMUMS: {0} ft MSL < DA {1} ft (threshold {2} ft + 200)",
   "Log_ApproachFix":          "📍 {0} at {1} ft AGL",
   "Log_PlanDestination":      "📊 Plan loaded. Destination: {0} (elevation: {1} ft)",
   "Log_AircraftVariant":      "🛩️ Aircraft variant — Sim: {0} / OFP: {1} (same family, OK)",

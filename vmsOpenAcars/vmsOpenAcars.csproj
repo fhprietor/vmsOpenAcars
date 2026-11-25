@@ -190,6 +190,8 @@
     <Compile Include="Helpers\OnBlockPolicy.cs" />
     <Compile Include="Helpers\BacktrackCallout.cs" />
     <Compile Include="Helpers\ApproachSpeedWindow.cs" />
+    <!-- La DA de la aproximación sale del umbral + 200 ft CAT I, no del TCH (v0.9.79). -->
+    <Compile Include="Helpers\DecisionAltitude.cs" />
     <Compile Include="Helpers\XPlaneAcfIdentity.cs" />
     <Compile Include="Helpers\AirspaceRouteSampler.cs" />
     <!-- Qué zonas acotadas son violación y cuáles solo advertencia (v0.9.73): Danger no manda el
@@ -270,6 +272,8 @@
     <Compile Include="Helpers\SpoilerlessAircraft.cs" />
     <!-- Una sola escala de flaps (el recorrido del mando) y el G medido del toque. -->
     <Compile Include="Helpers\FlapsScale.cs" />
+    <!-- El portero que espera a que el detente se asiente antes de escribir la línea (v0.9.79). -->
+    <Compile Include="Helpers\FlapTransitionGate.cs" />
     <Compile Include="Helpers\TouchdownGForceWindow.cs" />
     <!-- Un aviso del RAAS, un registro: el log local no lo espeja al PIREP. -->
     <Compile Include="Helpers\AcarsLogMirror.cs" />

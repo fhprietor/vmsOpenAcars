@@ -133,7 +133,13 @@ namespace vmsOpenAcars.Core.Flight
         private IList<ApproachFix> _approachFixes;
         private int    _nextFixIndex;
         private bool   _ilsGateChecked;
-        private double _daAltitudeFt;
+        /// <summary>
+        /// DA en pies **MSL**, o `null` si no se puede calcular. Ojo: es una **altitud**, no una
+        /// altura sobre el umbral. El TCH (`tch_ft`) y el `glideslope.altitude_ft` de NavData no
+        /// son DA —ver `Helpers/DecisionAltitude`—; tomarlos por tal fue el `49 ft MSL < DA 50 ft`
+        /// del PIREP `l5QVxBEmJ4yOaY2O`.
+        /// </summary>
+        private double? _daAltitudeFt;
 
         public ApproachValidator(HashSet<string> beaconStrobeSharedAircraft, Func<DateTime> clock = null)
         {
@@ -163,17 +169,16 @@ namespace vmsOpenAcars.Core.Flight
             LocalizerViolations = 0;
             BelowMinimums     = false;
             IlsTunedCorrectly = true;
-            if (ils != null)
-            {
-                if (ils.GlideslopeAltFt.HasValue && ils.GlideslopeAltFt.Value > 0)
-                    _daAltitudeFt = ils.GlideslopeAltFt.Value;
-                else if (ils.ThresholdElevFt > 0)
-                    _daAltitudeFt = ils.ThresholdElevFt + 200.0;
-                else
-                    _daAltitudeFt = 0;
-            }
-            else
-                _daAltitudeFt = 0;
+            // **La DA sale del umbral, nunca del TCH.** Hasta la 0.9.78 esta línea prefería
+            // `ils.GlideslopeAltFt` —el `glideslope.altitude_ft` de NavData—, que en la 0.9.75
+            // pasó a llevar el TCH derivado: 50 ft en MPTO, con el umbral a 134 ft. La comparación
+            // acabó siendo 49 ft MSL contra 50 ft sobre el umbral y el aviso era imposible. NavData
+            // no publica mínimos de carta (`NavIls`/`NavApproach` no tienen `da_ft` ni `dh_ft`), así
+            // que queda la DA CAT I estándar del respaldo: umbral + 200 ft. Sin elevación de umbral
+            // no hay DA y no se compara nada (`Helpers/DecisionAltitude`).
+            _daAltitudeFt = ils != null
+                ? DecisionAltitude.FromThresholdElevation(ils.ThresholdElevFt)
+                : null;
         }
 
         public void AddLightsViolation() => LightsViolationCount++;
@@ -276,7 +281,7 @@ namespace vmsOpenAcars.Core.Flight
             _localizerExcursion.Reset();
             LocalizerViolations = 0;
             BelowMinimums       = false;
-            _daAltitudeFt       = 0;
+            _daAltitudeFt       = null;
             _ilsGateChecked     = false;
             IlsTunedCorrectly   = true;
             _taOsdSent          = false;
@@ -458,7 +463,7 @@ namespace vmsOpenAcars.Core.Flight
                     OnLog?.Invoke(_("Log_IlsApproachSkipped",
                         $"{ctx.Nav1FreqMhz:F2}", $"{_expectedIls.FrequencyMhz:F2}"), Theme.MainText);
                     _expectedIls  = null;
-                    _daAltitudeFt = 0;
+                    _daAltitudeFt = null;
                 }
                 else
                 {
@@ -640,10 +645,19 @@ namespace vmsOpenAcars.Core.Flight
             }
 
             // ── Decision altitude check ───────────────────────────────────────────
-            if (_daAltitudeFt > 0 && ctx.AltitudeMsl < _daAltitudeFt && !ctx.IsOnGround && !BelowMinimums)
+            // `_daAltitudeFt` es una altitud MSL y puede faltar (sin elevación del umbral): sin
+            // dato no se compara. Comparar contra el TCH produjo el «49 < 50» del PIREP
+            // `l5QVxBEmJ4yOaY2O` en un campo con el umbral a 134 ft. Y una altitud **por debajo del
+            // umbral** no es una bajada de mínimos en el aire: es el datum de un avión ya en tierra
+            // (49 ft MSL en un campo de 134 ft está bajo el suelo), así que tampoco se compara.
+            double thresholdElevFt = _expectedIls != null ? _expectedIls.ThresholdElevFt : 0.0;
+            if (_daAltitudeFt.HasValue && ctx.AltitudeMsl >= thresholdElevFt
+                && ctx.AltitudeMsl < _daAltitudeFt.Value
+                && !ctx.IsOnGround && !BelowMinimums)
             {
                 BelowMinimums = true;
-                OnLog?.Invoke(_("Log_BelowMinimums", ctx.AltitudeMsl, $"{_daAltitudeFt:F0}"), Theme.Warning);
+                OnLog?.Invoke(_("Log_BelowMinimums", ctx.AltitudeMsl, $"{_daAltitudeFt.Value:F0}",
+                    $"{thresholdElevFt:F0}"), Theme.Warning);
             }
 
             // ── Waypoint sequencing ───────────────────────────────────────────────

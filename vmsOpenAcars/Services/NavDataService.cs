@@ -435,8 +435,10 @@ namespace vmsOpenAcars.Services
             try
             {
                 // Primary path: /ils/ endpoint provides loc_true_heading (true, not magnetic)
-                // and glideslope.altitude_ft (real DA altitude). Fixes the same magnetic-variation
-                // error class as TrueRunwayBearing() fixed for touchdown metrics.
+                // and glideslope.altitude_ft —que es el TCH (altura sobre el umbral), NO una DA—.
+                // Fixes the same magnetic-variation error class as TrueRunwayBearing() fixed for
+                // touchdown metrics. La DA no se toma de aquí: ver `Helpers/DecisionAltitude` y el
+                // aviso falso del PIREP `l5QVxBEmJ4yOaY2O` (v0.9.79).
                 var ilsList = NavDataClient.GetIls(airport);
                 if (ilsList != null)
                 {

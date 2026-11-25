@@ -1465,7 +1465,9 @@ namespace vmsOpenAcars.ViewModels
             }
             if (!string.IsNullOrEmpty(_fsuipc.AircraftTitle) && _fsuipc.AircraftTitle != "Unknown")
                 _cb.Log?.Invoke(_("Log_Aircraft", _fsuipc.AircraftTitle), Theme.MainText);
-            string livery = _fsuipc.GetAircraftLivery();
+            // El código de aerolínea del plan solo desempata si el título lo escribe: sin
+            // evidencia en el título, no hay línea (v0.9.79).
+            string livery = _fsuipc.GetAircraftLivery(_flightManager?.ActivePlan?.Airline);
             if (livery != AircraftLivery.Unknown && livery != _fsuipc.AircraftIcao)
                 _cb.Log?.Invoke(_("Log_Livery", livery), Theme.SecondaryText);
         }
@@ -2290,9 +2292,17 @@ namespace vmsOpenAcars.ViewModels
 
                 if (result == null)
                 {
-                    _cb.Log?.Invoke(
+                    // **No es un aviso para el piloto: es el camino del NavMap retirado.** El
+                    // mensaje sale del flujo LittleNavMap (`lnm_db_path`, deprecated desde la
+                    // 0.9.24 y con los campos de `FlightScoreData` marcados como «optional — LNM
+                    // DB»), donde la pista se buscaba por la base local; el `heading 0°` del PIREP
+                    // `l5QVxBEmJ4yOaY2O` delata que se llamaba sin rumbo. El vuelo no puede hacer
+                    // nada con esta línea, así que va marcada como depuración (`AddLogDebug`): no
+                    // ensucia el log visible, sigue en el PIREP con `[DBG] ` y no se convierte en
+                    // un `⚠️` que parezca accionable. Ver v0.9.79 en el CHANGELOG.
+                    _cb.LogDebug?.Invoke(
                         string.Format(_("Lnm_RunwayNotFound"), resolvedAirport, (int)data.HeadingDeg),
-                        Theme.Warning);
+                        Theme.SecondaryText);
                     CheckFlownDistance(plannedDest);
                     return;
                 }

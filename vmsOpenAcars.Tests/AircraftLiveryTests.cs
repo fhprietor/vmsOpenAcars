@@ -4,19 +4,32 @@ using vmsOpenAcars.Helpers;
 namespace vmsOpenAcars.Tests
 {
     /// <summary>
-    /// El «🎨 Pintura: …» del log. El caso que lo originó es el del mantenedor: un PMDG 777-200LR
-    /// cuyo título es solo `777-200LR` imprimía «Pintura: 777» —el modelo disfrazado de pintura—,
-    /// porque el último recurso del detector devolvía cualquier token de 3–4 caracteres en
-    /// mayúsculas y su lista de exclusión tenía `B777`, no `777` (v0.9.16).
+    /// El «🎨 Pintura: …» del log. Tres addons distintos rompieron la misma heurística de «primer
+    /// token plausible»: `777-200LR` → «Pintura: 777» (v0.9.16), `ATR 72-600 Passenger` →
+    /// «Pintura: ATR» (v0.9.67) y, en el PIREP real `l5QVxBEmJ4yOaY2O`, `737-800 PAX SSW HD` →
+    /// «Pintura: PAX» (v0.9.79). La regla que queda: **solo se pinta una aerolínea reconocible
+    /// escrita en el título** (o el código de aerolínea del plan, si el título también lo escribe).
+    /// Si no hay evidencia, no hay línea. Estos tests fijan que los tres títulos reales ya no pintan
+    /// nada y que una aerolínea de verdad sí se devuelve.
     /// </summary>
     [TestClass]
     public class AircraftLiveryTests
     {
         [TestMethod]
+        public void LosTresTitulosQueFallaron_NoPintanNada()
+        {
+            // Literales de los tres casos, con el modelo/ICAO que publica el simulador.
+            Assert.AreEqual("Unknown", AircraftLivery.FromTitle("737-800 PAX SSW HD"),
+                "PAX es una etiqueta de cabina, no una pintura (v0.9.79)");
+            Assert.AreEqual("Unknown", AircraftLivery.FromTitle("777-200LR"),
+                "el modelo no es la pintura (v0.9.16)");
+            Assert.AreEqual("Unknown", AircraftLivery.FromTitle("ATR 72-600 Passenger"),
+                "el fabricante no es la pintura (v0.9.67)");
+        }
+
+        [TestMethod]
         public void FromTitle_AModelOnlyTitle_IsNotALivery()
         {
-            // El caso reportado, tal cual: título del PMDG, sin aerolínea.
-            Assert.AreEqual("Unknown", AircraftLivery.FromTitle("777-200LR"));
             Assert.AreEqual("Unknown", AircraftLivery.FromTitle("737-800"));
             Assert.AreEqual("Unknown", AircraftLivery.FromTitle("Boeing 737-800"));
             Assert.AreEqual("Unknown", AircraftLivery.FromTitle("787-9"));
@@ -28,6 +41,7 @@ namespace vmsOpenAcars.Tests
         [TestMethod]
         public void FromTitle_WithTheAirlineInTheTitle_ReturnsIt()
         {
+            // Aerolíneas reales de la lista de la app.
             Assert.AreEqual("British", AircraftLivery.FromTitle("PMDG 777-200LR British Airways"));
             Assert.AreEqual("Avianca", AircraftLivery.FromTitle("Fenix A320 CFM Avianca"));
             Assert.AreEqual("VHR", AircraftLivery.FromTitle("Airbus A320neo VHR"));
@@ -35,23 +49,32 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
-        public void FromTitle_WithALiveryCode_ReturnsTheCode()
+        public void FromTitle_SinAerolineaEnElTitulo_NoHayPinturaAunqueHayaToken()
         {
-            // Un código de pintura es alfabético: AAL, DAL, SAS… Un modelo no, porque lleva dígitos.
-            Assert.AreEqual("AAL", AircraftLivery.FromTitle("B738 AAL"));
-            Assert.AreEqual("SAS", AircraftLivery.FromTitle("ToLiss A321 SAS"));
+            // Ya no se devuelve «el primer token plausible»: AAL o SAS sueltos no son evidencia de
+            // una librea. Es el fallo que se repitió tres veces con listas de exclusión.
+            Assert.AreEqual("Unknown", AircraftLivery.FromTitle("B738 AAL"));
+            Assert.AreEqual("Unknown", AircraftLivery.FromTitle("ToLiss A321 SAS"));
             Assert.AreEqual("Unknown", AircraftLivery.FromTitle("B738 B77L"), "dos modelos no son pintura");
+        }
+
+        [TestMethod]
+        public void ElCodigoDeAerolineaDelPlan_SoloCuentaSiElTituloLoTambienLoEscribe()
+        {
+            // `SimbriefPlan.Airline` es un código ICAO (AVA, AAL…). La pintura es lo que el avión
+            // dice llevar: sin el token en el título no se inventa una librea.
+            Assert.AreEqual("AAL", AircraftLivery.FromTitle("B738 AAL", "AAL"));
+            Assert.AreEqual("Unknown", AircraftLivery.FromTitle("737-800 PAX SSW HD", "AVA"),
+                "el plan no convierte una etiqueta de cabina en pintura");
+
+            // Comparación por token: AVA no puede casar dentro de Avanti.
+            Assert.AreEqual("Unknown", AircraftLivery.FromTitle("B738 Avanti", "AVA"));
         }
 
         [TestMethod]
         public void FromTitle_TheManufacturerIsNeverTheLivery()
         {
-            // El caso real del PIREP `nROPdk4GxYY5AOy1`: título del ATR en MSFS 2024 tal cual lo
-            // publica el simulador, y el log imprimía «🎨 Pintura: ATR». La v0.9.16 solo miraba
-            // «sin dígitos», y ATR no lleva ninguno.
-            Assert.AreEqual("Unknown", AircraftLivery.FromTitle("ATR 72-600 Passenger"));
-
-            // La misma clase de fallo para el resto de fabricantes de 3–4 letras en mayúsculas.
+            // La misma clase de fallo para el resto de fabricantes que la lista antigua no cubría.
             Assert.AreEqual("Unknown", AircraftLivery.FromTitle("BOEING 737-800"));
             Assert.AreEqual("Unknown", AircraftLivery.FromTitle("AIRBUS A320"));
             Assert.AreEqual("Unknown", AircraftLivery.FromTitle("EMBRAER E195"));
@@ -60,26 +83,10 @@ namespace vmsOpenAcars.Tests
         }
 
         [TestMethod]
-        public void FromTitle_TheModelOrTheIcaoDesignatorIsNotALivery()
-        {
-            // El modelo y el designador ICAO llegan desde `FsuipcService`; un título que los escriba
-            // sueltos no puede convertirlos en pintura. Con `AT76` de ICAO, `ATR 72-600` no deja
-            // ningún token creíble.
-            Assert.AreEqual("Unknown",
-                AircraftLivery.FromTitle("ATR 72-600 Passenger", "ATR 72-600", "AT76"));
-            Assert.AreEqual("Unknown",
-                AircraftLivery.FromTitle("B738 B77L", "737-800", "B77L"),
-                "un token idéntico al ICAO del avión no es una pintura");
-            Assert.AreEqual("AAL",
-                AircraftLivery.FromTitle("B738 AAL", "737-800", "B738"),
-                "la pintura real del título sigue saliendo");
-        }
-
-        [TestMethod]
         public void FromTitle_WithAManufacturerAndAnAirline_ReturnsTheAirline()
         {
             // La aerolínea manda sobre el fabricante: en el título del ATR con librea real, lo que
-            // se pinta es la aerolínea, no el aviso de que el fabricante no es pintura.
+            // se pinta es la aerolínea.
             Assert.AreEqual("Avianca", AircraftLivery.FromTitle("ATR 72-600 Avianca"));
             Assert.AreEqual("LATAM",   AircraftLivery.FromTitle("Airbus A320 LATAM"));
         }
