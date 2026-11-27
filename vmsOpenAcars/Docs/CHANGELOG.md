@@ -3,6 +3,30 @@
 ---
 
 
+## [1.0.3] — 27/11/2026
+
+**El cliente mandaba al servidor el marcador `your_phpvms_apikey`.** En una instalación nueva, el
+log salía así: `vmsOpenAcars v1.0.2`, el aviso del AIRAC, `🔑 INICIANDO SESIÓN` y
+`❌ Error de login: Server Error (401 Unauthorized). Check URL: https://vholar.co/api/user`. La causa
+no era el login nuevo ni el servidor: **dos caminos leían la clave de sitios distintos**.
+
+- **`MainForm.InitializeViewModel` leía `ConfigurationManager.AppSettings["vms_api_key"]`, cruda.**
+  Es decir, la del `.config`, **no** la que guarda el login en el almacén cifrado con DPAPI. En una
+  instalación nueva la plantilla deja ahí `your_phpvms_apikey`, así que el cliente se presentaba con
+  el marcador y **todo daba 401**. Ahora usa `AppConfig.VmsApiKey`, que **prefiere la clave del
+  login** y trata un `your_*` como vacío.
+- **Y `IsConfigured` sí leía el almacén**, así que el cliente se consideraba configurado, **no pedía
+  login** y entraba directo a una sesión rota. Dos caminos, dos fuentes: uno veía la clave buena y el
+  otro el marcador. Lo que se arregla es que **los dos lean lo mismo**.
+- **`SettingsForm` tenía el mismo defecto** en los campos de la URL y la clave: enseñaba el valor
+  crudo del `.config` y, al guardar, podía **escribir el marcador** encima. Ahora enseña también el
+  valor resuelto.
+- **Comprobado contra el servicio real**, antes de tocar nada: `GET /api/user` con la clave guardada y
+  `X-API-KEY` → **200**; sin cabecera, con `Bearer` o con una clave inventada → **401**. Y
+  `/api/pireps` sin clave → 401, así que el 200 anterior sí probaba que la clave es válida.
+- Sin cambios en la suite: **1 312** (1 311 + la que se omite).
+
+---
 ## [1.0.2] — 27/11/2026
 
 **El «Error: Colección modificada» al guardar no era el guardado: era el reinicio.** La 1.0.1 lo

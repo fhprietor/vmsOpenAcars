@@ -798,8 +798,8 @@ namespace vmsOpenAcars.UI.Forms
 
         private void LoadSettings()
         {
-            txtApiUrl.Text       = ConfigurationManager.AppSettings["vms_api_url"]  ?? "";
-            txtApiKey.Text       = ConfigurationManager.AppSettings["vms_api_key"]  ?? "";
+            txtApiUrl.Text       = AppConfig.VmsApiUrl;
+            txtApiKey.Text       = AppConfig.VmsApiKey;
             txtSimbriefUser.Text = ConfigPlaceholders.OrEmpty(ConfigurationManager.AppSettings["simbrief_user"]);
             txtAirline.Text      = ConfigurationManager.AppSettings["airline"]       ?? "";
 

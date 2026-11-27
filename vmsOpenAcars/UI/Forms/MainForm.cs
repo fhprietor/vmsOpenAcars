@@ -242,8 +242,11 @@ namespace vmsOpenAcars.UI.Forms
         {
             try
             {
-                string apiUrl = ConfigurationManager.AppSettings["vms_api_url"];
-                string apiKey = ConfigurationManager.AppSettings["vms_api_key"];
+                // La clave **resuelta**: la guardada por el login (DPAPI) manda sobre la del `.config`, y un
+                    // marcador `your_*` cuenta como vacío. Leer `AppSettings` a pelo mandaba
+                    // `your_phpvms_apikey` al servidor en una instalación nueva y todo daba 401 (1.0.3).
+                    string apiUrl = AppConfig.VmsApiUrl;
+                    string apiKey = AppConfig.VmsApiKey;
 
                 if (!string.IsNullOrEmpty(apiUrl) && !string.IsNullOrEmpty(apiKey))
                 {
