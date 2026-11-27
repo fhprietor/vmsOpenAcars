@@ -36,7 +36,6 @@ namespace vmsOpenAcars.Services
         private static readonly object Gate = new object();
         private static Task<bool> _inflight;
         private static bool _attempted;     // una petición por sesión: sin bucles
-        private static bool _unavailable;   // 401/400/503/fallo: esta sesión se queda sin NavData
 
         /// <summary>Cómo acabó el intento, para que la UI pueda decir algo sin tocar la clave.</summary>
         internal static NavDataKeyOutcome LastOutcome { get; private set; } = NavDataKeyOutcome.Idle;
@@ -118,7 +117,6 @@ namespace vmsOpenAcars.Services
                     // Sin `vms_api_url` o sin `vms_api_key` no hay a quién pedir el sobre. Antes esto
                     // quedaba tapado por el respaldo del `.config`; ahora es un motivo de primer orden
                     // y tiene su propio aviso.
-                    _unavailable = true;
                     LastOutcome  = NavDataKeyOutcome.MissingConfiguration;
                     return false;
                 }
@@ -143,7 +141,6 @@ namespace vmsOpenAcars.Services
                         {
                             // navdata-not-configured: el staff no la ha configurado. No es un error
                             // nuestro y no se insiste en esta sesión.
-                            _unavailable = true;
                             LastOutcome  = NavDataKeyOutcome.NotConfigured;
                             return false;
                         }
@@ -151,21 +148,18 @@ namespace vmsOpenAcars.Services
                         if (response.StatusCode == HttpStatusCode.Unauthorized)
                         {
                             // Clave inválida o piloto no ACTIVE: determinista, no se reintenta.
-                            _unavailable = true;
                             LastOutcome  = NavDataKeyOutcome.Unauthorized;
                             return false;
                         }
 
                         if ((int)response.StatusCode == 400)
                         {
-                            _unavailable = true;
                             LastOutcome  = NavDataKeyOutcome.UnsupportedCipher;
                             return false;
                         }
 
                         if (!response.IsSuccessStatusCode)
                         {
-                            _unavailable = true;
                             LastOutcome  = NavDataKeyOutcome.Failed;
                             return false;
                         }
@@ -177,7 +171,6 @@ namespace vmsOpenAcars.Services
             }
             catch
             {
-                _unavailable = true;
                 LastOutcome  = NavDataKeyOutcome.Failed;
                 return false;
             }
@@ -189,7 +182,6 @@ namespace vmsOpenAcars.Services
             JToken data = JObject.Parse(json)["data"];
             if (data == null)
             {
-                _unavailable = true;
                 LastOutcome  = NavDataKeyOutcome.Failed;
                 return false;
             }
@@ -205,7 +197,6 @@ namespace vmsOpenAcars.Services
                 Debug.WriteLine(
                     "NavData: el sobre llegó en '" + cipher + "' y este cliente solo abre '" +
                     NavDataCipher.CipherName + "'; esta sesión vuela sin NavData");
-                _unavailable = true;
                 LastOutcome  = NavDataKeyOutcome.UnsupportedCipher;
                 return false;
             }
@@ -215,7 +206,6 @@ namespace vmsOpenAcars.Services
             {
                 // Ojo: `error` nunca lleva la clave; el mensaje es del contrato del sobre.
                 Debug.WriteLine("NavData: el sobre no abre (" + error + ")");
-                _unavailable = true;
                 LastOutcome  = NavDataKeyOutcome.Failed;
                 return false;
             }

@@ -89,6 +89,10 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 | `PEDIDO-NAVDATA-TILES.md` | **Equipo de NavData** | Pedido de un endpoint proxy de teselas de CARTO con caché (para dejar de distribuir la clave del mapa) |
 | `2026-10-07_VMSOPENACARS_SAYINTENTIONS_sayintentions_01_base-integracion.md` | **Desarrolladores** | Base del hilo de **SayIntentions.AI**: qué canal es de quién (§1), el programa VA-Link, `flight.json`, el catálogo de SAPI, los LVARs, la colisión de anuncios de cabina y lo verificado contra la API real — más un **anexo** que contrasta todo con la documentación oficial de SAPI del 07/10/2026 |
 | `TRANSCRIPCION-ATC.md` | **Desarrolladores** | Diseño de la fase 2 del hilo de SayIntentions: el contrato de `getCommsHistory`, el sondeo incremental por `since_id`, el ciclo de vida del vuelo, el payload propuesto a phpVMS y **lo que no está verificado**. Nada implementado |
+| `2026-10-02_VMSOPENACARS_PHPVMS_navdata-key_01_respuesta-sobre-cifrado.md` | **NavData / phpVMS** | Respuesta al hilo del `navdata-key`: el **sobre cifrado** (HKDF-SHA256 + AES-256-CBC + HMAC) y por qué se abre **una vez por sesión** |
+| `2026-10-03_VMSOPENACARS_PHPVMS_navdata-key_03_confirmacion-y-barra-final.md` | **NavData / phpVMS** | Cierre del hilo `navdata-key` **por los dos lados** y la barra final |
+| `2026-10-05_VMSOPENACARS_VHOLAR_combustible-unidades_01_confirmado-y-corregido.md` | **VHOLAR** | `fuel_used` y `block_fuel`: **confirmado que es nuestro** y **ya corregido** — el número viajaba en kg a una API que lee libras |
+| `2026-10-06_VMSOPENACARS_PHPVMS_simbrief-dispatch_01_desplegado-y-verificado.md` | **Equipo de phpVMS** | Despacho de SimBrief **hecho y verificado contra el servidor** |
 - `PEDIDO-NAVDATA-CONECTIVIDAD-2026-09-30.md` — **el pedido de conectividad** (destapado por el rodaje de
 - `vmsOpenACars-a-NAVDATA-conectividad-4-2026-09-30.md` — **[NUESTRA]** entrega el **corpus de rutas escritas**
   (`rutas-escritas-2026-09-30.csv`: **una** ruta, LMML/05 `T J K L`) y explica el hallazgo: **los 37 vuelos del
