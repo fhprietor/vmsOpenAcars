@@ -1,6 +1,9 @@
 # vmsOpenAcars — Guía del Usuario
 
-**Versión 0.9.3**
+**Versión 1.0.3**
+
+> **Primer vuelo:** lo tienes paso a paso, con el login y el caso de quien viene de CrewSystem, en
+> [`GUIA-PILOTO-PRIMEROS-PASOS.md`](GUIA-PILOTO-PRIMEROS-PASOS.md). Esta guía es la referencia completa.
 
 vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC bajo Windows que conecta tu simulador con aerolíneas virtuales basadas en phpVMS 7. Lee los datos del simulador en tiempo real via FSUIPC/XUIPC, detecta automáticamente las fases de vuelo, califica tu actuación con 17 criterios de scoring y envía el PIREP al servidor de tu aerolínea.
 
@@ -9,7 +12,7 @@ vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC b
 ## Índice
 
 - [1. Requisitos](#1-requisitos)
-- [2. Configuración inicial (Settings)](#2-configuración-inicial-settings)
+- [2. Primer arranque y configuración](#2-primer-arranque-y-configuración)
 - [3. Interfaz principal](#3-interfaz-principal)
 - [4. Flujo de un vuelo típico](#4-flujo-de-un-vuelo-típico)
 - [5. Scoring de vuelo](#5-scoring-de-vuelo)
@@ -27,8 +30,7 @@ vmsOpenAcars es un cliente ACARS de escritorio para simuladores de vuelo en PC b
 |---|---|
 | Simulador | Ver tabla de simuladores compatibles abajo |
 | FSUIPC | Instalado y activo (versión gratuita es suficiente) |
-| NavData API | API Key proporcionada por tu aerolínea virtual (para scoring de pista) |
-| Cuenta phpVMS 7 | API Key generada en tu perfil de la aerolínea virtual |
+| Cuenta en la web | La cuenta de tu aerolínea: **usuario y contraseña**. Con ellas el cliente pide su clave de acceso solo |
 | Cuenta SimBrief | Usuario de SimBrief (gratuito) |
 | Conexión a internet | Para comunicarse con phpVMS, SimBrief y METARs |
 
@@ -51,40 +53,50 @@ vmsOpenAcars se comunica con el simulador a través de **FSUIPC**, por lo que es
 
 ---
 
-## 2. Configuración inicial (Settings)
+## 2. Primer arranque y configuración
 
-Haz clic en el botón **SETTINGS** para abrir el diálogo de configuración. Todos los cambios se guardan en `vmsOpenAcars.exe.config`.
+### El inicio de sesión (desde la 1.0.0)
 
-### Sección phpVMS
+La primera vez que abres el cliente te pide **usuario y contraseña**, las mismas de la web de tu
+aerolínea, y él solo se encarga de obtener su clave de acceso. **No hay que copiar ninguna clave**
+ni pegarla en ningún sitio.
+
+| Campo | Qué poner |
+|---|---|
+| URL de phpVMS | Ya viene puesta. Tiene que empezar por `https://` |
+| Usuario o email | Tu email o tu identificador de piloto (`VHR017`) |
+| Contraseña | La de la web. **No se guarda**: solo se usa para el login |
+
+La clave que devuelve el servidor se guarda **cifrada en tu equipo** (atada a tu cuenta de Windows)
+y a partir de ahí el cliente arranca directo. Si algún día cambias la contraseña en el perfil de
+phpVMS, borra `%APPDATA%\vmsOpenACars` y vuelve a entrar.
+
+> **Si vienes de CrewSystem** tu cuenta ya existe, pero **no tienes contraseña**. Antes de abrir el
+> ACARS entra en https://vholar.co/login, pide el enlace con el email que tienes en la aerolínea y
+> crea una. Los cuatro pasos están en [`GUIA-PILOTO-PRIMEROS-PASOS.md`](GUIA-PILOTO-PRIMEROS-PASOS.md).
+
+### Ajustes (SETTINGS)
+
+Todos los cambios se guardan en `vmsOpenACars.exe.config`. Desde la 1.0.0 los campos de **URL API** y
+**API Key** vienen rellenos con tu inicio de sesión y **no hace falta tocarlos**.
 
 | Campo | Descripción |
 |---|---|
-| API URL | URL base de tu aerolínea virtual, con `/` al final. Ej: `https://miaerolinea.com/` |
-| API Key | Tu clave personal de phpVMS (generada en tu perfil de piloto) |
+| URL API | La de tu aerolínea. La pone el login |
+| API Key | Tu clave personal. La pone el login |
+| Airline | Solo si tu aerolínea te da un identificador; si no, vacío |
+| Language | `es` o `en` |
+| SimBrief User | Tu usuario de SimBrief (alias o pilot ID, **no** el correo) |
+| Unidades SB | `lbs` o `kgs`, las mismas que uses en SimBrief |
+| Cost Index | El que use tu aerolínea para los planes |
+| BD Landing | Dónde se guardan tus aterrizajes |
 
-### Sección SimBrief
+### NavData: ya no se configura (desde la 0.9.27)
 
-| Campo | Descripción |
-|---|---|
-| SimBrief User | Tu nombre de usuario de SimBrief (pilot ID o alias, no el correo) |
-
-### Sección NavData API
-
-vmsOpenAcars consulta el servicio **NavData API** para calcular con precisión la distancia al umbral de pista, la desviación de centreline, y detectar el ILS de la pista de aterrizaje. Sin una API key válida el scoring básico funciona, pero los criterios **Touchdown Zone**, **Centreline Deviation**, **Localizer Alignment** y **Minimums Compliance** no se evaluarán.
-
-| Campo | Descripción |
-|---|---|
-| NavData API URL | URL base del servicio NavData de tu aerolínea virtual (p. ej. `https://navdata.tuaerolinea.com/api`) |
-| NavData API Key | Clave de acceso proporcionada por tu aerolínea virtual |
-| Origin Domain | **No se edita aquí**: se deduce automáticamente del dominio de tu API de phpVMS. Solo si tu aerolínea sirve NavData en otro dominio hay que definirlo a mano en `vmsOpenAcars.exe.config` (`navdata_api_domain`) |
-
-Al cambiar la **URL** o la **key** y guardar, la aplicación se reinicia para aplicar los cambios. El botón **TEST** en cambio usa lo que tengas escrito en ese momento —no lo guardado—, así que puedes pegar una URL nueva, pulsar TEST y comprobar que responde **antes** de guardar (v0.9.11).
-
-La sección tiene, en este orden: la **URL**, la **key**, una **línea de estado** con el resultado del test, y debajo los botones **REFRESH** y **TEST** (v0.9.12 — antes el resultado y los botones compartían la misma línea y los mensajes largos se cortaban).
-
-Pulsa **TEST** para verificar la conectividad y la validez de la API key. El resultado aparece en la línea de estado, encima de los botones: en verde el ciclo AIRAC vigente si todo es correcto, en naranja si el servicio está activo pero la key es inválida, y en rojo si el servicio no es alcanzable. Esa línea muestra el AIRAC que ya conozca la sesión aunque no hayas pulsado TEST todavía.
-
-Pulsa **REFRESH NAVDATA** para invalidar manualmente la caché de procedimientos (SIDs, STARs, aproximaciones). Úsalo cuando la aerolínea haya corregido datos de NavData dentro del mismo ciclo AIRAC y necesites que la app descargue los datos actualizados sin tener que esperar al próximo ciclo. No afecta a los espacios aéreos ni requiere reiniciar la app.
+La sección **NavData API** desapareció del formulario y **tampoco hay que pegar ninguna clave**: el
+cliente la pide a phpVMS en un sobre cifrado al conectar y la guarda **solo en memoria**. Si esa
+petición falla, la sesión vuela **sin NavData** y lo dice una vez, pero el vuelo sigue. El aviso del
+AIRAC y el botón de refrescar la caché siguen disponibles.
 
 ### Guía de rodaje (RAAS) — v0.9.14–v0.9.15
 
