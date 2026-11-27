@@ -37,7 +37,40 @@ namespace vmsOpenAcars
             Application.ThreadException += OnThreadException;
             AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
 
+            // Primer arranque de una instalación limpia (v1.0.0). Hasta v0.9.81 el piloto que bajaba
+            // el cliente se quedaba sin `vmsOpenACars.exe.config` y tenía que descargar la plantilla
+            // aparte; ahora la plantilla viaja en el zip y se copia aquí **solo si falta**. Va antes de
+            // construir la ventana porque `ConfigurationManager` abre el fichero en el primer acceso,
+            // no al arrancar: así no hay que reiniciar para que la configuración nueva se lea.
+            // Nunca puede impedir que arranque el ACARS, ni siquiera si el disco está lleno.
+            ConfigInstallOutcome configOutcome = ConfigInstallOutcome.AlreadyPresent;
+            string configDetail = null;
+            try
+            {
+                configOutcome = ConfigBootstrap.InstallIfMissing(
+                    AppDomain.CurrentDomain.BaseDirectory, out configDetail);
+            }
+            catch { /* último recurso: el arranque manda */ }
+
+            // Login del primer arranque (v1.0.0). Sin clave utilizable —ni en el almacén cifrado por
+            // DPAPI ni en el `.config`— no hay a qué servidor hablarle: se piden usuario y contraseña
+            // y la clave que devuelve phpVMS se guarda cifrada. La contraseña **no se guarda**.
+            // Si el piloto cancela, no se arranca a medias: un ACARS sin credenciales no sirve para
+            // nada y dejarlo abierto solo confunde.
+            if (!AppConfig.IsConfigured)
+            {
+                using (var login = new LoginForm(AppConfig.VmsApiUrl))
+                {
+                    if (login.ShowDialog() != DialogResult.OK) return;
+                }
+            }
+
             _mainForm = new MainForm();
+            _mainForm.ConfigBootstrapOutcome = configOutcome;
+            _mainForm.ConfigBootstrapDetail  = configDetail;
+            // Con la plantilla recién instalada se abren los Ajustes: es donde el piloto mete su URL y
+            // su clave de phpVMS, que es justo lo que la plantilla no puede traer.
+            _mainForm.OpenSettingsOnStart = configOutcome == ConfigInstallOutcome.Installed;
             Application.Run(_mainForm);
         }
 

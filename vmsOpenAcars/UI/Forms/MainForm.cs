@@ -202,7 +202,38 @@ namespace vmsOpenAcars.UI.Forms
             catch { /* el inventario no puede impedir que arranque el ACARS */ }
             _viewModel?.Start();
             // Verificar actualizaciones al iniciar (no bloquea la UI)
-            this.Shown += async (s, e) => await CheckForUpdatesAsync();
+            this.Shown += async (s, e) =>
+            {
+                // Primer arranque (v1.0.0): el piloto acaba de recibir su plantilla y no tiene ni URL
+                // ni clave. Los Ajustes se abren antes que nada; la comprobación de actualizaciones va
+                // después para no tapar el diálogo con otro aviso.
+                LogConfigBootstrap();
+                if (OpenSettingsOnStart)
+                {
+                    OpenSettingsOnStart = false;
+                    try { OpenSettings(); } catch { /* que no impida arrancar el ACARS */ }
+                }
+                await CheckForUpdatesAsync();
+            };
+        }
+
+        /// <summary>
+        /// Deja constancia del primer arranque en el log del vuelo: si la plantilla se instaló o si no
+        /// se pudo (paquete incompleto, permisos). Importa porque en el segundo caso el piloto se queda
+        /// sin configuración, y es lo primero que hay que saber ante un «no me conecta».
+        /// </summary>
+        private void LogConfigBootstrap()
+        {
+            if (ConfigBootstrapOutcome == ConfigInstallOutcome.AlreadyPresent) return;
+            try
+            {
+                if (ConfigBootstrapOutcome == ConfigInstallOutcome.Installed)
+                    _uiService.AddLog(_("Log_ConfigBootstrap"), Theme.SecondaryText);
+                else
+                    _uiService.AddLog(string.Format(_("Log_ConfigBootstrap_Failed"), ConfigBootstrapDetail ?? "?"),
+                        Theme.Warning);
+            }
+            catch { /* el log no puede tumbar el arranque */ }
         }
 
         #region Inicialización
@@ -920,7 +951,28 @@ namespace vmsOpenAcars.UI.Forms
             };
         }
 
+        /// <summary>Cómo acabó el primer arranque, para contarlo en el log sin adivinar (v1.0.0).</summary>
+        internal ConfigInstallOutcome ConfigBootstrapOutcome { get; set; } = ConfigInstallOutcome.AlreadyPresent;
+
+        /// <summary>Motivo cuando el primer arranque no pudo instalar la plantilla.</summary>
+        internal string ConfigBootstrapDetail { get; set; }
+
+        /// <summary>
+        /// `true` cuando la plantilla se acaba de instalar: el piloto no tiene URL ni clave, así que se
+        /// le abren los Ajustes nada más arrancar.
+        /// </summary>
+        internal bool OpenSettingsOnStart { get; set; }
+
         private void BtnSettings_Click(object sender, EventArgs e)
+        {
+            OpenSettings();
+        }
+
+        /// <summary>
+        /// Abre la ventana de Ajustes. Extraído del botón para poder abrirla también en el primer
+        /// arranque (v1.0.0) sin duplicar el cableado de callbacks.
+        /// </summary>
+        internal void OpenSettings()
         {
             using (var settingsForm = new SettingsForm())
             {

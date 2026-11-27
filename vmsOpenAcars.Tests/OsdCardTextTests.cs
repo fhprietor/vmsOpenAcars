@@ -214,7 +214,7 @@ namespace vmsOpenAcars.Tests
             var es = JsonConvert.DeserializeObject<Dictionary<string, string>>(
                          File.ReadAllText(Path.Combine(folder, "es.json")));
 
-            Assert.AreEqual(565, en.Count, "recuento de claves de en.json");
+            Assert.AreEqual(583, en.Count, "recuento de claves de en.json");
             Assert.AreEqual(en.Count, es.Count, "es.json tiene que tener las mismas claves");
             foreach (var key in en.Keys)
                 Assert.IsTrue(es.ContainsKey(key), $"falta la clave {key} en es.json");

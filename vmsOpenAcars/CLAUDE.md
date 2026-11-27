@@ -4,7 +4,7 @@
 
 Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simuladores de vuelo con aerolíneas virtuales basadas en phpVMS v7. Lee datos del simulador vía FSUIPC/XUIPC y los envía a la API REST de phpVMS.
 
-**Versión actual:** v0.9.81  
+**Versión actual:** v1.0.0  
 **IDE:** Visual Studio 2017 (compilar siempre desde el IDE, nunca desde CLI)
 
 ## Stack
@@ -16,9 +16,11 @@ Cliente ACARS de escritorio (Windows Forms, .NET 4.8, C# 7.3) que conecta simula
 > **Credenciales — dev vs. distribución:**
 > - `App.config` es la **configuración local de desarrollo**: contiene las claves del
 >   entorno propio para no reconfigurar la app en cada compilación. No se distribuye.
-> - `App.Release.config` es la **plantilla de la configuración que el piloto descarga una sola vez**
->   desde la web, **aparte** del cliente: nunca debe llevar credenciales, URLs de aerolínea ni rutas
->   de máquina, solo placeholders. **El zip nunca incluye `vmsOpenACars.exe.config`**: el `Updater`
+> - `App.Release.config` es la **plantilla que viaja en el zip** y que el cliente copia a
+>   `vmsOpenACars.exe.config` **en el primer arranque y solo si ese fichero no existe** (v1.0.0,
+>   `Helpers/ConfigBootstrap`); después abre Ajustes. Nunca lleva credenciales, URLs de aerolínea ni
+>   rutas de máquina, solo marcadores `your_*` (que `AppConfig` trata como «no configurado»).
+>   **El zip nunca incluye `vmsOpenACars.exe.config`**: el `Updater`
 >   copia sin borrar nada, así que el config del piloto sobrevive a las actualizaciones; meterlo lo
 >   pisaría, y zipear `bin\Release` en bloque filtraría la `vms_api_key`.
 > - `Helpers/AppConfig.cs` no debe tener credenciales como valor por defecto: un default
@@ -59,7 +61,7 @@ sesión o de máquina**. Lo que no está en un archivo, no existe.
   las otras reglas. Nunca suprimir una acción por una suposición.
 
 **Idioma**
-- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 565 claves cada uno): toda
+- `Languages/es.json` y `en.json` se mantienen **simétricos** (hoy 583 claves cada uno): toda
   clave que se añade o se quita va en los dos.
 - **Antes de escribir un rótulo, mirar si la clave ya existe**: los `.json` tienen claves definidas y sin
   cablear (128 contadas en v0.9.45, casi todo `Fp_*` y `Status_*`), y **un rótulo de botón o de casilla
@@ -661,7 +663,7 @@ El índice de archivos está en **`Docs/architecture.md`**.
 
 ## Tests
 
-`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1289 tests** (1 se omite sola).
+`vmsOpenACars.Tests/` (proyecto hermano de `vmsOpenAcars`, en la solución). **1307 tests** (1 se omite sola).
 **v0.9.81**: OSD pintado a mano con tarjeta del toque y plantilla simple; texto de los mensajes intacto y Segoe UI en vez de Consolas — detalle en `Docs/architecture.md` → "OSD: la tarjeta pintada (v0.9.81)".
 **v0.9.79**: portero de flaps (1,5 s por detente), DA = umbral + 200 (nunca el TCH), pintura solo con aerolínea reconocible y NavMap como depuración — detalle en `Docs/architecture.md` → "Los cuatro defectos del PIREP `l5QVxBEmJ4yOaY2O` (v0.9.79)".
 **v0.9.80**: bandas de 15 ft en mínimos y 50 fpm en descenso excesivo (umbrales efectivos 192 ft y −1050 fpm, cambia la puntuación), NavMap sin `⚠️` y con los dos emisores en depuración, texto del Vref y «desde» de flaps — detalle en `Docs/architecture.md` → "Los cuatro defectos del PIREP `YxzZxO92Qnbxlqla` (v0.9.80)".

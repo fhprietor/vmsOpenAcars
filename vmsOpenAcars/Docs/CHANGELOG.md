@@ -2,6 +2,59 @@
 
 ---
 
+## [1.0.0] — 27/11/2026
+
+**El cliente sale de beta.** La 1.0.0 es la **0.9.81 más la declaración de producción más una cosa
+que sí cambia**, y esa cosa es para quien **instala por primera vez**: hasta v0.9.81 ese piloto se
+quedaba sin `vmsOpenACars.exe.config` y dependía de bajarse la plantilla aparte, así que un cliente
+recién instalado no podía conectarse a nada. Se **saltan** la 0.9.82–0.9.99: la decisión es del
+mantenedor y es explícita, no un despiste de numeración.
+
+Lo que respalda la declaración no es la versión, es lo acumulado: la suite pasa de **684 a 1 289
+tests** desde la 0.9.38, el análisis del aterrizaje y el flare cierra el circuito entero —cliente,
+contrato con phpVMS, ingesta, IA y gráfico—, y la revisión de ruta **antes** del despegue está
+verificada contra el servidor con el caso real del vuelo 863 y SKR11.
+
+- **El primer arranque se configura solo.** La plantilla `App.Release.config` viaja **en el zip**
+  —hasta ahora era un `<None>` y el build no la copiaba a la salida, así que el paquete no la
+  llevaba— y `Program.Main` la copia a `vmsOpenACars.exe.config` **solo si ese fichero no existe**,
+  antes de construir la ventana. **Sin reinicio**: `ConfigurationManager` abre el fichero en el
+  primer acceso, no al arrancar, así que basta copiarlo antes de que nadie lea la configuración —y
+  eso evita el bucle si la escritura falla—. Con la plantilla recién puesta se abren **Ajustes**, que
+  es donde el piloto mete su URL y su clave.
+  - **La copia va byte a byte y por un temporal** (`File.Copy` + `File.Move`): si se corta a medias no
+    deja un config corrupto en su sitio, que además ya contaría como «existe» y no se reintentaría nunca.
+  - **Un config existente no se toca**, ni aunque esté vacío: es la misma regla que hace que el del
+    piloto sobreviva a las actualizaciones (`Updater` copia sin borrar). El zip sigue **sin**
+    `vmsOpenACars.exe.config`; lo que viaja es la plantilla, con su propio nombre.
+  - **Los marcadores `your_*` dejan de ser datos** (`Helpers/ConfigPlaceholders`): sin esto, un piloto
+    nuevo pasaba de no tener URL a tener `your_phpvms_url`, que es peor —`NavDataKeyProvider` intenta
+    usarla al conectar—. `AppConfig` devuelve `""` para un marcador y `IsConfigured` dice la verdad.
+  - **Y la plantilla estaba incompleta**: le faltaba el binding redirect de `System.Data.SQLite` que sí
+    lleva el config generado por el build (**3** redirects contra **2**), así que una instalación limpia
+    se lo perdía. Ahora las dos listas coinciden exactamente.
+  - Tests nuevos: `ConfigBootstrapTests` (copia tal cual, no toca uno existente **ni de 0 bytes**, sin
+    plantilla no escribe nada, sin directorio base no lanza) y `ConfigPlaceholdersTests` (`your_*` no es
+    configuración; `yourserver.com` sí lo es). La suite pasa de **1289 a 1298** y los idiomas a **567**.
+-\ \*\*Login\ por\ usuario\ y\ contraseña:\ la\ clave\ se\ pide,\ no\ se\ copia\.\*\*\ Hasta\ ahora\ el\ piloto\ tenía\ que\n\ \ sacar\ su\ `api_key`\ del\ perfil\ de\ phpVMS\ y\ pegarla\ en\ la\ configuración:\ en\ una\ instalación\ nueva\ eso\n\ \ es\ fricción\ y\ una\ fuente\ de\ errores\ \(clave\ mal\ copiada,\ caducada,\ regenerada\)\.\ Ahora,\ si\ no\ hay\n\ \ clave\ utilizable,\ el\ cliente\ pide\ \*\*usuario\ y\ contraseña\*\*\ \(`POST\ /api/auth/login`,\ implementado\ en\n\ \ phpVMS\ y\ \*\*verificado\ en\ vivo\ el\ 27/11/2026\*\*:\ un\ cuerpo\ vacío\ devuelve\ \*\*400\*\*,\ no\ 404\),\ y\ guarda\n\ \ la\ clave\ que\ recibe\.\ \*\*La\ contraseña\ no\ se\ guarda\ en\ ningún\ sitio\*\*,\ ni\ se\ registra,\ ni\ viaja\ en\ la\n\ \ URL;\ se\ borra\ del\ campo\ en\ cuanto\ el\ intento\ falla\.\n\ \ -\ \*\*La\ clave\ se\ guarda\ cifrada\ con\ DPAPI\*\*\ \(`Services/ApiKeyStore`,\ `%APPDATA%\\vmsOpenACars\\\n\ \ \ \ api_key\.bin`\):\ atada\ a\ la\ cuenta\ de\ Windows\ del\ piloto\ y\ a\ su\ máquina,\ no\ a\ un\ `\.config`\ de\ texto\n\ \ \ \ plano\ que\ acaba\ subido\ a\ los\ foros\.\ Lo\ guardado\ \*\*manda\*\*\ sobre\ la\ `vms_api_key`\ del\ `\.config`,\ que\n\ \ \ \ sigue\ valiendo\ como\ respaldo\ para\ quien\ ya\ la\ tenía\ puesta\ a\ mano\.\n\ \ -\ \*\*Solo\ HTTPS\*\*\ \(`AuthLoginContract\.IsSecureUrl`\):\ la\ respuesta\ entrega\ una\ credencial\ de\ larga\ vida\.\n\ \ -\ \*\*Los\ códigos\ se\ distinguen\*\*:\ `401`\ contraseña\ mal,\ `403`\ cuenta\ no\ activa,\ `429`\ demasiados\n\ \ \ \ intentos\ \(10\ fallos\ por\ cuenta\ en\ 15\ min,\ `throttle:10,1`\ por\ IP\)\.\ Un\ `429`\ convertido\ en\n\ \ \ \ «credenciales\ incorrectas»\ haría\ que\ el\ piloto\ insistiera\ y\ alargara\ el\ bloqueo,\ así\ que\ no\ se\n\ \ \ \ reintenta\ en\ bucle\.\n\ \ -\ \*\*`created`\*\*\ viene\ en\ la\ respuesta\ y\ se\ informa\ \(«se\ ha\ creado\ tu\ clave»\),\ sin\ deducirlo\ del\ `200`\.\n\ \ -\ La\ URL\ que\ el\ piloto\ escribe\ en\ el\ login\ vale\ \*\*ya\*\*\ en\ esa\ sesión\ \(`AppConfig\.SessionVmsApiUrl`,\n\ \ \ \ porque\ `ConfigurationManager`\ ya\ leyó\ el\ fichero\)\ y\ se\ guarda\ para\ los\ arranques\ siguientes\.\n\ \ -\ Tests:\ `AuthLoginContractTests`\ \(200\ con\ y\ sin\ `api_key`,\ los\ cinco\ códigos,\ cuerpo\ ilegible,\ HTTPS,\n\ \ \ \ el\ endpoint\ sin\ barra\ doble,\ el\ cuerpo\ con\ solo\ dos\ campos\)\.\ La\ suite\ pasa\ de\ \*\*1298\ a\ 1307\*\*\ y\ los\n\ \ \ \ idiomas\ a\ \*\*583\*\*\.
+- **Plataformas soportadas: Windows de 64 y de 32 bits**, y se mantiene así a propósito. El `.exe` es
+  `AnyCPU` con **`Prefer32Bit=false`**, así que el proceso va a 64 bits en un Windows de 64 y a 32 en
+  uno de 32; `CorFlags` lo confirma (`ILONLY 1`, `32BITREQ 0`, `32BITPREF 0`). El zip lleva **las
+  cuatro nativas** —`x86`/`x64` de `pdfium` y de `SQLite.Interop`— y por eso pesa **10,7 MB**:
+  **5,4 MB son las de 32 bits** (`pdfium` 3 922 KB y `SQLite.Interop` 1 555 KB). **No se quitan «para
+  optimizar» sin cambiar el `.exe` a `x64` o añadir una guarda de arranque**: sin ellas, un Windows de
+  32 bits arranca y falla al usar SQLite o el PDF, con un mensaje de `NativeFailure` en vez de al
+  empezar. Queda escrito aquí para que la próxima persona que vea ese peso sepa qué está pagando.
+- **El paquete es el mismo que el de la 0.9.81**: mismo actualizador, mismo `Updater`, y el
+  `.config` del piloto sigue sin viajar (el zip **no** lleva `vmsOpenACars.exe.config`, que es el que
+  tiene la `vms_api_key`).
+- **La deuda no desaparece con el número**: lo que queda pendiente —rotar las claves, `vmsOpenAcars.txt`,
+  el grafo por `node_id`, `landing_rate = 0` frente a `null`, `route_ack` de ida y vuelta— sigue en
+  `Docs/DEUDA-Y-DECISIONES.md`. La 1.0.0 dice que lo que hay es estable, no que no haya decisiones
+  pendientes.
+
+---
+
 ## [0.9.81] — 25/11/2026
 
 **El OSD pasa al estilo de la tarjeta de referencia y a pintado propio.** Hasta v0.9.80 era un

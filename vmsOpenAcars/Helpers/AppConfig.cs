@@ -1,5 +1,7 @@
 using System.Configuration;
 
+using vmsOpenAcars.Services;
+
 namespace vmsOpenAcars.Helpers
 {
     public static class AppConfig
@@ -36,18 +38,44 @@ namespace vmsOpenAcars.Helpers
         public static double FuelToleranceAbsolute => GetDouble("fuel_tolerance_absolute", 50);
 
         // phpVMS API
-        public static string VmsApiUrl => ConfigurationManager.AppSettings["vms_api_url"] ?? "";
+        public static string VmsApiUrl
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(SessionVmsApiUrl)) return SessionVmsApiUrl.Trim();
+                return ConfigPlaceholders.OrEmpty(ConfigurationManager.AppSettings["vms_api_url"]);
+            }
+        }
+
+        /// <summary>URL escrita en el login en esta sesión; `null` = la del `.config`.</summary>
+        internal static string SessionVmsApiUrl { get; set; }
 
         /// <summary>
         /// Clave del piloto en phpVMS. Es el IKM del que se deriva la clave del sobre de NavData, así
         /// que solo se pasa a la derivación: **no se registra ni se escribe en ningún sitio**.
         /// </summary>
-        public static string VmsApiKey => ConfigurationManager.AppSettings["vms_api_key"] ?? "";
+        public static string VmsApiKey => ApiKeyStore.HasKey
+            ? ApiKeyStore.Current
+            : ConfigPlaceholders.OrEmpty(ConfigurationManager.AppSettings["vms_api_key"]);
+
+        /// <summary>
+        /// `true` si hay URL y clave de phpVMS **utilizables**. La plantilla que se instala sola en el
+        /// primer arranque trae `your_phpvms_url` y `your_phpvms_apikey`, que son marcadores y no datos
+        /// (v1.0.0): sin esto, «no configurado» y «configurado con basura» se verían igual.
+        /// </summary>
+        public static bool IsConfigured
+        {
+            get
+            {
+                return !ConfigPlaceholders.IsMissing(ConfigurationManager.AppSettings["vms_api_url"])
+                    && !ConfigPlaceholders.IsMissing(VmsApiKey);
+            }
+        }
 
         // NavData API — sin valores por defecto: los proporciona la aerolínea virtual
         // y el piloto los introduce en Settings. Cualquier credencial embebida aquí
         // acabaría comiteada al repositorio.
-        public static string NavDataApiUrl => ConfigurationManager.AppSettings["navdata_api_url"] ?? "";
+        public static string NavDataApiUrl => ConfigPlaceholders.OrEmpty(ConfigurationManager.AppSettings["navdata_api_url"]);
 
         /// <summary>
         /// Base de NavData **efectiva**: la `url` que entrega el sobre de phpVMS **tal cual** —el
