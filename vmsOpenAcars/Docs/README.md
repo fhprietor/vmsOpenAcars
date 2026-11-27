@@ -8,6 +8,7 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 |---|---|---|
 | `BRIEFING.md` | **Pilotos** | Guía de usuario: configuración, flujo de vuelo, scoring, mapa, LOGBOOK |
 | `PRIMEROS_PASOS.md` | **Pilotos nuevos** | Alta en phpVMS, API key, descarga e instalación |
+| `NOTAS-PILOTOS-1.0.2.md` | **Pilotos** | **El error al guardar era el reinicio**, no el guardado: se explica qué pasaba y que el acceso se guarda **por usuario**, así que reinstalar en otra carpeta no vuelve a pedir el login |
 | `NOTAS-PILOTOS-1.0.1.md` | **Pilotos** | **Guardar Ajustes vuelve a funcionar** (el «Colección modificada» de la 1.0.0 y los comentarios que se perdían), la ventana de login arreglada (el `SALIR` cortado y los errores debajo de los botones) y el marcador de SimBrief |
 | `NOTAS-PILOTOS-1.0.0.md` | **Pilotos** | **El cliente sale de beta**: no cambia nada de lo que haces —mismos avisos, misma puntuación, mismo actualizador—, y qué hay detrás de la 1.0.0: por qué se saltan la 0.9.82–0.9.99, qué respalda la declaración y qué notarás si vienes de antes de la 0.9.80 |
 | `GUIA-PILOTO-PRIMEROS-PASOS.md` | **Pilotos** | **Primeros pasos de la 1.0.0**: qué instalar, el **inicio de sesión** (usuario, contraseña y por qué la clave ya no se copia), qué tocar en Ajustes el primer día, el primer vuelo y los cuatro fallos que se resuelven solos |

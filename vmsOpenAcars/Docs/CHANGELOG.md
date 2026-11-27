@@ -3,6 +3,33 @@
 ---
 
 
+## [1.0.2] — 27/11/2026
+
+**El «Error: Colección modificada» al guardar no era el guardado: era el reinicio.** La 1.0.1 lo
+atribuyó a `ConfigurationManager.Save` y lo arregló ahí; **esa atribución era falsa** y el piloto
+seguía viendo el error, esta vez **después** del aviso de «Configuración guardada», que es la pista
+que lo delataba: para cuando el aviso sale, la escritura ya ha terminado.
+
+- **La causa real: `Application.Restart()` enumera `Application.OpenForms` mientras
+  `MainForm.OnFormClosing` cierra el OSD y desecha el `NotifyIcon`.** La colección cambia a mitad del
+  recorrido y el framework lanza `InvalidOperationException` («Colección modificada; puede que no se
+  ejecute la operación de enumeración»), que el `catch` de `BtnSave_Click` enseñaba como «Error:».
+  Ahora, tras el aviso, se arranca la instancia nueva con `Process.Start(Application.ExecutablePath)`
+  y se sale con `Environment.Exit(0)`: no hay enumeración de ventanas abiertas que se pueda romper.
+- **Efecto asumido**: al salir por `Environment.Exit` **no corre `OnFormClosing`**, así que un
+  reinicio desde Ajustes **no guarda la posición de la ventana** (en un cierre normal sí). Es menor y
+  se prefiere a que el reinicio falle.
+- **Lo que sí arregló la 1.0.1 y se queda**: la escritura del `.config` por XML
+  (`Helpers/ConfigFileWriter`), que dejó de comerse los comentarios de la plantilla —de **7 692 a
+  3 516 bytes** con la versión anterior— y devolvió el guardado a los nueve auto-guardados que
+  fallaban en silencio. El diagnóstico estaba mal; el arreglo, no.
+- **Y una aclaración sobre el primer arranque**: la clave del login se guarda **por usuario de
+  Windows**, no por instalación (`%APPDATA%\vmsOpenACars\api_key.bin`). Descomprimir en otra carpeta
+  **no** vuelve a pedir el login, porque el piloto es el mismo; sigue sin viajar a otro equipo, porque
+  DPAPI la ata a la cuenta y a la máquina.
+- Sin cambios en la suite: **1 312** (1 311 + la que se omite).
+
+---
 ## [1.0.1] — 27/11/2026
 
 **Guardar Ajustes daba «Error: Colección modificada», y el login estrenaba dos defectos de

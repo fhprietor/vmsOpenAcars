@@ -1019,8 +1019,21 @@ namespace vmsOpenAcars.UI.Forms
                 {
                     dlg.ShowDialog(this);
                 }
-
-                Application.Restart();
+// `Application.Restart()` lanza «Colección modificada» (1.0.2): enumera
+                    // `Application.OpenForms` mientras `OnFormClosing` cierra el OSD y desecha el
+                    // icono de la bandeja, así que la colección cambia a mitad del recorrido. Se
+                    // arranca la instancia nueva y se sale sin pasar por esa enumeración.
+                    try
+                    {
+                        System.Diagnostics.Process.Start(Application.ExecutablePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        using (var dlg = new EcamDialog($"Error: {ex.Message}", "ERROR"))
+                            dlg.ShowDialog(this);
+                        return;
+                    }
+                    Environment.Exit(0);
             }
             catch (Exception ex)
             {
