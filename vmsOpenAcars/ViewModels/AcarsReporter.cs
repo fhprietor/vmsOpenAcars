@@ -949,7 +949,7 @@ namespace vmsOpenAcars.ViewModels
         {
             try
             {
-                string simbriefUser = System.Configuration.ConfigurationManager.AppSettings["simbrief_user"];
+                string simbriefUser = ConfigPlaceholders.OrEmpty(System.Configuration.ConfigurationManager.AppSettings["simbrief_user"]);
                 if (string.IsNullOrEmpty(simbriefUser)) return;
 
                 var plan = await _simbriefEnhanced.FetchAndParseOFP(simbriefUser);

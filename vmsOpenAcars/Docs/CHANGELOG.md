@@ -2,6 +2,40 @@
 
 ---
 
+
+## [1.0.1] — 27/11/2026
+
+**Guardar Ajustes daba «Error: Colección modificada», y el login estrenaba dos defectos de
+disposición.** Los tres son de la 1.0.0, publicada el mismo día.
+
+- **Guardar dejaba de funcionar: `ConfigurationManager.Save` fuera.** El botón Guardar llamaba a
+  `OpenExeConfiguration(...).Save(...)`, que en la **app en marcha** lanza `InvalidOperationException`
+  («Colección modificada; puede que no se ejecute la operación de enumeración») porque serializa
+  secciones mientras el propio `ConfigurationManager` las tiene cargadas; el `catch` lo enseñaba como
+  «Error:» y **no guardaba nada**. **No conseguí reproducirlo en frío** —con el `.config` copiado y un
+  proceso aparte las nueve claves se escriben bien—, así que el arreglo ataca el mecanismo y no el
+  síntoma: `Helpers/ConfigFileWriter` edita el **XML** y toca **solo las claves pedidas**. Ya no se
+  llama a `Save` en ningún sitio del cliente.
+- **Y de paso, un daño que no se veía: `Save` reescribía el fichero y se comía los comentarios.**
+  Medido con la plantilla real: de **7 692 a 3 516 bytes** (los tres binding redirects y las cuatro
+  secciones sobreviven). Los comentarios son la única documentación que el piloto tiene a mano, así
+  que el escritor nuevo los deja intactos y hay un test que lo fija.
+- **Los nueve auto-guardados llevaban tiempo fallando en silencio.** OSD, cabina, guía de rodaje y
+  depuración escriben con el mismo `Save` desde sus manejadores, pero con un `catch { }` mudo: por eso
+  el error solo se veía al pulsar Guardar. Ahora usan el mismo escritor.
+- **El login tenía dos defectos de disposición** (los vio el mantenedor en la primera captura de la
+  ventana): `SALIR` estaba en `x = 474` con 120 px de ancho en una ventana de **520**, así que se
+  salía **74 px** y quedaba cortado; y la etiqueta de estado (y = 272-306) se solapaba con los botones
+  (y = 296), de modo que **los mensajes de error quedaban debajo**. Ahora la ventana mide 520×372, el
+  estado va en 266-310 y los botones en 330, dentro del ancho. Y el foco salta a la contraseña al
+  abrir si ya hay usuario.
+- **El marcador `your_simbrief_user` se veía en Ajustes** y se usaba como usuario de SimBrief en el
+  planificador y en el reporte. `ConfigPlaceholders` lo trata como vacío en los tres sitios.
+- Tests: `ConfigFileWriterTests` (cambiar una clave sin tocar las demás, añadir sin duplicar, que
+  sobrevivan comentarios y redirects, ruta imposible sin lanzar, y crear el fichero si no existe).
+  La suite pasa de **1 307 a 1 312**.
+
+---
 ## [1.0.0] — 27/11/2026
 
 **El cliente sale de beta.** La 1.0.0 es la **0.9.81 más la declaración de producción más una cosa

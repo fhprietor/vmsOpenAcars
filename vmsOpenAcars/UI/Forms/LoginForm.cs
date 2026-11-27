@@ -47,7 +47,7 @@ namespace vmsOpenAcars.UI.Forms
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            ClientSize = new Size(520, 340);
+            ClientSize = new Size(520, 372);
             BackColor = Background;
             ForeColor = Color.White;
             Font = new Font("Segoe UI", 9F);
@@ -80,13 +80,15 @@ namespace vmsOpenAcars.UI.Forms
             AddField(_password, 24, 238);
             _password.UseSystemPasswordChar = true;
 
-            _status.Location = new Point(24, 272);
-            _status.Size = new Size(470, 34);
+            // Por encima de los botones: con el estado en y=272 y los botones en y=296, un mensaje de
+            // error quedaba **debajo** de ellos y el piloto no leía por qué había fallado (1.0.1).
+            _status.Location = new Point(24, 266);
+            _status.Size = new Size(470, 44);
             _status.ForeColor = Color.FromArgb(220, 120, 120);
 
             _enter.Text = L._("Login_Enter");
             _enter.Size = new Size(140, 32);
-            _enter.Location = new Point(334, 296);
+            _enter.Location = new Point(226, 330);
             _enter.BackColor = Accent;
             _enter.ForeColor = Color.White;
             _enter.FlatStyle = FlatStyle.Flat;
@@ -94,7 +96,8 @@ namespace vmsOpenAcars.UI.Forms
 
             _exit.Text = L._("Login_Exit");
             _exit.Size = new Size(120, 32);
-            _exit.Location = new Point(474, 296);
+            // Dentro del ancho: x=474 con 120 px de ancho se salía 74 px y el botón quedaba cortado (1.0.1).
+            _exit.Location = new Point(374, 330);
             _exit.BackColor = Color.FromArgb(45, 55, 65);
             _exit.ForeColor = Color.White;
             _exit.FlatStyle = FlatStyle.Flat;
@@ -107,6 +110,8 @@ namespace vmsOpenAcars.UI.Forms
             Controls.Add(_exit);
 
             AcceptButton = _enter;
+            // Enter entra, y al fallar el foco vuelve a la contraseña para reintentar sin ratón.
+            Shown += (s, e) => { if (_user.Text.Trim().Length > 0) _password.Focus(); };
             CancelButton = _exit;
         }
 
@@ -160,12 +165,11 @@ namespace vmsOpenAcars.UI.Forms
             {
                 string value = (url ?? string.Empty).Trim();
                 if (value.Length == 0) return;
-                Configuration cfg = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
-                if (cfg.AppSettings.Settings["vms_api_url"] == null)
-                    cfg.AppSettings.Settings.Add("vms_api_url", value);
-                else
-                    cfg.AppSettings.Settings["vms_api_url"].Value = value;
-                cfg.Save();
+                string error;
+                if (!ConfigFileWriter.SetKeys(AppDomain.CurrentDomain.SetupInformation.ConfigurationFile,
+                        new System.Collections.Generic.Dictionary<string, string> { ["vms_api_url"] = value },
+                        out error))
+                    return;
             }
             catch { /* sin permiso de escritura: la sesión ya tiene la URL */ }
         }

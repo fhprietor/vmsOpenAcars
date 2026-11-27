@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.Drawing;
 using System.IO;
@@ -799,7 +800,7 @@ namespace vmsOpenAcars.UI.Forms
         {
             txtApiUrl.Text       = ConfigurationManager.AppSettings["vms_api_url"]  ?? "";
             txtApiKey.Text       = ConfigurationManager.AppSettings["vms_api_key"]  ?? "";
-            txtSimbriefUser.Text = ConfigurationManager.AppSettings["simbrief_user"] ?? "";
+            txtSimbriefUser.Text = ConfigPlaceholders.OrEmpty(ConfigurationManager.AppSettings["simbrief_user"]);
             txtAirline.Text      = ConfigurationManager.AppSettings["airline"]       ?? "";
 
             string units = ConfigurationManager.AppSettings["simbrief_units"] ?? "lbs";
@@ -983,30 +984,27 @@ namespace vmsOpenAcars.UI.Forms
 
             try
             {
-                var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                var valores = new Dictionary<string, string>
+                {
+                    ["vms_api_url"]       = txtApiUrl.Text.Trim(),
+                    ["vms_api_key"]       = txtApiKey.Text.Trim(),
+                    ["simbrief_user"]     = txtSimbriefUser.Text.Trim(),
+                    ["airline"]           = txtAirline.Text.Trim(),
+                    ["simbrief_civalue"]  = txtSimbriefCi.Text.Trim(),
+                    ["simbrief_extrarmk"] = txtSimbriefExtraRmk.Text.Trim(),
+                    ["landing_log_path"]  = txtLandingLogPath.Text.Trim()
+                };
+                if (cmbLanguage.SelectedItem != null) valores["language"] = cmbLanguage.SelectedItem.ToString();
+                if (cmbSimbriefUnits.SelectedItem != null) valores["simbrief_units"] = cmbSimbriefUnits.SelectedItem.ToString();
 
-                SetValue(config, "vms_api_url",       txtApiUrl.Text.Trim());
-                SetValue(config, "vms_api_key",       txtApiKey.Text.Trim());
-                SetValue(config, "simbrief_user",     txtSimbriefUser.Text.Trim());
-                SetValue(config, "airline",           txtAirline.Text.Trim());
+                // Se escribe **solo esto** sobre el XML del `.config` (1.0.1): `ConfigurationManager.Save`
+                // fallaba en la app en marcha con «Colección modificada; puede que no se ejecute la
+                // operación de enumeración» —lo que el piloto veía como «Error:» al guardar— y además
+                // reescribía el fichero entero comiéndose los comentarios de la plantilla.
+                string errorConfig;
+                if (!ConfigFileWriter.SetKeys(AppDomain.CurrentDomain.SetupInformation.ConfigurationFile, valores, out errorConfig))
+                    throw new InvalidOperationException(errorConfig);
 
-                if (cmbLanguage.SelectedItem != null)
-                    SetValue(config, "language", cmbLanguage.SelectedItem.ToString());
-
-                if (cmbSimbriefUnits.SelectedItem != null)
-                    SetValue(config, "simbrief_units", cmbSimbriefUnits.SelectedItem.ToString());
-                SetValue(config, "simbrief_civalue",  txtSimbriefCi.Text.Trim());
-                SetValue(config, "simbrief_extrarmk", txtSimbriefExtraRmk.Text.Trim());
-                // Ni `navdata_api_url` ni `navdata_api_key` se tocan al guardar: no hay campos que los
-                // lean. La URL sigue en el `.config` como respaldo de la del sobre (y destino del TEST),
-                // pero se edita a mano; la clave solo llega en el sobre cifrado de phpVMS y una escrita
-                // en el `.config` se ignora, así que persistirla solo serviría para volver a creer que
-                // ahí hay algo.
-                SetValue(config, "landing_log_path",  txtLandingLogPath.Text.Trim());
-
-                // osd_* and cabin_announcements_* are auto-saved on change — not saved here
-
-                config.Save(ConfigurationSaveMode.Modified);
                 ConfigurationManager.RefreshSection("appSettings");
 
                 if (!changed)
@@ -1031,21 +1029,13 @@ namespace vmsOpenAcars.UI.Forms
             }
         }
 
-        private void SetValue(Configuration config, string key, string value)
-        {
-            if (config.AppSettings.Settings[key] != null)
-                config.AppSettings.Settings[key].Value = value;
-            else
-                config.AppSettings.Settings.Add(key, value);
-        }
-
         private void SaveConfigKey(string key, string value)
         {
             try
             {
-                var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
-                SetValue(config, key, value);
-                config.Save(ConfigurationSaveMode.Modified);
+                string error;
+                var uno = new Dictionary<string, string> { [key] = value };
+                ConfigFileWriter.SetKeys(AppDomain.CurrentDomain.SetupInformation.ConfigurationFile, uno, out error);
                 ConfigurationManager.RefreshSection("appSettings");
             }
             catch { }

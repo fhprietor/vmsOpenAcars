@@ -8,7 +8,9 @@ silencio y llegaron a publicarse versiones con 5 releases de retraso.
 |---|---|---|
 | `BRIEFING.md` | **Pilotos** | Guía de usuario: configuración, flujo de vuelo, scoring, mapa, LOGBOOK |
 | `PRIMEROS_PASOS.md` | **Pilotos nuevos** | Alta en phpVMS, API key, descarga e instalación |
+| `NOTAS-PILOTOS-1.0.1.md` | **Pilotos** | **Guardar Ajustes vuelve a funcionar** (el «Colección modificada» de la 1.0.0 y los comentarios que se perdían), la ventana de login arreglada (el `SALIR` cortado y los errores debajo de los botones) y el marcador de SimBrief |
 | `NOTAS-PILOTOS-1.0.0.md` | **Pilotos** | **El cliente sale de beta**: no cambia nada de lo que haces —mismos avisos, misma puntuación, mismo actualizador—, y qué hay detrás de la 1.0.0: por qué se saltan la 0.9.82–0.9.99, qué respalda la declaración y qué notarás si vienes de antes de la 0.9.80 |
+| `GUIA-PILOTO-PRIMEROS-PASOS.md` | **Pilotos** | **Primeros pasos de la 1.0.0**: qué instalar, el **inicio de sesión** (usuario, contraseña y por qué la clave ya no se copia), qué tocar en Ajustes el primer día, el primer vuelo y los cuatro fallos que se resuelven solos |
 | `NOTAS-PILOTOS-0.9.25-a-0.9.27.md` | **Pilotos** | La clave de NavData **deja de viajar en el `.config`** (llega en un sobre desde phpVMS), el **combustible en las unidades que espera la web** y la retirada de la URL/clave de NavData del formulario |
 | `NOTAS-PILOTOS-0.9.30-a-0.9.33.md` | **Pilotos** | Zona de toma **proporcional a la pista**, la guía de rodaje que se puede apagar, la **meteorología del aterrizaje** en el logbook y el análisis del **flare** (traza fina a 10 Hz, window propia y closeup) |
 | `NOTAS-PILOTOS-0.9.34.md` | **Pilotos** | La traza fina del flare **se medía y se tiraba antes de guardarse**: qué falló, qué **no** se vio afectado y qué no se puede recuperar |

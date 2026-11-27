@@ -488,6 +488,7 @@
     </None>
     <Compile Include="Helpers\ConfigBootstrap.cs" />
     <Compile Include="Helpers\ConfigPlaceholders.cs" />
+    <Compile Include="Helpers\ConfigFileWriter.cs" />
     <Compile Include="Helpers\AuthLoginContract.cs" />
     <Compile Include="Services\ApiKeyStore.cs" />
     <Compile Include="Services\AuthService.cs" />

@@ -884,7 +884,7 @@ namespace vmsOpenAcars.UI
                 return;
             }
 
-            string simbriefUser = System.Configuration.ConfigurationManager.AppSettings["simbrief_user"];
+            string simbriefUser = ConfigPlaceholders.OrEmpty(System.Configuration.ConfigurationManager.AppSettings["simbrief_user"]);
             if (string.IsNullOrEmpty(simbriefUser))
             {
                 EcamDialog.Show(this,
