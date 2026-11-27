@@ -269,3 +269,7 @@ dsh-acl-reports/
 vmsOpenACars/Tools/McduPreview/*.exe
 vmsOpenACars/Tools/McduPreview/probe/*.exe
 acl-recovery/
+
+# PDFs generados de la documentacion: el .md es la fuente y el PDF se regenera
+vmsOpenACars/Docs/*.pdf
+Docs/*.pdf
